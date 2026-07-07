@@ -32,6 +32,7 @@ export default function AdminPage() {
   const [paged, setPaged] = useState<PagedData | null>(null);
   const [page, setPage] = useState(1);
   const [detail, setDetail] = useState<Profile | null>(null);
+  const [selected, setSelected] = useState<Set<number>>(new Set());
 
   const authHeaders = useCallback(
     () => ({ Authorization: `Bearer ${password}` }),
@@ -74,6 +75,10 @@ export default function AdminPage() {
     }
   }, [loggedIn, page, loadStats, loadProfiles]);
 
+  useEffect(() => {
+    setSelected(new Set());
+  }, [page]);
+
   const handleLogin = async () => {
     try {
       const res = await fetch("/api/admin/stats", {
@@ -106,6 +111,46 @@ export default function AdminPage() {
       toast.success("导出成功");
     } catch {
       toast.error("导出失败");
+    }
+  };
+
+  const handleDelete = async (ids: number[]) => {
+    if (!confirm(`确定删除 ${ids.length} 条记录？`)) return;
+    try {
+      const res = await fetch("/api/admin/profiles", {
+        method: "DELETE",
+        headers: {
+          ...authHeaders(),
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ ids }),
+      });
+      if (!res.ok) throw new Error("删除失败");
+      const { deleted } = await res.json();
+      toast.success(`已删除 ${deleted} 条记录`);
+      setSelected(new Set());
+      loadStats();
+      loadProfiles(page);
+    } catch {
+      toast.error("删除失败");
+    }
+  };
+
+  const toggleSelect = (id: number) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleSelectAll = () => {
+    if (!paged) return;
+    if (selected.size === paged.data.length) {
+      setSelected(new Set());
+    } else {
+      setSelected(new Set(paged.data.map((p) => p.id)));
     }
   };
 
@@ -186,15 +231,31 @@ export default function AdminPage() {
         )}
 
         <div className="bg-white rounded-xl border border-gray-100 overflow-hidden">
-          <div className="px-5 py-4 border-b border-gray-100">
+          <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
             <h2 className="font-semibold text-gray-800">
               数据列表 {paged && `(${paged.total} 条)`}
             </h2>
+            {selected.size > 0 && (
+              <button
+                onClick={() => handleDelete(Array.from(selected))}
+                className="px-4 py-1.5 bg-red-500 hover:bg-red-600 text-white text-sm font-medium rounded-lg transition-colors"
+              >
+                删除选中（{selected.size}）
+              </button>
+            )}
           </div>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
                 <tr className="bg-gray-50 text-left text-gray-500">
+                  <th className="px-5 py-3 font-medium w-10">
+                    <input
+                      type="checkbox"
+                      checked={paged ? selected.size === paged.data.length && paged.data.length > 0 : false}
+                      onChange={toggleSelectAll}
+                      className="rounded border-gray-300"
+                    />
+                  </th>
                   <th className="px-5 py-3 font-medium">ID</th>
                   <th className="px-5 py-3 font-medium">标签</th>
                   <th className="px-5 py-3 font-medium">头像</th>
@@ -204,7 +265,20 @@ export default function AdminPage() {
               </thead>
               <tbody className="divide-y divide-gray-50">
                 {paged?.data.map((p) => (
-                  <tr key={p.id} className="hover:bg-gray-50/50">
+                  <tr
+                    key={p.id}
+                    className={`hover:bg-gray-50/50 ${
+                      selected.has(p.id) ? "bg-blue-50/30" : ""
+                    }`}
+                  >
+                    <td className="px-5 py-3">
+                      <input
+                        type="checkbox"
+                        checked={selected.has(p.id)}
+                        onChange={() => toggleSelect(p.id)}
+                        className="rounded border-gray-300"
+                      />
+                    </td>
                     <td className="px-5 py-3 text-gray-600">{p.id}</td>
                     <td className="px-5 py-3">
                       <div className="flex flex-wrap gap-1">
@@ -238,19 +312,27 @@ export default function AdminPage() {
                       {p.createdAt}
                     </td>
                     <td className="px-5 py-3">
-                      <button
-                        onClick={() => setDetail(p)}
-                        className="text-green-600 hover:text-green-700 text-xs font-medium"
-                      >
-                        查看
-                      </button>
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => setDetail(p)}
+                          className="text-green-600 hover:text-green-700 text-xs font-medium"
+                        >
+                          查看
+                        </button>
+                        <button
+                          onClick={() => handleDelete([p.id])}
+                          className="text-red-500 hover:text-red-600 text-xs font-medium"
+                        >
+                          删除
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}
                 {paged?.data.length === 0 && (
                   <tr>
                     <td
-                      colSpan={5}
+                      colSpan={6}
                       className="px-5 py-12 text-center text-gray-400"
                     >
                       暂无数据
@@ -341,6 +423,15 @@ export default function AdminPage() {
                 ))}
               </div>
             </div>
+            <button
+              onClick={() => {
+                handleDelete([detail.id]);
+                setDetail(null);
+              }}
+              className="w-full py-2 bg-red-500 hover:bg-red-600 text-white text-sm font-medium rounded-lg transition-colors"
+            >
+              删除此记录
+            </button>
           </div>
         </div>
       )}

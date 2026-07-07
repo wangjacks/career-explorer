@@ -63,6 +63,16 @@ export function getAllProfiles(
   return { rows, total };
 }
 
+export function deleteProfiles(ids: number[]): number {
+  const db = getDb();
+  if (ids.length === 0) return 0;
+  const placeholders = ids.map(() => "?").join(",");
+  const result = db
+    .prepare(`DELETE FROM profiles WHERE id IN (${placeholders})`)
+    .run(...ids);
+  return result.changes;
+}
+
 export function getStats(): Stats {
   const db = getDb();
 

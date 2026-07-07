@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getAllProfiles } from "@/lib/db";
+import { getAllProfiles, deleteProfiles } from "@/lib/db";
 
 function checkAuth(request: NextRequest) {
   const auth = request.headers.get("authorization");
@@ -30,4 +30,21 @@ export async function GET(request: NextRequest) {
     pageSize,
     totalPages: Math.ceil(total / pageSize),
   });
+}
+
+export async function DELETE(request: NextRequest) {
+  if (!checkAuth(request)) {
+    return NextResponse.json({ error: "未授权" }, { status: 401 });
+  }
+
+  try {
+    const { ids } = await request.json();
+    if (!Array.isArray(ids) || ids.length === 0) {
+      return NextResponse.json({ error: "请选择要删除的记录" }, { status: 400 });
+    }
+    const deleted = deleteProfiles(ids);
+    return NextResponse.json({ deleted, message: `已删除 ${deleted} 条记录` });
+  } catch {
+    return NextResponse.json({ error: "删除失败" }, { status: 500 });
+  }
 }
