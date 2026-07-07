@@ -18,7 +18,7 @@ export async function POST(request: NextRequest) {
     const bytes = await file.arrayBuffer();
     const buffer = Buffer.from(bytes);
 
-    const uploadDir = path.join(process.cwd(), "public", "uploads");
+    const uploadDir = path.join(process.cwd(), "uploads");
     await mkdir(uploadDir, { recursive: true });
 
     const ext = path.extname(file.name) || ".jpg";
@@ -27,7 +27,7 @@ export async function POST(request: NextRequest) {
 
     await writeFile(filepath, buffer);
 
-    return NextResponse.json({ url: `/uploads/${filename}` });
+    return NextResponse.json({ url: `/api/uploads/${filename}` });
   } catch {
     return NextResponse.json({ error: "上传失败" }, { status: 500 });
   }

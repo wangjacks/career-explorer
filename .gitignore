@@ -41,8 +41,8 @@ yarn-error.log*
 next-env.d.ts
 
 # uploads & database
-/public/uploads/*
-!/public/uploads/.gitkeep
+/uploads/*
+!/uploads/.gitkeep
 /data.db
 /data.db-shm
 /data.db-wal
