@@ -35,12 +35,20 @@ export interface Stats {
   topTags: { tag: string; count: number }[];
 }
 
+function getNow(): string {
+  return new Date().toLocaleString("sv-SE", { timeZone: "Asia/Shanghai" });
+}
+
+function getToday(): string {
+  return new Date().toLocaleDateString("sv-SE", { timeZone: "Asia/Shanghai" });
+}
+
 export function insertProfile(tags: string[], avatarUrl: string): number {
   const db = getDb();
   const stmt = db.prepare(
-    "INSERT INTO profiles (tags, avatar_url) VALUES (?, ?)"
+    "INSERT INTO profiles (tags, avatar_url, created_at) VALUES (?, ?, ?)"
   );
-  const result = stmt.run(JSON.stringify(tags), avatarUrl);
+  const result = stmt.run(JSON.stringify(tags), avatarUrl, getNow());
   return Number(result.lastInsertRowid);
 }
 
@@ -81,9 +89,9 @@ export function getStats(): Stats {
   const today = (
     db
       .prepare(
-        "SELECT COUNT(*) as c FROM profiles WHERE date(created_at) = date('now')"
+        "SELECT COUNT(*) as c FROM profiles WHERE date(created_at) = ?"
       )
-      .get() as { c: number }
+      .get(getToday()) as { c: number }
   ).c;
 
   const allRows = db.prepare("SELECT tags FROM profiles").all() as {
