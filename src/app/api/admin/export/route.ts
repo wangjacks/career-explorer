@@ -12,7 +12,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "未授权" }, { status: 401 });
   }
 
-  const { rows } = getAllProfiles(1, 10000);
+  const { rows } = await getAllProfiles(1, 10000);
 
   const header = "ID,标签,头像URL,提交时间";
   const lines = rows.map((r) => {
