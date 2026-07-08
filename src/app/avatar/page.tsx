@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { Toaster, toast } from "sonner";
 import NavigationBar from "@/components/NavigationBar";
@@ -10,6 +10,16 @@ export default function AvatarPage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
+
+  useEffect(() => {
+    const profileStr = localStorage.getItem("career_demo_profile");
+    if (profileStr) {
+      try {
+        const profile = JSON.parse(profileStr);
+        if (profile.avatarUrl) setImageUrl(profile.avatarUrl);
+      } catch {}
+    }
+  }, []);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];

@@ -72,9 +72,8 @@ export default function StudentPage() {
     if (!confirmData) return;
     const studentData = { studentId: confirmData.studentId, name: confirmData.name };
     localStorage.setItem("career_demo_student", JSON.stringify(studentData));
-    localStorage.setItem("career_demo_tags", JSON.stringify(confirmData.profile.tags));
     setConfirmData(null);
-    router.push("/wordcloud");
+    router.push("/tags");
   };
 
   const handleStartFresh = () => {
