@@ -7,13 +7,17 @@ import NavigationBar from "@/components/NavigationBar";
 export default function CompletePage() {
   const [tagCount, setTagCount] = useState(0);
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
+  const [studentName, setStudentName] = useState("");
+  const [studentId, setStudentId] = useState("");
 
   useEffect(() => {
-    const profile = localStorage.getItem("career_demo_profile");
+    const profile = localStorage.getItem("career_demo_profile") || sessionStorage.getItem("career_demo_profile");
     if (profile) {
       const data = JSON.parse(profile);
       setTagCount(data.tags?.length || 0);
       setAvatarUrl(data.avatarUrl || null);
+      setStudentName(data.name || "");
+      setStudentId(data.studentId || "");
     }
   }, []);
 
@@ -41,12 +45,24 @@ export default function CompletePage() {
         </div>
 
         <div className="w-full max-w-xs bg-white rounded-xl p-4 shadow-sm border border-gray-100 space-y-3">
+          {studentName && (
+            <div className="flex justify-between text-sm">
+              <span className="text-gray-500">姓名</span>
+              <span className="font-medium text-gray-800">{studentName}</span>
+            </div>
+          )}
+          {studentId && (
+            <div className="flex justify-between text-sm">
+              <span className="text-gray-500">学号</span>
+              <span className="font-medium text-gray-800">{studentId}</span>
+            </div>
+          )}
           <div className="flex justify-between text-sm">
             <span className="text-gray-500">标签数量</span>
             <span className="font-medium text-gray-800">{tagCount} 个</span>
           </div>
           <div className="flex justify-between text-sm">
-            <span className="text-gray-500">头像</span>
+            <span className="text-gray-500">虚拟形象</span>
             <span className="font-medium text-gray-800">
               {avatarUrl ? "已上传" : "未上传"}
             </span>

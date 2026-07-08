@@ -8,8 +8,14 @@ export interface WordCloudItem {
   weight: number;
 }
 
+export interface Student {
+  studentId: string;
+  name: string;
+  createdAt?: string;
+}
+
 export interface UserProfile {
-  id?: number;
+  studentId: string;
   tags: string[];
   avatarUrl: string;
   createdAt?: string;

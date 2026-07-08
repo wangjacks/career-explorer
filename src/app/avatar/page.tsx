@@ -29,7 +29,14 @@ export default function AvatarPage() {
 
     setUploading(true);
     try {
-      const tags = JSON.parse(localStorage.getItem("career_demo_tags") || "[]");
+      const studentStr = sessionStorage.getItem("career_demo_student");
+      const tagsStr = sessionStorage.getItem("career_demo_tags");
+      if (!studentStr) {
+        toast.error("学号信息丢失，请重新开始");
+        return;
+      }
+      const student = JSON.parse(studentStr);
+      const tags = tagsStr ? JSON.parse(tagsStr) : [];
 
       const fileInput = fileInputRef.current;
       const file = fileInput?.files?.[0];
@@ -50,13 +57,13 @@ export default function AvatarPage() {
       const profileRes = await fetch("/api/profile", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ tags, avatarUrl }),
+        body: JSON.stringify({ studentId: student.studentId, tags, avatarUrl }),
       });
       if (!profileRes.ok) throw new Error("保存失败");
 
-      localStorage.setItem(
+      sessionStorage.setItem(
         "career_demo_profile",
-        JSON.stringify({ tags, avatarUrl })
+        JSON.stringify({ studentId: student.studentId, tags, avatarUrl, name: student.name })
       );
       router.push("/complete");
     } catch {

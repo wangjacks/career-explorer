@@ -1,5 +1,5 @@
 import mysql from "mysql2/promise";
-import type { ProfileRow, Stats, DbAdapter } from "./db";
+import type { ProfileRow, StudentRow, Stats, DbAdapter } from "./db";
 
 function getNow(): string {
   return new Date().toLocaleString("sv-SE", { timeZone: "Asia/Shanghai" });
@@ -35,8 +35,15 @@ export class MysqlAdapter implements DbAdapter {
 
   async init(): Promise<void> {
     await this.pool.execute(`
+      CREATE TABLE IF NOT EXISTS students (
+        student_id VARCHAR(12) PRIMARY KEY,
+        name VARCHAR(50) NOT NULL,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    `);
+    await this.pool.execute(`
       CREATE TABLE IF NOT EXISTS profiles (
-        id INT AUTO_INCREMENT PRIMARY KEY,
+        student_id VARCHAR(12) PRIMARY KEY,
         tags TEXT NOT NULL,
         avatar_url VARCHAR(500),
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP
@@ -44,18 +51,59 @@ export class MysqlAdapter implements DbAdapter {
     `);
   }
 
-  async insertProfile(tags: string[], avatarUrl: string): Promise<number> {
-    const [result] = await this.pool.execute(
-      "INSERT INTO profiles (tags, avatar_url, created_at) VALUES (?, ?, ?)",
-      [JSON.stringify(tags), avatarUrl, getNow()]
+  // Students
+  async insertStudent(studentId: string, name: string): Promise<void> {
+    await this.pool.execute(
+      "INSERT INTO students (student_id, name, created_at) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE name = VALUES(name), created_at = VALUES(created_at)",
+      [studentId, name, getNow()]
     );
-    return (result as mysql.ResultSetHeader).insertId;
   }
 
-  async getProfile(id: number): Promise<ProfileRow | undefined> {
+  async insertStudentsBatch(students: { studentId: string; name: string }[]): Promise<void> {
+    if (students.length === 0) return;
+    const now = getNow();
+    const values = students.map((s) => [s.studentId, s.name, now]);
+    await this.pool.query(
+      "INSERT INTO students (student_id, name, created_at) VALUES ? ON DUPLICATE KEY UPDATE name = VALUES(name), created_at = VALUES(created_at)",
+      [values]
+    );
+  }
+
+  async getStudent(studentId: string): Promise<StudentRow | undefined> {
     const [rows] = await this.pool.execute(
-      "SELECT * FROM profiles WHERE id = ?",
-      [id]
+      "SELECT * FROM students WHERE student_id = ?",
+      [studentId]
+    );
+    return (rows as StudentRow[])[0];
+  }
+
+  async getAllStudents(): Promise<StudentRow[]> {
+    const [rows] = await this.pool.execute("SELECT * FROM students ORDER BY student_id");
+    return rows as StudentRow[];
+  }
+
+  async deleteStudents(ids: string[]): Promise<number> {
+    if (ids.length === 0) return 0;
+    const placeholders = ids.map(() => "?").join(",");
+    const [result] = await this.pool.execute(
+      `DELETE FROM students WHERE student_id IN (${placeholders})`,
+      ids
+    );
+    return (result as mysql.ResultSetHeader).affectedRows;
+  }
+
+  // Profiles
+  async insertProfile(studentId: string, tags: string[], avatarUrl: string): Promise<void> {
+    await this.pool.execute(
+      "INSERT INTO profiles (student_id, tags, avatar_url, created_at) VALUES (?, ?, ?, ?) ON DUPLICATE KEY UPDATE tags = VALUES(tags), avatar_url = VALUES(avatar_url), created_at = VALUES(created_at)",
+      [studentId, JSON.stringify(tags), avatarUrl, getNow()]
+    );
+  }
+
+  async getProfile(studentId: string): Promise<ProfileRow | undefined> {
+    const [rows] = await this.pool.execute(
+      "SELECT * FROM profiles WHERE student_id = ?",
+      [studentId]
     );
     return (rows as ProfileRow[])[0];
   }
@@ -63,41 +111,45 @@ export class MysqlAdapter implements DbAdapter {
   async getAllProfiles(
     page: number = 1,
     pageSize: number = 20
-  ): Promise<{ rows: ProfileRow[]; total: number }> {
-    const [countResult] = await this.pool.execute(
-      "SELECT COUNT(*) as c FROM profiles"
-    );
+  ): Promise<{ rows: (ProfileRow & { studentName?: string })[]; total: number }> {
+    const [countResult] = await this.pool.execute("SELECT COUNT(*) as c FROM profiles");
     const total = (countResult as { c: number }[])[0].c;
 
     const offset = (page - 1) * pageSize;
     const [rows] = await this.pool.execute(
-      "SELECT * FROM profiles ORDER BY id DESC LIMIT ? OFFSET ?",
+      `SELECT p.*, s.name as student_name
+       FROM profiles p
+       LEFT JOIN students s ON p.student_id = s.student_id
+       ORDER BY p.created_at DESC
+       LIMIT ? OFFSET ?`,
       [pageSize, offset]
     );
-    return { rows: rows as ProfileRow[], total };
+    return {
+      rows: (rows as (ProfileRow & { student_name?: string })[]).map((r) => ({
+        ...r,
+        studentName: r.student_name,
+      })),
+      total,
+    };
   }
 
-  async deleteProfiles(ids: number[]): Promise<number> {
-    if (ids.length === 0) return 0;
-    const placeholders = ids.map(() => "?").join(",");
+  async deleteProfiles(studentIds: string[]): Promise<number> {
+    if (studentIds.length === 0) return 0;
+    const placeholders = studentIds.map(() => "?").join(",");
     const [result] = await this.pool.execute(
-      `DELETE FROM profiles WHERE id IN (${placeholders})`,
-      ids
+      `DELETE FROM profiles WHERE student_id IN (${placeholders})`,
+      studentIds
     );
     return (result as mysql.ResultSetHeader).affectedRows;
   }
 
   async getAllProfilesRaw(): Promise<ProfileRow[]> {
-    const [rows] = await this.pool.execute(
-      "SELECT * FROM profiles ORDER BY id"
-    );
+    const [rows] = await this.pool.execute("SELECT * FROM profiles ORDER BY student_id");
     return rows as ProfileRow[];
   }
 
   async getStats(): Promise<Stats> {
-    const [countResult] = await this.pool.execute(
-      "SELECT COUNT(*) as c FROM profiles"
-    );
+    const [countResult] = await this.pool.execute("SELECT COUNT(*) as c FROM profiles");
     const total = (countResult as { c: number }[])[0].c;
 
     const [todayResult] = await this.pool.execute(

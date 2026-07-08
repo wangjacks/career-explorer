@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getConfig, setConfig, type DbConfig } from "@/lib/db-config";
-import { getAllProfilesRaw, insertProfile, closeDb } from "@/lib/db";
+import { closeDb } from "@/lib/db";
 import { MysqlAdapter } from "@/lib/db-mysql";
 import { SqliteAdapter } from "@/lib/db-sqlite";
 
@@ -39,7 +39,6 @@ export async function PUT(request: NextRequest) {
     const oldConfig = getConfig();
 
     if (oldConfig.type !== newConfig.type) {
-      // Migrating data between different database types
       try {
         // Read all data from old database
         const oldAdapter =
@@ -49,7 +48,8 @@ export async function PUT(request: NextRequest) {
         if (oldConfig.type === "mysql") {
           await (oldAdapter as MysqlAdapter).init();
         }
-        const oldData = await Promise.resolve(oldAdapter.getAllProfilesRaw());
+        const oldStudents = await Promise.resolve(oldAdapter.getAllStudents());
+        const oldProfiles = await Promise.resolve(oldAdapter.getAllProfilesRaw());
         await Promise.resolve(oldAdapter.close());
 
         // Write new config
@@ -59,19 +59,27 @@ export async function PUT(request: NextRequest) {
         if (newConfig.type === "mysql") {
           const newAdapter = new MysqlAdapter(newConfig.mysql);
           await newAdapter.init();
-          // Insert data
-          for (const row of oldData) {
+          // Insert students
+          if (oldStudents.length > 0) {
+            await newAdapter.insertStudentsBatch(
+              oldStudents.map((s) => ({ studentId: s.student_id, name: s.name }))
+            );
+          }
+          // Insert profiles
+          for (const row of oldProfiles) {
             const tags: string[] = JSON.parse(row.tags);
-            await newAdapter.insertProfile(tags, row.avatar_url || "");
+            await newAdapter.insertProfile(row.student_id, tags, row.avatar_url || "");
           }
           await newAdapter.close();
         } else {
-          // Switching to SQLite - just write config, SQLite will init on next access
-          if (oldConfig.type === "mysql" && oldData.length > 0) {
+          if (oldConfig.type === "mysql") {
             const newAdapter = new SqliteAdapter();
-            for (const row of oldData) {
+            for (const s of oldStudents) {
+              newAdapter.insertStudent(s.student_id, s.name);
+            }
+            for (const row of oldProfiles) {
               const tags: string[] = JSON.parse(row.tags);
-              newAdapter.insertProfile(tags, row.avatar_url || "");
+              newAdapter.insertProfile(row.student_id, tags, row.avatar_url || "");
             }
             newAdapter.close();
           }
@@ -80,8 +88,9 @@ export async function PUT(request: NextRequest) {
         closeDb();
 
         return NextResponse.json({
-          message: `已切换到 ${newConfig.type}，迁移了 ${oldData.length} 条记录`,
-          migrated: oldData.length,
+          message: `已切换到 ${newConfig.type}，迁移了 ${oldStudents.length} 名学生和 ${oldProfiles.length} 条档案`,
+          migratedStudents: oldStudents.length,
+          migratedProfiles: oldProfiles.length,
         });
       } catch (err) {
         return NextResponse.json(
@@ -91,7 +100,7 @@ export async function PUT(request: NextRequest) {
       }
     }
 
-    // Same type, just update config (e.g. MySQL connection details changed)
+    // Same type, just update config
     setConfig(newConfig);
     closeDb();
 

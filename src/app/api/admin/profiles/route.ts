@@ -20,7 +20,8 @@ export async function GET(request: NextRequest) {
 
   return NextResponse.json({
     data: rows.map((r) => ({
-      id: r.id,
+      studentId: r.student_id,
+      studentName: r.studentName || "",
       tags: JSON.parse(r.tags),
       avatarUrl: r.avatar_url,
       createdAt: r.created_at,

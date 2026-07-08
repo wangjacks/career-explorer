@@ -1,15 +1,28 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { Toaster, toast } from "sonner";
 import NavigationBar from "@/components/NavigationBar";
 import { tagCategories } from "@/lib/tagData";
 
+interface StudentInfo {
+  studentId: string;
+  name: string;
+}
+
 export default function TagsPage() {
   const router = useRouter();
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const [customInput, setCustomInput] = useState("");
+  const [student, setStudent] = useState<StudentInfo | null>(null);
+
+  useEffect(() => {
+    const stored = sessionStorage.getItem("career_demo_student");
+    if (stored) {
+      setStudent(JSON.parse(stored));
+    }
+  }, []);
 
   const toggleTag = (tag: string) => {
     setSelectedTags((prev) =>
@@ -33,7 +46,7 @@ export default function TagsPage() {
       toast.warning("请至少选择一个标签");
       return;
     }
-    localStorage.setItem("career_demo_tags", JSON.stringify(selectedTags));
+    sessionStorage.setItem("career_demo_tags", JSON.stringify(selectedTags));
     router.push("/wordcloud");
   };
 
@@ -42,6 +55,12 @@ export default function TagsPage() {
       <Toaster position="top-center" />
       <NavigationBar title="标签填写" showBack />
       <main className="flex-1 px-4 py-6 space-y-6 max-w-lg mx-auto w-full">
+        {student && (
+          <div className="text-center text-sm text-gray-600">
+            你好，<span className="font-semibold text-gray-800">{student.name}</span>同学！
+          </div>
+        )}
+
         {tagCategories.map((category) => (
           <section key={category.name} className="space-y-3">
             <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide">

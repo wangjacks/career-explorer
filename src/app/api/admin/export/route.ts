@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getAllProfiles } from "@/lib/db";
+import { getAllProfilesRaw } from "@/lib/db";
 
 function checkAuth(request: NextRequest) {
   const auth = request.headers.get("authorization");
@@ -12,14 +12,14 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "未授权" }, { status: 401 });
   }
 
-  const { rows } = await getAllProfiles(1, 10000);
+  const rows = await getAllProfilesRaw();
 
-  const header = "ID,标签,头像URL,提交时间";
+  const header = "学号,标签,虚拟形象URL,提交时间";
   const lines = rows.map((r) => {
     const tags = JSON.parse(r.tags).join(";");
     const avatar = r.avatar_url || "";
     const time = r.created_at || "";
-    return `${r.id},"${tags}","${avatar}","${time}"`;
+    return `${r.student_id},"${tags}","${avatar}","${time}"`;
   });
 
   const csv = "\uFEFF" + header + "\n" + lines.join("\n");

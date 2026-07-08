@@ -28,7 +28,7 @@ export default function IndexPage() {
           </p>
         </div>
         <Link
-          href="/tags"
+          href="/student"
           className="w-full max-w-xs py-3 bg-green-500 hover:bg-green-600 text-white font-medium rounded-xl text-center transition-colors shadow-md"
         >
           开始探索
