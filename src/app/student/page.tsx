@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { Toaster, toast } from "sonner";
 import NavigationBar from "@/components/NavigationBar";
@@ -9,6 +9,17 @@ export default function StudentPage() {
   const router = useRouter();
   const [studentId, setStudentId] = useState("");
   const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    const saved = localStorage.getItem("career_demo_student_id");
+    if (saved) setStudentId(saved);
+  }, []);
+
+  const updateStudentId = (value: string) => {
+    const cleaned = value.replace(/\D/g, "").slice(0, 12);
+    setStudentId(cleaned);
+    localStorage.setItem("career_demo_student_id", cleaned);
+  };
 
   const handleSubmit = async () => {
     const trimmed = studentId.trim();
@@ -28,7 +39,7 @@ export default function StudentPage() {
 
       if (data.ok) {
         toast.success(`你好，${data.name}同学！`);
-        sessionStorage.setItem("career_demo_student", JSON.stringify(data));
+        localStorage.setItem("career_demo_student", JSON.stringify(data));
         setTimeout(() => router.push("/tags"), 1000);
       } else {
         toast.error(data.error || "学号不存在");
@@ -67,7 +78,7 @@ export default function StudentPage() {
         <input
           type="text"
           value={studentId}
-          onChange={(e) => setStudentId(e.target.value.replace(/\D/g, "").slice(0, 12))}
+          onChange={(e) => updateStudentId(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && handleSubmit()}
           placeholder="请输入学号"
           maxLength={12}

@@ -18,16 +18,27 @@ export default function TagsPage() {
   const [student, setStudent] = useState<StudentInfo | null>(null);
 
   useEffect(() => {
-    const stored = sessionStorage.getItem("career_demo_student");
-    if (stored) {
-      setStudent(JSON.parse(stored));
-    }
+    const studentStr = localStorage.getItem("career_demo_student");
+    if (studentStr) setStudent(JSON.parse(studentStr));
+
+    const tagsStr = localStorage.getItem("career_demo_tags");
+    if (tagsStr) setSelectedTags(JSON.parse(tagsStr));
+
+    const customStr = localStorage.getItem("career_demo_custom_input");
+    if (customStr) setCustomInput(customStr);
   }, []);
 
   const toggleTag = (tag: string) => {
-    setSelectedTags((prev) =>
-      prev.includes(tag) ? prev.filter((t) => t !== tag) : [...prev, tag]
-    );
+    setSelectedTags((prev) => {
+      const next = prev.includes(tag) ? prev.filter((t) => t !== tag) : [...prev, tag];
+      localStorage.setItem("career_demo_tags", JSON.stringify(next));
+      return next;
+    });
+  };
+
+  const updateCustomInput = (value: string) => {
+    setCustomInput(value);
+    localStorage.setItem("career_demo_custom_input", value);
   };
 
   const addCustomTag = () => {
@@ -37,8 +48,17 @@ export default function TagsPage() {
       toast.warning("该标签已存在");
       return;
     }
-    setSelectedTags((prev) => [...prev, trimmed]);
+    const next = [...selectedTags, trimmed];
+    setSelectedTags(next);
+    localStorage.setItem("career_demo_tags", JSON.stringify(next));
     setCustomInput("");
+    localStorage.removeItem("career_demo_custom_input");
+  };
+
+  const removeTag = (tag: string) => {
+    const next = selectedTags.filter((t) => t !== tag);
+    setSelectedTags(next);
+    localStorage.setItem("career_demo_tags", JSON.stringify(next));
   };
 
   const handleNext = () => {
@@ -46,7 +66,6 @@ export default function TagsPage() {
       toast.warning("请至少选择一个标签");
       return;
     }
-    sessionStorage.setItem("career_demo_tags", JSON.stringify(selectedTags));
     router.push("/wordcloud");
   };
 
@@ -97,7 +116,7 @@ export default function TagsPage() {
                 >
                   {tag}
                   <button
-                    onClick={() => toggleTag(tag)}
+                    onClick={() => removeTag(tag)}
                     className="ml-1 hover:text-green-900"
                   >
                     ×
@@ -114,7 +133,7 @@ export default function TagsPage() {
             <input
               type="text"
               value={customInput}
-              onChange={(e) => setCustomInput(e.target.value)}
+              onChange={(e) => updateCustomInput(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && addCustomTag()}
               placeholder="输入自定义标签..."
               className="flex-1 px-4 py-2 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-green-300 focus:border-transparent"

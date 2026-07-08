@@ -11,7 +11,7 @@ export default function CompletePage() {
   const [studentId, setStudentId] = useState("");
 
   useEffect(() => {
-    const profile = localStorage.getItem("career_demo_profile") || sessionStorage.getItem("career_demo_profile");
+    const profile = localStorage.getItem("career_demo_profile");
     if (profile) {
       const data = JSON.parse(profile);
       setTagCount(data.tags?.length || 0);

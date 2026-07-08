@@ -29,8 +29,8 @@ export default function AvatarPage() {
 
     setUploading(true);
     try {
-      const studentStr = sessionStorage.getItem("career_demo_student");
-      const tagsStr = sessionStorage.getItem("career_demo_tags");
+      const studentStr = localStorage.getItem("career_demo_student");
+      const tagsStr = localStorage.getItem("career_demo_tags");
       if (!studentStr) {
         toast.error("学号信息丢失，请重新开始");
         return;
@@ -61,7 +61,7 @@ export default function AvatarPage() {
       });
       if (!profileRes.ok) throw new Error("保存失败");
 
-      sessionStorage.setItem(
+      localStorage.setItem(
         "career_demo_profile",
         JSON.stringify({ studentId: student.studentId, tags, avatarUrl, name: student.name })
       );
