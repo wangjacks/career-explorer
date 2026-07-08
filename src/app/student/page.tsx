@@ -5,10 +5,20 @@ import { useRouter } from "next/navigation";
 import { Toaster, toast } from "sonner";
 import NavigationBar from "@/components/NavigationBar";
 
+interface ExistingProfile {
+  tags: string[];
+  avatarUrl: string;
+}
+
 export default function StudentPage() {
   const router = useRouter();
   const [studentId, setStudentId] = useState("");
   const [loading, setLoading] = useState(false);
+  const [confirmData, setConfirmData] = useState<{
+    studentId: string;
+    name: string;
+    profile: ExistingProfile;
+  } | null>(null);
 
   useEffect(() => {
     const saved = localStorage.getItem("career_demo_student_id");
@@ -38,9 +48,16 @@ export default function StudentPage() {
       const data = await res.json();
 
       if (data.ok) {
-        toast.success(`你好，${data.name}同学！`);
-        localStorage.setItem("career_demo_student", JSON.stringify(data));
-        setTimeout(() => router.push("/tags"), 1000);
+        if (data.hasProfile && data.profile) {
+          setConfirmData({
+            studentId: data.studentId,
+            name: data.name,
+            profile: data.profile,
+          });
+        } else {
+          localStorage.setItem("career_demo_student", JSON.stringify(data));
+          router.push("/tags");
+        }
       } else {
         toast.error(data.error || "学号不存在");
       }
@@ -49,6 +66,26 @@ export default function StudentPage() {
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleRestore = () => {
+    if (!confirmData) return;
+    const studentData = { studentId: confirmData.studentId, name: confirmData.name };
+    localStorage.setItem("career_demo_student", JSON.stringify(studentData));
+    localStorage.setItem("career_demo_tags", JSON.stringify(confirmData.profile.tags));
+    setConfirmData(null);
+    router.push("/wordcloud");
+  };
+
+  const handleStartFresh = () => {
+    if (!confirmData) return;
+    const studentData = { studentId: confirmData.studentId, name: confirmData.name };
+    localStorage.removeItem("career_demo_tags");
+    localStorage.removeItem("career_demo_custom_input");
+    localStorage.removeItem("career_demo_profile");
+    localStorage.setItem("career_demo_student", JSON.stringify(studentData));
+    setConfirmData(null);
+    router.push("/tags");
   };
 
   return (
@@ -92,6 +129,55 @@ export default function StudentPage() {
           {loading ? "验证中..." : "下一步"}
         </button>
       </main>
+
+      {/* Restore Confirmation Modal */}
+      {confirmData && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 px-4">
+          <div className="bg-white rounded-2xl shadow-xl max-w-sm w-full p-6 space-y-5">
+            <div className="text-center space-y-2">
+              <div className="w-14 h-14 mx-auto rounded-full bg-amber-100 flex items-center justify-center">
+                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#d97706" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <circle cx="12" cy="12" r="10" />
+                  <path d="M12 8v4M12 16h.01" />
+                </svg>
+              </div>
+              <h3 className="text-lg font-semibold text-gray-900">检测到已有填写记录</h3>
+              <p className="text-sm text-gray-500">
+                <span className="font-medium text-gray-700">{confirmData.name}</span>
+                同学，你之前已提交过职业规划信息。
+              </p>
+            </div>
+
+            <div className="bg-gray-50 rounded-xl p-4 space-y-2">
+              <div className="flex justify-between text-sm">
+                <span className="text-gray-500">上次提交的标签</span>
+                <span className="text-gray-700">{confirmData.profile.tags.length} 个</span>
+              </div>
+              <div className="flex justify-between text-sm">
+                <span className="text-gray-500">虚拟形象</span>
+                <span className="text-gray-700">
+                  {confirmData.profile.avatarUrl ? "已上传" : "未上传"}
+                </span>
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <button
+                onClick={handleRestore}
+                className="w-full py-3 bg-green-500 hover:bg-green-600 text-white font-medium rounded-xl transition-colors"
+              >
+                恢复上次结果
+              </button>
+              <button
+                onClick={handleStartFresh}
+                className="w-full py-3 bg-gray-100 hover:bg-gray-200 text-gray-700 font-medium rounded-xl transition-colors"
+              >
+                重新填写
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

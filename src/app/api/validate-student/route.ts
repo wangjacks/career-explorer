@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getStudent } from "@/lib/db";
+import { getStudent, getProfile } from "@/lib/db";
 
 export async function POST(request: NextRequest) {
   try {
@@ -12,7 +12,16 @@ export async function POST(request: NextRequest) {
     const student = await getStudent(studentId);
 
     if (student) {
-      return NextResponse.json({ ok: true, name: student.name, studentId: student.student_id });
+      const profile = await getProfile(studentId);
+      return NextResponse.json({
+        ok: true,
+        name: student.name,
+        studentId: student.student_id,
+        hasProfile: !!profile,
+        profile: profile
+          ? { tags: JSON.parse(profile.tags), avatarUrl: profile.avatar_url }
+          : null,
+      });
     }
 
     return NextResponse.json({ ok: false, error: "学号不存在" }, { status: 404 });
