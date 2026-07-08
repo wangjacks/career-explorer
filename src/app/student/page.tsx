@@ -8,6 +8,7 @@ import NavigationBar from "@/components/NavigationBar";
 interface ExistingProfile {
   tags: string[];
   avatarUrl: string;
+  evaluationUrl: string;
 }
 
 export default function StudentPage() {
@@ -72,6 +73,15 @@ export default function StudentPage() {
     if (!confirmData) return;
     const studentData = { studentId: confirmData.studentId, name: confirmData.name };
     localStorage.setItem("career_demo_student", JSON.stringify(studentData));
+    localStorage.setItem("career_demo_tags", JSON.stringify(confirmData.profile.tags));
+    localStorage.setItem("career_demo_evaluation", confirmData.profile.evaluationUrl || "");
+    localStorage.setItem("career_demo_profile", JSON.stringify({
+      studentId: confirmData.studentId,
+      tags: confirmData.profile.tags,
+      avatarUrl: confirmData.profile.avatarUrl,
+      evaluationUrl: confirmData.profile.evaluationUrl || "",
+      name: confirmData.name,
+    }));
     setConfirmData(null);
     router.push("/tags");
   };
@@ -81,6 +91,7 @@ export default function StudentPage() {
     const studentData = { studentId: confirmData.studentId, name: confirmData.name };
     localStorage.removeItem("career_demo_tags");
     localStorage.removeItem("career_demo_custom_input");
+    localStorage.removeItem("career_demo_evaluation");
     localStorage.removeItem("career_demo_profile");
     localStorage.setItem("career_demo_student", JSON.stringify(studentData));
     setConfirmData(null);

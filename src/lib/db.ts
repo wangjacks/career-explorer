@@ -6,6 +6,7 @@ export interface ProfileRow {
   student_id: string;
   tags: string;
   avatar_url: string | null;
+  evaluation_url: string | null;
   created_at: string;
 }
 
@@ -23,15 +24,13 @@ export interface Stats {
 }
 
 export interface DbAdapter {
-  // Students
   insertStudent(studentId: string, name: string): Promise<void> | void;
   insertStudentsBatch(students: { studentId: string; name: string }[]): Promise<void> | void;
   getStudent(studentId: string): Promise<StudentRow | undefined> | StudentRow | undefined;
   getAllStudents(): Promise<StudentRow[]> | StudentRow[];
   deleteStudents(ids: string[]): Promise<number> | number;
 
-  // Profiles
-  insertProfile(studentId: string, tags: string[], avatarUrl: string): Promise<void> | void;
+  insertProfile(studentId: string, tags: string[], avatarUrl: string, evaluationUrl: string): Promise<void> | void;
   getProfile(studentId: string): Promise<ProfileRow | undefined> | ProfileRow | undefined;
   getAllProfiles(
     page: number,
@@ -50,9 +49,7 @@ function createAdapter(): DbAdapter {
   const config = getConfig();
   const configType = `${config.type}-${JSON.stringify(config.mysql)}`;
 
-  if (currentAdapter && currentType === configType) {
-    return currentAdapter;
-  }
+  if (currentAdapter && currentType === configType) return currentAdapter;
 
   if (currentAdapter) {
     try {
@@ -74,7 +71,6 @@ function createAdapter(): DbAdapter {
   return adapter;
 }
 
-// Async wrappers
 export async function insertStudent(studentId: string, name: string): Promise<void> {
   return Promise.resolve(createAdapter().insertStudent(studentId, name));
 }
@@ -95,8 +91,8 @@ export async function deleteStudents(ids: string[]): Promise<number> {
   return Promise.resolve(createAdapter().deleteStudents(ids));
 }
 
-export async function insertProfile(studentId: string, tags: string[], avatarUrl: string): Promise<void> {
-  return Promise.resolve(createAdapter().insertProfile(studentId, tags, avatarUrl));
+export async function insertProfile(studentId: string, tags: string[], avatarUrl: string, evaluationUrl: string): Promise<void> {
+  return Promise.resolve(createAdapter().insertProfile(studentId, tags, avatarUrl, evaluationUrl));
 }
 
 export async function getProfile(studentId: string): Promise<ProfileRow | undefined> {

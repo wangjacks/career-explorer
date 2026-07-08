@@ -14,12 +14,13 @@ export async function GET(request: NextRequest) {
 
   const rows = await getAllProfilesRaw();
 
-  const header = "学号,标签,虚拟形象URL,提交时间";
+  const header = "学号,标签,虚拟形象URL,评价词云URL,提交时间";
   const lines = rows.map((r) => {
     const tags = JSON.parse(r.tags).join(";");
     const avatar = r.avatar_url || "";
+    const evaluation = r.evaluation_url || "";
     const time = r.created_at || "";
-    return `${r.student_id},"${tags}","${avatar}","${time}"`;
+    return `${r.student_id},"${tags}","${avatar}","${evaluation}","${time}"`;
   });
 
   const csv = "\uFEFF" + header + "\n" + lines.join("\n");

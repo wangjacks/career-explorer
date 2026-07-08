@@ -7,6 +7,7 @@ import NavigationBar from "@/components/NavigationBar";
 export default function CompletePage() {
   const [tagCount, setTagCount] = useState(0);
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
+  const [evaluationUrl, setEvaluationUrl] = useState<string | null>(null);
   const [studentName, setStudentName] = useState("");
   const [studentId, setStudentId] = useState("");
 
@@ -16,6 +17,7 @@ export default function CompletePage() {
       const data = JSON.parse(profile);
       setTagCount(data.tags?.length || 0);
       setAvatarUrl(data.avatarUrl || null);
+      setEvaluationUrl(data.evaluationUrl || null);
       setStudentName(data.name || "");
       setStudentId(data.studentId || "");
     }
@@ -26,16 +28,7 @@ export default function CompletePage() {
       <NavigationBar title="提交完成" showHome />
       <main className="flex-1 flex flex-col items-center justify-center px-6 gap-8">
         <div className="w-20 h-20 rounded-full bg-green-500 flex items-center justify-center shadow-lg">
-          <svg
-            width="40"
-            height="40"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="white"
-            strokeWidth="3"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          >
+          <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
             <polyline points="20 6 9 17 4 12" />
           </svg>
         </div>
@@ -63,11 +56,20 @@ export default function CompletePage() {
           </div>
           <div className="flex justify-between text-sm">
             <span className="text-gray-500">虚拟形象</span>
-            <span className="font-medium text-gray-800">
-              {avatarUrl ? "已上传" : "未上传"}
-            </span>
+            <span className="font-medium text-gray-800">{avatarUrl ? "已上传" : "未上传"}</span>
+          </div>
+          <div className="flex justify-between text-sm">
+            <span className="text-gray-500">评价词云</span>
+            <span className="font-medium text-gray-800">{evaluationUrl ? "已上传" : "未上传"}</span>
           </div>
         </div>
+
+        {evaluationUrl && (
+          <div className="w-full max-w-xs">
+            <p className="text-xs text-gray-500 text-center mb-2">评价词云</p>
+            <img src={evaluationUrl} alt="评价词云" className="w-full rounded-xl border border-gray-100" />
+          </div>
+        )}
 
         <Link
           href="/"

@@ -24,6 +24,7 @@ export async function GET(request: NextRequest) {
       studentName: r.studentName || "",
       tags: JSON.parse(r.tags),
       avatarUrl: r.avatar_url,
+      evaluationUrl: r.evaluation_url,
       createdAt: r.created_at,
     })),
     total,

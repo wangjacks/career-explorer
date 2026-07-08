@@ -10,6 +10,7 @@ interface Profile {
   studentName: string;
   tags: string[];
   avatarUrl: string;
+  evaluationUrl: string;
   createdAt: string;
 }
 
@@ -471,6 +472,7 @@ export default function AdminPage() {
                       <th className="px-5 py-3 font-medium">学号</th>
                       <th className="px-5 py-3 font-medium">姓名</th>
                       <th className="px-5 py-3 font-medium">虚拟形象</th>
+                      <th className="px-5 py-3 font-medium">评价词云</th>
                       <th className="px-5 py-3 font-medium">标签</th>
                       <th className="px-5 py-3 font-medium">提交时间</th>
                       <th className="px-5 py-3 font-medium">操作</th>
@@ -500,6 +502,13 @@ export default function AdminPage() {
                           )}
                         </td>
                         <td className="px-5 py-3">
+                          {p.evaluationUrl ? (
+                            <img src={p.evaluationUrl} alt="" className="w-8 h-8 rounded object-cover" />
+                          ) : (
+                            <span className="text-gray-400 text-xs">无</span>
+                          )}
+                        </td>
+                        <td className="px-5 py-3">
                           <div className="flex flex-wrap gap-1">
                             {p.tags.slice(0, 3).map((t) => (
                               <span key={t} className="px-2 py-0.5 bg-green-50 text-green-700 rounded text-xs">
@@ -524,7 +533,7 @@ export default function AdminPage() {
                     ))}
                     {paged?.data.length === 0 && (
                       <tr>
-                        <td colSpan={7} className="px-5 py-12 text-center text-gray-400">暂无数据</td>
+                        <td colSpan={8} className="px-5 py-12 text-center text-gray-400">暂无数据</td>
                       </tr>
                     )}
                   </tbody>
@@ -706,6 +715,12 @@ export default function AdminPage() {
                 ))}
               </div>
             </div>
+            {detail.evaluationUrl && (
+              <div>
+                <p className="text-xs text-gray-500 mb-2">评价词云</p>
+                <img src={detail.evaluationUrl} alt="" className="w-full rounded-lg border border-gray-100" />
+              </div>
+            )}
             <button onClick={() => { handleDeleteProfiles([detail.studentId]); setDetail(null); }}
               className="w-full py-2 bg-red-500 hover:bg-red-600 text-white text-sm font-medium rounded-lg transition-colors">
               删除此记录

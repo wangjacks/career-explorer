@@ -17,7 +17,7 @@ export default function WordcloudPage() {
   }, []);
 
   const handleNext = () => {
-    router.push("/avatar");
+    router.push("/evaluation");
   };
 
   return (

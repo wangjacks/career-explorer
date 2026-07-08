@@ -46,9 +46,13 @@ export class MysqlAdapter implements DbAdapter {
         student_id VARCHAR(12) PRIMARY KEY,
         tags TEXT NOT NULL,
         avatar_url VARCHAR(500),
+        evaluation_url VARCHAR(500),
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
     `);
+    try {
+      await this.pool.execute("ALTER TABLE profiles ADD COLUMN evaluation_url VARCHAR(500)");
+    } catch {}
   }
 
   // Students
@@ -70,10 +74,7 @@ export class MysqlAdapter implements DbAdapter {
   }
 
   async getStudent(studentId: string): Promise<StudentRow | undefined> {
-    const [rows] = await this.pool.execute(
-      "SELECT * FROM students WHERE student_id = ?",
-      [studentId]
-    );
+    const [rows] = await this.pool.execute("SELECT * FROM students WHERE student_id = ?", [studentId]);
     return (rows as StudentRow[])[0];
   }
 
@@ -85,26 +86,20 @@ export class MysqlAdapter implements DbAdapter {
   async deleteStudents(ids: string[]): Promise<number> {
     if (ids.length === 0) return 0;
     const placeholders = ids.map(() => "?").join(",");
-    const [result] = await this.pool.execute(
-      `DELETE FROM students WHERE student_id IN (${placeholders})`,
-      ids
-    );
+    const [result] = await this.pool.execute(`DELETE FROM students WHERE student_id IN (${placeholders})`, ids);
     return (result as mysql.ResultSetHeader).affectedRows;
   }
 
   // Profiles
-  async insertProfile(studentId: string, tags: string[], avatarUrl: string): Promise<void> {
+  async insertProfile(studentId: string, tags: string[], avatarUrl: string, evaluationUrl: string): Promise<void> {
     await this.pool.execute(
-      "INSERT INTO profiles (student_id, tags, avatar_url, created_at) VALUES (?, ?, ?, ?) ON DUPLICATE KEY UPDATE tags = VALUES(tags), avatar_url = VALUES(avatar_url), created_at = VALUES(created_at)",
-      [studentId, JSON.stringify(tags), avatarUrl, getNow()]
+      "INSERT INTO profiles (student_id, tags, avatar_url, evaluation_url, created_at) VALUES (?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE tags = VALUES(tags), avatar_url = VALUES(avatar_url), evaluation_url = VALUES(evaluation_url), created_at = VALUES(created_at)",
+      [studentId, JSON.stringify(tags), avatarUrl, evaluationUrl, getNow()]
     );
   }
 
   async getProfile(studentId: string): Promise<ProfileRow | undefined> {
-    const [rows] = await this.pool.execute(
-      "SELECT * FROM profiles WHERE student_id = ?",
-      [studentId]
-    );
+    const [rows] = await this.pool.execute("SELECT * FROM profiles WHERE student_id = ?", [studentId]);
     return (rows as ProfileRow[])[0];
   }
 
@@ -114,21 +109,15 @@ export class MysqlAdapter implements DbAdapter {
   ): Promise<{ rows: (ProfileRow & { studentName?: string })[]; total: number }> {
     const [countResult] = await this.pool.execute("SELECT COUNT(*) as c FROM profiles");
     const total = (countResult as { c: number }[])[0].c;
-
     const offset = (page - 1) * pageSize;
     const [rows] = await this.pool.execute(
       `SELECT p.*, s.name as student_name
-       FROM profiles p
-       LEFT JOIN students s ON p.student_id = s.student_id
-       ORDER BY p.created_at DESC
-       LIMIT ? OFFSET ?`,
+       FROM profiles p LEFT JOIN students s ON p.student_id = s.student_id
+       ORDER BY p.created_at DESC LIMIT ? OFFSET ?`,
       [pageSize, offset]
     );
     return {
-      rows: (rows as (ProfileRow & { student_name?: string })[]).map((r) => ({
-        ...r,
-        studentName: r.student_name,
-      })),
+      rows: (rows as (ProfileRow & { student_name?: string })[]).map((r) => ({ ...r, studentName: r.student_name })),
       total,
     };
   }
@@ -136,10 +125,7 @@ export class MysqlAdapter implements DbAdapter {
   async deleteProfiles(studentIds: string[]): Promise<number> {
     if (studentIds.length === 0) return 0;
     const placeholders = studentIds.map(() => "?").join(",");
-    const [result] = await this.pool.execute(
-      `DELETE FROM profiles WHERE student_id IN (${placeholders})`,
-      studentIds
-    );
+    const [result] = await this.pool.execute(`DELETE FROM profiles WHERE student_id IN (${placeholders})`, studentIds);
     return (result as mysql.ResultSetHeader).affectedRows;
   }
 
@@ -151,27 +137,18 @@ export class MysqlAdapter implements DbAdapter {
   async getStats(): Promise<Stats> {
     const [countResult] = await this.pool.execute("SELECT COUNT(*) as c FROM profiles");
     const total = (countResult as { c: number }[])[0].c;
-
-    const [todayResult] = await this.pool.execute(
-      "SELECT COUNT(*) as c FROM profiles WHERE DATE(created_at) = ?",
-      [getToday()]
-    );
+    const [todayResult] = await this.pool.execute("SELECT COUNT(*) as c FROM profiles WHERE DATE(created_at) = ?", [getToday()]);
     const today = (todayResult as { c: number }[])[0].c;
-
     const [allRows] = await this.pool.execute("SELECT tags FROM profiles");
     const tagCount: Record<string, number> = {};
     for (const row of allRows as { tags: string }[]) {
-      const parsed: string[] = JSON.parse(row.tags);
-      for (const tag of parsed) {
-        tagCount[tag] = (tagCount[tag] || 0) + 1;
-      }
+      for (const tag of JSON.parse(row.tags)) tagCount[tag] = (tagCount[tag] || 0) + 1;
     }
     const uniqueTags = Object.keys(tagCount).length;
     const topTags = Object.entries(tagCount)
       .map(([tag, count]) => ({ tag, count }))
       .sort((a, b) => b.count - a.count)
       .slice(0, 5);
-
     return { total, today, uniqueTags, topTags };
   }
 

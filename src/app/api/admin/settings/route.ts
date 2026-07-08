@@ -68,7 +68,7 @@ export async function PUT(request: NextRequest) {
           // Insert profiles
           for (const row of oldProfiles) {
             const tags: string[] = JSON.parse(row.tags);
-            await newAdapter.insertProfile(row.student_id, tags, row.avatar_url || "");
+            await newAdapter.insertProfile(row.student_id, tags, row.avatar_url || "", row.evaluation_url || "");
           }
           await newAdapter.close();
         } else {
@@ -79,7 +79,7 @@ export async function PUT(request: NextRequest) {
             }
             for (const row of oldProfiles) {
               const tags: string[] = JSON.parse(row.tags);
-              newAdapter.insertProfile(row.student_id, tags, row.avatar_url || "");
+              newAdapter.insertProfile(row.student_id, tags, row.avatar_url || "", row.evaluation_url || "");
             }
             newAdapter.close();
           }

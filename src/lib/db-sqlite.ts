@@ -30,9 +30,11 @@ export class SqliteAdapter implements DbAdapter {
         student_id TEXT PRIMARY KEY,
         tags TEXT NOT NULL,
         avatar_url TEXT,
+        evaluation_url TEXT,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP
       )
     `);
+    try { this.db.exec("ALTER TABLE profiles ADD COLUMN evaluation_url TEXT"); } catch {}
   }
 
   // Students
@@ -67,10 +69,10 @@ export class SqliteAdapter implements DbAdapter {
   }
 
   // Profiles
-  insertProfile(studentId: string, tags: string[], avatarUrl: string): void {
+  insertProfile(studentId: string, tags: string[], avatarUrl: string, evaluationUrl: string): void {
     this.db
-      .prepare("INSERT OR REPLACE INTO profiles (student_id, tags, avatar_url, created_at) VALUES (?, ?, ?, ?)")
-      .run(studentId, JSON.stringify(tags), avatarUrl, getNow());
+      .prepare("INSERT OR REPLACE INTO profiles (student_id, tags, avatar_url, evaluation_url, created_at) VALUES (?, ?, ?, ?, ?)")
+      .run(studentId, JSON.stringify(tags), avatarUrl, evaluationUrl, getNow());
   }
 
   getProfile(studentId: string): ProfileRow | undefined {

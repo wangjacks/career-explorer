@@ -5,20 +5,15 @@ import { useRouter } from "next/navigation";
 import { Toaster, toast } from "sonner";
 import NavigationBar from "@/components/NavigationBar";
 
-export default function AvatarPage() {
+export default function EvaluationPage() {
   const router = useRouter();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
 
   useEffect(() => {
-    const profileStr = localStorage.getItem("career_demo_profile");
-    if (profileStr) {
-      try {
-        const profile = JSON.parse(profileStr);
-        if (profile.avatarUrl) setImageUrl(profile.avatarUrl);
-      } catch {}
-    }
+    const saved = localStorage.getItem("career_demo_evaluation");
+    if (saved) setImageUrl(saved);
   }, []);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -33,52 +28,36 @@ export default function AvatarPage() {
 
   const handleNext = async () => {
     if (!imageUrl) {
-      toast.warning("请先选择头像");
+      toast.warning("请先上传评价词云图片");
       return;
     }
 
+    const studentStr = localStorage.getItem("career_demo_student");
+    if (!studentStr) {
+      toast.error("学号信息丢失，请重新开始");
+      return;
+    }
+    const student = JSON.parse(studentStr);
+
     setUploading(true);
     try {
-      const studentStr = localStorage.getItem("career_demo_student");
-      const tagsStr = localStorage.getItem("career_demo_tags");
-      const evaluationStr = localStorage.getItem("career_demo_evaluation");
-      if (!studentStr) {
-        toast.error("学号信息丢失，请重新开始");
-        return;
-      }
-      const student = JSON.parse(studentStr);
-      const tags = tagsStr ? JSON.parse(tagsStr) : [];
-      const evaluationUrl = evaluationStr || "";
-
       const fileInput = fileInputRef.current;
       const file = fileInput?.files?.[0];
-      let avatarUrl = imageUrl;
 
       if (file) {
         const formData = new FormData();
         formData.append("file", file);
-        formData.append("prefix", "avatar");
+        formData.append("prefix", "evaluation");
         formData.append("studentId", student.studentId);
         const uploadRes = await fetch("/api/upload", { method: "POST", body: formData });
         if (!uploadRes.ok) throw new Error("上传失败");
         const { url } = await uploadRes.json();
-        avatarUrl = url;
+        localStorage.setItem("career_demo_evaluation", url);
       }
 
-      const profileRes = await fetch("/api/profile", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ studentId: student.studentId, tags, avatarUrl, evaluationUrl }),
-      });
-      if (!profileRes.ok) throw new Error("保存失败");
-
-      localStorage.setItem(
-        "career_demo_profile",
-        JSON.stringify({ studentId: student.studentId, tags, avatarUrl, evaluationUrl, name: student.name })
-      );
-      router.push("/complete");
+      router.push("/avatar");
     } catch {
-      toast.error("操作失败，请重试");
+      toast.error("上传失败，请重试");
     } finally {
       setUploading(false);
     }
@@ -87,28 +66,40 @@ export default function AvatarPage() {
   return (
     <div className="flex flex-col min-h-screen bg-gray-50">
       <Toaster position="top-center" />
-      <NavigationBar title="虚拟形象" showBack />
+      <NavigationBar title="评价词云上传" showBack />
       <main className="flex-1 flex flex-col items-center justify-center px-6 gap-8">
         <div
           onClick={() => fileInputRef.current?.click()}
-          className="w-56 h-56 rounded-2xl border-2 border-dashed border-gray-300 flex items-center justify-center cursor-pointer hover:border-green-400 transition-colors overflow-hidden bg-white"
+          className="w-full max-w-sm aspect-[4/3] rounded-2xl border-2 border-dashed border-gray-300 flex items-center justify-center cursor-pointer hover:border-green-400 transition-colors overflow-hidden bg-white"
         >
           {imageUrl ? (
-            <img src={imageUrl} alt="头像预览" className="w-full h-full object-cover" />
+            <img src={imageUrl} alt="评价词云预览" className="w-full h-full object-contain" />
           ) : (
             <div className="flex flex-col items-center gap-2 text-gray-400">
               <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2" />
-                <circle cx="12" cy="7" r="4" />
+                <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
+                <circle cx="8.5" cy="8.5" r="1.5" />
+                <polyline points="21 15 16 10 5 21" />
               </svg>
-              <span className="text-sm">点击选择头像</span>
+              <span className="text-sm">点击上传评价词云图片</span>
+              <span className="text-xs text-gray-300">支持 JPG、PNG、WebP 等格式</span>
             </div>
           )}
         </div>
-        <input ref={fileInputRef} type="file" accept="image/*" onChange={handleFileChange} className="hidden" />
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/*"
+          onChange={handleFileChange}
+          className="hidden"
+        />
         {imageUrl && (
           <button
-            onClick={() => { setImageUrl(null); if (fileInputRef.current) fileInputRef.current.value = ""; }}
+            onClick={() => {
+              setImageUrl(null);
+              localStorage.removeItem("career_demo_evaluation");
+              if (fileInputRef.current) fileInputRef.current.value = "";
+            }}
             className="text-sm text-gray-500 hover:text-gray-700"
           >
             重新选择
@@ -122,7 +113,7 @@ export default function AvatarPage() {
           disabled={uploading}
           className="w-full max-w-lg mx-auto block py-3 bg-green-500 hover:bg-green-600 disabled:opacity-50 text-white font-medium rounded-xl transition-colors"
         >
-          {uploading ? "上传中..." : "上传并继续"}
+          {uploading ? "上传中..." : "下一步"}
         </button>
       </div>
     </div>
