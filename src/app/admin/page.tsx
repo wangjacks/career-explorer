@@ -210,14 +210,32 @@ export default function AdminPage() {
   const handleBatchImport = async () => {
     const text = batchInputRef.current?.value || "";
     const lines = text.split("\n").filter((l) => l.trim());
-    const students = lines.map((line) => {
-      const [studentId, name] = line.split(/[,，\t]/).map((s) => s.trim());
-      return { studentId, name };
-    });
-    if (students.length === 0) {
+    if (lines.length === 0) {
       toast.warning("请输入学生数据");
       return;
     }
+
+    const idKeywords = ["学号", "student_id", "studentid", "学籍号", "编号", "id"];
+    const nameKeywords = ["姓名", "name", "名字", "学生姓名", "student_name"];
+
+    const firstCells = lines[0].split(/[,，\t]/).map((s) => s.trim().toLowerCase());
+    let idCol = -1;
+    let nameCol = -1;
+    for (let i = 0; i < firstCells.length; i++) {
+      if (idCol === -1 && idKeywords.some((k) => firstCells[i] === k)) idCol = i;
+      if (nameCol === -1 && nameKeywords.some((k) => firstCells[i] === k)) nameCol = i;
+    }
+
+    const hasHeader = idCol !== -1 || nameCol !== -1;
+    const dataLines = hasHeader ? lines.slice(1) : lines;
+
+    if (idCol === -1) idCol = 0;
+    if (nameCol === -1) nameCol = 1;
+
+    const students = dataLines.map((line) => {
+      const cells = line.split(/[,，\t]/).map((s) => s.trim());
+      return { studentId: cells[idCol] || "", name: cells[nameCol] || "" };
+    });
     try {
       const res = await fetch("/api/admin/students", {
         method: "POST",
@@ -451,11 +469,11 @@ export default function AdminPage() {
 
             {/* Batch import */}
             <div className="space-y-2">
-              <label className="text-xs text-gray-500">批量导入（每行一个：学号,姓名）</label>
+              <label className="text-xs text-gray-500">批量导入（支持标题行自动识别，如：学号,姓名）</label>
               <textarea
                 ref={batchInputRef}
                 rows={3}
-                placeholder={"202505050101,张三\n202505050102,李四"}
+                placeholder={"学号,姓名\n202505050101,张三\n202505050102,李四"}
                 className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm font-mono focus:outline-none focus:ring-2 focus:ring-green-300"
               />
               <button onClick={handleBatchImport}
