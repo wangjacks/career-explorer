@@ -1,5 +1,4 @@
 import { getConfig } from "./db-config";
-import { SqliteAdapter } from "./db-sqlite";
 import { MysqlAdapter } from "./db-mysql";
 
 export interface ProfileRow {
@@ -47,7 +46,7 @@ let currentType: string = "";
 
 function createAdapter(): DbAdapter {
   const config = getConfig();
-  const configType = `${config.type}-${JSON.stringify(config.mysql)}`;
+  const configType = JSON.stringify(config.mysql);
 
   if (currentAdapter && currentType === configType) return currentAdapter;
 
@@ -58,14 +57,7 @@ function createAdapter(): DbAdapter {
     } catch {}
   }
 
-  if (config.type === "mysql") {
-    const adapter = new MysqlAdapter(config.mysql);
-    currentAdapter = adapter;
-    currentType = configType;
-    return adapter;
-  }
-
-  const adapter = new SqliteAdapter();
+  const adapter = new MysqlAdapter(config.mysql);
   currentAdapter = adapter;
   currentType = configType;
   return adapter;

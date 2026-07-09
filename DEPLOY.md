@@ -4,11 +4,13 @@
 
 | 项目 | 要求 |
 |---|---|
-| 操作系统 | Ubuntu 22.04 / Debian 12 / CentOS 8+ |
+| 操作系统 | Ubuntu 22.04 / Debian 12 / CentOS 8+（也支持 Debian 10+ 等旧系统） |
 | Node.js | 18.x 或 20.x |
-| npm | 9.x 或 10.x |
+| MySQL | 5.7+ 或 MariaDB 10.3+ |
 | 域名 | 已备案的域名（国内服务器需 ICP 备案） |
 | 端口 | 3000（应用）、80/443（Nginx 反向代理） |
+
+> **注意**：项目仅支持 MySQL，不支持 SQLite。服务器无需安装 Python 或 C++ 编译工具。
 
 ## 二、服务器准备
 
@@ -24,7 +26,21 @@ node -v   # v20.x.x
 npm -v    # 10.x.x
 ```
 
-### 2. 安装 Nginx
+### 2. 安装 MySQL
+
+```bash
+# Ubuntu / Debian
+sudo apt-get install -y mysql-server
+
+# 启动并设置开机自启
+sudo systemctl enable mysql
+sudo systemctl start mysql
+
+# 创建数据库（应用会自动创建表结构）
+mysql -u root -e "CREATE DATABASE career_app CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
+```
+
+### 3. 安装 Nginx
 
 ```bash
 sudo apt-get install -y nginx
@@ -32,7 +48,7 @@ sudo systemctl enable nginx
 sudo systemctl start nginx
 ```
 
-### 3. 创建部署目录
+### 4. 创建部署目录
 
 ```bash
 sudo mkdir -p /var/www/career-app
@@ -63,7 +79,7 @@ cd /var/www/career-app
 # 安装依赖
 npm install
 
-# 配置环境变量
+# 配置环境变量（设置管理员密码）
 cat > .env.local << 'EOF'
 ADMIN_PASSWORD=你的后台密码
 EOF
@@ -87,7 +103,7 @@ sudo npm install -g pm2
 ```bash
 cd /var/www/career-app
 
-# 启动（注意路径要指向 npm 脚本）
+# 启动
 pm2 start npm --name "career-app" -- start
 
 # 查看状态
@@ -180,7 +196,40 @@ sudo certbot renew --dry-run
 
 Let's Encrypt 证书有效期 90 天，Certbot 会自动通过 cron 续期。
 
-## 八、防火墙配置
+## 八、首次安装引导
+
+### 1. 访问网站
+
+打开浏览器访问 `http://your-domain.com`（或 `https://your-domain.com` 如果已配置 SSL）。
+
+### 2. 完成安装引导
+
+系统会自动跳转到安装引导页面：
+
+1. **欢迎页**：点击「开始配置」
+2. **数据库配置**：填写 MySQL 连接信息
+   - 主机：`127.0.0.1`（如果 MySQL 在同一台服务器）
+   - 端口：`3306`
+   - 用户名：`root`（或其他有权限的用户）
+   - 密码：MySQL root 密码
+   - 数据库名：`career_app`（需提前创建）
+3. **测试连接**：点击「测试连接」确认数据库可连接
+4. **安装**：点击「安装」，系统自动创建表结构
+5. **完成**：自动跳转到管理后台
+
+### 3. 设置管理员密码
+
+安装完成后，建议修改管理员密码：
+
+```bash
+cd /var/www/career-app
+cat > .env.local << 'EOF'
+ADMIN_PASSWORD=你的新密码
+EOF
+pm2 restart career-app
+```
+
+## 九、防火墙配置
 
 ```bash
 # UFW（Ubuntu）
@@ -192,7 +241,7 @@ sudo ufw allow 80
 sudo ufw allow 443
 ```
 
-## 九、域名绑定
+## 十、域名绑定
 
 在域名注册商的 DNS 管理页面添加：
 
@@ -203,7 +252,7 @@ sudo ufw allow 443
 
 DNS 生效后访问 `https://your-domain.com` 即可。
 
-## 十、部署后验证
+## 十一、部署后验证
 
 ```bash
 # 检查应用是否运行
@@ -213,13 +262,13 @@ pm2 status
 sudo systemctl status nginx
 
 # 测试接口
-curl http://localhost:3000/api/admin/stats -H "Authorization: Bearer 你的密码"
+curl http://localhost:3000/api/setup/status
 
 # 检查端口监听
 sudo netstat -tlnp | grep -E ':(80|443|3000)'
 ```
 
-## 十一、常见问题
+## 十二、常见问题
 
 ### 502 Bad Gateway
 
@@ -235,13 +284,26 @@ sudo netstat -tlnp | grep 3000
 
 在 Nginx 配置中调大 `client_max_body_size`，默认 1M。
 
-### 数据库权限问题
-
-确保应用对 `data.db` 所在目录有读写权限：
+### MySQL 连接失败
 
 ```bash
-sudo chown -R $USER:$USER /var/www/career-app
-chmod 644 /var/www/career-app/data.db
+# 检查 MySQL 状态
+sudo systemctl status mysql
+
+# 测试 MySQL 连接
+mysql -u root -p
+
+# 检查数据库是否存在
+mysql -u root -e "SHOW DATABASES;"
+```
+
+### 忘记管理员密码
+
+```bash
+cd /var/www/career-app
+# 编辑 .env.local 修改 ADMIN_PASSWORD
+nano .env.local
+pm2 restart career-app
 ```
 
 ### 更新部署
@@ -254,14 +316,28 @@ npm run build
 pm2 restart career-app
 ```
 
-## 十二、目录结构总览
+## 十三、目录结构总览
 
 ```
 /var/www/career-app/
 ├── .env.local          # 环境变量（密码等）
 ├── .next/              # 构建产物
-├── data.db             # SQLite 数据库（自动创建）
-├── public/uploads/     # 用户上传的头像
+├── db-config.json      # 数据库配置（安装后自动生成）
+├── uploads/            # 用户上传的头像和图片
 ├── package.json
 └── ...
 ```
+
+## 十四、旧服务器兼容说明（Debian Buster / Ubuntu 18.04 等）
+
+如果服务器系统较旧（如 Debian Buster），apt 源可能已归档。需要先修改 apt 源：
+
+```bash
+# Debian Buster
+sed -i 's|deb.debian.org|archive.debian.org|g' /etc/apt/sources.list
+sed -i 's|security.debian.org|archive.debian.org/debian-security|g' /etc/apt/sources.list
+sed -i '/buster-updates/d' /etc/apt/sources.list
+apt update
+```
+
+项目不依赖 Python 或 C++ 编译工具，只需 Node.js 和 MySQL 即可运行。

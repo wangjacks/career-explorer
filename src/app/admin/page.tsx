@@ -36,7 +36,7 @@ interface PagedData {
 }
 
 interface DbConfig {
-  type: "sqlite" | "mysql";
+  installed?: boolean;
   mysql: {
     host: string;
     port: number;
@@ -50,6 +50,7 @@ export default function AdminPage() {
   const [password, setPassword] = useState("");
   const [loggedIn, setLoggedIn] = useState(false);
   const [activeTab, setActiveTab] = useState<Tab>("overview");
+  const [installed, setInstalled] = useState<boolean | null>(null);
 
   const [stats, setStats] = useState<Stats | null>(null);
   const [paged, setPaged] = useState<PagedData | null>(null);
@@ -132,12 +133,25 @@ export default function AdminPage() {
 
   useEffect(() => {
     if (loggedIn) {
-      loadStats();
-      loadProfiles(page);
       loadSettings();
-      loadStudents();
+      fetch("/api/setup/status")
+        .then((r) => r.json())
+        .then((data) => {
+          setInstalled(data.installed);
+          if (data.installed) {
+            loadStats();
+            loadProfiles(page);
+            loadStudents();
+          } else {
+            setActiveTab("settings");
+          }
+        })
+        .catch(() => {
+          setInstalled(false);
+          setActiveTab("settings");
+        });
     }
-  }, [loggedIn, page, loadStats, loadProfiles, loadSettings, loadStudents]);
+  }, [loggedIn]);
 
   useEffect(() => {
     setSelected(new Set());
@@ -145,14 +159,17 @@ export default function AdminPage() {
 
   const handleLogin = async () => {
     try {
-      const res = await fetch("/api/admin/stats", {
-        headers: { Authorization: `Bearer ${password}` },
+      const res = await fetch("/api/admin/auth", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ password }),
       });
-      if (res.ok) {
+      const data = await res.json();
+      if (data.ok) {
         sessionStorage.setItem("admin_password", password);
         setLoggedIn(true);
       } else {
-        toast.error("密码错误");
+        toast.error(data.error || "密码错误");
       }
     } catch {
       toast.error("登录失败");
@@ -302,9 +319,11 @@ export default function AdminPage() {
         return;
       }
       toast.success(data.message);
+      setInstalled(true);
       loadSettings();
       loadStats();
       loadProfiles(1);
+      loadStudents();
       setPage(1);
     } catch {
       toast.error("保存失败");
@@ -458,7 +477,7 @@ export default function AdminPage() {
 
   const tabs: { key: Tab; label: string; badge?: string }[] = [
     { key: "overview", label: "数据概览" },
-    { key: "settings", label: "数据源设置", badge: dbConfig ? (dbConfig.type === "sqlite" ? "SQLite" : "MySQL") : undefined },
+    { key: "settings", label: "数据源设置" },
     { key: "students", label: "学生管理", badge: `${students.length} 名` },
     { key: "export", label: "数据导出" },
   ];
@@ -512,9 +531,22 @@ export default function AdminPage() {
       </div>
 
       <main className="max-w-6xl mx-auto px-6 py-8 space-y-8">
+        {/* Not Installed Banner */}
+        {installed === false && (
+          <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 flex items-center gap-3">
+            <svg className="w-5 h-5 text-amber-600 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" />
+            </svg>
+            <p className="text-sm text-amber-800">数据库未配置，请先在「数据源设置」中完成配置</p>
+          </div>
+        )}
+
         {/* Overview Tab */}
         {activeTab === "overview" && (
           <>
+            {!stats && installed !== false && (
+              <div className="text-center py-12 text-gray-400">加载中...</div>
+            )}
             {stats && (
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                 <StatCard label="总提交数" value={stats.total} />
@@ -649,46 +681,28 @@ export default function AdminPage() {
         {/* Settings Tab */}
         {activeTab === "settings" && dbConfig && (
           <div className="bg-white rounded-xl border border-gray-100 p-6 space-y-6">
-            <h2 className="font-semibold text-gray-800">数据源配置</h2>
-            <div className="flex items-center gap-4">
-              <label className="text-sm text-gray-600">数据源类型</label>
-              <select
-                value={dbConfig.type}
-                onChange={(e) => setDbConfig({ ...dbConfig, type: e.target.value as "sqlite" | "mysql" })}
-                className="px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-300"
-              >
-                <option value="sqlite">SQLite（本地文件）</option>
-                <option value="mysql">MySQL（远程数据库）</option>
-              </select>
+            <h2 className="font-semibold text-gray-800">数据库配置</h2>
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+              <Field label="主机" value={dbConfig.mysql.host}
+                onChange={(v) => setDbConfig({ ...dbConfig, mysql: { ...dbConfig.mysql, host: v } })} />
+              <Field label="端口" value={String(dbConfig.mysql.port)} type="number"
+                onChange={(v) => setDbConfig({ ...dbConfig, mysql: { ...dbConfig.mysql, port: parseInt(v) || 3306 } })} />
+              <Field label="用户名" value={dbConfig.mysql.user}
+                onChange={(v) => setDbConfig({ ...dbConfig, mysql: { ...dbConfig.mysql, user: v } })} />
+              <Field label="密码" value={dbConfig.mysql.password} type="password"
+                onChange={(v) => setDbConfig({ ...dbConfig, mysql: { ...dbConfig.mysql, password: v } })} />
+              <Field label="数据库名" value={dbConfig.mysql.database}
+                onChange={(v) => setDbConfig({ ...dbConfig, mysql: { ...dbConfig.mysql, database: v } })} />
             </div>
-            {dbConfig.type === "mysql" && (
-              <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-                <Field label="主机" value={dbConfig.mysql.host}
-                  onChange={(v) => setDbConfig({ ...dbConfig, mysql: { ...dbConfig.mysql, host: v } })} />
-                <Field label="端口" value={String(dbConfig.mysql.port)} type="number"
-                  onChange={(v) => setDbConfig({ ...dbConfig, mysql: { ...dbConfig.mysql, port: parseInt(v) || 3306 } })} />
-                <Field label="用户名" value={dbConfig.mysql.user}
-                  onChange={(v) => setDbConfig({ ...dbConfig, mysql: { ...dbConfig.mysql, user: v } })} />
-                <Field label="密码" value={dbConfig.mysql.password} type="password"
-                  onChange={(v) => setDbConfig({ ...dbConfig, mysql: { ...dbConfig.mysql, password: v } })} />
-                <Field label="数据库名" value={dbConfig.mysql.database}
-                  onChange={(v) => setDbConfig({ ...dbConfig, mysql: { ...dbConfig.mysql, database: v } })} />
-              </div>
-            )}
             <div className="flex items-center gap-3 pt-2">
-              {dbConfig.type === "mysql" && (
-                <button onClick={handleTestDb} disabled={testingDb}
-                  className="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm font-medium rounded-lg transition-colors disabled:opacity-50">
-                  {testingDb ? "测试中..." : "测试连接"}
-                </button>
-              )}
+              <button onClick={handleTestDb} disabled={testingDb}
+                className="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm font-medium rounded-lg transition-colors disabled:opacity-50">
+                {testingDb ? "测试中..." : "测试连接"}
+              </button>
               <button onClick={handleSaveDb} disabled={savingDb}
                 className="px-4 py-2 bg-green-500 hover:bg-green-600 text-white text-sm font-medium rounded-lg transition-colors disabled:opacity-50">
-                {savingDb ? "保存中..." : "保存并切换"}
+                {savingDb ? "保存中..." : "保存配置"}
               </button>
-              <span className="text-xs text-gray-400">
-                {dbConfig.type === "sqlite" ? "数据存储在本地 data.db 文件" : "切换时会自动迁移已有数据"}
-              </span>
             </div>
           </div>
         )}

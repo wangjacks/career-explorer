@@ -2,7 +2,7 @@ import { readFileSync, writeFileSync, existsSync } from "fs";
 import path from "path";
 
 export interface DbConfig {
-  type: "sqlite" | "mysql";
+  installed?: boolean;
   mysql: {
     host: string;
     port: number;
@@ -15,7 +15,7 @@ export interface DbConfig {
 const CONFIG_PATH = path.join(process.cwd(), "db-config.json");
 
 const DEFAULT_CONFIG: DbConfig = {
-  type: "sqlite",
+  installed: false,
   mysql: {
     host: "127.0.0.1",
     port: 3306,
@@ -27,14 +27,25 @@ const DEFAULT_CONFIG: DbConfig = {
 
 export function getConfig(): DbConfig {
   if (!existsSync(CONFIG_PATH)) {
-    writeFileSync(CONFIG_PATH, JSON.stringify(DEFAULT_CONFIG, null, 2));
     return { ...DEFAULT_CONFIG };
   }
   try {
     const raw = readFileSync(CONFIG_PATH, "utf-8");
-    return JSON.parse(raw) as DbConfig;
+    const parsed = JSON.parse(raw) as DbConfig;
+    return { ...DEFAULT_CONFIG, ...parsed };
   } catch {
     return { ...DEFAULT_CONFIG };
+  }
+}
+
+export function isInstalled(): boolean {
+  if (!existsSync(CONFIG_PATH)) return false;
+  try {
+    const raw = readFileSync(CONFIG_PATH, "utf-8");
+    const parsed = JSON.parse(raw) as DbConfig;
+    return parsed.installed === true;
+  } catch {
+    return false;
   }
 }
 
