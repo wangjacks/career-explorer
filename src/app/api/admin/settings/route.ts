@@ -23,7 +23,7 @@ export async function PUT(request: NextRequest) {
   try {
     const newConfig = (await request.json()) as DbConfig;
 
-    const { host, port, user, password, database } = newConfig.mysql;
+    const { host, user, database } = newConfig.mysql;
     if (!host || !user || !database) {
       return NextResponse.json({ error: "MySQL 连接信息不完整" }, { status: 400 });
     }

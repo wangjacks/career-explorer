@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getAllProfilesRaw, getAllStudents } from "@/lib/db";
+import { getAllProfilesRaw } from "@/lib/db";
 import JSZip from "jszip";
 
 function checkAuth(request: NextRequest) {

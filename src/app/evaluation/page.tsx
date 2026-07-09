@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { Toaster, toast } from "sonner";
 import NavigationBar from "@/components/NavigationBar";
@@ -8,13 +8,10 @@ import NavigationBar from "@/components/NavigationBar";
 export default function EvaluationPage() {
   const router = useRouter();
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const [imageUrl, setImageUrl] = useState<string | null>(null);
+  const [imageUrl, setImageUrl] = useState<string | null>(
+    () => localStorage.getItem("career_demo_evaluation")
+  );
   const [uploading, setUploading] = useState(false);
-
-  useEffect(() => {
-    const saved = localStorage.getItem("career_demo_evaluation");
-    if (saved) setImageUrl(saved);
-  }, []);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -73,7 +70,7 @@ export default function EvaluationPage() {
           className="w-full max-w-sm aspect-[4/3] rounded-2xl border-2 border-dashed border-gray-300 flex items-center justify-center cursor-pointer hover:border-green-400 transition-colors overflow-hidden bg-white"
         >
           {imageUrl ? (
-            <img src={imageUrl} alt="评价词云预览" className="w-full h-full object-contain" />
+            <img src={imageUrl} alt="评价词云预览" className="w-full h-full object-contain" unoptimized />
           ) : (
             <div className="flex flex-col items-center gap-2 text-gray-400">
               <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">

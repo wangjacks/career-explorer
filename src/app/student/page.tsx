@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Toaster, toast } from "sonner";
 import NavigationBar from "@/components/NavigationBar";
@@ -13,18 +13,15 @@ interface ExistingProfile {
 
 export default function StudentPage() {
   const router = useRouter();
-  const [studentId, setStudentId] = useState("");
+  const [studentId, setStudentId] = useState(
+    () => localStorage.getItem("career_demo_student_id") || ""
+  );
   const [loading, setLoading] = useState(false);
   const [confirmData, setConfirmData] = useState<{
     studentId: string;
     name: string;
     profile: ExistingProfile;
   } | null>(null);
-
-  useEffect(() => {
-    const saved = localStorage.getItem("career_demo_student_id");
-    if (saved) setStudentId(saved);
-  }, []);
 
   const updateStudentId = (value: string) => {
     const cleaned = value.replace(/\D/g, "").slice(0, 12);

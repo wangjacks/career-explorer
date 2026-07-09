@@ -10,7 +10,7 @@ export async function POST(request: NextRequest) {
   try {
     const config = (await request.json()) as DbConfig;
 
-    const { host, port, user, password, database } = config.mysql;
+    const { host, user, database } = config.mysql;
     if (!host || !user || !database) {
       return NextResponse.json({ error: "MySQL 连接信息不完整" }, { status: 400 });
     }

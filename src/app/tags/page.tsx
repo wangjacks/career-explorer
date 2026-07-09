@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Toaster, toast } from "sonner";
 import NavigationBar from "@/components/NavigationBar";
@@ -13,20 +13,15 @@ interface StudentInfo {
 
 export default function TagsPage() {
   const router = useRouter();
-  const [selectedTags, setSelectedTags] = useState<string[]>([]);
-  const [customInput, setCustomInput] = useState("");
-  const [student, setStudent] = useState<StudentInfo | null>(null);
-
-  useEffect(() => {
-    const studentStr = localStorage.getItem("career_demo_student");
-    if (studentStr) setStudent(JSON.parse(studentStr));
-
-    const tagsStr = localStorage.getItem("career_demo_tags");
-    if (tagsStr) setSelectedTags(JSON.parse(tagsStr));
-
-    const customStr = localStorage.getItem("career_demo_custom_input");
-    if (customStr) setCustomInput(customStr);
-  }, []);
+  const [selectedTags, setSelectedTags] = useState<string[]>(() => {
+    const stored = localStorage.getItem("career_demo_tags");
+    return stored ? JSON.parse(stored) : [];
+  });
+  const [customInput, setCustomInput] = useState(() => localStorage.getItem("career_demo_custom_input") || "");
+  const [student] = useState<StudentInfo | null>(() => {
+    const stored = localStorage.getItem("career_demo_student");
+    return stored ? JSON.parse(stored) : null;
+  });
 
   const toggleTag = (tag: string) => {
     setSelectedTags((prev) => {

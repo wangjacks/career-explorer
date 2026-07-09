@@ -1,20 +1,16 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 import NavigationBar from "@/components/NavigationBar";
 import WordCloudClient from "@/components/WordCloudClient";
 
 export default function WordcloudPage() {
   const router = useRouter();
-  const [tags, setTags] = useState<string[]>([]);
-
-  useEffect(() => {
+  const [tags] = useState<string[]>(() => {
     const stored = localStorage.getItem("career_demo_tags");
-    if (stored) {
-      setTags(JSON.parse(stored));
-    }
-  }, []);
+    return stored ? JSON.parse(stored) : [];
+  });
 
   const handleNext = () => {
     router.push("/evaluation");

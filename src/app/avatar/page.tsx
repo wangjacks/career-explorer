@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { Toaster, toast } from "sonner";
 import NavigationBar from "@/components/NavigationBar";
@@ -8,18 +8,17 @@ import NavigationBar from "@/components/NavigationBar";
 export default function AvatarPage() {
   const router = useRouter();
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const [imageUrl, setImageUrl] = useState<string | null>(null);
-  const [uploading, setUploading] = useState(false);
-
-  useEffect(() => {
+  const [imageUrl, setImageUrl] = useState<string | null>(() => {
     const profileStr = localStorage.getItem("career_demo_profile");
     if (profileStr) {
       try {
         const profile = JSON.parse(profileStr);
-        if (profile.avatarUrl) setImageUrl(profile.avatarUrl);
+        return profile.avatarUrl || null;
       } catch {}
     }
-  }, []);
+    return null;
+  });
+  const [uploading, setUploading] = useState(false);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -94,7 +93,7 @@ export default function AvatarPage() {
           className="w-56 h-56 rounded-2xl border-2 border-dashed border-gray-300 flex items-center justify-center cursor-pointer hover:border-green-400 transition-colors overflow-hidden bg-white"
         >
           {imageUrl ? (
-            <img src={imageUrl} alt="头像预览" className="w-full h-full object-cover" />
+            <img src={imageUrl} alt="头像预览" className="w-full h-full object-cover" unoptimized />
           ) : (
             <div className="flex flex-col items-center gap-2 text-gray-400">
               <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">

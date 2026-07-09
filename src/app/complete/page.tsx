@@ -1,27 +1,24 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import Link from "next/link";
 import NavigationBar from "@/components/NavigationBar";
 
 export default function CompletePage() {
-  const [tagCount, setTagCount] = useState(0);
-  const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
-  const [evaluationUrl, setEvaluationUrl] = useState<string | null>(null);
-  const [studentName, setStudentName] = useState("");
-  const [studentId, setStudentId] = useState("");
-
-  useEffect(() => {
+  const [{ tagCount, avatarUrl, evaluationUrl, studentName, studentId }] = useState(() => {
     const profile = localStorage.getItem("career_demo_profile");
     if (profile) {
       const data = JSON.parse(profile);
-      setTagCount(data.tags?.length || 0);
-      setAvatarUrl(data.avatarUrl || null);
-      setEvaluationUrl(data.evaluationUrl || null);
-      setStudentName(data.name || "");
-      setStudentId(data.studentId || "");
+      return {
+        tagCount: data.tags?.length || 0,
+        avatarUrl: data.avatarUrl || null,
+        evaluationUrl: data.evaluationUrl || null,
+        studentName: data.name || "",
+        studentId: data.studentId || "",
+      };
     }
-  }, []);
+    return { tagCount: 0, avatarUrl: null, evaluationUrl: null, studentName: "", studentId: "" };
+  });
 
   return (
     <div className="flex flex-col min-h-screen bg-gradient-to-b from-green-50 to-white">
@@ -67,7 +64,7 @@ export default function CompletePage() {
         {evaluationUrl && (
           <div className="w-full max-w-xs">
             <p className="text-xs text-gray-500 text-center mb-2">评价词云</p>
-            <img src={evaluationUrl} alt="评价词云" className="w-full rounded-xl border border-gray-100" />
+            <img src={evaluationUrl} alt="评价词云" className="w-full rounded-xl border border-gray-100" unoptimized />
           </div>
         )}
 

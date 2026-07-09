@@ -47,8 +47,12 @@ interface DbConfig {
 }
 
 export default function AdminPage() {
-  const [password, setPassword] = useState("");
-  const [loggedIn, setLoggedIn] = useState(false);
+  const [password, setPassword] = useState(
+    () => sessionStorage.getItem("admin_password") || ""
+  );
+  const [loggedIn, setLoggedIn] = useState(
+    () => !!sessionStorage.getItem("admin_password")
+  );
   const [activeTab, setActiveTab] = useState<Tab>("overview");
   const [installed, setInstalled] = useState<boolean | null>(null);
 
@@ -123,14 +127,7 @@ export default function AdminPage() {
     } catch {}
   }, [authHeaders]);
 
-  useEffect(() => {
-    const saved = sessionStorage.getItem("admin_password");
-    if (saved) {
-      setPassword(saved);
-      setLoggedIn(true);
-    }
-  }, []);
-
+  /* eslint-disable react-hooks/set-state-in-effect -- setState called in async callbacks after fetch */
   useEffect(() => {
     if (loggedIn) {
       loadSettings();
@@ -151,11 +148,15 @@ export default function AdminPage() {
           setActiveTab("settings");
         });
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- load on login only
   }, [loggedIn]);
+  /* eslint-enable react-hooks/set-state-in-effect */
 
+  /* eslint-disable react-hooks/set-state-in-effect -- reset selection on page change */
   useEffect(() => {
     setSelected(new Set());
   }, [page]);
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   const handleLogin = async () => {
     try {
@@ -619,14 +620,14 @@ export default function AdminPage() {
                         <td className="px-5 py-3 text-gray-700">{p.studentName || "-"}</td>
                         <td className="px-5 py-3">
                           {p.avatarUrl ? (
-                            <img src={p.avatarUrl} alt="" className="w-8 h-8 rounded-full object-cover" />
+                            <img src={p.avatarUrl} alt="" className="w-8 h-8 rounded-full object-cover" unoptimized />
                           ) : (
                             <span className="text-gray-400 text-xs">无</span>
                           )}
                         </td>
                         <td className="px-5 py-3">
                           {p.evaluationUrl ? (
-                            <img src={p.evaluationUrl} alt="" className="w-8 h-8 rounded object-cover" />
+                            <img src={p.evaluationUrl} alt="" className="w-8 h-8 rounded object-cover" unoptimized />
                           ) : (
                             <span className="text-gray-400 text-xs">无</span>
                           )}
@@ -954,7 +955,7 @@ export default function AdminPage() {
               <div className="flex justify-between"><span className="text-gray-500">提交时间</span><span>{detail.createdAt}</span></div>
             </div>
             {detail.avatarUrl && (
-              <img src={detail.avatarUrl} alt="" className="w-16 h-16 rounded-full object-cover" />
+              <img src={detail.avatarUrl} alt="" className="w-16 h-16 rounded-full object-cover" unoptimized />
             )}
             <div>
               <p className="text-xs text-gray-500 mb-2">标签（{detail.tags.length}个）</p>
@@ -967,7 +968,7 @@ export default function AdminPage() {
             {detail.evaluationUrl && (
               <div>
                 <p className="text-xs text-gray-500 mb-2">评价词云</p>
-                <img src={detail.evaluationUrl} alt="" className="w-full rounded-lg border border-gray-100" />
+                <img src={detail.evaluationUrl} alt="" className="w-full rounded-lg border border-gray-100" unoptimized />
               </div>
             )}
             <button onClick={() => { handleDeleteProfiles([detail.studentId]); setDetail(null); }}
