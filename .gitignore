@@ -47,3 +47,6 @@ next-env.d.ts
 /data.db-shm
 /data.db-wal
 /db-config.json
+
+# local docs
+/docs/
