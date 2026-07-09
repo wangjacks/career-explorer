@@ -286,7 +286,7 @@ export default function AdminPage() {
   };
 
   const handleTestDb = async () => {
-    if (!dbConfig || dbConfig.type !== "mysql") return;
+    if (!dbConfig) return;
     setTestingDb(true);
     try {
       const res = await fetch("/api/admin/test-db", {
