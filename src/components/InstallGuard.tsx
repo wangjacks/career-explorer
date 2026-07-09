@@ -1,16 +1,17 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useState } from "react";
 import { useRouter, usePathname } from "next/navigation";
 
 export function InstallGuard({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
-  const checkedRef = useRef(false);
+  const [checked, setChecked] = useState(false);
 
+  /* eslint-disable react-hooks/set-state-in-effect -- async fetch callback, no cascade */
   useEffect(() => {
     if (pathname === "/setup" || pathname === "/api/setup/status") {
-      checkedRef.current = true;
+      setChecked(true);
       return;
     }
 
@@ -20,21 +21,26 @@ export function InstallGuard({ children }: { children: React.ReactNode }) {
         if (!data.installed) {
           router.replace("/setup");
         } else {
-          checkedRef.current = true;
+          setChecked(true);
         }
       })
       .catch(() => {
-        checkedRef.current = true;
+        setChecked(true);
       });
   }, [pathname, router]);
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   if (pathname === "/setup" || pathname === "/api/setup/status") {
     return <>{children}</>;
   }
 
-  return (
-    <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-      <div className="w-8 h-8 border-4 border-green-500 border-t-transparent rounded-full animate-spin" />
-    </div>
-  );
+  if (!checked) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="w-8 h-8 border-4 border-green-500 border-t-transparent rounded-full animate-spin" />
+      </div>
+    );
+  }
+
+  return <>{children}</>;
 }
