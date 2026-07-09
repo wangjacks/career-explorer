@@ -70,7 +70,7 @@ export default function EvaluationPage() {
           className="w-full max-w-sm aspect-[4/3] rounded-2xl border-2 border-dashed border-gray-300 flex items-center justify-center cursor-pointer hover:border-green-400 transition-colors overflow-hidden bg-white"
         >
           {imageUrl ? (
-            <img src={imageUrl} alt="评价词云预览" className="w-full h-full object-contain" unoptimized />
+            <img src={imageUrl} alt="评价词云预览" className="w-full h-full object-contain" />
           ) : (
             <div className="flex flex-col items-center gap-2 text-gray-400">
               <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">

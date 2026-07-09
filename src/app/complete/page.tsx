@@ -64,7 +64,7 @@ export default function CompletePage() {
         {evaluationUrl && (
           <div className="w-full max-w-xs">
             <p className="text-xs text-gray-500 text-center mb-2">评价词云</p>
-            <img src={evaluationUrl} alt="评价词云" className="w-full rounded-xl border border-gray-100" unoptimized />
+            <img src={evaluationUrl} alt="评价词云" className="w-full rounded-xl border border-gray-100" />
           </div>
         )}
 

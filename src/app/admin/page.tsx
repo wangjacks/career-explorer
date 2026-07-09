@@ -620,14 +620,14 @@ export default function AdminPage() {
                         <td className="px-5 py-3 text-gray-700">{p.studentName || "-"}</td>
                         <td className="px-5 py-3">
                           {p.avatarUrl ? (
-                            <img src={p.avatarUrl} alt="" className="w-8 h-8 rounded-full object-cover" unoptimized />
+                            <img src={p.avatarUrl} alt="" className="w-8 h-8 rounded-full object-cover" />
                           ) : (
                             <span className="text-gray-400 text-xs">无</span>
                           )}
                         </td>
                         <td className="px-5 py-3">
                           {p.evaluationUrl ? (
-                            <img src={p.evaluationUrl} alt="" className="w-8 h-8 rounded object-cover" unoptimized />
+                            <img src={p.evaluationUrl} alt="" className="w-8 h-8 rounded object-cover" />
                           ) : (
                             <span className="text-gray-400 text-xs">无</span>
                           )}
@@ -955,7 +955,7 @@ export default function AdminPage() {
               <div className="flex justify-between"><span className="text-gray-500">提交时间</span><span>{detail.createdAt}</span></div>
             </div>
             {detail.avatarUrl && (
-              <img src={detail.avatarUrl} alt="" className="w-16 h-16 rounded-full object-cover" unoptimized />
+              <img src={detail.avatarUrl} alt="" className="w-16 h-16 rounded-full object-cover" />
             )}
             <div>
               <p className="text-xs text-gray-500 mb-2">标签（{detail.tags.length}个）</p>
@@ -968,7 +968,7 @@ export default function AdminPage() {
             {detail.evaluationUrl && (
               <div>
                 <p className="text-xs text-gray-500 mb-2">评价词云</p>
-                <img src={detail.evaluationUrl} alt="" className="w-full rounded-lg border border-gray-100" unoptimized />
+                <img src={detail.evaluationUrl} alt="" className="w-full rounded-lg border border-gray-100" />
               </div>
             )}
             <button onClick={() => { handleDeleteProfiles([detail.studentId]); setDetail(null); }}
