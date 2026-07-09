@@ -52,7 +52,7 @@ export default function EvaluationPage() {
         const uploadRes = await fetch("/api/upload", { method: "POST", body: formData });
         if (!uploadRes.ok) throw new Error("上传失败");
         const { url } = await uploadRes.json();
-        localStorage.setItem("career_demo_evaluation", url);
+        localStorage.setItem("career_demo_evaluation", `${url}?t=${Date.now()}`);
       }
 
       router.push("/avatar");

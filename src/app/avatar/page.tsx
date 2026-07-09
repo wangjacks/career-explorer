@@ -62,7 +62,7 @@ export default function AvatarPage() {
         const uploadRes = await fetch("/api/upload", { method: "POST", body: formData });
         if (!uploadRes.ok) throw new Error("上传失败");
         const { url } = await uploadRes.json();
-        avatarUrl = url;
+        avatarUrl = `${url}?t=${Date.now()}`;
       }
 
       const profileRes = await fetch("/api/profile", {
