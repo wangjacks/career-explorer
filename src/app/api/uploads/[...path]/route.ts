@@ -8,7 +8,13 @@ export async function GET(
 ) {
   const { path: pathSegments } = await params;
   const filename = pathSegments.join("/");
-  const filepath = path.join(process.cwd(), "uploads", filename);
+  const uploadsDir = path.resolve(process.cwd(), "uploads");
+  const filepath = path.resolve(uploadsDir, filename);
+
+  // 路径穿越防护：确保解析后的路径仍在 uploads 目录内
+  if (!filepath.startsWith(uploadsDir + path.sep) && filepath !== uploadsDir) {
+    return NextResponse.json({ error: "禁止访问" }, { status: 403 });
+  }
 
   try {
     const data = await readFile(filepath);
