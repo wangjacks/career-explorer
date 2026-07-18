@@ -19,7 +19,7 @@ export async function POST(request: NextRequest) {
         studentId: student.student_id,
         hasProfile: !!profile,
         profile: profile
-          ? { tags: JSON.parse(profile.tags), avatarUrl: profile.avatar_url }
+          ? { tags: JSON.parse(profile.tags), avatarUrl: profile.avatar_url, evaluationUrl: profile.evaluation_url }
           : null,
       });
     }
