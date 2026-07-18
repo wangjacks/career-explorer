@@ -159,6 +159,11 @@ server {
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
         proxy_cache_bypass $http_upgrade;
+
+        # 首页 HTML 不缓存（避免旧 JS chunk 引用 404）
+        # Next.js 已通过 headers() 配置，此处为 Nginx 层加固
+        proxy_hide_header Cache-Control;
+        add_header Cache-Control "no-cache, no-store, must-revalidate" always;
     }
 }
 ```
