@@ -13,7 +13,6 @@ type Tab = "overview" | "settings" | "students" | "export";
 
 export default function AdminPage() {
   const {
-    password,
     loggedIn,
     installed,
     setInstalled,
@@ -31,7 +30,6 @@ export default function AdminPage() {
   const [dbConfig, setDbConfig] = useState<DbConfig | null>(null);
   const [students, setStudents] = useState<Student[]>([]);
   const [loginInput, setLoginInput] = useState("");
-  const [loginError, setLoginError] = useState<string | null>(null);
 
   const refreshStudents = useCallback(async () => {
     const data = await loadStudents();
@@ -60,12 +58,10 @@ export default function AdminPage() {
   /* eslint-enable react-hooks/set-state-in-effect */
 
   const onLogin = async () => {
-    setLoginError(null);
     const result = await handleLogin(loginInput);
     if (result === true) {
       setLoginInput("");
     } else {
-      setLoginError(result);
       toast.error(result);
     }
   };
