@@ -1,0 +1,44 @@
+# 知识卡导出索引文件
+schema_version: 1
+locale: zh-CN
+branch: fix/issue-22-empty-catch
+nodes_managed: true
+exported_at: "2026-07-19T16:39:16Z"
+modules:
+    "":
+        dir_name: Career Explorer Next.js 应用根工程
+        title: Career Explorer Next.js 应用根工程
+        scope:
+            - README.md
+            - package.json
+            - next.config.ts
+            - tsconfig.json
+            - eslint.config.mjs
+            - postcss.config.mjs
+            - .gitignore
+            - .editorconfig
+            - .gitattributes
+            - AGENTS.md
+            - CLAUDE.md
+            - DEPLOY.md
+            - .github/
+            - .husky/
+            - CHANGELOG.md
+            - REFACTOR-PLAN.md
+            - package-lock.json
+        source_files: []
+        children:
+            - frontend_pages
+        depends_on: []
+        related_to: []
+    frontend_pages:
+        dir_name: 应用根布局与首页入口
+        title: 应用根布局与首页入口
+        scope:
+            - src/app/page.tsx
+            - src/app/layout.tsx
+            - src/app/globals.css
+        source_files: []
+        children: []
+        depends_on: []
+        related_to: []

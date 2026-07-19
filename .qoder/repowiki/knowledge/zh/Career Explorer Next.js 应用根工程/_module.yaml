@@ -1,0 +1,24 @@
+schema_version: 1
+module_path: ""
+title: Career Explorer Next.js 应用根工程
+scope:
+    - README.md
+    - package.json
+    - next.config.ts
+    - tsconfig.json
+    - eslint.config.mjs
+    - postcss.config.mjs
+    - .gitignore
+    - .editorconfig
+    - .gitattributes
+    - AGENTS.md
+    - CLAUDE.md
+    - DEPLOY.md
+    - .github/
+    - .husky/
+    - CHANGELOG.md
+    - REFACTOR-PLAN.md
+    - package-lock.json
+source_files: []
+depends_on: []
+related_to: []

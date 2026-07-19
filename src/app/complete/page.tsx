@@ -35,7 +35,7 @@ export default function CompletePage() {
           <p className="text-gray-500">你的职业规划信息已保存</p>
         </div>
 
-        <div className="w-full max-w-xs bg-white rounded-xl p-4 shadow-sm border border-gray-100 space-y-3">
+        <div className="w-full max-w-xs sm:max-w-sm md:max-w-md bg-white rounded-xl p-4 shadow-sm border border-gray-100 space-y-3">
           {studentName && (
             <div className="flex justify-between text-sm">
               <span className="text-gray-500">姓名</span>
@@ -63,7 +63,7 @@ export default function CompletePage() {
         </div>
 
         {evaluationUrl && (
-          <div className="w-full max-w-xs">
+          <div className="w-full max-w-xs sm:max-w-sm md:max-w-md">
             <p className="text-xs text-gray-500 text-center mb-2">评价词云</p>
             <img src={evaluationUrl} alt="评价词云" className="w-full rounded-xl border border-gray-100" />
           </div>
@@ -71,7 +71,7 @@ export default function CompletePage() {
 
         <Link
           href="/"
-          className="w-full max-w-xs py-3 bg-green-500 hover:bg-green-600 text-white font-medium rounded-xl text-center transition-colors shadow-md"
+          className="w-full max-w-xs sm:max-w-sm md:max-w-md py-3 bg-green-500 hover:bg-green-600 text-white font-medium rounded-xl text-center transition-colors shadow-md"
         >
           返回首页
         </Link>

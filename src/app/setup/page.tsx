@@ -91,7 +91,7 @@ export default function SetupPage() {
   return (
     <div className="min-h-screen bg-gray-50 flex items-center justify-center px-4">
       <Toaster position="top-center" />
-      <div className="w-full max-w-md bg-white rounded-2xl shadow-sm border border-gray-100 p-8 space-y-6">
+      <div className="w-full max-w-md sm:max-w-lg md:max-w-xl bg-white rounded-2xl shadow-sm border border-gray-100 p-8 space-y-6">
         {step === "welcome" && (
           <>
             <div className="text-center space-y-2">

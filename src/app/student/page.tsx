@@ -126,12 +126,12 @@ export default function StudentPage() {
           onKeyDown={(e) => e.key === "Enter" && handleSubmit()}
           placeholder="请输入学号"
           maxLength={12}
-          className="w-full max-w-xs px-4 py-3 border border-gray-200 rounded-xl text-center text-lg tracking-widest focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-transparent"
+          className="w-full max-w-xs sm:max-w-sm md:max-w-md px-4 py-3 border border-gray-200 rounded-xl text-center text-lg tracking-widest focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-transparent"
         />
         <button
           onClick={handleSubmit}
           disabled={loading}
-          className="w-full max-w-xs py-3 bg-blue-500 hover:bg-blue-600 disabled:opacity-50 text-white font-medium rounded-xl transition-colors"
+          className="w-full max-w-xs sm:max-w-sm md:max-w-md py-3 bg-blue-500 hover:bg-blue-600 disabled:opacity-50 text-white font-medium rounded-xl transition-colors"
         >
           {loading ? "验证中..." : "下一步"}
         </button>
@@ -140,7 +140,7 @@ export default function StudentPage() {
       {/* Restore Confirmation Modal */}
       {confirmData && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 px-4">
-          <div className="bg-white rounded-2xl shadow-xl max-w-sm w-full p-6 space-y-5">
+          <div className="bg-white rounded-2xl shadow-xl max-w-sm sm:max-w-md w-full p-6 space-y-5">
             <div className="text-center space-y-2">
               <div className="w-14 h-14 mx-auto rounded-full bg-amber-100 flex items-center justify-center">
                 <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#d97706" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
