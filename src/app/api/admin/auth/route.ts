@@ -5,6 +5,8 @@ export async function POST(request: NextRequest) {
   try {
     const { password } = await request.json();
     const hash = process.env.ADMIN_PASSWORD_HASH;
+    // DEBUG: 临时日志，排查后删除
+    console.log("[DEBUG] ADMIN_PASSWORD_HASH:", hash?.substring(0, 10) + "...", "length:", hash?.length);
 
     if (!hash) {
       return NextResponse.json({ ok: false, error: "服务器未配置管理员密码" }, { status: 500 });
