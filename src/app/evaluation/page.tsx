@@ -4,12 +4,13 @@ import { useState, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { Toaster, toast } from "sonner";
 import NavigationBar from "@/components/NavigationBar";
+import { safeImageUrl } from "@/lib/sanitize";
 
 export default function EvaluationPage() {
   const router = useRouter();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [imageUrl, setImageUrl] = useState<string | null>(
-    () => localStorage.getItem("career_demo_evaluation")
+    () => safeImageUrl(localStorage.getItem("career_demo_evaluation"))
   );
   const [uploading, setUploading] = useState(false);
 
