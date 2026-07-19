@@ -4,6 +4,7 @@ import { useState, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { Toaster, toast } from "sonner";
 import NavigationBar from "@/components/NavigationBar";
+import { safeImageUrl } from "@/lib/sanitize";
 
 export default function AvatarPage() {
   const router = useRouter();
@@ -13,7 +14,7 @@ export default function AvatarPage() {
     if (profileStr) {
       try {
         const profile = JSON.parse(profileStr);
-        return profile.avatarUrl || null;
+        return safeImageUrl(profile.avatarUrl);
       } catch {}
     }
     return null;

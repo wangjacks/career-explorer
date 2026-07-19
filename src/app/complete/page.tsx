@@ -3,6 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import NavigationBar from "@/components/NavigationBar";
+import { safeImageUrl } from "@/lib/sanitize";
 
 export default function CompletePage() {
   const [{ tagCount, avatarUrl, evaluationUrl, studentName, studentId }] = useState(() => {
@@ -11,8 +12,8 @@ export default function CompletePage() {
       const data = JSON.parse(profile);
       return {
         tagCount: data.tags?.length || 0,
-        avatarUrl: data.avatarUrl || null,
-        evaluationUrl: data.evaluationUrl || null,
+        avatarUrl: safeImageUrl(data.avatarUrl),
+        evaluationUrl: safeImageUrl(data.evaluationUrl),
         studentName: data.name || "",
         studentId: data.studentId || "",
       };
