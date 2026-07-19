@@ -1,12 +1,24 @@
 import { NextRequest, NextResponse } from "next/server";
 import { verifyPassword, signToken, setAuthCookie, clearAuthCookie } from "@/lib/auth";
+import { readFileSync } from "fs";
+import { join } from "path";
+
+/** 读取密码 hash：优先从 admin-hash.txt 文件读取，否则从环境变量读取 */
+function getPasswordHash(): string | null {
+  try {
+    const filePath = join(process.cwd(), "admin-hash.txt");
+    const hash = readFileSync(filePath, "utf-8").trim();
+    if (hash) return hash;
+  } catch {
+    // file not found, fallback to env
+  }
+  return process.env.ADMIN_PASSWORD_HASH || null;
+}
 
 export async function POST(request: NextRequest) {
   try {
     const { password } = await request.json();
-    const hash = process.env.ADMIN_PASSWORD_HASH;
-    // DEBUG: 临时日志，排查后删除
-    console.log("[DEBUG] ADMIN_PASSWORD_HASH:", hash?.substring(0, 10) + "...", "length:", hash?.length);
+    const hash = getPasswordHash();
 
     if (!hash) {
       return NextResponse.json({ ok: false, error: "服务器未配置管理员密码" }, { status: 500 });
