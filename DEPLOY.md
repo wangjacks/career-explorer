@@ -79,12 +79,14 @@ cd /var/www/career-app
 # 安装依赖
 npm install
 
-# 生成管理员密码的 bcrypt hash（在本地执行）
+# 生成管理员密码的 bcrypt hash
 node -e "require('bcrypt').hash('你的密码', 10).then(h => console.log(h))"
 
-# 配置环境变量
+# 将 hash 写入独立文件（必须用单引号防止 bash 插值 $）
+echo '上面生成的bcrypt hash值' > admin-hash.txt
+
+# 配置环境变量（JWT 签名密钥）
 cat > .env.local << 'EOF'
-ADMIN_PASSWORD_HASH=上面生成的bcrypt hash值
 JWT_SECRET=一个随机字符串作为JWT签名密钥
 EOF
 
@@ -230,7 +232,7 @@ Let's Encrypt 证书有效期 90 天，Certbot 会自动通过 cron 续期。
 
 ### 3. 设置管理员密码
 
-安装完成后，需要设置管理员密码（bcrypt hash 格式）：
+安装完成后，需要设置管理员密码：
 
 ```bash
 cd /var/www/career-app
@@ -238,17 +240,14 @@ cd /var/www/career-app
 # 生成 bcrypt hash（替换 '你的新密码' 为实际密码）
 node -e "require('bcrypt').hash('你的新密码', 10).then(h => console.log(h))"
 
-# 写入环境变量
-cat > .env.local << 'EOF'
-ADMIN_PASSWORD_HASH=上面生成的bcrypt hash值
-JWT_SECRET=建议设置一个随机字符串
-EOF
+# 将 hash 写入独立文件（必须用单引号防止 bash 插值 $）
+echo '上面生成的bcrypt hash值' > admin-hash.txt
 
 # 重启应用使配置生效
 pm2 restart career-app
 ```
 
-> **提示**：bcrypt hash 是单向加密，无法从 hash 反推原始密码。每次修改密码都需要重新生成 hash。
+> **提示**：bcrypt hash 是单向加密，无法从 hash 反推原始密码。每次修改密码都需要重新生成 hash。`admin-hash.txt` 文件已在 `.gitignore` 中排除，不会被提交。
 
 ## 九、防火墙配置
 
@@ -322,9 +321,9 @@ mysql -u root -e "SHOW DATABASES;"
 
 ```bash
 cd /var/www/career-app
-# 重新生成 bcrypt hash 并更新 .env.local
+# 重新生成 bcrypt hash 并更新 admin-hash.txt
 node -e "require('bcrypt').hash('新密码', 10).then(h => console.log(h))"
-nano .env.local   # 更新 ADMIN_PASSWORD_HASH 的值
+echo '新的hash值' > admin-hash.txt
 pm2 restart career-app
 ```
 
@@ -342,7 +341,8 @@ pm2 restart career-app
 
 ```
 /var/www/career-app/
-├── .env.local          # 环境变量（密码等）
+├── .env.local          # 环境变量（JWT_SECRET 等）
+├── admin-hash.txt      # 管理员密码 bcrypt hash（不提交到 Git）
 ├── .next/              # 构建产物
 ├── db-config.json      # 数据库配置（安装后自动生成）
 ├── uploads/            # 用户上传的头像和图片
