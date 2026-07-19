@@ -20,7 +20,8 @@ export async function PUT(request: NextRequest) {
     closeDb();
 
     return NextResponse.json({ message: "配置已更新" });
-  } catch {
+  } catch (err) {
+    console.error("Settings PUT error:", err);
     return NextResponse.json({ error: "保存失败" }, { status: 500 });
   }
 }

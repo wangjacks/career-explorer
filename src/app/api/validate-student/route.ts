@@ -25,7 +25,8 @@ export async function POST(request: NextRequest) {
     }
 
     return NextResponse.json({ ok: false, error: "学号不存在" }, { status: 404 });
-  } catch {
+  } catch (err) {
+    console.error("Validate-student error:", err);
     return NextResponse.json({ ok: false, error: "服务器错误" }, { status: 500 });
   }
 }

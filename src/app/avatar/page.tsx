@@ -15,7 +15,9 @@ export default function AvatarPage() {
       try {
         const profile = JSON.parse(profileStr);
         return safeImageUrl(profile.avatarUrl);
-      } catch {}
+      } catch {
+        // corrupted profile in localStorage, start fresh
+      }
     }
     return null;
   });

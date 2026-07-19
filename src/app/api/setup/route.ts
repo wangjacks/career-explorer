@@ -23,6 +23,7 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ ok: true, message: "安装成功" });
   } catch (err) {
+    console.error("Setup error:", err);
     return NextResponse.json(
       { error: `安装失败: ${err instanceof Error ? err.message : "未知错误"}` },
       { status: 500 }

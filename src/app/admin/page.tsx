@@ -28,16 +28,28 @@ export default function AdminPage() {
   const [activeTab, setActiveTab] = useState<Tab>("overview");
   const [dbConfig, setDbConfig] = useState<DbConfig | null>(null);
   const [students, setStudents] = useState<Student[]>([]);
+  const [studentsError, setStudentsError] = useState(false);
+  const [settingsError, setSettingsError] = useState(false);
   const [loginInput, setLoginInput] = useState("");
 
   const refreshStudents = useCallback(async () => {
     const data = await loadStudents();
-    setStudents(data);
+    if (data !== null) {
+      setStudents(data);
+      setStudentsError(false);
+    } else {
+      setStudentsError(true);
+    }
   }, [loadStudents]);
 
   const refreshSettings = useCallback(async () => {
     const data = await loadSettings();
-    setDbConfig(data);
+    if (data) {
+      setDbConfig(data);
+      setSettingsError(false);
+    } else {
+      setSettingsError(true);
+    }
   }, [loadSettings]);
 
   /* eslint-disable react-hooks/set-state-in-effect -- init after login */
@@ -180,6 +192,8 @@ export default function AdminPage() {
         {activeTab === "settings" && (
           <SettingsTab
             dbConfig={dbConfig}
+            loadError={settingsError}
+            onRetry={refreshSettings}
             onConfigSaved={onConfigSaved}
           />
         )}
@@ -187,6 +201,8 @@ export default function AdminPage() {
         {activeTab === "students" && (
           <StudentsTab
             students={students}
+            loadError={studentsError}
+            onRetry={refreshStudents}
             onStudentsChanged={refreshStudents}
           />
         )}

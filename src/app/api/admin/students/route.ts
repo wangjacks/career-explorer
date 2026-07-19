@@ -33,7 +33,8 @@ export async function POST(request: NextRequest) {
     }
 
     return NextResponse.json({ error: "参数错误" }, { status: 400 });
-  } catch {
+  } catch (err) {
+    console.error("Students POST error:", err);
     return NextResponse.json({ error: "添加失败" }, { status: 500 });
   }
 }
@@ -46,7 +47,8 @@ export async function DELETE(request: NextRequest) {
     }
     const deleted = await deleteStudents(ids);
     return NextResponse.json({ deleted, message: `已删除 ${deleted} 名学生` });
-  } catch {
+  } catch (err) {
+    console.error("Students DELETE error:", err);
     return NextResponse.json({ error: "删除失败" }, { status: 500 });
   }
 }

@@ -44,7 +44,9 @@ export async function GET(request: NextRequest) {
         const buffer = Buffer.from(await res.arrayBuffer());
         zip.file(filename, buffer);
         imageCount++;
-      } catch {}
+      } catch (err) {
+        console.warn("Failed to fetch image for zip:", url, err);
+      }
     }
   }
 
