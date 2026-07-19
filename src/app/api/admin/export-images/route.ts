@@ -2,17 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getAllProfilesRaw } from "@/lib/db";
 import JSZip from "jszip";
 
-function checkAuth(request: NextRequest) {
-  const auth = request.headers.get("authorization");
-  const password = process.env.ADMIN_PASSWORD || "admin123";
-  return auth === `Bearer ${password}`;
-}
-
 export async function GET(request: NextRequest) {
-  if (!checkAuth(request)) {
-    return NextResponse.json({ error: "未授权" }, { status: 401 });
-  }
-
   const { searchParams } = new URL(request.url);
   const scope = searchParams.get("scope") || "all";
   const idsParam = searchParams.get("ids") || "";

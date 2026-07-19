@@ -6,12 +6,11 @@ import { Field } from "./AdminUI";
 import type { DbConfig } from "@/hooks/useAdminAuth";
 
 interface Props {
-  authHeaders: () => Record<string, string>;
   dbConfig: DbConfig | null;
   onConfigSaved: () => void;
 }
 
-export default function SettingsTab({ authHeaders, dbConfig, onConfigSaved }: Props) {
+export default function SettingsTab({ dbConfig, onConfigSaved }: Props) {
   const [config, setConfig] = useState<DbConfig | null>(dbConfig);
   const [testingDb, setTestingDb] = useState(false);
   const [savingDb, setSavingDb] = useState(false);
@@ -27,7 +26,7 @@ export default function SettingsTab({ authHeaders, dbConfig, onConfigSaved }: Pr
     try {
       const res = await fetch("/api/admin/test-db", {
         method: "POST",
-        headers: { ...authHeaders(), "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify(config.mysql),
       });
       const data = await res.json();
@@ -46,7 +45,7 @@ export default function SettingsTab({ authHeaders, dbConfig, onConfigSaved }: Pr
     try {
       const res = await fetch("/api/admin/settings", {
         method: "PUT",
-        headers: { ...authHeaders(), "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify(config),
       });
       const data = await res.json();

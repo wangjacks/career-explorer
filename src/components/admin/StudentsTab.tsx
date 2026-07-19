@@ -6,12 +6,11 @@ import { Field } from "./AdminUI";
 import type { Student } from "@/hooks/useAdminAuth";
 
 interface Props {
-  authHeaders: () => Record<string, string>;
   students: Student[];
   onStudentsChanged: () => void;
 }
 
-export default function StudentsTab({ authHeaders, students, onStudentsChanged }: Props) {
+export default function StudentsTab({ students, onStudentsChanged }: Props) {
   const [newStudentId, setNewStudentId] = useState("");
   const [newStudentName, setNewStudentName] = useState("");
   const [selectedStudents, setSelectedStudents] = useState<Set<string>>(new Set());
@@ -29,7 +28,7 @@ export default function StudentsTab({ authHeaders, students, onStudentsChanged }
     try {
       const res = await fetch("/api/admin/students", {
         method: "POST",
-        headers: { ...authHeaders(), "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ studentId: newStudentId, name: newStudentName.trim() }),
       });
       if (!res.ok) {
@@ -77,7 +76,7 @@ export default function StudentsTab({ authHeaders, students, onStudentsChanged }
     try {
       const res = await fetch("/api/admin/students", {
         method: "POST",
-        headers: { ...authHeaders(), "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ students: parsed }),
       });
       const data = await res.json();
@@ -95,7 +94,7 @@ export default function StudentsTab({ authHeaders, students, onStudentsChanged }
     try {
       const res = await fetch("/api/admin/students", {
         method: "DELETE",
-        headers: { ...authHeaders(), "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ ids }),
       });
       if (!res.ok) throw new Error("删除失败");

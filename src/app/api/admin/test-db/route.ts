@@ -1,17 +1,8 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import mysql from "mysql2/promise";
-
-function checkAuth(request: NextRequest) {
-  const auth = request.headers.get("authorization");
-  const password = process.env.ADMIN_PASSWORD || "admin123";
-  return auth === `Bearer ${password}`;
-}
+import type { NextRequest } from "next/server";
 
 export async function POST(request: NextRequest) {
-  if (!checkAuth(request)) {
-    return NextResponse.json({ error: "未授权" }, { status: 401 });
-  }
-
   try {
     const { host, port, user, password, database } = await request.json();
 

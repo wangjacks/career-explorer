@@ -16,7 +16,6 @@ export default function AdminPage() {
     loggedIn,
     installed,
     setInstalled,
-    authHeaders,
     handleLogin,
     handleLogout,
     loadStats,
@@ -172,7 +171,6 @@ export default function AdminPage() {
 
         {activeTab === "overview" && (
           <OverviewTab
-            authHeaders={authHeaders}
             installed={installed}
             loadStats={loadStats}
             loadProfiles={loadProfiles}
@@ -181,7 +179,6 @@ export default function AdminPage() {
 
         {activeTab === "settings" && (
           <SettingsTab
-            authHeaders={authHeaders}
             dbConfig={dbConfig}
             onConfigSaved={onConfigSaved}
           />
@@ -189,14 +186,13 @@ export default function AdminPage() {
 
         {activeTab === "students" && (
           <StudentsTab
-            authHeaders={authHeaders}
             students={students}
             onStudentsChanged={refreshStudents}
           />
         )}
 
         {activeTab === "export" && (
-          <ExportTab authHeaders={authHeaders} />
+          <ExportTab />
         )}
       </main>
     </div>
