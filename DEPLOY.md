@@ -8,7 +8,7 @@
 | Node.js | 18.x 或 20.x |
 | MySQL | 5.7+ 或 MariaDB 10.3+ |
 | 域名 | 已备案的域名（国内服务器需 ICP 备案） |
-| 端口 | 3621（应用）、80/443（Nginx 反向代理） |
+| 端口 | 3000（应用）、80/443（Nginx 反向代理） |
 
 > **注意**：项目仅支持 MySQL，不支持 SQLite。服务器无需安装 Python 或 C++ 编译工具。
 
@@ -156,7 +156,7 @@ server {
     client_max_body_size 10M;
 
     location / {
-        proxy_pass http://127.0.0.1:3621;
+        proxy_pass http://127.0.0.1:3000;
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection 'upgrade';
@@ -283,10 +283,10 @@ pm2 status
 sudo systemctl status nginx
 
 # 测试接口
-curl http://localhost:3621/api/setup/status
+curl http://localhost:3000/api/setup/status
 
 # 检查端口监听
-sudo netstat -tlnp | grep -E ':(80|443|3621)'
+sudo netstat -tlnp | grep -E ':(80|443|3000)'
 ```
 
 ## 十二、常见问题
@@ -297,8 +297,8 @@ sudo netstat -tlnp | grep -E ':(80|443|3621)'
 # 应用未启动，检查 PM2
 pm2 logs career-app
 
-# 确认端口 3621 被监听
-sudo netstat -tlnp | grep 3621
+# 确认端口 3000 被监听
+sudo netstat -tlnp | grep 3000
 ```
 
 ### 上传文件 413 错误
