@@ -8,7 +8,7 @@
 | Node.js | 18.x 或 20.x |
 | MySQL | 5.7+ 或 MariaDB 10.3+ |
 | 域名 | 已备案的域名（国内服务器需 ICP 备案） |
-| 端口 | 3000（应用）、80/443（Nginx 反向代理） |
+| 端口 | 3621（应用）、80/443（Nginx 反向代理） |
 
 > **注意**：项目仅支持 MySQL，不支持 SQLite。服务器无需安装 Python 或 C++ 编译工具。
 
@@ -79,9 +79,13 @@ cd /var/www/career-app
 # 安装依赖
 npm install
 
-# 配置环境变量（设置管理员密码）
+# 生成管理员密码的 bcrypt hash（在本地执行）
+node -e "require('bcrypt').hash('你的密码', 10).then(h => console.log(h))"
+
+# 配置环境变量
 cat > .env.local << 'EOF'
-ADMIN_PASSWORD=你的后台密码
+ADMIN_PASSWORD_HASH=上面生成的bcrypt hash值
+JWT_SECRET=一个随机字符串作为JWT签名密钥
 EOF
 
 # 构建生产版本
@@ -105,6 +109,8 @@ cd /var/www/career-app
 
 # 启动
 pm2 start npm --name "career-app" -- start
+# 如需指定端口：
+# PORT=3621 pm2 start npm --name "career-app" -- start
 
 # 查看状态
 pm2 status
@@ -150,7 +156,7 @@ server {
     client_max_body_size 10M;
 
     location / {
-        proxy_pass http://127.0.0.1:3000;
+        proxy_pass http://127.0.0.1:3621;
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection 'upgrade';
@@ -224,15 +230,25 @@ Let's Encrypt 证书有效期 90 天，Certbot 会自动通过 cron 续期。
 
 ### 3. 设置管理员密码
 
-安装完成后，建议修改管理员密码：
+安装完成后，需要设置管理员密码（bcrypt hash 格式）：
 
 ```bash
 cd /var/www/career-app
+
+# 生成 bcrypt hash（替换 '你的新密码' 为实际密码）
+node -e "require('bcrypt').hash('你的新密码', 10).then(h => console.log(h))"
+
+# 写入环境变量
 cat > .env.local << 'EOF'
-ADMIN_PASSWORD=你的新密码
+ADMIN_PASSWORD_HASH=上面生成的bcrypt hash值
+JWT_SECRET=建议设置一个随机字符串
 EOF
+
+# 重启应用使配置生效
 pm2 restart career-app
 ```
+
+> **提示**：bcrypt hash 是单向加密，无法从 hash 反推原始密码。每次修改密码都需要重新生成 hash。
 
 ## 九、防火墙配置
 
@@ -267,10 +283,10 @@ pm2 status
 sudo systemctl status nginx
 
 # 测试接口
-curl http://localhost:3000/api/setup/status
+curl http://localhost:3621/api/setup/status
 
 # 检查端口监听
-sudo netstat -tlnp | grep -E ':(80|443|3000)'
+sudo netstat -tlnp | grep -E ':(80|443|3621)'
 ```
 
 ## 十二、常见问题
@@ -281,8 +297,8 @@ sudo netstat -tlnp | grep -E ':(80|443|3000)'
 # 应用未启动，检查 PM2
 pm2 logs career-app
 
-# 确认端口 3000 被监听
-sudo netstat -tlnp | grep 3000
+# 确认端口 3621 被监听
+sudo netstat -tlnp | grep 3621
 ```
 
 ### 上传文件 413 错误
@@ -306,8 +322,9 @@ mysql -u root -e "SHOW DATABASES;"
 
 ```bash
 cd /var/www/career-app
-# 编辑 .env.local 修改 ADMIN_PASSWORD
-nano .env.local
+# 重新生成 bcrypt hash 并更新 .env.local
+node -e "require('bcrypt').hash('新密码', 10).then(h => console.log(h))"
+nano .env.local   # 更新 ADMIN_PASSWORD_HASH 的值
 pm2 restart career-app
 ```
 
