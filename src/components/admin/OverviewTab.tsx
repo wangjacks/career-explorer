@@ -6,13 +6,12 @@ import { StatCard } from "./AdminUI";
 import type { Stats, PagedData, Profile } from "@/hooks/useAdminAuth";
 
 interface Props {
-  authHeaders: () => Record<string, string>;
   installed: boolean | null;
   loadStats: () => Promise<Stats | null>;
   loadProfiles: (p: number) => Promise<PagedData | null>;
 }
 
-export default function OverviewTab({ authHeaders, installed, loadStats, loadProfiles }: Props) {
+export default function OverviewTab({ installed, loadStats, loadProfiles }: Props) {
   const [stats, setStats] = useState<Stats | null>(null);
   const [paged, setPaged] = useState<PagedData | null>(null);
   const [page, setPage] = useState(1);
@@ -48,7 +47,7 @@ export default function OverviewTab({ authHeaders, installed, loadStats, loadPro
     try {
       const res = await fetch("/api/admin/profiles", {
         method: "DELETE",
-        headers: { ...authHeaders(), "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ ids }),
       });
       if (!res.ok) throw new Error("删除失败");

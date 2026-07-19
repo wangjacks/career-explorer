@@ -1,15 +1,31 @@
 import { NextRequest, NextResponse } from "next/server";
+import { verifyPassword, signToken, setAuthCookie, clearAuthCookie } from "@/lib/auth";
 
 export async function POST(request: NextRequest) {
   try {
     const { password } = await request.json();
-    const correctPassword = process.env.ADMIN_PASSWORD || "admin123";
+    const hash = process.env.ADMIN_PASSWORD_HASH;
 
-    if (password === correctPassword) {
-      return NextResponse.json({ ok: true });
+    if (!hash) {
+      return NextResponse.json({ ok: false, error: "服务器未配置管理员密码" }, { status: 500 });
     }
-    return NextResponse.json({ ok: false, error: "密码错误" }, { status: 401 });
+
+    const valid = await verifyPassword(password, hash);
+    if (!valid) {
+      return NextResponse.json({ ok: false, error: "密码错误" }, { status: 401 });
+    }
+
+    const token = await signToken();
+    const response = NextResponse.json({ ok: true });
+    response.headers.set("Set-Cookie", setAuthCookie(token));
+    return response;
   } catch {
     return NextResponse.json({ ok: false, error: "服务器错误" }, { status: 500 });
   }
+}
+
+export async function DELETE() {
+  const response = NextResponse.json({ ok: true });
+  response.headers.set("Set-Cookie", clearAuthCookie());
+  return response;
 }

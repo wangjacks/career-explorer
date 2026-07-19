@@ -2,12 +2,6 @@ import { NextRequest, NextResponse } from "next/server";
 import { getAllProfilesRaw, getAllStudents } from "@/lib/db";
 import ExcelJS from "exceljs";
 
-function checkAuth(request: NextRequest) {
-  const auth = request.headers.get("authorization");
-  const password = process.env.ADMIN_PASSWORD || "admin123";
-  return auth === `Bearer ${password}`;
-}
-
 interface ExportRow {
   student_id: string;
   name: string;
@@ -18,10 +12,6 @@ interface ExportRow {
 }
 
 export async function GET(request: NextRequest) {
-  if (!checkAuth(request)) {
-    return NextResponse.json({ error: "未授权" }, { status: 401 });
-  }
-
   const { searchParams } = new URL(request.url);
   const format = searchParams.get("format") || "csv";
   const scope = searchParams.get("scope") || "all";
@@ -185,10 +175,6 @@ export async function GET(request: NextRequest) {
 
 // Preview endpoint
 export async function POST(request: NextRequest) {
-  if (!checkAuth(request)) {
-    return NextResponse.json({ error: "未授权" }, { status: 401 });
-  }
-
   const body = await request.json();
   const { scope, ids, dateFrom, dateTo, columns: columnsParam } = body;
 

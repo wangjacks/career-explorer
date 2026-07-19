@@ -10,7 +10,9 @@
     "prepare": "husky"
   },
   "dependencies": {
+    "bcrypt": "^6.0.0",
     "exceljs": "^4.4.0",
+    "jose": "^6.2.3",
     "jszip": "^3.10.1",
     "mysql2": "^3.22.6",
     "next": "16.2.10",
@@ -21,6 +23,7 @@
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
+    "@types/bcrypt": "^6.0.0",
     "@types/node": "^26",
     "@types/react": "^19",
     "@types/react-dom": "^19",

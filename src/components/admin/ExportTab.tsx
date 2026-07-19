@@ -3,11 +3,7 @@
 import { useState } from "react";
 import { toast } from "sonner";
 
-interface Props {
-  authHeaders: () => Record<string, string>;
-}
-
-export default function ExportTab({ authHeaders }: Props) {
+export default function ExportTab() {
   const [exportScope, setExportScope] = useState<"all" | "students" | "byIds" | "date">("all");
   const [exportIds, setExportIds] = useState("");
   const [dateFrom, setDateFrom] = useState("");
@@ -52,7 +48,7 @@ export default function ExportTab({ authHeaders }: Props) {
     try {
       const res = await fetch("/api/admin/export", {
         method: "POST",
-        headers: { ...authHeaders(), "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           scope: exportScope,
           ids: exportIds,
@@ -78,7 +74,7 @@ export default function ExportTab({ authHeaders }: Props) {
       const params = getExportParams();
       params.set("format", exportFormat);
       if (exportFormat === "xlsx") params.set("embedImages", String(embedImages));
-      const res = await fetch(`/api/admin/export?${params}`, { headers: authHeaders() });
+      const res = await fetch(`/api/admin/export?${params}`);
       if (!res.ok) throw new Error("导出失败");
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
@@ -99,7 +95,7 @@ export default function ExportTab({ authHeaders }: Props) {
     setExporting(true);
     try {
       const params = getExportParams();
-      const res = await fetch(`/api/admin/export-images?${params}`, { headers: authHeaders() });
+      const res = await fetch(`/api/admin/export-images?${params}`);
       if (!res.ok) {
         const data = await res.json();
         throw new Error(data.error || "导出失败");

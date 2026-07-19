@@ -1,25 +1,13 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { getConfig, setConfig, type DbConfig } from "@/lib/db-config";
 import { closeDb } from "@/lib/db";
+import type { NextRequest } from "next/server";
 
-function checkAuth(request: NextRequest) {
-  const auth = request.headers.get("authorization");
-  const password = process.env.ADMIN_PASSWORD || "admin123";
-  return auth === `Bearer ${password}`;
-}
-
-export async function GET(request: NextRequest) {
-  if (!checkAuth(request)) {
-    return NextResponse.json({ error: "未授权" }, { status: 401 });
-  }
+export async function GET() {
   return NextResponse.json(getConfig());
 }
 
 export async function PUT(request: NextRequest) {
-  if (!checkAuth(request)) {
-    return NextResponse.json({ error: "未授权" }, { status: 401 });
-  }
-
   try {
     const newConfig = (await request.json()) as DbConfig;
 

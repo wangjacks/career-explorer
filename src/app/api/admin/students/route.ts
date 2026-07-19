@@ -1,26 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAllStudents, insertStudent, insertStudentsBatch, deleteStudents } from "@/lib/db";
 
-function checkAuth(request: NextRequest) {
-  const auth = request.headers.get("authorization");
-  const password = process.env.ADMIN_PASSWORD || "admin123";
-  return auth === `Bearer ${password}`;
-}
-
-export async function GET(request: NextRequest) {
-  if (!checkAuth(request)) {
-    return NextResponse.json({ error: "未授权" }, { status: 401 });
-  }
-
+export async function GET() {
   const students = await getAllStudents();
   return NextResponse.json({ data: students, total: students.length });
 }
 
 export async function POST(request: NextRequest) {
-  if (!checkAuth(request)) {
-    return NextResponse.json({ error: "未授权" }, { status: 401 });
-  }
-
   try {
     const body = await request.json();
 
@@ -53,10 +39,6 @@ export async function POST(request: NextRequest) {
 }
 
 export async function DELETE(request: NextRequest) {
-  if (!checkAuth(request)) {
-    return NextResponse.json({ error: "未授权" }, { status: 401 });
-  }
-
   try {
     const { ids } = await request.json();
     if (!Array.isArray(ids) || ids.length === 0) {

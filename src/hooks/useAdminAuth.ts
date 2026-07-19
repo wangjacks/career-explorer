@@ -44,18 +44,11 @@ export interface DbConfig {
 }
 
 export function useAdminAuth() {
-  const [password, setPassword] = useState(
-    () => sessionStorage.getItem("admin_password") || ""
-  );
-  const [loggedIn, setLoggedIn] = useState(
-    () => !!sessionStorage.getItem("admin_password")
-  );
+  const [loggedIn, setLoggedIn] = useState(() => {
+    if (typeof document === "undefined") return false;
+    return document.cookie.includes("admin_token=");
+  });
   const [installed, setInstalled] = useState<boolean | null>(null);
-
-  const authHeaders = useCallback(
-    () => ({ Authorization: `Bearer ${password}` }),
-    [password]
-  );
 
   const handleLogin = async (pw: string) => {
     try {
@@ -66,8 +59,6 @@ export function useAdminAuth() {
       });
       const data = await res.json();
       if (data.ok) {
-        sessionStorage.setItem("admin_password", pw);
-        setPassword(pw);
         setLoggedIn(true);
         return true;
       }
@@ -77,49 +68,50 @@ export function useAdminAuth() {
     }
   };
 
-  const handleLogout = () => {
-    sessionStorage.removeItem("admin_password");
+  const handleLogout = async () => {
+    try {
+      await fetch("/api/admin/auth", { method: "DELETE" });
+    } catch { /* ignore */ }
     setLoggedIn(false);
-    setPassword("");
   };
 
   const loadStats = useCallback(async (): Promise<Stats | null> => {
     try {
-      const res = await fetch("/api/admin/stats", { headers: authHeaders() });
+      const res = await fetch("/api/admin/stats");
       if (res.ok) return await res.json();
     } catch { /* empty */ }
     return null;
-  }, [authHeaders]);
+  }, []);
 
   const loadProfiles = useCallback(
     async (p: number): Promise<PagedData | null> => {
       try {
-        const res = await fetch(`/api/admin/profiles?page=${p}`, { headers: authHeaders() });
+        const res = await fetch(`/api/admin/profiles?page=${p}`);
         if (res.ok) return await res.json();
       } catch { /* empty */ }
       return null;
     },
-    [authHeaders]
+    []
   );
 
   const loadSettings = useCallback(async (): Promise<DbConfig | null> => {
     try {
-      const res = await fetch("/api/admin/settings", { headers: authHeaders() });
+      const res = await fetch("/api/admin/settings");
       if (res.ok) return await res.json();
     } catch { /* empty */ }
     return null;
-  }, [authHeaders]);
+  }, []);
 
   const loadStudents = useCallback(async (): Promise<Student[]> => {
     try {
-      const res = await fetch("/api/admin/students", { headers: authHeaders() });
+      const res = await fetch("/api/admin/students");
       if (res.ok) {
         const data = await res.json();
         return data.data;
       }
     } catch { /* empty */ }
     return [];
-  }, [authHeaders]);
+  }, []);
 
   const checkInstalled = useCallback(async () => {
     try {
@@ -133,19 +125,15 @@ export function useAdminAuth() {
     }
   }, []);
 
-  // Initial data check on login
   const initAfterLogin = useCallback(async () => {
     const isInstalled = await checkInstalled();
     return isInstalled;
   }, [checkInstalled]);
 
   return {
-    password,
-    setPassword,
     loggedIn,
     installed,
     setInstalled,
-    authHeaders,
     handleLogin,
     handleLogout,
     loadStats,
