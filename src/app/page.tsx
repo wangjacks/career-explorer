@@ -1,6 +1,9 @@
 import Link from "next/link";
 import NavigationBar from "@/components/NavigationBar";
 
+// 强制动态渲染，避免 Next.js 静态预渲染添加 s-maxage 缓存头
+export const dynamic = "force-dynamic";
+
 export default function IndexPage() {
   return (
     <div className="flex flex-col min-h-screen bg-gradient-to-b from-green-50 to-white">
