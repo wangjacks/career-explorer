@@ -10,7 +10,7 @@ function getPasswordHash(): string | null {
     const hash = readFileSync(filePath, "utf-8").trim();
     if (hash) return hash;
   } catch {
-    // file not found, fallback to env
+    // file not found, fallback to env — this is expected on first run
   }
   return process.env.ADMIN_PASSWORD_HASH || null;
 }
@@ -33,7 +33,8 @@ export async function POST(request: NextRequest) {
     const response = NextResponse.json({ ok: true });
     response.headers.set("Set-Cookie", setAuthCookie(token));
     return response;
-  } catch {
+  } catch (err) {
+    console.error("Auth POST error:", err);
     return NextResponse.json({ ok: false, error: "服务器错误" }, { status: 500 });
   }
 }

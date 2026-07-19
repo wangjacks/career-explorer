@@ -7,10 +7,12 @@ import type { Student } from "@/hooks/useAdminAuth";
 
 interface Props {
   students: Student[];
+  loadError?: boolean;
+  onRetry?: () => void;
   onStudentsChanged: () => void;
 }
 
-export default function StudentsTab({ students, onStudentsChanged }: Props) {
+export default function StudentsTab({ students, loadError, onRetry, onStudentsChanged }: Props) {
   const [newStudentId, setNewStudentId] = useState("");
   const [newStudentName, setNewStudentName] = useState("");
   const [selectedStudents, setSelectedStudents] = useState<Set<string>>(new Set());
@@ -109,6 +111,14 @@ export default function StudentsTab({ students, onStudentsChanged }: Props) {
   return (
     <div className="bg-white rounded-xl border border-gray-100 p-6 space-y-6">
       <h2 className="font-semibold text-gray-800">学生管理</h2>
+
+      {loadError && students.length === 0 && (
+        <div className="text-center py-6 text-red-500 space-y-2">
+          <p>学生列表加载失败</p>
+          <button onClick={onRetry}
+            className="px-4 py-1.5 bg-red-500 hover:bg-red-600 text-white text-sm rounded-lg transition-colors">重试</button>
+        </div>
+      )}
 
       <div className="flex gap-2 items-end">
         <Field label="学号" value={newStudentId}

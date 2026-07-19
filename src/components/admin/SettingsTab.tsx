@@ -7,10 +7,12 @@ import type { DbConfig } from "@/hooks/useAdminAuth";
 
 interface Props {
   dbConfig: DbConfig | null;
+  loadError?: boolean;
+  onRetry?: () => void;
   onConfigSaved: () => void;
 }
 
-export default function SettingsTab({ dbConfig, onConfigSaved }: Props) {
+export default function SettingsTab({ dbConfig, loadError, onRetry, onConfigSaved }: Props) {
   const [config, setConfig] = useState<DbConfig | null>(dbConfig);
   const [testingDb, setTestingDb] = useState(false);
   const [savingDb, setSavingDb] = useState(false);
@@ -61,6 +63,16 @@ export default function SettingsTab({ dbConfig, onConfigSaved }: Props) {
       setSavingDb(false);
     }
   };
+
+  if (loadError && !config) {
+    return (
+      <div className="bg-white rounded-xl border border-gray-100 p-8 text-center space-y-3">
+        <p className="text-red-500">配置加载失败</p>
+        <button onClick={onRetry}
+          className="px-4 py-1.5 bg-red-500 hover:bg-red-600 text-white text-sm rounded-lg transition-colors">重试</button>
+      </div>
+    );
+  }
 
   if (!config) return null;
 

@@ -20,6 +20,7 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ ok: true, message: "连接成功" });
   } catch (err) {
+    console.error("Test-db error:", err);
     return NextResponse.json(
       {
         ok: false,

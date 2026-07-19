@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useCallback } from "react";
+import { toast } from "sonner";
 
 export interface Profile {
   studentId: string;
@@ -71,7 +72,9 @@ export function useAdminAuth() {
   const handleLogout = async () => {
     try {
       await fetch("/api/admin/auth", { method: "DELETE" });
-    } catch { /* ignore */ }
+    } catch (err) {
+      console.error("Logout failed:", err);
+    }
     setLoggedIn(false);
   };
 
@@ -79,7 +82,10 @@ export function useAdminAuth() {
     try {
       const res = await fetch("/api/admin/stats");
       if (res.ok) return await res.json();
-    } catch { /* empty */ }
+    } catch (err) {
+      console.error("Failed to load stats:", err);
+      toast.error("加载统计数据失败");
+    }
     return null;
   }, []);
 
@@ -88,7 +94,10 @@ export function useAdminAuth() {
       try {
         const res = await fetch(`/api/admin/profiles?page=${p}`);
         if (res.ok) return await res.json();
-      } catch { /* empty */ }
+      } catch (err) {
+        console.error("Failed to load profiles:", err);
+        toast.error("加载档案列表失败");
+      }
       return null;
     },
     []
@@ -98,19 +107,25 @@ export function useAdminAuth() {
     try {
       const res = await fetch("/api/admin/settings");
       if (res.ok) return await res.json();
-    } catch { /* empty */ }
+    } catch (err) {
+      console.error("Failed to load settings:", err);
+      toast.error("加载配置失败");
+    }
     return null;
   }, []);
 
-  const loadStudents = useCallback(async (): Promise<Student[]> => {
+  const loadStudents = useCallback(async (): Promise<Student[] | null> => {
     try {
       const res = await fetch("/api/admin/students");
       if (res.ok) {
         const data = await res.json();
         return data.data;
       }
-    } catch { /* empty */ }
-    return [];
+    } catch (err) {
+      console.error("Failed to load students:", err);
+      toast.error("加载学生列表失败");
+    }
+    return null;
   }, []);
 
   const checkInstalled = useCallback(async () => {
@@ -119,7 +134,8 @@ export function useAdminAuth() {
       const data = await r.json();
       setInstalled(data.installed);
       return data.installed as boolean;
-    } catch {
+    } catch (err) {
+      console.error("Failed to check install status:", err);
       setInstalled(false);
       return false;
     }

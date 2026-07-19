@@ -155,7 +155,9 @@ export async function GET(request: NextRequest) {
                 ext: { width: 60, height: 60 },
               });
               sheet.getRow(rowNum).height = 50;
-            } catch {}
+            } catch (err) {
+              console.warn("Failed to embed image in Excel:", url, err);
+            }
           }
         }
       }

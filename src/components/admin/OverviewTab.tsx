@@ -17,10 +17,16 @@ export default function OverviewTab({ installed, loadStats, loadProfiles }: Prop
   const [page, setPage] = useState(1);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [detail, setDetail] = useState<Profile | null>(null);
+  const [loadError, setLoadError] = useState(false);
 
   const refreshStats = useCallback(async () => {
     const s = await loadStats();
-    if (s) setStats(s);
+    if (s) {
+      setStats(s);
+      setLoadError(false);
+    } else {
+      setLoadError(true);
+    }
   }, [loadStats]);
 
   const refreshProfiles = useCallback(async (p: number) => {
@@ -81,7 +87,14 @@ export default function OverviewTab({ installed, loadStats, loadProfiles }: Prop
 
   return (
     <>
-      {!stats && installed !== false && (
+      {loadError && !stats && (
+        <div className="text-center py-12 text-red-500">
+          <p>数据加载失败</p>
+          <button onClick={() => { refreshStats(); refreshProfiles(page); }}
+            className="mt-2 px-4 py-1.5 bg-red-500 hover:bg-red-600 text-white text-sm rounded-lg transition-colors">重试</button>
+        </div>
+      )}
+      {!stats && !loadError && installed !== false && (
         <div className="text-center py-12 text-gray-400">加载中...</div>
       )}
       {stats && (
