@@ -90,7 +90,7 @@ export default function AdminPage() {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center px-4">
         <Toaster position="top-center" />
-        <div className="w-full max-w-sm bg-white rounded-2xl shadow-sm border border-gray-100 p-8 space-y-6">
+        <div className="w-full max-w-sm sm:max-w-md bg-white rounded-2xl shadow-sm border border-gray-100 p-8 space-y-6">
           <div className="text-center">
             <h1 className="text-xl font-bold text-gray-900">后台管理</h1>
             <p className="text-sm text-gray-500 mt-1">请输入密码登录</p>

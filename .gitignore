@@ -51,3 +51,6 @@ next-env.d.ts
 
 # local docs
 /docs/
+
+# IDE/tool local knowledge
+.qoder/

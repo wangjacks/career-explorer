@@ -68,7 +68,7 @@ export default function EvaluationPage() {
       <main className="flex-1 flex flex-col items-center justify-center px-6 gap-8">
         <div
           onClick={() => fileInputRef.current?.click()}
-          className="w-full max-w-sm aspect-[4/3] rounded-2xl border-2 border-dashed border-gray-300 flex items-center justify-center cursor-pointer hover:border-green-400 transition-colors overflow-hidden bg-white"
+          className="w-full max-w-sm sm:max-w-md md:max-w-lg aspect-[4/3] rounded-2xl border-2 border-dashed border-gray-300 flex items-center justify-center cursor-pointer hover:border-green-400 transition-colors overflow-hidden bg-white"
         >
           {imageUrl ? (
             <img src={imageUrl} alt="评价词云预览" className="w-full h-full object-contain" />
@@ -109,7 +109,7 @@ export default function EvaluationPage() {
         <button
           onClick={handleNext}
           disabled={uploading}
-          className="w-full max-w-lg mx-auto block py-3 bg-green-500 hover:bg-green-600 disabled:opacity-50 text-white font-medium rounded-xl transition-colors"
+          className="w-full max-w-lg sm:max-w-xl md:max-w-2xl mx-auto block py-3 bg-green-500 hover:bg-green-600 disabled:opacity-50 text-white font-medium rounded-xl transition-colors"
         >
           {uploading ? "上传中..." : "下一步"}
         </button>
