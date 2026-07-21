@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { toast } from "sonner";
 import { Field } from "./AdminUI";
 import type { Student } from "@/hooks/useAdminAuth";
@@ -15,8 +15,24 @@ interface Props {
 export default function StudentsTab({ students, loadError, onRetry, onStudentsChanged }: Props) {
   const [newStudentId, setNewStudentId] = useState("");
   const [newStudentName, setNewStudentName] = useState("");
+  const [newClassName, setNewClassName] = useState("");
+  const [classList, setClassList] = useState<string[]>([]);
+  const [editingClass, setEditingClass] = useState<{ studentId: string; value: string } | null>(null);
   const [selectedStudents, setSelectedStudents] = useState<Set<string>>(new Set());
   const batchInputRef = useRef<HTMLTextAreaElement>(null);
+
+  const refreshClasses = async () => {
+    try {
+      const res = await fetch("/api/admin/students/classes");
+      if (res.ok) {
+        const data = await res.json();
+        setClassList(data.data || []);
+      }
+    } catch {}
+  };
+
+  // eslint-disable-next-line react-hooks/set-state-in-effect
+  useEffect(() => { refreshClasses(); }, []);
 
   const handleAddStudent = async () => {
     if (!/^\d{12}$/.test(newStudentId)) {
@@ -31,7 +47,7 @@ export default function StudentsTab({ students, loadError, onRetry, onStudentsCh
       const res = await fetch("/api/admin/students", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ studentId: newStudentId, name: newStudentName.trim() }),
+        body: JSON.stringify({ studentId: newStudentId, name: newStudentName.trim(), className: newClassName.trim() }),
       });
       if (!res.ok) {
         const data = await res.json();
@@ -40,7 +56,9 @@ export default function StudentsTab({ students, loadError, onRetry, onStudentsCh
       toast.success("添加成功");
       setNewStudentId("");
       setNewStudentName("");
+      setNewClassName("");
       onStudentsChanged();
+      refreshClasses();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "添加失败");
     }
@@ -56,16 +74,19 @@ export default function StudentsTab({ students, loadError, onRetry, onStudentsCh
 
     const idKeywords = ["学号", "student_id", "studentid", "学籍号", "编号", "id"];
     const nameKeywords = ["姓名", "name", "名字", "学生姓名", "student_name"];
+    const classKeywords = ["班级", "class", "classname", "班"];
 
     const firstCells = lines[0].split(/[,，\t]/).map((s) => s.trim().toLowerCase());
     let idCol = -1;
     let nameCol = -1;
+    let classCol = -1;
     for (let i = 0; i < firstCells.length; i++) {
       if (idCol === -1 && idKeywords.some((k) => firstCells[i] === k)) idCol = i;
       if (nameCol === -1 && nameKeywords.some((k) => firstCells[i] === k)) nameCol = i;
+      if (classCol === -1 && classKeywords.some((k) => firstCells[i] === k)) classCol = i;
     }
 
-    const hasHeader = idCol !== -1 || nameCol !== -1;
+    const hasHeader = idCol !== -1 || nameCol !== -1 || classCol !== -1;
     const dataLines = hasHeader ? lines.slice(1) : lines;
 
     if (idCol === -1) idCol = 0;
@@ -73,7 +94,11 @@ export default function StudentsTab({ students, loadError, onRetry, onStudentsCh
 
     const parsed = dataLines.map((line) => {
       const cells = line.split(/[,，\t]/).map((s) => s.trim());
-      return { studentId: cells[idCol] || "", name: cells[nameCol] || "" };
+      return {
+        studentId: cells[idCol] || "",
+        name: cells[nameCol] || "",
+        ...(classCol !== -1 ? { className: cells[classCol] || "" } : {}),
+      };
     });
     try {
       const res = await fetch("/api/admin/students", {
@@ -86,8 +111,25 @@ export default function StudentsTab({ students, loadError, onRetry, onStudentsCh
       toast.success(data.message);
       if (batchInputRef.current) batchInputRef.current.value = "";
       onStudentsChanged();
+      refreshClasses();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "导入失败");
+    }
+  };
+
+  const saveClass = async (studentId: string, className: string) => {
+    setEditingClass(null);
+    try {
+      const res = await fetch("/api/admin/students", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ studentId, className }),
+      });
+      if (!res.ok) throw new Error("更新失败");
+      onStudentsChanged();
+      refreshClasses();
+    } catch {
+      toast.error("更新班级失败");
     }
   };
 
@@ -125,6 +167,15 @@ export default function StudentsTab({ students, loadError, onRetry, onStudentsCh
           onChange={(v) => setNewStudentId(v.replace(/\D/g, "").slice(0, 12))} />
         <Field label="姓名" value={newStudentName}
           onChange={(v) => setNewStudentName(v)} />
+        <div className="space-y-1">
+          <label className="text-xs text-gray-500">班级</label>
+          <input list="class-datalist-add" value={newClassName} onChange={(e) => setNewClassName(e.target.value)}
+            placeholder="可选"
+            className="px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-300" />
+          <datalist id="class-datalist-add">
+            {classList.map((c) => <option key={c} value={c} />)}
+          </datalist>
+        </div>
         <button onClick={handleAddStudent}
           className="px-4 py-2 bg-green-500 hover:bg-green-600 text-white text-sm font-medium rounded-lg transition-colors whitespace-nowrap">
           添加
@@ -132,11 +183,11 @@ export default function StudentsTab({ students, loadError, onRetry, onStudentsCh
       </div>
 
       <div className="space-y-2">
-        <label className="text-xs text-gray-500">批量导入（支持标题行自动识别，如：学号,姓名）</label>
+        <label className="text-xs text-gray-500">批量导入（支持标题行自动识别，如：学号,姓名,班级）</label>
         <textarea
           ref={batchInputRef}
           rows={3}
-          placeholder={"学号,姓名\n202505050101,张三\n202505050102,李四"}
+          placeholder={"学号,姓名,班级\n202505050101,张三,2025级1班"}
           className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm font-mono focus:outline-none focus:ring-2 focus:ring-green-300"
         />
         <button onClick={handleBatchImport}
@@ -169,6 +220,7 @@ export default function StudentsTab({ students, loadError, onRetry, onStudentsCh
                 </th>
                 <th className="px-4 py-2">学号</th>
                 <th className="px-4 py-2">姓名</th>
+                <th className="px-4 py-2">班级</th>
                 <th className="px-4 py-2">操作</th>
               </tr>
             </thead>
@@ -188,16 +240,37 @@ export default function StudentsTab({ students, loadError, onRetry, onStudentsCh
                   <td className="px-4 py-2 font-mono text-xs">{s.student_id}</td>
                   <td className="px-4 py-2">{s.name}</td>
                   <td className="px-4 py-2">
+                    {editingClass?.studentId === s.student_id ? (
+                      <input list="class-datalist-table" autoFocus
+                        value={editingClass.value}
+                        onChange={(e) => setEditingClass({ ...editingClass, value: e.target.value })}
+                        onBlur={() => { saveClass(s.student_id, editingClass.value); }}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") saveClass(s.student_id, editingClass.value);
+                          if (e.key === "Escape") setEditingClass(null);
+                        }}
+                        className="px-2 py-0.5 border border-gray-300 rounded text-sm w-28 focus:outline-none focus:ring-1 focus:ring-green-300" />
+                    ) : (
+                      <span className="cursor-pointer hover:bg-gray-100 px-1 rounded"
+                        onClick={() => setEditingClass({ studentId: s.student_id, value: s.class_name || "" })}>
+                        {s.class_name || <span className="text-gray-400">-</span>}
+                      </span>
+                    )}
+                  </td>
+                  <td className="px-4 py-2">
                     <button onClick={() => handleDeleteStudents([s.student_id])}
                       className="text-red-500 hover:text-red-600 text-xs">删除</button>
                   </td>
                 </tr>
               ))}
               {students.length === 0 && (
-                <tr><td colSpan={4} className="px-4 py-8 text-center text-gray-400 text-sm">暂无学生数据</td></tr>
+                <tr><td colSpan={5} className="px-4 py-8 text-center text-gray-400 text-sm">暂无学生数据</td></tr>
               )}
             </tbody>
           </table>
+          <datalist id="class-datalist-table">
+            {classList.map((c) => <option key={c} value={c} />)}
+          </datalist>
         </div>
       </div>
     </div>
