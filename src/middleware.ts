@@ -11,17 +11,23 @@ export async function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
+  // Page routes: let client-side handle login state
+  if (!request.nextUrl.pathname.startsWith("/api/")) {
+    return NextResponse.next();
+  }
+
+  // API routes: enforce JWT auth, return 401 JSON on failure
   const token = request.cookies.get("admin_token")?.value;
 
   if (!token) {
-    return NextResponse.redirect(new URL("/admin/login", request.url));
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
   try {
     await jwtVerify(token, JWT_SECRET);
     return NextResponse.next();
   } catch {
-    const response = NextResponse.redirect(new URL("/admin/login", request.url));
+    const response = NextResponse.json({ error: "Token expired" }, { status: 401 });
     response.cookies.delete("admin_token");
     return response;
   }
