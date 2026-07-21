@@ -56,22 +56,25 @@ export class MysqlAdapter implements DbAdapter {
     try {
       await this.pool.execute("CREATE INDEX idx_profiles_created_at ON profiles(created_at)");
     } catch {}
+    try {
+      await this.pool.execute("ALTER TABLE students ADD COLUMN class_name VARCHAR(50) DEFAULT ''");
+    } catch {}
   }
 
   // Students
-  async insertStudent(studentId: string, name: string): Promise<void> {
+  async insertStudent(studentId: string, name: string, className: string = ""): Promise<void> {
     await this.pool.execute(
-      "INSERT INTO students (student_id, name, created_at) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE name = VALUES(name), created_at = VALUES(created_at)",
-      [studentId, name, getNow()]
+      "INSERT INTO students (student_id, name, class_name, created_at) VALUES (?, ?, ?, ?) ON DUPLICATE KEY UPDATE name = VALUES(name), class_name = VALUES(class_name), created_at = VALUES(created_at)",
+      [studentId, name, className, getNow()]
     );
   }
 
-  async insertStudentsBatch(students: { studentId: string; name: string }[]): Promise<void> {
+  async insertStudentsBatch(students: { studentId: string; name: string; className?: string }[]): Promise<void> {
     if (students.length === 0) return;
     const now = getNow();
-    const values = students.map((s) => [s.studentId, s.name, now]);
+    const values = students.map((s) => [s.studentId, s.name, s.className || "", now]);
     await this.pool.query(
-      "INSERT INTO students (student_id, name, created_at) VALUES ? ON DUPLICATE KEY UPDATE name = VALUES(name), created_at = VALUES(created_at)",
+      "INSERT INTO students (student_id, name, class_name, created_at) VALUES ? ON DUPLICATE KEY UPDATE name = VALUES(name), class_name = VALUES(class_name), created_at = VALUES(created_at)",
       [values]
     );
   }
@@ -170,12 +173,29 @@ export class MysqlAdapter implements DbAdapter {
   }
 
   async getCompareBy(by: "class" | "segment"): Promise<{ key: string; count: number }[]> {
-    const len = by === "class" ? 8 : 4;
+    if (by === "class") {
+      const [rows] = await this.pool.execute(
+        `SELECT COALESCE(NULLIF(s.class_name, ''), '未分班') as k, COUNT(*) as c
+         FROM profiles p JOIN students s ON p.student_id = s.student_id
+         GROUP BY k ORDER BY k`
+      );
+      return (rows as { k: string; c: number }[]).map((r) => ({ key: r.k, count: r.c }));
+    }
     const [rows] = await this.pool.execute(
-      `SELECT LEFT(student_id, ?) as k, COUNT(*) as c FROM profiles GROUP BY k ORDER BY k`,
-      [len]
+      `SELECT LEFT(student_id, 4) as k, COUNT(*) as c FROM profiles GROUP BY k ORDER BY k`
     );
     return (rows as { k: string; c: number }[]).map((r) => ({ key: r.k, count: r.c }));
+  }
+
+  async updateStudentClass(studentId: string, className: string): Promise<void> {
+    await this.pool.execute("UPDATE students SET class_name = ? WHERE student_id = ?", [className, studentId]);
+  }
+
+  async getClasses(): Promise<string[]> {
+    const [rows] = await this.pool.execute(
+      "SELECT DISTINCT class_name FROM students WHERE class_name != '' ORDER BY class_name"
+    );
+    return (rows as { class_name: string }[]).map((r) => r.class_name);
   }
 
   async close(): Promise<void> {

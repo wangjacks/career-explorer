@@ -12,6 +12,7 @@ export interface ProfileRow {
 export interface StudentRow {
   student_id: string;
   name: string;
+  class_name: string;
   created_at: string;
 }
 
@@ -23,8 +24,8 @@ export interface Stats {
 }
 
 export interface DbAdapter {
-  insertStudent(studentId: string, name: string): Promise<void> | void;
-  insertStudentsBatch(students: { studentId: string; name: string }[]): Promise<void> | void;
+  insertStudent(studentId: string, name: string, className?: string): Promise<void> | void;
+  insertStudentsBatch(students: { studentId: string; name: string; className?: string }[]): Promise<void> | void;
   getStudent(studentId: string): Promise<StudentRow | undefined> | StudentRow | undefined;
   getAllStudents(): Promise<StudentRow[]> | StudentRow[];
   deleteStudents(ids: string[]): Promise<number> | number;
@@ -40,6 +41,8 @@ export interface DbAdapter {
   getStats(): Promise<Stats> | Stats;
   getTrends(days: number): Promise<{ date: string; count: number }[]>;
   getCompareBy(by: "class" | "segment"): Promise<{ key: string; count: number }[]>;
+  updateStudentClass(studentId: string, className: string): Promise<void> | void;
+  getClasses(): Promise<string[]> | string[];
   close(): Promise<void> | void;
 }
 
@@ -65,11 +68,11 @@ function createAdapter(): DbAdapter {
   return adapter;
 }
 
-export async function insertStudent(studentId: string, name: string): Promise<void> {
-  return Promise.resolve(createAdapter().insertStudent(studentId, name));
+export async function insertStudent(studentId: string, name: string, className?: string): Promise<void> {
+  return Promise.resolve(createAdapter().insertStudent(studentId, name, className));
 }
 
-export async function insertStudentsBatch(students: { studentId: string; name: string }[]): Promise<void> {
+export async function insertStudentsBatch(students: { studentId: string; name: string; className?: string }[]): Promise<void> {
   return Promise.resolve(createAdapter().insertStudentsBatch(students));
 }
 
@@ -118,6 +121,14 @@ export async function getTrends(days: number): Promise<{ date: string; count: nu
 
 export async function getCompareBy(by: "class" | "segment"): Promise<{ key: string; count: number }[]> {
   return Promise.resolve(createAdapter().getCompareBy(by));
+}
+
+export async function updateStudentClass(studentId: string, className: string): Promise<void> {
+  return Promise.resolve(createAdapter().updateStudentClass(studentId, className));
+}
+
+export async function getClasses(): Promise<string[]> {
+  return Promise.resolve(createAdapter().getClasses());
 }
 
 export async function closeDb(): Promise<void> {
