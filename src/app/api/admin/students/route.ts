@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getAllStudents, insertStudent, insertStudentsBatch, deleteStudents } from "@/lib/db";
+import { getAllStudents, insertStudent, insertStudentsBatch, deleteStudents, updateStudentClass } from "@/lib/db";
 
 export async function GET() {
   const students = await getAllStudents();
@@ -15,14 +15,14 @@ export async function POST(request: NextRequest) {
       if (!/^\d{12}$/.test(body.studentId)) {
         return NextResponse.json({ error: "学号必须为12位数字" }, { status: 400 });
       }
-      await insertStudent(body.studentId, body.name);
+      await insertStudent(body.studentId, body.name, body.className || "");
       return NextResponse.json({ message: "添加成功" });
     }
 
     // Batch import
     if (Array.isArray(body.students)) {
       const valid = body.students.filter(
-        (s: { studentId: string; name: string }) =>
+        (s: { studentId: string; name: string; className?: string }) =>
           s.studentId && /^\d{12}$/.test(s.studentId) && s.name
       );
       if (valid.length === 0) {
@@ -50,5 +50,19 @@ export async function DELETE(request: NextRequest) {
   } catch (err) {
     console.error("Students DELETE error:", err);
     return NextResponse.json({ error: "删除失败" }, { status: 500 });
+  }
+}
+
+export async function PUT(request: NextRequest) {
+  try {
+    const { studentId, className } = await request.json();
+    if (!studentId || typeof className !== "string") {
+      return NextResponse.json({ error: "参数错误" }, { status: 400 });
+    }
+    await updateStudentClass(studentId, className);
+    return NextResponse.json({ ok: true });
+  } catch (err) {
+    console.error("Students PUT error:", err);
+    return NextResponse.json({ error: "更新失败" }, { status: 500 });
   }
 }
