@@ -48,6 +48,7 @@ export interface DbAdapter {
 
 let currentAdapter: DbAdapter | null = null;
 let currentType: string = "";
+let initPromise: Promise<void> | null = null;
 
 function createAdapter(): DbAdapter {
   const config = getConfig();
@@ -65,70 +66,93 @@ function createAdapter(): DbAdapter {
   const adapter = new MysqlAdapter(config.mysql);
   currentAdapter = adapter;
   currentType = configType;
+  initPromise = adapter.init();
+  initPromise.catch(() => {});
+  return adapter;
+}
+
+async function ensureInit(): Promise<DbAdapter> {
+  const adapter = createAdapter();
+  if (initPromise) await initPromise;
   return adapter;
 }
 
 export async function insertStudent(studentId: string, name: string, className?: string): Promise<void> {
-  return Promise.resolve(createAdapter().insertStudent(studentId, name, className));
+  const adapter = await ensureInit();
+  return Promise.resolve(adapter.insertStudent(studentId, name, className));
 }
 
 export async function insertStudentsBatch(students: { studentId: string; name: string; className?: string }[]): Promise<void> {
-  return Promise.resolve(createAdapter().insertStudentsBatch(students));
+  const adapter = await ensureInit();
+  return Promise.resolve(adapter.insertStudentsBatch(students));
 }
 
 export async function getStudent(studentId: string): Promise<StudentRow | undefined> {
-  return Promise.resolve(createAdapter().getStudent(studentId));
+  const adapter = await ensureInit();
+  return Promise.resolve(adapter.getStudent(studentId));
 }
 
 export async function getAllStudents(): Promise<StudentRow[]> {
-  return Promise.resolve(createAdapter().getAllStudents());
+  const adapter = await ensureInit();
+  return Promise.resolve(adapter.getAllStudents());
 }
 
 export async function deleteStudents(ids: string[]): Promise<number> {
-  return Promise.resolve(createAdapter().deleteStudents(ids));
+  const adapter = await ensureInit();
+  return Promise.resolve(adapter.deleteStudents(ids));
 }
 
 export async function insertProfile(studentId: string, tags: string[], avatarUrl: string, evaluationUrl: string): Promise<void> {
-  return Promise.resolve(createAdapter().insertProfile(studentId, tags, avatarUrl, evaluationUrl));
+  const adapter = await ensureInit();
+  return Promise.resolve(adapter.insertProfile(studentId, tags, avatarUrl, evaluationUrl));
 }
 
 export async function getProfile(studentId: string): Promise<ProfileRow | undefined> {
-  return Promise.resolve(createAdapter().getProfile(studentId));
+  const adapter = await ensureInit();
+  return Promise.resolve(adapter.getProfile(studentId));
 }
 
 export async function getAllProfiles(
   page: number = 1,
   pageSize: number = 20
 ): Promise<{ rows: (ProfileRow & { studentName?: string })[]; total: number }> {
-  return Promise.resolve(createAdapter().getAllProfiles(page, pageSize));
+  const adapter = await ensureInit();
+  return Promise.resolve(adapter.getAllProfiles(page, pageSize));
 }
 
 export async function deleteProfiles(studentIds: string[]): Promise<number> {
-  return Promise.resolve(createAdapter().deleteProfiles(studentIds));
+  const adapter = await ensureInit();
+  return Promise.resolve(adapter.deleteProfiles(studentIds));
 }
 
 export async function getAllProfilesRaw(): Promise<ProfileRow[]> {
-  return Promise.resolve(createAdapter().getAllProfilesRaw());
+  const adapter = await ensureInit();
+  return Promise.resolve(adapter.getAllProfilesRaw());
 }
 
 export async function getStats(): Promise<Stats> {
-  return Promise.resolve(createAdapter().getStats());
+  const adapter = await ensureInit();
+  return Promise.resolve(adapter.getStats());
 }
 
 export async function getTrends(days: number): Promise<{ date: string; count: number }[]> {
-  return Promise.resolve(createAdapter().getTrends(days));
+  const adapter = await ensureInit();
+  return Promise.resolve(adapter.getTrends(days));
 }
 
 export async function getCompareBy(by: "class" | "segment"): Promise<{ key: string; count: number }[]> {
-  return Promise.resolve(createAdapter().getCompareBy(by));
+  const adapter = await ensureInit();
+  return Promise.resolve(adapter.getCompareBy(by));
 }
 
 export async function updateStudentClass(studentId: string, className: string): Promise<void> {
-  return Promise.resolve(createAdapter().updateStudentClass(studentId, className));
+  const adapter = await ensureInit();
+  return Promise.resolve(adapter.updateStudentClass(studentId, className));
 }
 
 export async function getClasses(): Promise<string[]> {
-  return Promise.resolve(createAdapter().getClasses());
+  const adapter = await ensureInit();
+  return Promise.resolve(adapter.getClasses());
 }
 
 export async function closeDb(): Promise<void> {
