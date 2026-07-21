@@ -8,8 +8,9 @@ import OverviewTab from "@/components/admin/OverviewTab";
 import SettingsTab from "@/components/admin/SettingsTab";
 import StudentsTab from "@/components/admin/StudentsTab";
 import ExportTab from "@/components/admin/ExportTab";
+import DashboardTab from "@/components/admin/DashboardTab";
 
-type Tab = "overview" | "settings" | "students" | "export";
+type Tab = "overview" | "dashboard" | "settings" | "students" | "export";
 
 export default function AdminPage() {
   const {
@@ -116,6 +117,7 @@ export default function AdminPage() {
 
   const tabs: { key: Tab; label: string; badge?: string }[] = [
     { key: "overview", label: "数据概览" },
+    { key: "dashboard", label: "数据大屏" },
     { key: "settings", label: "数据源设置" },
     { key: "students", label: "学生管理", badge: `${students.length} 名` },
     { key: "export", label: "数据导出" },
@@ -187,6 +189,10 @@ export default function AdminPage() {
             loadStats={loadStats}
             loadProfiles={loadProfiles}
           />
+        )}
+
+        {activeTab === "dashboard" && (
+          <DashboardTab />
         )}
 
         {activeTab === "settings" && (

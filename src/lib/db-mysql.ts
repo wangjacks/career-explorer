@@ -53,6 +53,9 @@ export class MysqlAdapter implements DbAdapter {
     try {
       await this.pool.execute("ALTER TABLE profiles ADD COLUMN evaluation_url VARCHAR(500)");
     } catch {}
+    try {
+      await this.pool.execute("CREATE INDEX idx_profiles_created_at ON profiles(created_at)");
+    } catch {}
   }
 
   // Students
@@ -137,8 +140,12 @@ export class MysqlAdapter implements DbAdapter {
   async getStats(): Promise<Stats> {
     const [countResult] = await this.pool.execute("SELECT COUNT(*) as c FROM profiles");
     const total = (countResult as { c: number }[])[0].c;
-    const [todayResult] = await this.pool.execute("SELECT COUNT(*) as c FROM profiles WHERE DATE(created_at) = ?", [getToday()]);
-    const today = (todayResult as { c: number }[])[0].c;
+    const today = getToday();
+    const [todayResult] = await this.pool.execute(
+      "SELECT COUNT(*) as c FROM profiles WHERE created_at >= ? AND created_at < ?",
+      [today, new Date(new Date(today).getTime() + 86400000).toISOString().slice(0, 10)]
+    );
+    const todayCount = (todayResult as { c: number }[])[0].c;
     const [allRows] = await this.pool.execute("SELECT tags FROM profiles");
     const tagCount: Record<string, number> = {};
     for (const row of allRows as { tags: string }[]) {
@@ -149,7 +156,26 @@ export class MysqlAdapter implements DbAdapter {
       .map(([tag, count]) => ({ tag, count }))
       .sort((a, b) => b.count - a.count)
       .slice(0, 5);
-    return { total, today, uniqueTags, topTags };
+    return { total, today: todayCount, uniqueTags, topTags };
+  }
+
+  async getTrends(days: number): Promise<{ date: string; count: number }[]> {
+    const since = new Date(Date.now() - days * 86400000)
+      .toLocaleDateString("sv-SE", { timeZone: "Asia/Shanghai" });
+    const [rows] = await this.pool.execute(
+      "SELECT DATE(created_at) as d, COUNT(*) as c FROM profiles WHERE created_at >= ? GROUP BY DATE(created_at) ORDER BY d",
+      [since]
+    );
+    return (rows as { d: string; c: number }[]).map((r) => ({ date: r.d, count: r.c }));
+  }
+
+  async getCompareBy(by: "class" | "segment"): Promise<{ key: string; count: number }[]> {
+    const len = by === "class" ? 8 : 4;
+    const [rows] = await this.pool.execute(
+      `SELECT LEFT(student_id, ?) as k, COUNT(*) as c FROM profiles GROUP BY k ORDER BY k`,
+      [len]
+    );
+    return (rows as { k: string; c: number }[]).map((r) => ({ key: r.k, count: r.c }));
   }
 
   async close(): Promise<void> {

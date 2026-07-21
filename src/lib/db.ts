@@ -38,6 +38,8 @@ export interface DbAdapter {
   deleteProfiles(studentIds: string[]): Promise<number> | number;
   getAllProfilesRaw(): Promise<ProfileRow[]> | ProfileRow[];
   getStats(): Promise<Stats> | Stats;
+  getTrends(days: number): Promise<{ date: string; count: number }[]>;
+  getCompareBy(by: "class" | "segment"): Promise<{ key: string; count: number }[]>;
   close(): Promise<void> | void;
 }
 
@@ -108,6 +110,14 @@ export async function getAllProfilesRaw(): Promise<ProfileRow[]> {
 
 export async function getStats(): Promise<Stats> {
   return Promise.resolve(createAdapter().getStats());
+}
+
+export async function getTrends(days: number): Promise<{ date: string; count: number }[]> {
+  return Promise.resolve(createAdapter().getTrends(days));
+}
+
+export async function getCompareBy(by: "class" | "segment"): Promise<{ key: string; count: number }[]> {
+  return Promise.resolve(createAdapter().getCompareBy(by));
 }
 
 export async function closeDb(): Promise<void> {
