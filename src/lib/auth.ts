@@ -4,7 +4,6 @@ import { SignJWT, jwtVerify } from "jose";
 const JWT_SECRET = new TextEncoder().encode(
   process.env.JWT_SECRET || "career-explorer-default-secret-change-me"
 );
-const COOKIE_NAME = "admin_token";
 const TOKEN_EXPIRY = "24h";
 
 /** 验证密码（bcrypt） */
@@ -35,15 +34,3 @@ export async function verifyToken(
     return { valid: false };
   }
 }
-
-/** 设置认证 Cookie */
-export function setAuthCookie(token: string) {
-  return `admin_token=${token}; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=86400`;
-}
-
-/** 清除认证 Cookie */
-export function clearAuthCookie() {
-  return "admin_token=; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=0";
-}
-
-export { COOKIE_NAME };

@@ -29,6 +29,7 @@ export async function middleware(request: NextRequest) {
   } catch {
     const response = NextResponse.json({ error: "Token expired" }, { status: 401 });
     response.cookies.delete("admin_token");
+    response.cookies.delete("admin_logged_in");
     return response;
   }
 }

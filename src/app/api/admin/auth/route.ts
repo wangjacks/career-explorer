@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { verifyPassword, signToken, setAuthCookie, clearAuthCookie } from "@/lib/auth";
+import { verifyPassword, signToken } from "@/lib/auth";
 import { readFileSync } from "fs";
 import { join } from "path";
 
@@ -31,7 +31,19 @@ export async function POST(request: NextRequest) {
 
     const token = await signToken();
     const response = NextResponse.json({ ok: true });
-    response.headers.set("Set-Cookie", setAuthCookie(token));
+    response.cookies.set("admin_token", token, {
+      httpOnly: true,
+      secure: true,
+      sameSite: "strict",
+      path: "/",
+      maxAge: 60 * 60 * 24,
+    });
+    response.cookies.set("admin_logged_in", "1", {
+      secure: true,
+      sameSite: "strict",
+      path: "/",
+      maxAge: 60 * 60 * 24,
+    });
     return response;
   } catch (err) {
     console.error("Auth POST error:", err);
@@ -41,6 +53,7 @@ export async function POST(request: NextRequest) {
 
 export async function DELETE() {
   const response = NextResponse.json({ ok: true });
-  response.headers.set("Set-Cookie", clearAuthCookie());
+  response.cookies.set("admin_token", "", { maxAge: 0 });
+  response.cookies.set("admin_logged_in", "", { maxAge: 0 });
   return response;
 }
