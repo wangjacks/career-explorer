@@ -47,7 +47,7 @@ export interface DbConfig {
 export function useAdminAuth() {
   const [loggedIn, setLoggedIn] = useState(() => {
     if (typeof document === "undefined") return false;
-    return document.cookie.includes("admin_logged_in=");
+    return document.cookie.includes("admin_token=");
   });
   const [installed, setInstalled] = useState<boolean | null>(null);
 
