@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { cookies } from "next/headers";
 import { verifyPassword, signToken } from "@/lib/auth";
 import { readFileSync } from "fs";
 import { join } from "path";
@@ -30,23 +31,23 @@ export async function POST(request: NextRequest) {
     }
 
     const token = await signToken();
-    const response = NextResponse.json({ ok: true });
     const isSecure = request.nextUrl.protocol === "https:"
       || request.headers.get("x-forwarded-proto") === "https";
-    response.cookies.set("admin_token", token, {
+    const cookieStore = await cookies();
+    cookieStore.set("admin_token", token, {
       httpOnly: true,
       secure: isSecure,
-      sameSite: "strict",
+      sameSite: "lax",
       path: "/",
       maxAge: 60 * 60 * 24,
     });
-    response.cookies.set("admin_logged_in", "1", {
+    cookieStore.set("admin_logged_in", "1", {
       secure: isSecure,
-      sameSite: "strict",
+      sameSite: "lax",
       path: "/",
       maxAge: 60 * 60 * 24,
     });
-    return response;
+    return NextResponse.json({ ok: true });
   } catch (err) {
     console.error("Auth POST error:", err);
     return NextResponse.json({ ok: false, error: "服务器错误" }, { status: 500 });
@@ -54,8 +55,8 @@ export async function POST(request: NextRequest) {
 }
 
 export async function DELETE() {
-  const response = NextResponse.json({ ok: true });
-  response.cookies.set("admin_token", "", { maxAge: 0 });
-  response.cookies.set("admin_logged_in", "", { maxAge: 0 });
-  return response;
+  const cookieStore = await cookies();
+  cookieStore.set("admin_token", "", { maxAge: 0 });
+  cookieStore.set("admin_logged_in", "", { maxAge: 0 });
+  return NextResponse.json({ ok: true });
 }
