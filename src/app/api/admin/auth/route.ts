@@ -32,15 +32,8 @@ export async function POST(request: NextRequest) {
     const token = await signToken();
     const response = NextResponse.json({ ok: true });
     response.cookies.set("admin_token", token, {
-      httpOnly: true,
       secure: true,
-      sameSite: "strict",
-      path: "/",
-      maxAge: 60 * 60 * 24,
-    });
-    response.cookies.set("admin_logged_in", "1", {
-      secure: true,
-      sameSite: "strict",
+      sameSite: "lax",
       path: "/",
       maxAge: 60 * 60 * 24,
     });
@@ -54,6 +47,5 @@ export async function POST(request: NextRequest) {
 export async function DELETE() {
   const response = NextResponse.json({ ok: true });
   response.cookies.set("admin_token", "", { maxAge: 0 });
-  response.cookies.set("admin_logged_in", "", { maxAge: 0 });
   return response;
 }
