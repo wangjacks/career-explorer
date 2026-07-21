@@ -31,15 +31,17 @@ export async function POST(request: NextRequest) {
 
     const token = await signToken();
     const response = NextResponse.json({ ok: true });
+    const isSecure = request.nextUrl.protocol === "https:"
+      || request.headers.get("x-forwarded-proto") === "https";
     response.cookies.set("admin_token", token, {
       httpOnly: true,
-      secure: true,
+      secure: isSecure,
       sameSite: "strict",
       path: "/",
       maxAge: 60 * 60 * 24,
     });
     response.cookies.set("admin_logged_in", "1", {
-      secure: true,
+      secure: isSecure,
       sameSite: "strict",
       path: "/",
       maxAge: 60 * 60 * 24,
