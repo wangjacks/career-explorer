@@ -1,5 +1,6 @@
 import { getConfig } from "./db-config";
 import { MysqlAdapter } from "./db-mysql";
+import { SqliteAdapter } from "./db-sqlite";
 
 export interface ProfileRow {
   student_id: string;
@@ -52,9 +53,12 @@ let initPromise: Promise<void> | null = null;
 
 function createAdapter(): DbAdapter {
   const config = getConfig();
-  const configType = JSON.stringify(config.mysql);
+  const dbType = config.type || "mysql";
+  const configKey = dbType === "sqlite"
+    ? `sqlite:${config.sqlite?.path || "./data/career.db"}`
+    : `mysql:${JSON.stringify(config.mysql)}`;
 
-  if (currentAdapter && currentType === configType) return currentAdapter;
+  if (currentAdapter && currentType === configKey) return currentAdapter;
 
   if (currentAdapter) {
     try {
@@ -63,10 +67,12 @@ function createAdapter(): DbAdapter {
     } catch {}
   }
 
-  const adapter = new MysqlAdapter(config.mysql);
+  const adapter = dbType === "sqlite"
+    ? new SqliteAdapter(config.sqlite?.path || "./data/career.db")
+    : new MysqlAdapter(config.mysql);
   currentAdapter = adapter;
-  currentType = configType;
-  initPromise = adapter.init();
+  currentType = configKey;
+  initPromise = Promise.resolve(adapter.init());
   initPromise.catch(() => {});
   return adapter;
 }
