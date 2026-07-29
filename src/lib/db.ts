@@ -1,5 +1,6 @@
 import { getConfig } from "./db-config";
 import { MysqlAdapter } from "./db-mysql";
+import { SqliteAdapter } from "./db-sqlite";
 
 export interface ProfileRow {
   student_id: string;
@@ -23,6 +24,14 @@ export interface Stats {
   topTags: { tag: string; count: number }[];
 }
 
+export interface BackupData {
+  version: number;
+  sourceType: string;
+  createdAt: string;
+  students: StudentRow[];
+  profiles: ProfileRow[];
+}
+
 export interface DbAdapter {
   insertStudent(studentId: string, name: string, className?: string): Promise<void> | void;
   insertStudentsBatch(students: { studentId: string; name: string; className?: string }[]): Promise<void> | void;
@@ -39,10 +48,12 @@ export interface DbAdapter {
   deleteProfiles(studentIds: string[]): Promise<number> | number;
   getAllProfilesRaw(): Promise<ProfileRow[]> | ProfileRow[];
   getStats(): Promise<Stats> | Stats;
-  getTrends(days: number): Promise<{ date: string; count: number }[]>;
-  getCompareBy(by: "class" | "segment"): Promise<{ key: string; count: number }[]>;
+  getTrends(days: number): Promise<{ date: string; count: number }[]> | { date: string; count: number }[];
+  getCompareBy(by: "class" | "segment"): Promise<{ key: string; count: number }[]> | { key: string; count: number }[];
   updateStudentClass(studentId: string, className: string): Promise<void> | void;
   getClasses(): Promise<string[]> | string[];
+  backup(): Promise<BackupData> | BackupData;
+  restore(data: BackupData): Promise<void> | void;
   close(): Promise<void> | void;
 }
 
@@ -52,9 +63,12 @@ let initPromise: Promise<void> | null = null;
 
 function createAdapter(): DbAdapter {
   const config = getConfig();
-  const configType = JSON.stringify(config.mysql);
+  const dbType = config.type || "mysql";
+  const configKey = dbType === "sqlite"
+    ? `sqlite:${config.sqlite?.path || "./data/career.db"}`
+    : `mysql:${JSON.stringify(config.mysql)}`;
 
-  if (currentAdapter && currentType === configType) return currentAdapter;
+  if (currentAdapter && currentType === configKey) return currentAdapter;
 
   if (currentAdapter) {
     try {
@@ -63,10 +77,12 @@ function createAdapter(): DbAdapter {
     } catch {}
   }
 
-  const adapter = new MysqlAdapter(config.mysql);
+  const adapter = dbType === "sqlite"
+    ? new SqliteAdapter(config.sqlite?.path || "./data/career.db")
+    : new MysqlAdapter(config.mysql);
   currentAdapter = adapter;
-  currentType = configType;
-  initPromise = adapter.init();
+  currentType = configKey;
+  initPromise = Promise.resolve(adapter.init());
   initPromise.catch(() => {});
   return adapter;
 }
@@ -153,6 +169,16 @@ export async function updateStudentClass(studentId: string, className: string): 
 export async function getClasses(): Promise<string[]> {
   const adapter = await ensureInit();
   return Promise.resolve(adapter.getClasses());
+}
+
+export async function backup(): Promise<BackupData> {
+  const adapter = await ensureInit();
+  return Promise.resolve(adapter.backup());
+}
+
+export async function restore(data: BackupData): Promise<void> {
+  const adapter = await ensureInit();
+  return Promise.resolve(adapter.restore(data));
 }
 
 export async function closeDb(): Promise<void> {

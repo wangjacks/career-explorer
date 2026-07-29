@@ -36,6 +36,7 @@ export interface PagedData {
 
 export interface DbConfig {
   installed?: boolean;
+  type?: "mysql" | "sqlite";
   mysql: {
     host: string;
     port: number;
@@ -43,6 +44,7 @@ export interface DbConfig {
     password: string;
     database: string;
   };
+  sqlite?: { path: string };
 }
 
 export function useAdminAuth() {
