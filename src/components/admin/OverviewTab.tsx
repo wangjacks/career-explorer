@@ -1,14 +1,26 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { toast } from "sonner";
 import { StatCard } from "./AdminUI";
+import ConfirmDialog from "./ConfirmDialog";
 import type { Stats, PagedData, Profile } from "@/hooks/useAdminAuth";
 
 interface Props {
   installed: boolean | null;
   loadStats: () => Promise<Stats | null>;
   loadProfiles: (p: number) => Promise<PagedData | null>;
+}
+
+type OverviewSortKey = "studentId" | "studentName" | "createdAt";
+type SortDir = "asc" | "desc";
+
+function SortIcon({ active, dir }: { active: boolean; dir: SortDir }) {
+  return (
+    <span className={`ml-1 inline-block w-3 text-xs ${active ? "text-green-600" : "text-gray-300"}`}>
+      {active ? (dir === "asc" ? "↑" : "↓") : "↕"}
+    </span>
+  );
 }
 
 export default function OverviewTab({ installed, loadStats, loadProfiles }: Props) {
@@ -18,6 +30,19 @@ export default function OverviewTab({ installed, loadStats, loadProfiles }: Prop
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [detail, setDetail] = useState<Profile | null>(null);
   const [loadError, setLoadError] = useState(false);
+  const [search, setSearch] = useState("");
+  const [confirmDelete, setConfirmDelete] = useState<string[] | null>(null);
+  const [sortKey, setSortKey] = useState<OverviewSortKey>("createdAt");
+  const [sortDir, setSortDir] = useState<SortDir>("desc");
+
+  const handleSort = (key: OverviewSortKey) => {
+    if (sortKey === key) {
+      setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+    } else {
+      setSortKey(key);
+      setSortDir(key === "createdAt" ? "desc" : "asc");
+    }
+  };
 
   const refreshStats = useCallback(async () => {
     const s = await loadStats();
@@ -48,8 +73,28 @@ export default function OverviewTab({ installed, loadStats, loadProfiles }: Prop
   }, []);
   /* eslint-enable react-hooks/set-state-in-effect */
 
+  // Client-side search filter + sort
+  const filteredData = useMemo(() => {
+    if (!paged) return null;
+    const q = search.trim().toLowerCase();
+    let list = paged.data;
+    if (q) {
+      list = list.filter((p) =>
+        p.studentId.toLowerCase().includes(q) ||
+        (p.studentName || "").toLowerCase().includes(q) ||
+        p.tags.some((t) => t.toLowerCase().includes(q))
+      );
+    }
+    const sorted = [...list].sort((a, b) => {
+      const va = (a[sortKey as keyof Profile] || "") as string;
+      const vb = (b[sortKey as keyof Profile] || "") as string;
+      const cmp = va.localeCompare(vb, "zh-CN");
+      return sortDir === "asc" ? cmp : -cmp;
+    });
+    return { ...paged, data: sorted, total: q ? sorted.length : paged.total };
+  }, [paged, search, sortKey, sortDir]);
+
   const handleDeleteProfiles = async (ids: string[]) => {
-    if (!confirm(`确定删除 ${ids.length} 条记录？`)) return;
     try {
       const res = await fetch("/api/admin/profiles", {
         method: "DELETE",
@@ -117,13 +162,22 @@ export default function OverviewTab({ installed, loadStats, loadProfiles }: Prop
       )}
 
       <div className="bg-white rounded-xl border border-gray-100 overflow-hidden">
-        <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
-          <h2 className="font-semibold text-gray-800">
-            数据列表 {paged && `(${paged.total} 条)`}
-          </h2>
+        <div className="px-5 py-4 border-b border-gray-100 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2">
+          <div className="flex items-center gap-3">
+            <h2 className="font-semibold text-gray-800">
+              数据列表 {paged && `(${paged.total} 条)`}
+            </h2>
+            <input
+              type="text"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="搜索学号/姓名/标签..."
+              className="px-3 py-1.5 border border-gray-200 rounded-lg text-sm w-48 focus:outline-none focus:ring-2 focus:ring-green-300"
+            />
+          </div>
           {selected.size > 0 && (
             <button
-              onClick={() => handleDeleteProfiles(Array.from(selected))}
+              onClick={() => setConfirmDelete(Array.from(selected))}
               className="px-4 py-1.5 bg-red-500 hover:bg-red-600 text-white text-sm font-medium rounded-lg transition-colors"
             >
               删除选中（{selected.size}）
@@ -142,17 +196,17 @@ export default function OverviewTab({ installed, loadStats, loadProfiles }: Prop
                     className="rounded border-gray-300"
                   />
                 </th>
-                <th className="px-5 py-3 font-medium">学号</th>
-                <th className="px-5 py-3 font-medium">姓名</th>
+                <th className="px-5 py-3 font-medium cursor-pointer select-none" onClick={() => handleSort("studentId")}>学号<SortIcon active={sortKey === "studentId"} dir={sortDir} /></th>
+                <th className="px-5 py-3 font-medium cursor-pointer select-none" onClick={() => handleSort("studentName")}>姓名<SortIcon active={sortKey === "studentName"} dir={sortDir} /></th>
                 <th className="px-5 py-3 font-medium">虚拟形象</th>
                 <th className="px-5 py-3 font-medium">评价词云</th>
                 <th className="px-5 py-3 font-medium">标签</th>
-                <th className="px-5 py-3 font-medium">提交时间</th>
+                <th className="px-5 py-3 font-medium cursor-pointer select-none" onClick={() => handleSort("createdAt")}>提交时间<SortIcon active={sortKey === "createdAt"} dir={sortDir} /></th>
                 <th className="px-5 py-3 font-medium">操作</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-50">
-              {paged?.data.map((p) => (
+              {filteredData?.data.map((p) => (
                 <tr
                   key={p.studentId}
                   className={`hover:bg-gray-50/50 ${selected.has(p.studentId) ? "bg-blue-50/30" : ""}`}
@@ -198,15 +252,17 @@ export default function OverviewTab({ installed, loadStats, loadProfiles }: Prop
                     <div className="flex items-center gap-2">
                       <button onClick={() => setDetail(p)}
                         className="text-green-600 hover:text-green-700 text-xs font-medium">查看</button>
-                      <button onClick={() => handleDeleteProfiles([p.studentId])}
+                      <button onClick={() => setConfirmDelete([p.studentId])}
                         className="text-red-500 hover:text-red-600 text-xs font-medium">删除</button>
                     </div>
                   </td>
                 </tr>
               ))}
-              {paged?.data.length === 0 && (
+              {filteredData?.data.length === 0 && (
                 <tr>
-                  <td colSpan={8} className="px-5 py-12 text-center text-gray-400">暂无数据</td>
+                  <td colSpan={8} className="px-5 py-12 text-center text-gray-400">
+                    {paged?.data.length === 0 ? "暂无数据" : "无匹配结果"}
+                  </td>
                 </tr>
               )}
             </tbody>
@@ -228,41 +284,77 @@ export default function OverviewTab({ installed, loadStats, loadProfiles }: Prop
 
       {/* Detail Modal */}
       {detail && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 px-4" onClick={() => setDetail(null)}>
-          <div className="bg-white rounded-2xl shadow-xl max-w-sm w-full p-6 space-y-4" onClick={(e) => e.stopPropagation()}>
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 px-4"
+          onClick={() => setDetail(null)}>
+          <div className="bg-white rounded-2xl shadow-xl max-w-md w-full p-6 space-y-4 max-h-[85vh] overflow-y-auto"
+            onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between">
-              <h3 className="font-semibold text-gray-800">档案详情</h3>
-              <button onClick={() => setDetail(null)} className="text-gray-400 hover:text-gray-600">×</button>
+              <h3 className="font-semibold text-gray-800 text-lg">档案详情</h3>
+              <button onClick={() => setDetail(null)} className="text-gray-400 hover:text-gray-600 text-xl">×</button>
             </div>
-            <div className="space-y-2 text-sm">
-              <div className="flex justify-between"><span className="text-gray-500">学号</span><span className="font-mono">{detail.studentId}</span></div>
-              <div className="flex justify-between"><span className="text-gray-500">姓名</span><span>{detail.studentName || "-"}</span></div>
-              <div className="flex justify-between"><span className="text-gray-500">提交时间</span><span>{detail.createdAt}</span></div>
+
+            <div className="grid grid-cols-2 gap-3 text-sm">
+              <div className="bg-gray-50 rounded-lg p-3">
+                <p className="text-xs text-gray-500">学号</p>
+                <p className="font-mono font-medium text-gray-800 mt-0.5">{detail.studentId}</p>
+              </div>
+              <div className="bg-gray-50 rounded-lg p-3">
+                <p className="text-xs text-gray-500">姓名</p>
+                <p className="font-medium text-gray-800 mt-0.5">{detail.studentName || "-"}</p>
+              </div>
+              <div className="bg-gray-50 rounded-lg p-3 col-span-2">
+                <p className="text-xs text-gray-500">提交时间</p>
+                <p className="font-medium text-gray-800 mt-0.5">{detail.createdAt}</p>
+              </div>
             </div>
+
             {detail.avatarUrl && (
-              <img src={detail.avatarUrl} alt="" className="w-16 h-16 rounded-full object-cover" />
+              <div>
+                <p className="text-xs text-gray-500 mb-2">虚拟形象</p>
+                <img src={detail.avatarUrl} alt="" className="w-20 h-20 rounded-xl object-cover border border-gray-100" />
+              </div>
             )}
+
             <div>
               <p className="text-xs text-gray-500 mb-2">标签（{detail.tags.length}个）</p>
-              <div className="flex flex-wrap gap-1">
+              <div className="flex flex-wrap gap-1.5">
                 {detail.tags.map((t) => (
-                  <span key={t} className="px-2 py-1 bg-green-50 text-green-700 rounded text-xs">{t}</span>
+                  <span key={t} className="px-2.5 py-1 bg-green-50 text-green-700 rounded-full text-xs font-medium">{t}</span>
                 ))}
               </div>
             </div>
+
             {detail.evaluationUrl && (
               <div>
                 <p className="text-xs text-gray-500 mb-2">评价词云</p>
-                <img src={detail.evaluationUrl} alt="" className="w-full rounded-lg border border-gray-100" />
+                <img src={detail.evaluationUrl} alt="" className="w-full rounded-xl border border-gray-100" />
               </div>
             )}
-            <button onClick={() => { handleDeleteProfiles([detail.studentId]); setDetail(null); }}
-              className="w-full py-2 bg-red-500 hover:bg-red-600 text-white text-sm font-medium rounded-lg transition-colors">
-              删除此记录
-            </button>
+
+            <div className="flex gap-2 pt-2">
+              <button onClick={() => setDetail(null)}
+                className="flex-1 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm font-medium rounded-lg transition-colors">
+                关闭
+              </button>
+              <button onClick={() => { setConfirmDelete([detail.studentId]); setDetail(null); }}
+                className="flex-1 py-2 bg-red-500 hover:bg-red-600 text-white text-sm font-medium rounded-lg transition-colors">
+                删除此记录
+              </button>
+            </div>
           </div>
         </div>
       )}
+
+      {/* Confirm Delete */}
+      <ConfirmDialog
+        open={!!confirmDelete}
+        title="确认删除"
+        message={`确定删除 ${confirmDelete?.length} 条档案记录？此操作不可恢复。`}
+        variant="danger"
+        confirmText="删除"
+        onConfirm={() => { if (confirmDelete) { handleDeleteProfiles(confirmDelete); setConfirmDelete(null); } }}
+        onCancel={() => setConfirmDelete(null)}
+      />
     </>
   );
 }

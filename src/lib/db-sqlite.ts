@@ -168,6 +168,16 @@ export class SqliteAdapter implements DbAdapter {
     this.db.prepare("UPDATE students SET class_name = ? WHERE student_id = ?").run(className, studentId);
   }
 
+  updateStudent(studentId: string, fields: { name?: string; className?: string }): void {
+    const sets: string[] = [];
+    const values: (string)[] = [];
+    if (fields.name !== undefined) { sets.push("name = ?"); values.push(fields.name); }
+    if (fields.className !== undefined) { sets.push("class_name = ?"); values.push(fields.className); }
+    if (sets.length === 0) return;
+    values.push(studentId);
+    this.db.prepare(`UPDATE students SET ${sets.join(", ")} WHERE student_id = ?`).run(...values);
+  }
+
   getClasses(): string[] {
     const rows = this.db.prepare(
       "SELECT DISTINCT class_name FROM students WHERE class_name != '' ORDER BY class_name"

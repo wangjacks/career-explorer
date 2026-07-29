@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getAllStudents, insertStudent, insertStudentsBatch, deleteStudents, updateStudentClass } from "@/lib/db";
+import { getAllStudents, insertStudent, insertStudentsBatch, deleteStudents, updateStudent } from "@/lib/db";
 
 export async function GET() {
   const students = await getAllStudents();
@@ -55,12 +55,19 @@ export async function DELETE(request: NextRequest) {
 
 export async function PUT(request: NextRequest) {
   try {
-    const { studentId, className } = await request.json();
-    if (!studentId || typeof className !== "string") {
+    const body = await request.json();
+    const { studentId, className, name } = body;
+    if (!studentId) {
       return NextResponse.json({ error: "参数错误" }, { status: 400 });
     }
-    await updateStudentClass(studentId, className);
-    return NextResponse.json({ ok: true });
+
+    // Support both old API (className only) and new API (name + className)
+    if (name !== undefined || className !== undefined) {
+      await updateStudent(studentId, { name, className });
+      return NextResponse.json({ ok: true });
+    }
+
+    return NextResponse.json({ error: "参数错误" }, { status: 400 });
   } catch (err) {
     console.error("Students PUT error:", err);
     return NextResponse.json({ error: "更新失败" }, { status: 500 });

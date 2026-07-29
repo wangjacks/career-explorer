@@ -1,0 +1,50 @@
+"use client";
+
+import type { ReactNode } from "react";
+
+interface ConfirmDialogProps {
+  open: boolean;
+  title: string;
+  message: string | ReactNode;
+  confirmText?: string;
+  cancelText?: string;
+  variant?: "danger" | "warning" | "default";
+  onConfirm: () => void;
+  onCancel: () => void;
+}
+
+export default function ConfirmDialog({
+  open, title, message,
+  confirmText = "确认", cancelText = "取消",
+  variant = "default",
+  onConfirm, onCancel,
+}: ConfirmDialogProps) {
+  if (!open) return null;
+
+  const btnClass = {
+    danger: "bg-red-500 hover:bg-red-600 text-white",
+    warning: "bg-amber-500 hover:bg-amber-600 text-white",
+    default: "bg-green-500 hover:bg-green-600 text-white",
+  }[variant];
+
+  return (
+    <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 px-4"
+      onClick={onCancel}>
+      <div className="bg-white rounded-2xl shadow-xl max-w-sm w-full p-6 space-y-4 animate-[scale-in_0.15s_ease-out]"
+        onClick={(e) => e.stopPropagation()}>
+        <h3 className="font-semibold text-gray-800 text-lg">{title}</h3>
+        <div className="text-sm text-gray-600">{message}</div>
+        <div className="flex gap-2 pt-2">
+          <button onClick={onCancel}
+            className="flex-1 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm font-medium rounded-lg transition-colors">
+            {cancelText}
+          </button>
+          <button onClick={onConfirm}
+            className={`flex-1 py-2 text-sm font-medium rounded-lg transition-colors ${btnClass}`}>
+            {confirmText}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}

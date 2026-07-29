@@ -191,6 +191,16 @@ export class MysqlAdapter implements DbAdapter {
     await this.pool.execute("UPDATE students SET class_name = ? WHERE student_id = ?", [className, studentId]);
   }
 
+  async updateStudent(studentId: string, fields: { name?: string; className?: string }): Promise<void> {
+    const sets: string[] = [];
+    const values: string[] = [];
+    if (fields.name !== undefined) { sets.push("name = ?"); values.push(fields.name); }
+    if (fields.className !== undefined) { sets.push("class_name = ?"); values.push(fields.className); }
+    if (sets.length === 0) return;
+    values.push(studentId);
+    await this.pool.execute(`UPDATE students SET ${sets.join(", ")} WHERE student_id = ?`, values);
+  }
+
   async getClasses(): Promise<string[]> {
     const [rows] = await this.pool.execute(
       "SELECT DISTINCT class_name FROM students WHERE class_name != '' ORDER BY class_name"

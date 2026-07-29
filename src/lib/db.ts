@@ -51,6 +51,7 @@ export interface DbAdapter {
   getTrends(days: number): Promise<{ date: string; count: number }[]> | { date: string; count: number }[];
   getCompareBy(by: "class" | "segment"): Promise<{ key: string; count: number }[]> | { key: string; count: number }[];
   updateStudentClass(studentId: string, className: string): Promise<void> | void;
+  updateStudent(studentId: string, fields: { name?: string; className?: string }): Promise<void> | void;
   getClasses(): Promise<string[]> | string[];
   backup(): Promise<BackupData> | BackupData;
   restore(data: BackupData): Promise<void> | void;
@@ -164,6 +165,11 @@ export async function getCompareBy(by: "class" | "segment"): Promise<{ key: stri
 export async function updateStudentClass(studentId: string, className: string): Promise<void> {
   const adapter = await ensureInit();
   return Promise.resolve(adapter.updateStudentClass(studentId, className));
+}
+
+export async function updateStudent(studentId: string, fields: { name?: string; className?: string }): Promise<void> {
+  const adapter = await ensureInit();
+  return Promise.resolve(adapter.updateStudent(studentId, fields));
 }
 
 export async function getClasses(): Promise<string[]> {
