@@ -48,8 +48,8 @@ export interface DbAdapter {
   deleteProfiles(studentIds: string[]): Promise<number> | number;
   getAllProfilesRaw(): Promise<ProfileRow[]> | ProfileRow[];
   getStats(): Promise<Stats> | Stats;
-  getTrends(days: number): Promise<{ date: string; count: number }[]>;
-  getCompareBy(by: "class" | "segment"): Promise<{ key: string; count: number }[]>;
+  getTrends(days: number): Promise<{ date: string; count: number }[]> | { date: string; count: number }[];
+  getCompareBy(by: "class" | "segment"): Promise<{ key: string; count: number }[]> | { key: string; count: number }[];
   updateStudentClass(studentId: string, className: string): Promise<void> | void;
   getClasses(): Promise<string[]> | string[];
   backup(): Promise<BackupData> | BackupData;
