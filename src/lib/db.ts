@@ -24,6 +24,14 @@ export interface Stats {
   topTags: { tag: string; count: number }[];
 }
 
+export interface BackupData {
+  version: number;
+  sourceType: string;
+  createdAt: string;
+  students: StudentRow[];
+  profiles: ProfileRow[];
+}
+
 export interface DbAdapter {
   insertStudent(studentId: string, name: string, className?: string): Promise<void> | void;
   insertStudentsBatch(students: { studentId: string; name: string; className?: string }[]): Promise<void> | void;
@@ -44,6 +52,8 @@ export interface DbAdapter {
   getCompareBy(by: "class" | "segment"): Promise<{ key: string; count: number }[]>;
   updateStudentClass(studentId: string, className: string): Promise<void> | void;
   getClasses(): Promise<string[]> | string[];
+  backup(): Promise<BackupData> | BackupData;
+  restore(data: BackupData): Promise<void> | void;
   close(): Promise<void> | void;
 }
 
@@ -159,6 +169,16 @@ export async function updateStudentClass(studentId: string, className: string): 
 export async function getClasses(): Promise<string[]> {
   const adapter = await ensureInit();
   return Promise.resolve(adapter.getClasses());
+}
+
+export async function backup(): Promise<BackupData> {
+  const adapter = await ensureInit();
+  return Promise.resolve(adapter.backup());
+}
+
+export async function restore(data: BackupData): Promise<void> {
+  const adapter = await ensureInit();
+  return Promise.resolve(adapter.restore(data));
 }
 
 export async function closeDb(): Promise<void> {

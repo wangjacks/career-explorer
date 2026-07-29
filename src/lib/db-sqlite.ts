@@ -1,7 +1,7 @@
 import Database from "better-sqlite3";
 import { mkdirSync } from "fs";
 import path from "path";
-import type { ProfileRow, StudentRow, Stats, DbAdapter } from "./db";
+import type { ProfileRow, StudentRow, Stats, DbAdapter, BackupData } from "./db";
 
 function getNow(): string {
   return new Date().toLocaleString("sv-SE", { timeZone: "Asia/Shanghai" });
@@ -173,6 +173,42 @@ export class SqliteAdapter implements DbAdapter {
       "SELECT DISTINCT class_name FROM students WHERE class_name != '' ORDER BY class_name"
     ).all() as { class_name: string }[];
     return rows.map((r) => r.class_name);
+  }
+
+  backup(): BackupData {
+    const students = this.db.prepare("SELECT * FROM students ORDER BY student_id").all() as StudentRow[];
+    const profiles = this.db.prepare("SELECT * FROM profiles ORDER BY student_id").all() as ProfileRow[];
+    return {
+      version: 1,
+      sourceType: "sqlite",
+      createdAt: new Date().toISOString(),
+      students,
+      profiles,
+    };
+  }
+
+  restore(data: BackupData): void {
+    const restoreTx = this.db.transaction((d: BackupData) => {
+      this.db.exec("DELETE FROM profiles");
+      this.db.exec("DELETE FROM students");
+      if (d.students.length > 0) {
+        const stmt = this.db.prepare(
+          "INSERT INTO students (student_id, name, class_name, created_at) VALUES (?, ?, ?, ?)"
+        );
+        for (const s of d.students) {
+          stmt.run(s.student_id, s.name, s.class_name || "", s.created_at);
+        }
+      }
+      if (d.profiles.length > 0) {
+        const stmt = this.db.prepare(
+          "INSERT INTO profiles (student_id, tags, avatar_url, evaluation_url, created_at) VALUES (?, ?, ?, ?, ?)"
+        );
+        for (const p of d.profiles) {
+          stmt.run(p.student_id, p.tags, p.avatar_url, p.evaluation_url, p.created_at);
+        }
+      }
+    });
+    restoreTx(data);
   }
 
   close(): void {

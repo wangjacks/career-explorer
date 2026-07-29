@@ -1,5 +1,5 @@
 import mysql from "mysql2/promise";
-import type { ProfileRow, StudentRow, Stats, DbAdapter } from "./db";
+import type { ProfileRow, StudentRow, Stats, DbAdapter, BackupData } from "./db";
 
 function getNow(): string {
   return new Date().toLocaleString("sv-SE", { timeZone: "Asia/Shanghai" });
@@ -196,6 +196,47 @@ export class MysqlAdapter implements DbAdapter {
       "SELECT DISTINCT class_name FROM students WHERE class_name != '' ORDER BY class_name"
     );
     return (rows as { class_name: string }[]).map((r) => r.class_name);
+  }
+
+  async backup(): Promise<BackupData> {
+    const [students] = await this.pool.execute("SELECT * FROM students ORDER BY student_id");
+    const [profiles] = await this.pool.execute("SELECT * FROM profiles ORDER BY student_id");
+    return {
+      version: 1,
+      sourceType: "mysql",
+      createdAt: new Date().toISOString(),
+      students: students as StudentRow[],
+      profiles: profiles as ProfileRow[],
+    };
+  }
+
+  async restore(data: BackupData): Promise<void> {
+    const conn = await this.pool.getConnection();
+    try {
+      await conn.beginTransaction();
+      await conn.execute("DELETE FROM profiles");
+      await conn.execute("DELETE FROM students");
+      if (data.students.length > 0) {
+        const values = data.students.map((s) => [s.student_id, s.name, s.class_name || "", s.created_at]);
+        await conn.query(
+          "INSERT INTO students (student_id, name, class_name, created_at) VALUES ?",
+          [values]
+        );
+      }
+      if (data.profiles.length > 0) {
+        const values = data.profiles.map((p) => [p.student_id, p.tags, p.avatar_url, p.evaluation_url, p.created_at]);
+        await conn.query(
+          "INSERT INTO profiles (student_id, tags, avatar_url, evaluation_url, created_at) VALUES ?",
+          [values]
+        );
+      }
+      await conn.commit();
+    } catch (err) {
+      await conn.rollback();
+      throw err;
+    } finally {
+      conn.release();
+    }
   }
 
   async close(): Promise<void> {
