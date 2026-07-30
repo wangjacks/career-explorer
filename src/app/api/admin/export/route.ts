@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAllProfilesRaw, getAllStudents } from "@/lib/db";
 import ExcelJS from "exceljs";
+import { imageSize } from "image-size";
 
 interface ExportRow {
   student_id: string;
@@ -147,14 +148,23 @@ export async function GET(request: NextRequest) {
               const imgRes = await fetch(imgUrl);
               if (!imgRes.ok) continue;
               const imgBuffer = await imgRes.arrayBuffer();
+              const imgBuf = Buffer.from(imgBuffer);
               // eslint-disable-next-line @typescript-eslint/no-explicit-any
-              const imgId = workbook.addImage({ buffer: Buffer.from(imgBuffer) as any, extension: "jpeg" });
+              const imgId = workbook.addImage({ buffer: imgBuf as any, extension: "jpeg" });
+
+              // Detect original dimensions and scale proportionally
+              const dims = imageSize(imgBuf);
+              const targetH = 60;
+              const targetW = dims.width && dims.height
+                ? Math.round((dims.width / dims.height) * targetH)
+                : targetH;
+
               const colIdx = columns.indexOf(col);
               sheet.addImage(imgId, {
                 tl: { col: colIdx + 0.1, row: rowNum - 0.9 },
-                ext: { width: 60, height: 60 },
+                ext: { width: targetW, height: targetH },
               });
-              sheet.getRow(rowNum).height = 50;
+              sheet.getRow(rowNum).height = targetH * 0.75 + 5;
             } catch (err) {
               console.warn("Failed to embed image in Excel:", url, err);
             }
