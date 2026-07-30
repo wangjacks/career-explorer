@@ -157,8 +157,7 @@ export class MysqlAdapter implements DbAdapter {
     const uniqueTags = Object.keys(tagCount).length;
     const topTags = Object.entries(tagCount)
       .map(([tag, count]) => ({ tag, count }))
-      .sort((a, b) => b.count - a.count)
-      .slice(0, 5);
+      .sort((a, b) => b.count - a.count);
     return { total, today: todayCount, uniqueTags, topTags };
   }
 
