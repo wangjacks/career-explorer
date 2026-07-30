@@ -149,7 +149,8 @@ export default function AdminPage() {
       {/* Tab Navigation */}
       <div className="bg-white border-b border-gray-100">
         <div className="max-w-6xl mx-auto px-6">
-          <nav className="flex gap-6">
+          {/* Desktop: horizontal tabs */}
+          <nav className="hidden md:flex gap-6">
             {tabs.map((tab) => (
               <button
                 key={tab.key}
@@ -169,6 +170,20 @@ export default function AdminPage() {
               </button>
             ))}
           </nav>
+          {/* Mobile: dropdown select */}
+          <div className="flex md:hidden py-3">
+            <select
+              value={activeTab}
+              onChange={(e) => setActiveTab(e.target.value as Tab)}
+              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm font-medium text-gray-700 bg-white focus:outline-none focus:ring-2 focus:ring-green-300"
+            >
+              {tabs.map((tab) => (
+                <option key={tab.key} value={tab.key}>
+                  {tab.label}{tab.badge ? ` (${tab.badge})` : ""}
+                </option>
+              ))}
+            </select>
+          </div>
         </div>
       </div>
 
