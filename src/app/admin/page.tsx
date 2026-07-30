@@ -118,9 +118,9 @@ export default function AdminPage() {
   const tabs: { key: Tab; label: string; badge?: string }[] = [
     { key: "overview", label: "数据概览" },
     { key: "dashboard", label: "数据大屏" },
-    { key: "settings", label: "数据源设置" },
     { key: "students", label: "学生管理", badge: `${students.length} 名` },
     { key: "export", label: "数据导出" },
+    { key: "settings", label: "数据源设置" },
   ];
 
   return (
