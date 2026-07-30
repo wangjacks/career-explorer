@@ -53,7 +53,7 @@ export default function EvaluationPage() {
         localStorage.setItem("career_demo_evaluation", `${url}?t=${Date.now()}`);
       }
 
-      router.push("/avatar");
+      router.push("/form/avatar");
     } catch {
       toast.error("上传失败，请重试");
     } finally {

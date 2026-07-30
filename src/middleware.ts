@@ -35,5 +35,5 @@ export async function middleware(request: NextRequest) {
 
 export const config = {
   // Protect admin pages and API routes, except the auth endpoint
-  matcher: ["/admin/:path*", "/api/admin/:path*"],
+  matcher: ["/dashboard/admin/:path*", "/api/admin/:path*"],
 };

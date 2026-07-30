@@ -78,7 +78,7 @@ export default function AvatarPage() {
         "career_demo_profile",
         JSON.stringify({ studentId: student.studentId, tags, avatarUrl, evaluationUrl, name: student.name })
       );
-      router.push("/complete");
+      router.push("/form/complete");
     } catch {
       toast.error("操作失败，请重试");
     } finally {

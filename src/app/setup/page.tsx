@@ -36,7 +36,7 @@ export default function SetupPage() {
       .then((r) => r.json())
       .then((data) => {
         if (data.installed) {
-          router.replace("/admin");
+          router.replace("/dashboard/admin");
         }
       })
       .catch(() => {});
@@ -84,7 +84,7 @@ export default function SetupPage() {
       if (data.ok) {
         setStep("done");
         toast.success("安装成功");
-        setTimeout(() => router.push("/admin"), 1500);
+        setTimeout(() => router.push("/dashboard/admin"), 1500);
       } else {
         toast.error(data.error);
         setStep("config");

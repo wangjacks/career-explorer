@@ -13,7 +13,7 @@ export default function WordcloudPage() {
   });
 
   const handleNext = () => {
-    router.push("/evaluation");
+    router.push("/form/evaluation");
   };
 
   return (

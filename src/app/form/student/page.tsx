@@ -54,7 +54,7 @@ export default function StudentPage() {
           });
         } else {
           localStorage.setItem("career_demo_student", JSON.stringify(data));
-          router.push("/tags");
+          router.push("/form/tags");
         }
       } else {
         toast.error(data.error || "学号不存在");
@@ -80,7 +80,7 @@ export default function StudentPage() {
       name: confirmData.name,
     }));
     setConfirmData(null);
-    router.push("/tags");
+    router.push("/form/tags");
   };
 
   const handleStartFresh = () => {
@@ -92,7 +92,7 @@ export default function StudentPage() {
     localStorage.removeItem("career_demo_profile");
     localStorage.setItem("career_demo_student", JSON.stringify(studentData));
     setConfirmData(null);
-    router.push("/tags");
+    router.push("/form/tags");
   };
 
   return (
