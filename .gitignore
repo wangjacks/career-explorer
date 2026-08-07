@@ -50,8 +50,5 @@ next-env.d.ts
 /data/
 /db-config.json
 
-# local docs
-/docs/
-
 # IDE/tool local knowledge
 .qoder/
