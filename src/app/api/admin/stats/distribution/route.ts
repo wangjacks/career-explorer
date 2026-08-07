@@ -1,24 +1,24 @@
 import { NextResponse } from "next/server";
-import { getAllProfilesRaw } from "@/lib/db";
-import { tagCategories } from "@/lib/tagData";
+import { getAllSubmitted, getTags } from "@/lib/db";
+import { buildTagCategoryMap } from "@/lib/tag-utils";
 
 export async function GET() {
   try {
-    const rows = await getAllProfilesRaw();
-
-    // Build a map: tag → category name
-    const tagToCategory: Record<string, string> = {};
-    for (const cat of tagCategories) {
-      for (const tag of cat.tags) {
-        tagToCategory[tag] = cat.name;
-      }
-    }
+    const rows = await getAllSubmitted();
+    const allTags = await getTags();
+    const idToCategory = buildTagCategoryMap(allTags);
 
     const categoryCount: Record<string, number> = {};
     for (const row of rows) {
-      const tags: string[] = JSON.parse(row.tags);
-      for (const tag of tags) {
-        const category = tagToCategory[tag] || "自定义";
+      if (!row.tags) continue;
+      let ids: number[] = [];
+      try {
+        ids = JSON.parse(row.tags) as number[];
+      } catch {
+        continue;
+      }
+      for (const id of ids) {
+        const category = idToCategory.get(id) || "自定义";
         categoryCount[category] = (categoryCount[category] || 0) + 1;
       }
     }

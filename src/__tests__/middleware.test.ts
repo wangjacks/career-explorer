@@ -17,7 +17,7 @@ describe("middleware", () => {
   describe("config.matcher", () => {
     it("should match admin pages and admin API routes", () => {
       expect(config.matcher).toEqual(
-        expect.arrayContaining(["/admin/:path*", "/api/admin/:path*"])
+        expect.arrayContaining(["/dashboard/admin/:path*", "/api/admin/:path*"])
       );
     });
   });

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getAllProfiles, deleteProfiles } from "@/lib/db";
+import { getSubmittedProfiles, getTags, clearSubmissions } from "@/lib/db";
+import { tagIdsToNames } from "@/lib/tag-utils";
 
 export async function GET(request: NextRequest) {
   try {
@@ -7,17 +8,24 @@ export async function GET(request: NextRequest) {
     const page = parseInt(searchParams.get("page") || "1", 10);
     const pageSize = parseInt(searchParams.get("pageSize") || "20", 10);
 
-    const { rows, total } = await getAllProfiles(page, pageSize);
+    const { rows, total } = await getSubmittedProfiles(page, pageSize);
+    const allTags = await getTags();
 
     return NextResponse.json({
-      data: rows.map((r) => ({
-        studentId: r.student_id,
-        studentName: r.studentName || "",
-        tags: JSON.parse(r.tags),
-        avatarUrl: r.avatar_url,
-        evaluationUrl: r.evaluation_url,
-        createdAt: r.created_at,
-      })),
+      data: rows.map((r) => {
+        let ids: number[] = [];
+        try {
+          ids = r.tags ? (JSON.parse(r.tags) as number[]) : [];
+        } catch {}
+        return {
+          studentId: r.user_code,
+          studentName: r.name,
+          tags: tagIdsToNames(ids, allTags),
+          avatarUrl: r.avatar_url,
+          evaluationUrl: r.evaluation_url,
+          createdAt: r.submitted_at,
+        };
+      }),
       total,
       page,
       pageSize,
@@ -35,7 +43,7 @@ export async function DELETE(request: NextRequest) {
     if (!Array.isArray(ids) || ids.length === 0) {
       return NextResponse.json({ error: "请选择要删除的记录" }, { status: 400 });
     }
-    const deleted = await deleteProfiles(ids);
+    const deleted = await clearSubmissions(ids);
     return NextResponse.json({ deleted, message: `已删除 ${deleted} 条记录` });
   } catch (err) {
     console.error("Profiles DELETE error:", err);

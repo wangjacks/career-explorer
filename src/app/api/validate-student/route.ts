@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getStudent, getProfile } from "@/lib/db";
+import { getStudentByCode, getTags } from "@/lib/db";
+import { tagIdsToNames } from "@/lib/tag-utils";
 
 export async function POST(request: NextRequest) {
   try {
@@ -9,18 +10,29 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ ok: false, error: "学号必须为12位数字" }, { status: 400 });
     }
 
-    const student = await getStudent(studentId);
+    const student = await getStudentByCode(studentId);
 
     if (student) {
-      const profile = await getProfile(studentId);
+      const hasProfile = !!student.submitted_at;
+      let profile: { tags: string[]; avatarUrl: string; evaluationUrl: string } | null = null;
+      if (hasProfile && student.tags) {
+        const allTags = await getTags();
+        let ids: number[] = [];
+        try {
+          ids = JSON.parse(student.tags) as number[];
+        } catch {}
+        profile = {
+          tags: tagIdsToNames(ids, allTags),
+          avatarUrl: student.avatar_url || "",
+          evaluationUrl: student.evaluation_url || "",
+        };
+      }
       return NextResponse.json({
         ok: true,
         name: student.name,
-        studentId: student.student_id,
-        hasProfile: !!profile,
-        profile: profile
-          ? { tags: JSON.parse(profile.tags), avatarUrl: profile.avatar_url, evaluationUrl: profile.evaluation_url }
-          : null,
+        studentId: student.user_code,
+        hasProfile,
+        profile,
       });
     }
 

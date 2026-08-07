@@ -13,9 +13,10 @@ export interface Profile {
 }
 
 export interface Student {
-  student_id: string;
+  id: number;
+  user_code: string;
   name: string;
-  class_name: string;
+  class_id: number | null;
   created_at: string;
 }
 
