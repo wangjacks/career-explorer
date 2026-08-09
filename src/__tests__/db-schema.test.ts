@@ -30,6 +30,26 @@ describe("新安装 Schema", () => {
   });
 });
 
+describe("按邀请码查班级", () => {
+  it("insertClass 后按邀请码命中 / 无效码返回 undefined", () => {
+    const dbPath = makeTmpDb();
+    const adapter = new SqliteAdapter(dbPath);
+    adapter.init();
+
+    adapter.insertClass("测试班级", "TEST123");
+
+    const found = adapter.getClassByInviteCode("TEST123");
+    expect(found).toBeDefined();
+    expect(found!.name).toBe("测试班级");
+    expect(found!.invitation_code).toBe("TEST123");
+
+    expect(adapter.getClassByInviteCode("NOPE")).toBeUndefined();
+
+    adapter.close();
+    rmSync(path.dirname(dbPath), { recursive: true, force: true });
+  });
+});
+
 describe("旧数据迁移", () => {
   it("students + profiles 迁移到 users，标签名称转 ID，创建 admin，删除旧表", () => {
     const dbPath = makeTmpDb();

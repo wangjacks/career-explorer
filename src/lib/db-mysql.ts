@@ -436,6 +436,11 @@ export class MysqlAdapter implements DbAdapter {
     return (rows as ClassRow[])[0];
   }
 
+  async getClassByInviteCode(code: string): Promise<ClassRow | undefined> {
+    const [rows] = await this.pool.execute("SELECT * FROM classes WHERE invitation_code = ?", [code]);
+    return (rows as ClassRow[])[0];
+  }
+
   async insertClass(name: string, invitationCode: string): Promise<number> {
     const [result] = await this.pool.execute(
       "INSERT INTO classes (name, invitation_code, created_at) VALUES (?, ?, ?)",

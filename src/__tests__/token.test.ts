@@ -4,7 +4,7 @@ import { signToken, verifyToken } from "@/lib/token";
 describe("token", () => {
   describe("signToken / verifyToken", () => {
     it("should sign a valid JWT token", async () => {
-      const token = await signToken({ role: "admin", uid: 1 });
+      const token = await signToken({ role: "admin", uid: 1, name: "管理员" });
 
       expect(typeof token).toBe("string");
       expect(token.split(".")).toHaveLength(3); // JWT has 3 parts
@@ -12,7 +12,7 @@ describe("token", () => {
 
     it("should support all three roles", async () => {
       for (const role of ["admin", "teacher", "student"] as const) {
-        const token = await signToken({ role, uid: 1 });
+        const token = await signToken({ role, uid: 1, name: "测试用户" });
         const result = await verifyToken(token);
         expect(result.valid).toBe(true);
         expect(result.role).toBe(role);
@@ -20,16 +20,25 @@ describe("token", () => {
     });
 
     it("should return payload matching the signed claims", async () => {
-      const token = await signToken({ role: "admin", uid: 42 });
+      const token = await signToken({ role: "admin", uid: 42, name: "管理员" });
 
       const result = await verifyToken(token);
       expect(result.valid).toBe(true);
       expect(result.role).toBe("admin");
       expect(result.uid).toBe(42);
+      expect(result.name).toBe("管理员");
+    });
+
+    it("should round-trip the name claim", async () => {
+      const token = await signToken({ role: "student", uid: 7, name: "张三" });
+
+      const result = await verifyToken(token);
+      expect(result.valid).toBe(true);
+      expect(result.name).toBe("张三");
     });
 
     it("should allow null uid", async () => {
-      const token = await signToken({ role: "admin", uid: null });
+      const token = await signToken({ role: "admin", uid: null, name: "管理员" });
 
       const result = await verifyToken(token);
       expect(result.valid).toBe(true);
@@ -42,7 +51,7 @@ describe("token", () => {
     });
 
     it("should reject a tampered token", async () => {
-      const token = await signToken({ role: "admin", uid: 1 });
+      const token = await signToken({ role: "admin", uid: 1, name: "管理员" });
       const tampered = token.slice(0, -5) + "xxxxx";
 
       const result = await verifyToken(tampered);

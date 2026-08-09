@@ -5,6 +5,7 @@ export type Role = "admin" | "teacher" | "student";
 export interface TokenPayload {
   role: Role;
   uid: number | null;
+  name: string;
 }
 
 const JWT_SECRET = new TextEncoder().encode(
@@ -12,9 +13,9 @@ const JWT_SECRET = new TextEncoder().encode(
 );
 const TOKEN_EXPIRY = "24h";
 
-/** 签发 JWT token（携带角色与用户 ID） */
+/** 签发 JWT token（携带角色、用户 ID 与姓名） */
 export async function signToken(payload: TokenPayload): Promise<string> {
-  return new SignJWT({ role: payload.role, uid: payload.uid })
+  return new SignJWT({ role: payload.role, uid: payload.uid, name: payload.name })
     .setProtectedHeader({ alg: "HS256" })
     .setIssuedAt()
     .setExpirationTime(TOKEN_EXPIRY)
@@ -24,13 +25,14 @@ export async function signToken(payload: TokenPayload): Promise<string> {
 /** 验证 JWT token，成功时返回载荷 */
 export async function verifyToken(
   token: string
-): Promise<{ valid: boolean; role?: string; uid?: number | null }> {
+): Promise<{ valid: boolean; role?: string; uid?: number | null; name?: string }> {
   try {
     const { payload } = await jwtVerify(token, JWT_SECRET);
     return {
       valid: true,
       role: typeof payload.role === "string" ? payload.role : undefined,
       uid: typeof payload.uid === "number" ? payload.uid : null,
+      name: typeof payload.name === "string" ? payload.name : undefined,
     };
   } catch {
     return { valid: false };

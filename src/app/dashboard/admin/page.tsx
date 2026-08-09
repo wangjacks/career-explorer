@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
+import { useRouter } from "next/navigation";
 import { Toaster, toast } from "sonner";
 import { useAdminAuth } from "@/hooks/useAdminAuth";
 import type { DbConfig, Student } from "@/hooks/useAdminAuth";
@@ -13,11 +14,11 @@ import DashboardTab from "@/components/admin/DashboardTab";
 type Tab = "overview" | "dashboard" | "settings" | "students" | "export";
 
 export default function AdminPage() {
+  const router = useRouter();
   const {
     loggedIn,
     installed,
     setInstalled,
-    handleLogin,
     handleLogout,
     loadStats,
     loadProfiles,
@@ -31,7 +32,6 @@ export default function AdminPage() {
   const [students, setStudents] = useState<Student[]>([]);
   const [studentsError, setStudentsError] = useState(false);
   const [settingsError, setSettingsError] = useState(false);
-  const [loginInput, setLoginInput] = useState("");
 
   const refreshStudents = useCallback(async () => {
     const data = await loadStudents();
@@ -69,14 +69,12 @@ export default function AdminPage() {
   }, [loggedIn]);
   /* eslint-enable react-hooks/set-state-in-effect */
 
-  const onLogin = async () => {
-    const result = await handleLogin(loginInput);
-    if (result === true) {
-      setLoginInput("");
-    } else {
-      toast.error(result);
+  // 未登录（或非管理员）：统一跳转登录页（内嵌登录已退役）
+  useEffect(() => {
+    if (loggedIn === false) {
+      router.replace("/login");
     }
-  };
+  }, [loggedIn, router]);
 
   const onConfigSaved = async () => {
     setInstalled(true);
@@ -86,40 +84,11 @@ export default function AdminPage() {
     await refreshStudents();
   };
 
-  // Session check in progress: show loading to avoid login screen flash
-  if (loggedIn === null) {
-    return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center px-4">
-        <p className="text-sm text-gray-400">加载中...</p>
-      </div>
-    );
-  }
-
-  // Login screen
+  // 会话检测中 / 正在重定向到登录页：显示 loading 避免闪屏
   if (!loggedIn) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center px-4">
-        <Toaster position="top-center" />
-        <div className="w-full max-w-sm sm:max-w-md bg-white rounded-2xl shadow-sm border border-gray-100 p-8 space-y-6">
-          <div className="text-center">
-            <h1 className="text-xl font-bold text-gray-900">后台管理</h1>
-            <p className="text-sm text-gray-500 mt-1">请输入密码登录</p>
-          </div>
-          <input
-            type="password"
-            value={loginInput}
-            onChange={(e) => setLoginInput(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && onLogin()}
-            placeholder="请输入密码"
-            className="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-green-300 focus:border-transparent"
-          />
-          <button
-            onClick={onLogin}
-            className="w-full py-3 bg-green-500 hover:bg-green-600 text-white font-medium rounded-xl transition-colors"
-          >
-            登录
-          </button>
-        </div>
+        <p className="text-sm text-gray-400">加载中...</p>
       </div>
     );
   }

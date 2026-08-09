@@ -23,14 +23,6 @@ describe("proxy", () => {
     });
   });
 
-  describe("auth endpoint bypass", () => {
-    it("should allow /api/admin/auth without token", async () => {
-      const req = createRequest("/api/admin/auth");
-      const res = await proxy(req);
-      expect(res.status).toBe(200);
-    });
-  });
-
   describe("non-API page routes", () => {
     it("should allow page routes without auth", async () => {
       const req = createRequest("/dashboard/admin/page");
@@ -55,7 +47,7 @@ describe("proxy", () => {
     });
 
     it("should allow access with valid admin token", async () => {
-      const token = await signToken({ role: "admin", uid: 1 });
+      const token = await signToken({ role: "admin", uid: 1, name: "管理员" });
       const req = createRequest("/api/admin/students", { auth_token: token });
       const res = await proxy(req);
       expect(res.status).toBe(200);
@@ -77,7 +69,7 @@ describe("proxy", () => {
 
   describe("role permission", () => {
     it("should return 403 for student token on /api/admin/*", async () => {
-      const token = await signToken({ role: "student", uid: 2 });
+      const token = await signToken({ role: "student", uid: 2, name: "测试学生" });
       const req = createRequest("/api/admin/students", { auth_token: token });
       const res = await proxy(req);
       expect(res.status).toBe(403);
@@ -86,7 +78,7 @@ describe("proxy", () => {
     });
 
     it("should return 403 for teacher token on /api/admin/*", async () => {
-      const token = await signToken({ role: "teacher", uid: 3 });
+      const token = await signToken({ role: "teacher", uid: 3, name: "测试教师" });
       const req = createRequest("/api/admin/students", { auth_token: token });
       const res = await proxy(req);
       expect(res.status).toBe(403);

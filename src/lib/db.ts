@@ -101,6 +101,7 @@ export interface DbAdapter {
   getTags(): Promise<TagRow[]> | TagRow[];
   getClasses(): Promise<ClassRow[]> | ClassRow[];
   getClassByName(name: string): Promise<ClassRow | undefined> | ClassRow | undefined;
+  getClassByInviteCode(code: string): Promise<ClassRow | undefined> | ClassRow | undefined;
   insertClass(name: string, invitationCode: string): Promise<number> | number;
 
   backup(): Promise<BackupData> | BackupData;
@@ -240,6 +241,11 @@ export async function getClasses(): Promise<ClassRow[]> {
 export async function getClassByName(name: string): Promise<ClassRow | undefined> {
   const adapter = await ensureInit();
   return Promise.resolve(adapter.getClassByName(name));
+}
+
+export async function getClassByInviteCode(code: string): Promise<ClassRow | undefined> {
+  const adapter = await ensureInit();
+  return Promise.resolve(adapter.getClassByInviteCode(code));
 }
 
 export async function insertClass(name: string, invitationCode: string): Promise<number> {

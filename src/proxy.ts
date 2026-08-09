@@ -2,12 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { verifyToken } from "@/lib/token";
 
 export async function proxy(request: NextRequest) {
-  // Allow auth endpoint through without auth check (all methods)
-  if (request.nextUrl.pathname === "/api/admin/auth") {
-    return NextResponse.next();
-  }
-
-  // Page routes: let client-side handle login state (via GET /api/admin/auth)
+  // Page routes: let client-side handle login state (via GET /api/auth)
   if (!request.nextUrl.pathname.startsWith("/api/")) {
     return NextResponse.next();
   }
@@ -38,6 +33,6 @@ export async function proxy(request: NextRequest) {
 }
 
 export const config = {
-  // Protect admin pages and API routes, auth endpoint bypassed inside proxy
+  // Protect admin pages and admin API routes
   matcher: ["/dashboard/admin/:path*", "/api/admin/:path*"],
 };

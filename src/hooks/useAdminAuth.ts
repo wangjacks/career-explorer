@@ -57,8 +57,9 @@ export function useAdminAuth() {
   useEffect(() => {
     const check = async () => {
       try {
-        const res = await fetch("/api/admin/auth");
-        setLoggedIn(res.ok);
+        const res = await fetch("/api/auth");
+        const data = await res.json();
+        setLoggedIn(res.ok && data.role === "admin");
       } catch {
         setLoggedIn(false);
       }
@@ -66,27 +67,9 @@ export function useAdminAuth() {
     check();
   }, []);
 
-  const handleLogin = async (pw: string) => {
-    try {
-      const res = await fetch("/api/admin/auth", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ password: pw }),
-      });
-      const data = await res.json();
-      if (data.ok) {
-        setLoggedIn(true);
-        return true;
-      }
-      return data.error || "密码错误";
-    } catch {
-      return "登录失败";
-    }
-  };
-
   const handleLogout = async () => {
     try {
-      await fetch("/api/admin/auth", { method: "DELETE" });
+      await fetch("/api/auth", { method: "DELETE" });
     } catch (err) {
       console.error("Logout failed:", err);
     }
@@ -165,7 +148,6 @@ export function useAdminAuth() {
     loggedIn,
     installed,
     setInstalled,
-    handleLogin,
     handleLogout,
     loadStats,
     loadProfiles,

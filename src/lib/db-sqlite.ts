@@ -398,6 +398,10 @@ export class SqliteAdapter implements DbAdapter {
     return this.db.prepare("SELECT * FROM classes WHERE name = ?").get(name) as ClassRow | undefined;
   }
 
+  getClassByInviteCode(code: string): ClassRow | undefined {
+    return this.db.prepare("SELECT * FROM classes WHERE invitation_code = ?").get(code) as ClassRow | undefined;
+  }
+
   insertClass(name: string, invitationCode: string): number {
     const result = this.db
       .prepare("INSERT INTO classes (name, invitation_code, created_at) VALUES (?, ?, ?)")
