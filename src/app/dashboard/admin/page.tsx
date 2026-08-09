@@ -86,6 +86,15 @@ export default function AdminPage() {
     await refreshStudents();
   };
 
+  // Session check in progress: show loading to avoid login screen flash
+  if (loggedIn === null) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center px-4">
+        <p className="text-sm text-gray-400">加载中...</p>
+      </div>
+    );
+  }
+
   // Login screen
   if (!loggedIn) {
     return (

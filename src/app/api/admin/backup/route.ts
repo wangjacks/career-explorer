@@ -18,7 +18,7 @@ export async function POST(request: NextRequest) {
   try {
     const data = (await request.json()) as BackupData;
 
-    if (!data.version || !data.students || !data.profiles) {
+    if (!data.version || !Array.isArray(data.users) || !Array.isArray(data.tags)) {
       return NextResponse.json({ error: "备份文件格式无效" }, { status: 400 });
     }
 

@@ -61,7 +61,7 @@ export default function TagsPage() {
       toast.warning("请至少选择一个标签");
       return;
     }
-    router.push("/wordcloud");
+    router.push("/form/wordcloud");
   };
 
   return (

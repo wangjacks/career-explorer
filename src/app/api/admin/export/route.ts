@@ -1,15 +1,28 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getAllProfilesRaw, getAllStudents } from "@/lib/db";
+import { getStudents, getAllSubmitted, getTags } from "@/lib/db";
+import type { TagRow } from "@/lib/db";
+import { tagIdsToNames } from "@/lib/tag-utils";
 import ExcelJS from "exceljs";
 import { imageSize } from "image-size";
 
 interface ExportRow {
   student_id: string;
   name: string;
-  tags: string;
+  tags: string; // 已转换的标签名称，分号分隔
   avatar_url: string | null;
   evaluation_url: string | null;
   created_at: string;
+}
+
+/** 将 users 行的标签 ID JSON 转为 "名称;名称" 展示字符串 */
+function tagsToDisplay(tagsJson: string | null, allTags: TagRow[]): string {
+  if (!tagsJson) return "";
+  try {
+    const ids = JSON.parse(tagsJson) as number[];
+    return tagIdsToNames(ids, allTags).join(";");
+  } catch {
+    return "";
+  }
 }
 
 export async function GET(request: NextRequest) {
@@ -24,17 +37,16 @@ export async function GET(request: NextRequest) {
 
   const selectedColumns = columnsParam.split(",").filter(Boolean);
 
-  // Build student name map
-  const students = await getAllStudents();
-  const nameMap = new Map(students.map((s) => [s.student_id, s.name]));
+  // Build student list and submitted profiles
+  const students = await getStudents();
+  const allTags = await getTags();
 
-  // Get and filter profiles
   let rows: ExportRow[];
 
   if (scope === "students") {
     // Student list only (no profile data)
     rows = students.map((s) => ({
-      student_id: s.student_id,
+      student_id: s.user_code,
       name: s.name,
       tags: "",
       avatar_url: null,
@@ -42,14 +54,14 @@ export async function GET(request: NextRequest) {
       created_at: s.created_at,
     }));
   } else {
-    const allProfiles = await getAllProfilesRaw();
-    rows = allProfiles.map((r) => ({
-      student_id: r.student_id,
-      name: nameMap.get(r.student_id) || "",
-      tags: r.tags,
+    const submitted = await getAllSubmitted();
+    rows = submitted.map((r) => ({
+      student_id: r.user_code,
+      name: r.name,
+      tags: tagsToDisplay(r.tags, allTags),
       avatar_url: r.avatar_url,
       evaluation_url: r.evaluation_url,
-      created_at: r.created_at,
+      created_at: r.submitted_at || "",
     }));
 
     // Apply filters
@@ -85,11 +97,7 @@ export async function GET(request: NextRequest) {
   const formatRow = (row: ExportRow) => {
     const obj: Record<string, string> = {};
     for (const col of columns) {
-      if (col.key === "tags") {
-        obj[col.key] = JSON.parse(row.tags || "[]").join(";");
-      } else {
-        obj[col.key] = String(row[col.key as keyof ExportRow] ?? "");
-      }
+      obj[col.key] = String(row[col.key as keyof ExportRow] ?? "");
     }
     return obj;
   };
@@ -190,14 +198,14 @@ export async function POST(request: NextRequest) {
   const body = await request.json();
   const { scope, ids, dateFrom, dateTo, columns: columnsParam } = body;
 
-  const students = await getAllStudents();
-  const nameMap = new Map(students.map((s) => [s.student_id, s.name]));
+  const students = await getStudents();
+  const allTags = await getTags();
 
   let rows: ExportRow[];
 
   if (scope === "students") {
     rows = students.map((s) => ({
-      student_id: s.student_id,
+      student_id: s.user_code,
       name: s.name,
       tags: "",
       avatar_url: null,
@@ -205,14 +213,14 @@ export async function POST(request: NextRequest) {
       created_at: s.created_at,
     }));
   } else {
-    const allProfiles = await getAllProfilesRaw();
-    rows = allProfiles.map((r) => ({
-      student_id: r.student_id,
-      name: nameMap.get(r.student_id) || "",
-      tags: r.tags,
+    const submitted = await getAllSubmitted();
+    rows = submitted.map((r) => ({
+      student_id: r.user_code,
+      name: r.name,
+      tags: tagsToDisplay(r.tags, allTags),
       avatar_url: r.avatar_url,
       evaluation_url: r.evaluation_url,
-      created_at: r.created_at,
+      created_at: r.submitted_at || "",
     }));
 
     if (scope === "byIds" && ids) {
@@ -235,11 +243,7 @@ export async function POST(request: NextRequest) {
   const preview = rows.slice(0, 10).map((r) => {
     const obj: Record<string, string> = {};
     for (const key of selectedColumns) {
-      if (key === "tags") {
-        obj[key] = JSON.parse(r.tags || "[]").join(";");
-      } else {
-        obj[key] = String(r[key as keyof ExportRow] ?? "");
-      }
+      obj[key] = String(r[key as keyof ExportRow] ?? "");
     }
     return obj;
   });

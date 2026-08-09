@@ -8,15 +8,15 @@ export interface WordCloudItem {
   weight: number;
 }
 
-export interface Student {
-  studentId: string;
+export interface User {
+  id: number;
+  userCode: string;
+  role: "admin" | "teacher" | "student";
   name: string;
-  createdAt?: string;
-}
-
-export interface UserProfile {
-  studentId: string;
-  tags: string[];
-  avatarUrl: string;
-  createdAt?: string;
+  classId: number | null;
+  tags: number[];
+  avatarUrl: string | null;
+  evaluationUrl: string | null;
+  submittedAt: string | null;
+  createdAt: string;
 }

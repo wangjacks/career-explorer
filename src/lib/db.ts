@@ -2,18 +2,40 @@ import { getConfig } from "./db-config";
 import { MysqlAdapter } from "./db-mysql";
 import { SqliteAdapter } from "./db-sqlite";
 
-export interface ProfileRow {
-  student_id: string;
-  tags: string;
+export interface UserRow {
+  id: number;
+  user_code: string;
+  password_hash: string | null;
+  role: string;
+  name: string;
+  class_id: number | null;
+  tags: string | null; // JSON 数组（标签 ID），如 "[1,5,12]"
   avatar_url: string | null;
   evaluation_url: string | null;
+  submitted_at: string | null;
   created_at: string;
 }
 
-export interface StudentRow {
-  student_id: string;
+export interface TagRow {
+  id: number;
   name: string;
-  class_name: string;
+  category: string;
+  class_id: number | null;
+  category_order: number;
+  sort_order: number;
+}
+
+export interface ClassRow {
+  id: number;
+  name: string;
+  invitation_code: string;
+  created_at: string;
+}
+
+export interface TeacherClassRow {
+  id: number;
+  teacher_id: number;
+  class_id: number;
   created_at: string;
 }
 
@@ -28,34 +50,72 @@ export interface BackupData {
   version: number;
   sourceType: string;
   createdAt: string;
-  students: StudentRow[];
-  profiles: ProfileRow[];
+  users: UserRow[];
+  classes: ClassRow[];
+  teacher_classes: TeacherClassRow[];
+  tags: TagRow[];
+}
+
+export interface NewUser {
+  user_code: string;
+  password_hash?: string;
+  role: string;
+  name: string;
+  class_id?: number | null;
+}
+
+export interface UserUpdateFields {
+  name?: string;
+  class_id?: number | null;
+  password_hash?: string | null;
 }
 
 export interface DbAdapter {
-  insertStudent(studentId: string, name: string, className?: string): Promise<void> | void;
-  insertStudentsBatch(students: { studentId: string; name: string; className?: string }[]): Promise<void> | void;
-  getStudent(studentId: string): Promise<StudentRow | undefined> | StudentRow | undefined;
-  getAllStudents(): Promise<StudentRow[]> | StudentRow[];
-  deleteStudents(ids: string[]): Promise<number> | number;
+  init(): Promise<void> | void;
 
-  insertProfile(studentId: string, tags: string[], avatarUrl: string, evaluationUrl: string): Promise<void> | void;
-  getProfile(studentId: string): Promise<ProfileRow | undefined> | ProfileRow | undefined;
-  getAllProfiles(
+  // users
+  insertUser(user: NewUser): Promise<number> | number;
+  getUserByCode(userCode: string): Promise<UserRow | undefined> | UserRow | undefined;
+  getAdminUser(): Promise<UserRow | undefined> | UserRow | undefined;
+  updateUser(id: number, fields: UserUpdateFields): Promise<void> | void;
+  deleteStudents(userCodes: string[]): Promise<number> | number;
+
+  getStudents(): Promise<UserRow[]> | UserRow[];
+  getStudentByCode(userCode: string): Promise<UserRow | undefined> | UserRow | undefined;
+
+  // submissions
+  upsertSubmission(userCode: string, tagsJson: string, avatarUrl: string, evaluationUrl: string): Promise<void> | void;
+  getSubmittedProfiles(
     page: number,
     pageSize: number
-  ): Promise<{ rows: (ProfileRow & { studentName?: string })[]; total: number }> | { rows: (ProfileRow & { studentName?: string })[]; total: number };
-  deleteProfiles(studentIds: string[]): Promise<number> | number;
-  getAllProfilesRaw(): Promise<ProfileRow[]> | ProfileRow[];
+  ): Promise<{ rows: UserRow[]; total: number }> | { rows: UserRow[]; total: number };
+  getAllSubmitted(): Promise<UserRow[]> | UserRow[];
+  clearSubmissions(userCodes: string[]): Promise<number> | number;
+
+  // stats
   getStats(): Promise<Stats> | Stats;
   getTrends(days: number): Promise<{ date: string; count: number }[]> | { date: string; count: number }[];
   getCompareBy(by: "class" | "segment"): Promise<{ key: string; count: number }[]> | { key: string; count: number }[];
-  updateStudentClass(studentId: string, className: string): Promise<void> | void;
-  updateStudent(studentId: string, fields: { name?: string; className?: string }): Promise<void> | void;
-  getClasses(): Promise<string[]> | string[];
+
+  // tags & classes
+  getTags(): Promise<TagRow[]> | TagRow[];
+  getClasses(): Promise<ClassRow[]> | ClassRow[];
+  getClassByName(name: string): Promise<ClassRow | undefined> | ClassRow | undefined;
+  insertClass(name: string, invitationCode: string): Promise<number> | number;
+
   backup(): Promise<BackupData> | BackupData;
   restore(data: BackupData): Promise<void> | void;
   close(): Promise<void> | void;
+}
+
+/** 生成随机邀请码（排除易混淆字符） */
+export function randomInviteCode(len = 8): string {
+  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  let code = "";
+  for (let i = 0; i < len; i++) {
+    code += chars[Math.floor(Math.random() * chars.length)];
+  }
+  return code;
 }
 
 let currentAdapter: DbAdapter | null = null;
@@ -94,57 +154,62 @@ async function ensureInit(): Promise<DbAdapter> {
   return adapter;
 }
 
-export async function insertStudent(studentId: string, name: string, className?: string): Promise<void> {
+export async function insertUser(user: NewUser): Promise<number> {
   const adapter = await ensureInit();
-  return Promise.resolve(adapter.insertStudent(studentId, name, className));
+  return Promise.resolve(adapter.insertUser(user));
 }
 
-export async function insertStudentsBatch(students: { studentId: string; name: string; className?: string }[]): Promise<void> {
+export async function getUserByCode(userCode: string): Promise<UserRow | undefined> {
   const adapter = await ensureInit();
-  return Promise.resolve(adapter.insertStudentsBatch(students));
+  return Promise.resolve(adapter.getUserByCode(userCode));
 }
 
-export async function getStudent(studentId: string): Promise<StudentRow | undefined> {
+export async function getAdminUser(): Promise<UserRow | undefined> {
   const adapter = await ensureInit();
-  return Promise.resolve(adapter.getStudent(studentId));
+  return Promise.resolve(adapter.getAdminUser());
 }
 
-export async function getAllStudents(): Promise<StudentRow[]> {
+export async function updateUser(id: number, fields: UserUpdateFields): Promise<void> {
   const adapter = await ensureInit();
-  return Promise.resolve(adapter.getAllStudents());
+  return Promise.resolve(adapter.updateUser(id, fields));
 }
 
-export async function deleteStudents(ids: string[]): Promise<number> {
+export async function deleteStudents(userCodes: string[]): Promise<number> {
   const adapter = await ensureInit();
-  return Promise.resolve(adapter.deleteStudents(ids));
+  return Promise.resolve(adapter.deleteStudents(userCodes));
 }
 
-export async function insertProfile(studentId: string, tags: string[], avatarUrl: string, evaluationUrl: string): Promise<void> {
+export async function getStudents(): Promise<UserRow[]> {
   const adapter = await ensureInit();
-  return Promise.resolve(adapter.insertProfile(studentId, tags, avatarUrl, evaluationUrl));
+  return Promise.resolve(adapter.getStudents());
 }
 
-export async function getProfile(studentId: string): Promise<ProfileRow | undefined> {
+export async function getStudentByCode(userCode: string): Promise<UserRow | undefined> {
   const adapter = await ensureInit();
-  return Promise.resolve(adapter.getProfile(studentId));
+  return Promise.resolve(adapter.getStudentByCode(userCode));
 }
 
-export async function getAllProfiles(
+export async function upsertSubmission(userCode: string, tagsJson: string, avatarUrl: string, evaluationUrl: string): Promise<void> {
+  const adapter = await ensureInit();
+  return Promise.resolve(adapter.upsertSubmission(userCode, tagsJson, avatarUrl, evaluationUrl));
+}
+
+export async function getSubmittedProfiles(
   page: number = 1,
   pageSize: number = 20
-): Promise<{ rows: (ProfileRow & { studentName?: string })[]; total: number }> {
+): Promise<{ rows: UserRow[]; total: number }> {
   const adapter = await ensureInit();
-  return Promise.resolve(adapter.getAllProfiles(page, pageSize));
+  return Promise.resolve(adapter.getSubmittedProfiles(page, pageSize));
 }
 
-export async function deleteProfiles(studentIds: string[]): Promise<number> {
+export async function getAllSubmitted(): Promise<UserRow[]> {
   const adapter = await ensureInit();
-  return Promise.resolve(adapter.deleteProfiles(studentIds));
+  return Promise.resolve(adapter.getAllSubmitted());
 }
 
-export async function getAllProfilesRaw(): Promise<ProfileRow[]> {
+export async function clearSubmissions(userCodes: string[]): Promise<number> {
   const adapter = await ensureInit();
-  return Promise.resolve(adapter.getAllProfilesRaw());
+  return Promise.resolve(adapter.clearSubmissions(userCodes));
 }
 
 export async function getStats(): Promise<Stats> {
@@ -162,19 +227,24 @@ export async function getCompareBy(by: "class" | "segment"): Promise<{ key: stri
   return Promise.resolve(adapter.getCompareBy(by));
 }
 
-export async function updateStudentClass(studentId: string, className: string): Promise<void> {
+export async function getTags(): Promise<TagRow[]> {
   const adapter = await ensureInit();
-  return Promise.resolve(adapter.updateStudentClass(studentId, className));
+  return Promise.resolve(adapter.getTags());
 }
 
-export async function updateStudent(studentId: string, fields: { name?: string; className?: string }): Promise<void> {
-  const adapter = await ensureInit();
-  return Promise.resolve(adapter.updateStudent(studentId, fields));
-}
-
-export async function getClasses(): Promise<string[]> {
+export async function getClasses(): Promise<ClassRow[]> {
   const adapter = await ensureInit();
   return Promise.resolve(adapter.getClasses());
+}
+
+export async function getClassByName(name: string): Promise<ClassRow | undefined> {
+  const adapter = await ensureInit();
+  return Promise.resolve(adapter.getClassByName(name));
+}
+
+export async function insertClass(name: string, invitationCode: string): Promise<number> {
+  const adapter = await ensureInit();
+  return Promise.resolve(adapter.insertClass(name, invitationCode));
 }
 
 export async function backup(): Promise<BackupData> {

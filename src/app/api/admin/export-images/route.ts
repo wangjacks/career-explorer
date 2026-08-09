@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getAllProfilesRaw } from "@/lib/db";
+import { getAllSubmitted } from "@/lib/db";
 import JSZip from "jszip";
 
 export async function GET(request: NextRequest) {
@@ -9,19 +9,19 @@ export async function GET(request: NextRequest) {
   const dateFrom = searchParams.get("dateFrom") || "";
   const dateTo = searchParams.get("dateTo") || "";
 
-  const profiles = await getAllProfilesRaw();
+  const profiles = await getAllSubmitted();
 
   let filtered = profiles;
 
   if (scope === "byIds" && idsParam) {
     const filterIds = idsParam.split(",").map((s) => s.trim()).filter(Boolean);
-    filtered = filtered.filter((r) => filterIds.includes(r.student_id));
+    filtered = filtered.filter((r) => filterIds.includes(r.user_code));
   }
 
   if (scope === "date" && (dateFrom || dateTo)) {
     filtered = filtered.filter((r) => {
-      if (!r.created_at) return false;
-      const d = r.created_at.slice(0, 10);
+      if (!r.submitted_at) return false;
+      const d = r.submitted_at.slice(0, 10);
       if (dateFrom && d < dateFrom) return false;
       if (dateTo && d > dateTo) return false;
       return true;
@@ -33,8 +33,8 @@ export async function GET(request: NextRequest) {
 
   for (const row of filtered) {
     const urls: { url: string; filename: string }[] = [];
-    if (row.avatar_url) urls.push({ url: row.avatar_url, filename: `${row.student_id}_avatar.jpg` });
-    if (row.evaluation_url) urls.push({ url: row.evaluation_url, filename: `${row.student_id}_evaluation.jpg` });
+    if (row.avatar_url) urls.push({ url: row.avatar_url, filename: `${row.user_code}_avatar.jpg` });
+    if (row.evaluation_url) urls.push({ url: row.evaluation_url, filename: `${row.user_code}_evaluation.jpg` });
 
     for (const { url, filename } of urls) {
       try {

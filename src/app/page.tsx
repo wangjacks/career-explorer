@@ -31,7 +31,7 @@ export default function IndexPage() {
           </p>
         </div>
         <Link
-          href="/student"
+          href="/form/student"
           className="w-full max-w-xs sm:max-w-sm md:max-w-md py-3 bg-green-500 hover:bg-green-600 text-white font-medium rounded-xl text-center transition-colors shadow-md"
         >
           开始探索

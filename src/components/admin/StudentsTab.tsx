@@ -13,8 +13,13 @@ interface Props {
   onStudentsChanged: () => void;
 }
 
-type SortKey = "student_id" | "name" | "class_name";
+type SortKey = "user_code" | "name" | "class_name";
 type SortDir = "asc" | "desc";
+
+interface ClassItem {
+  id: number;
+  name: string;
+}
 
 function SortIcon({ active, dir }: { active: boolean; dir: SortDir }) {
   return (
@@ -28,12 +33,12 @@ export default function StudentsTab({ students, loadError, onRetry, onStudentsCh
   const [newStudentId, setNewStudentId] = useState("");
   const [newStudentName, setNewStudentName] = useState("");
   const [newClassName, setNewClassName] = useState("");
-  const [classList, setClassList] = useState<string[]>([]);
+  const [classList, setClassList] = useState<ClassItem[]>([]);
   const [selectedStudents, setSelectedStudents] = useState<Set<string>>(new Set());
 
   // Search & sort
   const [search, setSearch] = useState("");
-  const [sortKey, setSortKey] = useState<SortKey>("student_id");
+  const [sortKey, setSortKey] = useState<SortKey>("user_code");
   const [sortDir, setSortDir] = useState<SortDir>("asc");
 
   // Edit modal
@@ -65,24 +70,28 @@ export default function StudentsTab({ students, loadError, onRetry, onStudentsCh
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { refreshClasses(); }, []);
 
+  const classNameOf = (s: Student): string =>
+    s.class_id != null ? classList.find((c) => c.id === s.class_id)?.name || "" : "";
+
   // Filtered + sorted students
   const filteredStudents = useMemo(() => {
     const q = search.trim().toLowerCase();
     let list = students;
     if (q) {
       list = students.filter((s) =>
-        s.student_id.toLowerCase().includes(q) ||
+        s.user_code.toLowerCase().includes(q) ||
         s.name.toLowerCase().includes(q) ||
-        (s.class_name || "").toLowerCase().includes(q)
+        classNameOf(s).toLowerCase().includes(q)
       );
     }
     return [...list].sort((a, b) => {
-      const va = a[sortKey] || "";
-      const vb = b[sortKey] || "";
+      const va = sortKey === "class_name" ? classNameOf(a) : (a[sortKey] || "");
+      const vb = sortKey === "class_name" ? classNameOf(b) : (b[sortKey] || "");
       const cmp = va.localeCompare(vb, "zh-CN");
       return sortDir === "asc" ? cmp : -cmp;
     });
-  }, [students, search, sortKey, sortDir]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [students, search, sortKey, sortDir, classList]);
 
   const handleSort = (key: SortKey) => {
     if (sortKey === key) {
@@ -195,7 +204,7 @@ export default function StudentsTab({ students, loadError, onRetry, onStudentsCh
   const openEditModal = (s: Student) => {
     setEditing(s);
     setEditName(s.name);
-    setEditClass(s.class_name || "");
+    setEditClass(classNameOf(s));
   };
 
   const saveEditModal = async () => {
@@ -208,7 +217,7 @@ export default function StudentsTab({ students, loadError, onRetry, onStudentsCh
       const res = await fetch("/api/admin/students", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ studentId: editing.student_id, name: editName.trim(), className: editClass.trim() }),
+        body: JSON.stringify({ studentId: editing.user_code, name: editName.trim(), className: editClass.trim() }),
       });
       if (!res.ok) throw new Error("更新失败");
       toast.success("更新成功");
@@ -287,7 +296,7 @@ export default function StudentsTab({ students, loadError, onRetry, onStudentsCh
             placeholder="可选"
             className="px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-300" />
           <datalist id="class-datalist-add">
-            {classList.map((c) => <option key={c} value={c} />)}
+            {classList.map((c) => <option key={c.id} value={c.name} />)}
           </datalist>
         </div>
         <button onClick={handleAddStudent}
@@ -349,11 +358,11 @@ export default function StudentsTab({ students, loadError, onRetry, onStudentsCh
                     checked={filteredStudents.length > 0 && selectedStudents.size === filteredStudents.length}
                     onChange={() => {
                       if (selectedStudents.size === filteredStudents.length) setSelectedStudents(new Set());
-                      else setSelectedStudents(new Set(filteredStudents.map((s) => s.student_id)));
+                      else setSelectedStudents(new Set(filteredStudents.map((s) => s.user_code)));
                     }} />
                 </th>
-                <th className="px-4 py-2 cursor-pointer select-none" onClick={() => handleSort("student_id")}>
-                  学号<SortIcon active={sortKey === "student_id"} dir={sortDir} />
+                <th className="px-4 py-2 cursor-pointer select-none" onClick={() => handleSort("user_code")}>
+                  学号<SortIcon active={sortKey === "user_code"} dir={sortDir} />
                 </th>
                 <th className="px-4 py-2 cursor-pointer select-none" onClick={() => handleSort("name")}>
                   姓名<SortIcon active={sortKey === "name"} dir={sortDir} />
@@ -366,49 +375,49 @@ export default function StudentsTab({ students, loadError, onRetry, onStudentsCh
             </thead>
             <tbody className="divide-y divide-gray-50">
               {filteredStudents.map((s) => (
-                <tr key={s.student_id} className="hover:bg-gray-50/50 group">
+                <tr key={s.user_code} className="hover:bg-gray-50/50 group">
                   <td className="px-4 py-2">
                     <input type="checkbox" className="rounded border-gray-300"
-                      checked={selectedStudents.has(s.student_id)}
+                      checked={selectedStudents.has(s.user_code)}
                       onChange={() => {
                         const next = new Set(selectedStudents);
-                        if (next.has(s.student_id)) next.delete(s.student_id);
-                        else next.add(s.student_id);
+                        if (next.has(s.user_code)) next.delete(s.user_code);
+                        else next.add(s.user_code);
                         setSelectedStudents(next);
                       }} />
                   </td>
-                  <td className="px-4 py-2 font-mono text-xs text-gray-600">{s.student_id}</td>
+                  <td className="px-4 py-2 font-mono text-xs text-gray-600">{s.user_code}</td>
                   <td className="px-4 py-2">
-                    {inlineEdit?.studentId === s.student_id && inlineEdit.field === "name" ? (
+                    {inlineEdit?.studentId === s.user_code && inlineEdit.field === "name" ? (
                       <input autoFocus value={inlineEdit.value}
                         onChange={(e) => setInlineEdit({ ...inlineEdit, value: e.target.value })}
-                        onBlur={() => saveInlineEdit(s.student_id, "name", inlineEdit.value)}
+                        onBlur={() => saveInlineEdit(s.user_code, "name", inlineEdit.value)}
                         onKeyDown={(e) => {
-                          if (e.key === "Enter") saveInlineEdit(s.student_id, "name", inlineEdit.value);
+                          if (e.key === "Enter") saveInlineEdit(s.user_code, "name", inlineEdit.value);
                           if (e.key === "Escape") setInlineEdit(null);
                         }}
                         className="px-2 py-0.5 border border-gray-300 rounded text-sm w-24 focus:outline-none focus:ring-1 focus:ring-green-300" />
                     ) : (
                       <span className="cursor-pointer hover:bg-gray-100 px-1 rounded"
-                        onClick={() => setInlineEdit({ studentId: s.student_id, field: "name", value: s.name })}>
+                        onClick={() => setInlineEdit({ studentId: s.user_code, field: "name", value: s.name })}>
                         {s.name}
                       </span>
                     )}
                   </td>
                   <td className="px-4 py-2">
-                    {inlineEdit?.studentId === s.student_id && inlineEdit.field === "class_name" ? (
+                    {inlineEdit?.studentId === s.user_code && inlineEdit.field === "class_name" ? (
                       <input list="class-datalist-table" autoFocus value={inlineEdit.value}
                         onChange={(e) => setInlineEdit({ ...inlineEdit, value: e.target.value })}
-                        onBlur={() => saveInlineEdit(s.student_id, "class_name", inlineEdit.value)}
+                        onBlur={() => saveInlineEdit(s.user_code, "class_name", inlineEdit.value)}
                         onKeyDown={(e) => {
-                          if (e.key === "Enter") saveInlineEdit(s.student_id, "class_name", inlineEdit.value);
+                          if (e.key === "Enter") saveInlineEdit(s.user_code, "class_name", inlineEdit.value);
                           if (e.key === "Escape") setInlineEdit(null);
                         }}
                         className="px-2 py-0.5 border border-gray-300 rounded text-sm w-28 focus:outline-none focus:ring-1 focus:ring-green-300" />
                     ) : (
                       <span className="cursor-pointer hover:bg-gray-100 px-1 rounded"
-                        onClick={() => setInlineEdit({ studentId: s.student_id, field: "class_name", value: s.class_name || "" })}>
-                        {s.class_name || <span className="text-gray-400">-</span>}
+                        onClick={() => setInlineEdit({ studentId: s.user_code, field: "class_name", value: classNameOf(s) })}>
+                        {classNameOf(s) || <span className="text-gray-400">-</span>}
                       </span>
                     )}
                   </td>
@@ -416,7 +425,7 @@ export default function StudentsTab({ students, loadError, onRetry, onStudentsCh
                     <div className="flex items-center gap-2 opacity-60 group-hover:opacity-100 transition-opacity">
                       <button onClick={() => openEditModal(s)}
                         className="text-green-600 hover:text-green-700 text-xs font-medium">编辑</button>
-                      <button onClick={() => handleDeleteSingle(s.student_id)}
+                      <button onClick={() => handleDeleteSingle(s.user_code)}
                         className="text-red-500 hover:text-red-600 text-xs font-medium">删除</button>
                     </div>
                   </td>
@@ -430,7 +439,7 @@ export default function StudentsTab({ students, loadError, onRetry, onStudentsCh
             </tbody>
           </table>
           <datalist id="class-datalist-table">
-            {classList.map((c) => <option key={c} value={c} />)}
+            {classList.map((c) => <option key={c.id} value={c.name} />)}
           </datalist>
         </div>
       </div>
@@ -448,7 +457,7 @@ export default function StudentsTab({ students, loadError, onRetry, onStudentsCh
             <div className="space-y-3">
               <div>
                 <label className="text-xs text-gray-500">学号</label>
-                <p className="font-mono text-sm text-gray-700 bg-gray-50 px-3 py-2 rounded-lg">{editing.student_id}</p>
+                <p className="font-mono text-sm text-gray-700 bg-gray-50 px-3 py-2 rounded-lg">{editing.user_code}</p>
               </div>
               <div className="space-y-1">
                 <label className="text-xs text-gray-500">姓名</label>
@@ -461,7 +470,7 @@ export default function StudentsTab({ students, loadError, onRetry, onStudentsCh
                   placeholder="输入班级"
                   className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-300" />
                 <datalist id="class-datalist-modal">
-                  {classList.map((c) => <option key={c} value={c} />)}
+                  {classList.map((c) => <option key={c.id} value={c.name} />)}
                 </datalist>
               </div>
             </div>
