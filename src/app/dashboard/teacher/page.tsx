@@ -1,7 +1,21 @@
+"use client";
+
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 
 /** 教师面板占位页（实质内容在后续步骤实现） */
 export default function TeacherDashboardPage() {
+  const router = useRouter();
+
+  const handleLogout = async () => {
+    try {
+      await fetch("/api/auth", { method: "DELETE" });
+    } catch (err) {
+      console.error("Logout failed:", err);
+    }
+    router.push("/login");
+  };
+
   return (
     <div className="min-h-screen bg-gray-50 flex items-center justify-center px-4">
       <div className="w-full max-w-sm sm:max-w-md bg-white rounded-2xl shadow-sm border border-gray-100 p-8 space-y-6 text-center">
@@ -14,12 +28,20 @@ export default function TeacherDashboardPage() {
           <h1 className="text-xl font-bold text-gray-900">教师面板</h1>
           <p className="text-sm text-gray-500 mt-2">建设中，将在后续版本上线</p>
         </div>
-        <Link
-          href="/"
-          className="inline-block px-6 py-3 bg-green-500 hover:bg-green-600 text-white font-medium rounded-xl transition-colors"
-        >
-          返回首页
-        </Link>
+        <div className="flex items-center justify-center gap-3">
+          <button
+            onClick={handleLogout}
+            className="px-6 py-3 bg-gray-100 hover:bg-gray-200 text-gray-700 font-medium rounded-xl transition-colors"
+          >
+            退出登录
+          </button>
+          <Link
+            href="/"
+            className="px-6 py-3 bg-green-500 hover:bg-green-600 text-white font-medium rounded-xl transition-colors"
+          >
+            返回首页
+          </Link>
+        </div>
       </div>
     </div>
   );
