@@ -1,22 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
-import { readFileSync } from "fs";
-import { join } from "path";
 import { isInstalled, setConfig, type DbConfig } from "@/lib/db-config";
 import { MysqlAdapter } from "@/lib/db-mysql";
 import { SqliteAdapter } from "@/lib/db-sqlite";
 import type { DbAdapter } from "@/lib/db";
+import { hashPassword } from "@/lib/auth";
 
-/** 新安装时创建 admin 用户（从 admin-hash.txt 读密码，文件不存在则跳过） */
-async function ensureAdminUser(adapter: DbAdapter): Promise<void> {
+/** 新安装时创建 admin 用户（密码由安装向导提供，user_code 固定 10001） */
+async function createAdminUser(adapter: DbAdapter, plainPassword: string): Promise<void> {
   const existing = await Promise.resolve(adapter.getAdminUser());
   if (existing) return;
-  let hash = "";
-  try {
-    hash = readFileSync(join(process.cwd(), "admin-hash.txt"), "utf-8").trim();
-  } catch {
-    return;
-  }
-  if (!hash) return;
+  const hash = await hashPassword(plainPassword);
   await Promise.resolve(
     adapter.insertUser({
       user_code: "10001",
@@ -33,14 +26,22 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const config = (await request.json()) as DbConfig;
+    const { adminPassword, ...config } = (await request.json()) as DbConfig & {
+      adminPassword?: string;
+    };
+    if (!adminPassword || adminPassword.length < 8) {
+      return NextResponse.json(
+        { error: "请设置至少 8 位的管理员密码" },
+        { status: 400 }
+      );
+    }
     const dbType = config.type || "mysql";
 
     if (dbType === "sqlite") {
       const dbPath = config.sqlite?.path || "./data/career.db";
       const adapter = new SqliteAdapter(dbPath);
       adapter.init();
-      await ensureAdminUser(adapter);
+      await createAdminUser(adapter, adminPassword);
       adapter.close();
     } else {
       const { host, user, database } = config.mysql;
@@ -49,7 +50,7 @@ export async function POST(request: NextRequest) {
       }
       const adapter = new MysqlAdapter(config.mysql);
       await adapter.init();
-      await ensureAdminUser(adapter);
+      await createAdminUser(adapter, adminPassword);
       await adapter.close();
     }
 

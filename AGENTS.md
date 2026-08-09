@@ -72,8 +72,8 @@ This version has breaking changes — APIs, conventions, and file structure may 
 - 白名单：`/api/admin/auth` 放行（登录端点）；非 API 路由放行（客户端处理登录态）
 - URL 安全：`sanitize.ts` 防止 `javascript:` 协议 XSS
 - 路径穿越防护：`/api/uploads/[...path]` 已加固
-- 环境变量：`ADMIN_PASSWORD_HASH`（管理员密码 bcrypt hash，备用）、`JWT_SECRET`（JWT 签名密钥）、`ALLOWED_ORIGINS`（CORS 白名单）
-- 密码 hash 来源：`admin-hash.txt` 文件 > 环境变量 `ADMIN_PASSWORD_HASH`
+- 环境变量：`JWT_SECRET`（JWT 签名密钥）、`ALLOWED_ORIGINS`（CORS 白名单）
+- 管理员密码：在安装引导中配置，bcrypt 哈希存于 `users` 表（user_code=10001）
 
 ## 6. Git Workflow & Commit Conventions
 

@@ -15,8 +15,7 @@ export async function POST(request: NextRequest) {
   try {
     const { password } = await request.json();
     const admin = await getAdminUser();
-    // ADMIN_PASSWORD_HASH 环境变量回退：步骤 4（安装引导配置密码）后移除
-    const hash = admin?.password_hash || process.env.ADMIN_PASSWORD_HASH || null;
+    const hash = admin?.password_hash || null;
 
     if (!hash) {
       return NextResponse.json({ ok: false, error: "服务器未配置管理员密码" }, { status: 500 });
