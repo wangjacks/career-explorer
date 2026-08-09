@@ -4,6 +4,7 @@ import { useState, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { Toaster, toast } from "sonner";
 import NavigationBar from "@/components/NavigationBar";
+import QuickModeBanner from "@/components/QuickModeBanner";
 import { safeImageUrl } from "@/lib/sanitize";
 
 export default function AvatarPage() {
@@ -90,6 +91,7 @@ export default function AvatarPage() {
     <div className="flex flex-col min-h-screen bg-gray-50">
       <Toaster position="top-center" />
       <NavigationBar title="虚拟形象" showBack />
+      <QuickModeBanner />
       <main className="flex-1 flex flex-col items-center justify-center px-6 gap-8">
         <div
           onClick={() => fileInputRef.current?.click()}

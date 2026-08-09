@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Toaster, toast } from "sonner";
 import NavigationBar from "@/components/NavigationBar";
+import QuickModeBanner from "@/components/QuickModeBanner";
 import { tagCategories } from "@/lib/tagData";
 
 interface StudentInfo {
@@ -68,6 +69,7 @@ export default function TagsPage() {
     <div className="flex flex-col min-h-screen bg-gray-50">
       <Toaster position="top-center" />
       <NavigationBar title="标签填写" showBack />
+      <QuickModeBanner />
       <main className="flex-1 px-4 py-6 space-y-6 max-w-lg sm:max-w-xl md:max-w-2xl mx-auto w-full">
         {student && (
           <div className="text-center text-sm text-gray-600">

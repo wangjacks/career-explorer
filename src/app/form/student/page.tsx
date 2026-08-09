@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Toaster, toast } from "sonner";
 import NavigationBar from "@/components/NavigationBar";
+import QuickModeBanner from "@/components/QuickModeBanner";
 
 interface ExistingProfile {
   tags: string[];
@@ -99,6 +100,7 @@ export default function StudentPage() {
     <div className="flex flex-col min-h-screen bg-gray-50">
       <Toaster position="top-center" />
       <NavigationBar title="学号验证" showBack />
+      <QuickModeBanner />
       <main className="flex-1 flex flex-col items-center justify-center px-6 gap-8">
         <div className="w-20 h-20 rounded-2xl bg-blue-500 flex items-center justify-center shadow-lg">
           <svg
