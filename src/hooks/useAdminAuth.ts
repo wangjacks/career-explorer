@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { toast } from "sonner";
 
 export interface Profile {
@@ -49,11 +49,22 @@ export interface DbConfig {
 }
 
 export function useAdminAuth() {
-  const [loggedIn, setLoggedIn] = useState(() => {
-    if (typeof document === "undefined") return false;
-    return document.cookie.includes("admin_token=");
-  });
+  // null = 会话检测中（httpOnly cookie 不可读，需通过 API 检测）
+  const [loggedIn, setLoggedIn] = useState<boolean | null>(null);
   const [installed, setInstalled] = useState<boolean | null>(null);
+
+   
+  useEffect(() => {
+    const check = async () => {
+      try {
+        const res = await fetch("/api/admin/auth");
+        setLoggedIn(res.ok);
+      } catch {
+        setLoggedIn(false);
+      }
+    };
+    check();
+  }, []);
 
   const handleLogin = async (pw: string) => {
     try {
