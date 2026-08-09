@@ -67,15 +67,6 @@ export function useAdminAuth() {
     check();
   }, []);
 
-  const handleLogout = async () => {
-    try {
-      await fetch("/api/auth", { method: "DELETE" });
-    } catch (err) {
-      console.error("Logout failed:", err);
-    }
-    setLoggedIn(false);
-  };
-
   const loadStats = useCallback(async (): Promise<Stats | null> => {
     try {
       const res = await fetch("/api/admin/stats");
@@ -148,7 +139,6 @@ export function useAdminAuth() {
     loggedIn,
     installed,
     setInstalled,
-    handleLogout,
     loadStats,
     loadProfiles,
     loadSettings,

@@ -1,8 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import { useSession } from "@/hooks/useSession";
 
 /** 登录成功后按角色跳转的落点 */
 const ROLE_HOME: Record<string, string> = {
@@ -13,10 +14,18 @@ const ROLE_HOME: Record<string, string> = {
 
 export default function LoginPage() {
   const router = useRouter();
+  const { session, checking } = useSession();
   const [userCode, setUserCode] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+
+  // 已登录访问本页：直接跳转对应面板
+  useEffect(() => {
+    if (session) {
+      router.replace(ROLE_HOME[session.role] || "/");
+    }
+  }, [session, router]);
 
   const handleLogin = async () => {
     setError("");
@@ -39,6 +48,15 @@ export default function LoginPage() {
       setLoading(false);
     }
   };
+
+  // 会话检测中 / 正在重定向：显示 loading 避免登录表单闪现
+  if (checking || session) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center px-4">
+        <p className="text-sm text-gray-400">加载中...</p>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gray-50 flex items-center justify-center px-4">

@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { InstallGuard } from "@/components/InstallGuard";
 import ErrorBoundary from "@/components/ErrorBoundary";
+import UserMenu from "@/components/UserMenu";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -36,7 +37,10 @@ export default function RootLayout({
     >
       <body className="min-h-full flex flex-col">
         <ErrorBoundary>
-          <InstallGuard>{children}</InstallGuard>
+          <InstallGuard>
+            <UserMenu />
+            {children}
+          </InstallGuard>
         </ErrorBoundary>
       </body>
     </html>

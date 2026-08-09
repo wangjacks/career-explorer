@@ -1,11 +1,13 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import { useSession } from "@/hooks/useSession";
 
 export default function RegisterPage() {
   const router = useRouter();
+  const { session, checking } = useSession();
   const [userCode, setUserCode] = useState("");
   const [name, setName] = useState("");
   const [password, setPassword] = useState("");
@@ -13,6 +15,13 @@ export default function RegisterPage() {
   const [inviteCode, setInviteCode] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+
+  // 已登录访问本页：直接跳转对应面板
+  useEffect(() => {
+    if (session) {
+      router.replace(`/dashboard/${session.role}`);
+    }
+  }, [session, router]);
 
   // 客户端校验：编号 12 位数字 / 姓名非空 / 密码 ≥8 位 / 两次一致 / 邀请码非空
   const codeValid = /^\d{12}$/.test(userCode.trim());
@@ -51,6 +60,15 @@ export default function RegisterPage() {
 
   const inputClass =
     "w-full px-4 py-3 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-green-300 focus:border-transparent";
+
+  // 会话检测中 / 正在重定向：显示 loading 避免注册表单闪现
+  if (checking || session) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center px-4">
+        <p className="text-sm text-gray-400">加载中...</p>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gray-50 flex items-center justify-center px-4 py-12">

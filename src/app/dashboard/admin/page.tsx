@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
-import { Toaster, toast } from "sonner";
+import { Toaster } from "sonner";
 import { useAdminAuth } from "@/hooks/useAdminAuth";
 import type { DbConfig, Student } from "@/hooks/useAdminAuth";
 import OverviewTab from "@/components/admin/OverviewTab";
@@ -19,7 +19,6 @@ export default function AdminPage() {
     loggedIn,
     installed,
     setInstalled,
-    handleLogout,
     loadStats,
     loadProfiles,
     loadSettings,
@@ -106,21 +105,8 @@ export default function AdminPage() {
       <Toaster position="top-center" />
 
       <header className="bg-white border-b border-gray-100 px-6 py-4">
-        <div className="max-w-6xl mx-auto flex items-center justify-between">
+        <div className="max-w-6xl mx-auto">
           <h1 className="text-lg font-bold text-gray-900">后台管理</h1>
-          <div className="flex items-center gap-3">
-            <button
-              onClick={() => {
-                handleLogout();
-                setActiveTab("overview");
-                setDbConfig(null);
-                setStudents([]);
-              }}
-              className="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm font-medium rounded-lg transition-colors"
-            >
-              退出
-            </button>
-          </div>
         </div>
       </header>
 
