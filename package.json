@@ -36,7 +36,7 @@
     "eslint": "^9",
     "eslint-config-next": "16.2.10",
     "husky": "^9.1.7",
-    "lint-staged": "^17.0.8",
+    "lint-staged": "^17.3.0",
     "tailwindcss": "^4",
     "typescript": "^6",
     "vitest": "^4.1.10"
