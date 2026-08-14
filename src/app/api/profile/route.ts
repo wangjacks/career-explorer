@@ -16,7 +16,8 @@ export async function POST(request: NextRequest) {
 
     await insertProfile(studentId, tags, avatarUrl || "", evaluationUrl || "");
     return NextResponse.json({ message: "保存成功" });
-  } catch {
+  } catch (err) {
+    console.error("Profile POST error:", err);
     return NextResponse.json({ error: "服务器错误" }, { status: 500 });
   }
 }

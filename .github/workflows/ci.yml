@@ -1,5 +1,8 @@
 name: CI
 
+permissions:
+  contents: read
+
 on:
   push:
     branches: [main, dev]
@@ -20,5 +23,7 @@ jobs:
       - run: npm ci
 
       - run: npm run lint
+
+      - run: npm test
 
       - run: npm run build

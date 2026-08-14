@@ -1,17 +1,12 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { getStats } from "@/lib/db";
 
-function checkAuth(request: NextRequest) {
-  const auth = request.headers.get("authorization");
-  const password = process.env.ADMIN_PASSWORD || "admin123";
-  return auth === `Bearer ${password}`;
-}
-
-export async function GET(request: NextRequest) {
-  if (!checkAuth(request)) {
-    return NextResponse.json({ error: "未授权" }, { status: 401 });
+export async function GET() {
+  try {
+    const stats = await getStats();
+    return NextResponse.json(stats);
+  } catch (err) {
+    console.error("Stats GET error:", err);
+    return NextResponse.json({ error: "获取统计失败" }, { status: 500 });
   }
-
-  const stats = await getStats();
-  return NextResponse.json(stats);
 }

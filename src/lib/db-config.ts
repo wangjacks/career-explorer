@@ -3,6 +3,7 @@ import path from "path";
 
 export interface DbConfig {
   installed?: boolean;
+  type?: "mysql" | "sqlite";
   mysql: {
     host: string;
     port: number;
@@ -10,12 +11,14 @@ export interface DbConfig {
     password: string;
     database: string;
   };
+  sqlite?: { path: string };
 }
 
 const CONFIG_PATH = path.join(process.cwd(), "db-config.json");
 
 const DEFAULT_CONFIG: DbConfig = {
   installed: false,
+  type: "mysql",
   mysql: {
     host: "127.0.0.1",
     port: 3306,
@@ -23,6 +26,7 @@ const DEFAULT_CONFIG: DbConfig = {
     password: "",
     database: "career_app",
   },
+  sqlite: { path: "./data/career.db" },
 };
 
 export function getConfig(): DbConfig {

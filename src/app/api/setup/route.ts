@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { isInstalled, setConfig, type DbConfig } from "@/lib/db-config";
 import { MysqlAdapter } from "@/lib/db-mysql";
+import { SqliteAdapter } from "@/lib/db-sqlite";
 
 export async function POST(request: NextRequest) {
   if (isInstalled()) {
@@ -9,20 +10,28 @@ export async function POST(request: NextRequest) {
 
   try {
     const config = (await request.json()) as DbConfig;
+    const dbType = config.type || "mysql";
 
-    const { host, user, database } = config.mysql;
-    if (!host || !user || !database) {
-      return NextResponse.json({ error: "MySQL 连接信息不完整" }, { status: 400 });
+    if (dbType === "sqlite") {
+      const dbPath = config.sqlite?.path || "./data/career.db";
+      const adapter = new SqliteAdapter(dbPath);
+      adapter.init();
+      adapter.close();
+    } else {
+      const { host, user, database } = config.mysql;
+      if (!host || !user || !database) {
+        return NextResponse.json({ error: "MySQL 连接信息不完整" }, { status: 400 });
+      }
+      const adapter = new MysqlAdapter(config.mysql);
+      await adapter.init();
+      await adapter.close();
     }
-
-    const adapter = new MysqlAdapter(config.mysql);
-    await adapter.init();
-    await adapter.close();
 
     setConfig({ ...config, installed: true });
 
     return NextResponse.json({ ok: true, message: "安装成功" });
   } catch (err) {
+    console.error("Setup error:", err);
     return NextResponse.json(
       { error: `安装失败: ${err instanceof Error ? err.message : "未知错误"}` },
       { status: 500 }

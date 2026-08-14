@@ -1,26 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getAllStudents, insertStudent, insertStudentsBatch, deleteStudents } from "@/lib/db";
+import { getAllStudents, insertStudent, insertStudentsBatch, deleteStudents, updateStudent } from "@/lib/db";
 
-function checkAuth(request: NextRequest) {
-  const auth = request.headers.get("authorization");
-  const password = process.env.ADMIN_PASSWORD || "admin123";
-  return auth === `Bearer ${password}`;
-}
-
-export async function GET(request: NextRequest) {
-  if (!checkAuth(request)) {
-    return NextResponse.json({ error: "未授权" }, { status: 401 });
-  }
-
+export async function GET() {
   const students = await getAllStudents();
   return NextResponse.json({ data: students, total: students.length });
 }
 
 export async function POST(request: NextRequest) {
-  if (!checkAuth(request)) {
-    return NextResponse.json({ error: "未授权" }, { status: 401 });
-  }
-
   try {
     const body = await request.json();
 
@@ -29,14 +15,14 @@ export async function POST(request: NextRequest) {
       if (!/^\d{12}$/.test(body.studentId)) {
         return NextResponse.json({ error: "学号必须为12位数字" }, { status: 400 });
       }
-      await insertStudent(body.studentId, body.name);
+      await insertStudent(body.studentId, body.name, body.className || "");
       return NextResponse.json({ message: "添加成功" });
     }
 
     // Batch import
     if (Array.isArray(body.students)) {
       const valid = body.students.filter(
-        (s: { studentId: string; name: string }) =>
+        (s: { studentId: string; name: string; className?: string }) =>
           s.studentId && /^\d{12}$/.test(s.studentId) && s.name
       );
       if (valid.length === 0) {
@@ -47,16 +33,13 @@ export async function POST(request: NextRequest) {
     }
 
     return NextResponse.json({ error: "参数错误" }, { status: 400 });
-  } catch {
+  } catch (err) {
+    console.error("Students POST error:", err);
     return NextResponse.json({ error: "添加失败" }, { status: 500 });
   }
 }
 
 export async function DELETE(request: NextRequest) {
-  if (!checkAuth(request)) {
-    return NextResponse.json({ error: "未授权" }, { status: 401 });
-  }
-
   try {
     const { ids } = await request.json();
     if (!Array.isArray(ids) || ids.length === 0) {
@@ -64,7 +47,29 @@ export async function DELETE(request: NextRequest) {
     }
     const deleted = await deleteStudents(ids);
     return NextResponse.json({ deleted, message: `已删除 ${deleted} 名学生` });
-  } catch {
+  } catch (err) {
+    console.error("Students DELETE error:", err);
     return NextResponse.json({ error: "删除失败" }, { status: 500 });
+  }
+}
+
+export async function PUT(request: NextRequest) {
+  try {
+    const body = await request.json();
+    const { studentId, className, name } = body;
+    if (!studentId) {
+      return NextResponse.json({ error: "参数错误" }, { status: 400 });
+    }
+
+    // Support both old API (className only) and new API (name + className)
+    if (name !== undefined || className !== undefined) {
+      await updateStudent(studentId, { name, className });
+      return NextResponse.json({ ok: true });
+    }
+
+    return NextResponse.json({ error: "参数错误" }, { status: 400 });
+  } catch (err) {
+    console.error("Students PUT error:", err);
+    return NextResponse.json({ error: "更新失败" }, { status: 500 });
   }
 }

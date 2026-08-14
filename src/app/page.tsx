@@ -1,6 +1,9 @@
 import Link from "next/link";
 import NavigationBar from "@/components/NavigationBar";
 
+// 强制动态渲染，避免 Next.js 静态预渲染添加 s-maxage 缓存头
+export const dynamic = "force-dynamic";
+
 export default function IndexPage() {
   return (
     <div className="flex flex-col min-h-screen bg-gradient-to-b from-green-50 to-white">
@@ -29,7 +32,7 @@ export default function IndexPage() {
         </div>
         <Link
           href="/student"
-          className="w-full max-w-xs py-3 bg-green-500 hover:bg-green-600 text-white font-medium rounded-xl text-center transition-colors shadow-md"
+          className="w-full max-w-xs sm:max-w-sm md:max-w-md py-3 bg-green-500 hover:bg-green-600 text-white font-medium rounded-xl text-center transition-colors shadow-md"
         >
           开始探索
         </Link>

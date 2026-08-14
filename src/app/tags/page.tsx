@@ -68,7 +68,7 @@ export default function TagsPage() {
     <div className="flex flex-col min-h-screen bg-gray-50">
       <Toaster position="top-center" />
       <NavigationBar title="标签填写" showBack />
-      <main className="flex-1 px-4 py-6 space-y-6 max-w-lg mx-auto w-full">
+      <main className="flex-1 px-4 py-6 space-y-6 max-w-lg sm:max-w-xl md:max-w-2xl mx-auto w-full">
         {student && (
           <div className="text-center text-sm text-gray-600">
             你好，<span className="font-semibold text-gray-800">{student.name}</span>同学！
@@ -146,7 +146,7 @@ export default function TagsPage() {
       <div className="sticky bottom-0 bg-white/80 backdrop-blur-md border-t border-gray-100 p-4">
         <button
           onClick={handleNext}
-          className="w-full max-w-lg mx-auto block py-3 bg-green-500 hover:bg-green-600 text-white font-medium rounded-xl transition-colors"
+          className="w-full max-w-lg sm:max-w-xl md:max-w-2xl mx-auto block py-3 bg-green-500 hover:bg-green-600 text-white font-medium rounded-xl transition-colors"
         >
           下一步
         </button>

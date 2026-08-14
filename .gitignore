@@ -32,6 +32,7 @@ yarn-error.log*
 
 # env files (can opt-in for committing if needed)
 .env*
+admin-hash.txt
 
 # vercel
 .vercel
@@ -46,7 +47,8 @@ next-env.d.ts
 /data.db
 /data.db-shm
 /data.db-wal
+/data/
 /db-config.json
 
-# local docs
-/docs/
+# IDE/tool local knowledge
+.qoder/

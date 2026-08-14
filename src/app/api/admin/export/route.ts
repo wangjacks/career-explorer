@@ -1,12 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAllProfilesRaw, getAllStudents } from "@/lib/db";
 import ExcelJS from "exceljs";
-
-function checkAuth(request: NextRequest) {
-  const auth = request.headers.get("authorization");
-  const password = process.env.ADMIN_PASSWORD || "admin123";
-  return auth === `Bearer ${password}`;
-}
+import { imageSize } from "image-size";
 
 interface ExportRow {
   student_id: string;
@@ -18,10 +13,6 @@ interface ExportRow {
 }
 
 export async function GET(request: NextRequest) {
-  if (!checkAuth(request)) {
-    return NextResponse.json({ error: "未授权" }, { status: 401 });
-  }
-
   const { searchParams } = new URL(request.url);
   const format = searchParams.get("format") || "csv";
   const scope = searchParams.get("scope") || "all";
@@ -157,15 +148,26 @@ export async function GET(request: NextRequest) {
               const imgRes = await fetch(imgUrl);
               if (!imgRes.ok) continue;
               const imgBuffer = await imgRes.arrayBuffer();
+              const imgBuf = Buffer.from(imgBuffer);
               // eslint-disable-next-line @typescript-eslint/no-explicit-any
-              const imgId = workbook.addImage({ buffer: Buffer.from(imgBuffer) as any, extension: "jpeg" });
+              const imgId = workbook.addImage({ buffer: imgBuf as any, extension: "jpeg" });
+
+              // Detect original dimensions and scale proportionally
+              const dims = imageSize(imgBuf);
+              const targetH = 60;
+              const targetW = dims.width && dims.height
+                ? Math.round((dims.width / dims.height) * targetH)
+                : targetH;
+
               const colIdx = columns.indexOf(col);
               sheet.addImage(imgId, {
                 tl: { col: colIdx + 0.1, row: rowNum - 0.9 },
-                ext: { width: 60, height: 60 },
+                ext: { width: targetW, height: targetH },
               });
-              sheet.getRow(rowNum).height = 50;
-            } catch {}
+              sheet.getRow(rowNum).height = targetH * 0.75 + 5;
+            } catch (err) {
+              console.warn("Failed to embed image in Excel:", url, err);
+            }
           }
         }
       }
@@ -185,10 +187,6 @@ export async function GET(request: NextRequest) {
 
 // Preview endpoint
 export async function POST(request: NextRequest) {
-  if (!checkAuth(request)) {
-    return NextResponse.json({ error: "未授权" }, { status: 401 });
-  }
-
   const body = await request.json();
   const { scope, ids, dateFrom, dateTo, columns: columnsParam } = body;
 
