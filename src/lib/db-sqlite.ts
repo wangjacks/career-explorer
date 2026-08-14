@@ -1,5 +1,6 @@
 import Database from "better-sqlite3";
 import { mkdirSync, readFileSync, existsSync } from "fs";
+import { tmpdir } from "os";
 import path from "path";
 import { tagCategories } from "./tagData";
 import type {
@@ -38,13 +39,29 @@ interface LegacyProfile {
   created_at: string;
 }
 
+/**
+ * 校验 SQLite 数据库路径：解析后必须位于项目目录或系统临时目录内，防止路径穿越。
+ */
+export function sanitizeSqlitePath(input: string): string {
+  const candidate = path.resolve(process.cwd(), input);
+  const roots = [path.resolve(process.cwd()), path.resolve(tmpdir())];
+  for (const root of roots) {
+    const rel = path.relative(root, candidate);
+    if (rel !== ".." && !rel.startsWith(`..${path.sep}`) && !path.isAbsolute(rel)) {
+      return candidate;
+    }
+  }
+  throw new Error("SQLite 路径必须位于项目目录或系统临时目录内");
+}
+
 export class SqliteAdapter implements DbAdapter {
   private db: Database.Database;
 
   constructor(dbPath: string) {
-    const dir = path.dirname(dbPath);
+    const safePath = sanitizeSqlitePath(dbPath);
+    const dir = path.dirname(safePath);
     mkdirSync(dir, { recursive: true });
-    this.db = new Database(dbPath);
+    this.db = new Database(safePath);
     this.db.pragma("journal_mode = WAL");
   }
 
