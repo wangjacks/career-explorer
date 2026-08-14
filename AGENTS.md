@@ -78,11 +78,18 @@ This version has breaking changes — APIs, conventions, and file structure may 
 ## 6. Git Workflow & Commit Conventions
 
 - 双分支策略：`main`（稳定发布）+ `dev`（日常开发）
-- PR 始终目标 `dev`，使用 Squash and Merge
+- 日常 PR 始终目标 `dev`，使用 Squash and Merge
 - Commit 格式：`<type>: <中文描述>`（feat/fix/refactor/chore/docs/test）
-- 所有 commit 必须 GPG 签名
+- 所有 commit 必须 GPG 签名（`commit.gpgsign=true`）
+- 所有 tag 必须 GPG 签名（annotated tag：`git tag -s -a`）
+- 发布流程（release 分支 → main）：
+  - 功能集完成即发布，禁止积压；发布动作 = 合并动作，合并即部署
+  - 从功能集收官点切 `release/vX.Y.Z`，执行 `npm version X.Y.Z --no-git-tag-version`（同步 package.json / package-lock.json），提交 `chore: release vX.Y.Z`
+  - 打签名 tag `vX.Y.Z`，开 PR 到 `main`，合并方式用 **Create a merge commit**（不用 squash），保留发布节点
+  - 合并后立即把 `main` 合回 `dev`（尽早处理冲突，版本号随合并继承）
+- Hotfix 路径：从 `main` 拉 `hotfix/xxx` → 合 `main`（发布）→ 合回 `dev`
 - Pre-commit hooks：husky + lint-staged 自动 `eslint --fix`
-- CI：GitHub Actions（lint + build）
+- CI：GitHub Actions（lint + test + build，监听 main/dev 的 push 与 PR）
 
 ## 7. Key Design Patterns
 
