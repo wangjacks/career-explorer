@@ -10,6 +10,7 @@ import SettingsTab from "@/components/admin/SettingsTab";
 import StudentsTab from "@/components/admin/StudentsTab";
 import ExportTab from "@/components/admin/ExportTab";
 import DashboardTab from "@/components/admin/DashboardTab";
+import NavigationBar from "@/components/NavigationBar";
 
 type Tab = "overview" | "dashboard" | "settings" | "students" | "export";
 
@@ -104,11 +105,7 @@ export default function AdminPage() {
     <div className="min-h-screen bg-gray-50">
       <Toaster position="top-center" />
 
-      <header className="bg-white border-b border-gray-100 px-6 py-4">
-        <div className="max-w-6xl mx-auto">
-          <h1 className="text-lg font-bold text-gray-900">后台管理</h1>
-        </div>
-      </header>
+      <NavigationBar title="后台管理" showHome />
 
       {/* Tab Navigation */}
       <div className="bg-white border-b border-gray-100">
