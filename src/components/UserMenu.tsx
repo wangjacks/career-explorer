@@ -37,7 +37,7 @@ function shouldShowMenu(pathname: string | null): boolean {
 export default function UserMenu() {
   const pathname = usePathname();
   const router = useRouter();
-  const { session, checking } = useSession();
+  const { session, checking, refresh } = useSession();
   const [open, setOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -63,6 +63,7 @@ export default function UserMenu() {
     } catch (err) {
       console.error("Logout failed:", err);
     }
+    await refresh();
     router.push("/");
   };
 

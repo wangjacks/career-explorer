@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
 
 export interface SessionInfo {
@@ -13,6 +13,8 @@ export interface UseSessionResult {
   session: SessionInfo | null;
   /** 首次检测是否完成（未完成时调用方应隐藏状态 UI 避免闪现） */
   checking: boolean;
+  /** 主动重新检测当前会话 */
+  refresh: () => Promise<void>;
 }
 
 /**
@@ -24,24 +26,24 @@ export function useSession(): UseSessionResult {
   const [session, setSession] = useState<SessionInfo | null>(null);
   const [checking, setChecking] = useState(true);
 
-  useEffect(() => {
-    let cancelled = false;
-    fetch("/api/auth")
-      .then(async (res) => ({ ok: res.ok, data: await res.json() }))
-      .then(({ ok, data }) => {
-        if (cancelled) return;
-        setSession(ok && data.role && data.name ? { role: data.role, name: data.name } : null);
-        setChecking(false);
-      })
-      .catch(() => {
-        if (cancelled) return;
-        setSession(null);
-        setChecking(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [pathname]);
+  const refresh = useCallback(async () => {
+    setChecking(true);
+    try {
+      const res = await fetch("/api/auth");
+      const data = await res.json();
+      setSession(res.ok && data.role && data.name ? { role: data.role, name: data.name } : null);
+    } catch {
+      setSession(null);
+    } finally {
+      setChecking(false);
+    }
+  }, []);
 
-  return { session, checking };
+  /* eslint-disable react-hooks/set-state-in-effect -- refresh synchronizes with the auth API */
+  useEffect(() => {
+    void refresh();
+  }, [pathname, refresh]);
+  /* eslint-enable react-hooks/set-state-in-effect */
+
+  return { session, checking, refresh };
 }
