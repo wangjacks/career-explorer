@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useSession } from "@/hooks/useSession";
+import NavigationBar from "@/components/NavigationBar";
 
 export default function RegisterPage() {
   const router = useRouter();
@@ -64,87 +65,93 @@ export default function RegisterPage() {
   // 会话检测中 / 正在重定向：显示 loading 避免注册表单闪现
   if (checking || session) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center px-4">
-        <p className="text-sm text-gray-400">加载中...</p>
+      <div className="min-h-screen bg-gray-50">
+        <NavigationBar title="学生注册" showHome />
+        <div className="min-h-[calc(100vh-3rem)] flex items-center justify-center px-4">
+          <p className="text-sm text-gray-400">加载中...</p>
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 flex items-center justify-center px-4 py-12">
-      <div className="w-full max-w-sm sm:max-w-md bg-white rounded-2xl shadow-sm border border-gray-100 p-8 space-y-6">
-        <div className="text-center">
-          <h1 className="text-xl font-bold text-gray-900">学生注册</h1>
-          <p className="text-sm text-gray-500 mt-1">凭班级邀请码注册并绑定班级</p>
+    <div className="min-h-screen bg-gray-50">
+      <NavigationBar title="学生注册" showHome />
+      <main className="min-h-[calc(100vh-3rem)] flex items-center justify-center px-4 py-12">
+        <div className="w-full max-w-sm sm:max-w-md bg-white rounded-2xl shadow-sm border border-gray-100 p-8 space-y-6">
+          <div className="text-center">
+            <h1 className="text-xl font-bold text-gray-900">学生注册</h1>
+            <p className="text-sm text-gray-500 mt-1">凭班级邀请码注册并绑定班级</p>
+          </div>
+
+          <div className="space-y-4">
+            <div>
+              <input
+                value={userCode}
+                onChange={(e) => setUserCode(e.target.value)}
+                placeholder="编号（12 位数字学号）"
+                className={inputClass}
+              />
+              {userCode && !codeValid && (
+                <p className="text-xs text-red-500 mt-1">编号须为 12 位数字</p>
+              )}
+            </div>
+            <input
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="姓名"
+              className={inputClass}
+            />
+            <div>
+              <input
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="密码（至少 8 位）"
+                className={inputClass}
+              />
+              {password && !passwordValid && (
+                <p className="text-xs text-red-500 mt-1">密码须至少 8 位</p>
+              )}
+            </div>
+            <div>
+              <input
+                type="password"
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+                placeholder="确认密码"
+                className={inputClass}
+              />
+              {confirmPassword && !confirmValid && (
+                <p className="text-xs text-red-500 mt-1">两次输入的密码不一致</p>
+              )}
+            </div>
+            <input
+              value={inviteCode}
+              onChange={(e) => setInviteCode(e.target.value)}
+              placeholder="班级邀请码"
+              className={inputClass}
+            />
+          </div>
+
+          {error && <p className="text-sm text-red-500">{error}</p>}
+
+          <button
+            onClick={handleSubmit}
+            disabled={!formValid || loading}
+            className="w-full py-3 bg-green-500 hover:bg-green-600 disabled:bg-gray-300 text-white font-medium rounded-xl transition-colors"
+          >
+            {loading ? "注册中..." : "注册"}
+          </button>
+
+          <p className="text-center text-sm text-gray-500">
+            已有账号？{" "}
+            <Link href="/login" className="text-green-600 hover:underline">
+              去登录
+            </Link>
+          </p>
         </div>
-
-        <div className="space-y-4">
-          <div>
-            <input
-              value={userCode}
-              onChange={(e) => setUserCode(e.target.value)}
-              placeholder="编号（12 位数字学号）"
-              className={inputClass}
-            />
-            {userCode && !codeValid && (
-              <p className="text-xs text-red-500 mt-1">编号须为 12 位数字</p>
-            )}
-          </div>
-          <input
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            placeholder="姓名"
-            className={inputClass}
-          />
-          <div>
-            <input
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder="密码（至少 8 位）"
-              className={inputClass}
-            />
-            {password && !passwordValid && (
-              <p className="text-xs text-red-500 mt-1">密码须至少 8 位</p>
-            )}
-          </div>
-          <div>
-            <input
-              type="password"
-              value={confirmPassword}
-              onChange={(e) => setConfirmPassword(e.target.value)}
-              placeholder="确认密码"
-              className={inputClass}
-            />
-            {confirmPassword && !confirmValid && (
-              <p className="text-xs text-red-500 mt-1">两次输入的密码不一致</p>
-            )}
-          </div>
-          <input
-            value={inviteCode}
-            onChange={(e) => setInviteCode(e.target.value)}
-            placeholder="班级邀请码"
-            className={inputClass}
-          />
-        </div>
-
-        {error && <p className="text-sm text-red-500">{error}</p>}
-
-        <button
-          onClick={handleSubmit}
-          disabled={!formValid || loading}
-          className="w-full py-3 bg-green-500 hover:bg-green-600 disabled:bg-gray-300 text-white font-medium rounded-xl transition-colors"
-        >
-          {loading ? "注册中..." : "注册"}
-        </button>
-
-        <p className="text-center text-sm text-gray-500">
-          已有账号？{" "}
-          <Link href="/login" className="text-green-600 hover:underline">
-            去登录
-          </Link>
-        </p>
-      </div>
+      </main>
     </div>
   );
 }
