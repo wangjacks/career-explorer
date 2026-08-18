@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 
 export interface SessionInfo {
   role: string;
+  uid: number | null;
   name: string;
 }
 
@@ -31,7 +32,11 @@ export function useSession(): UseSessionResult {
     try {
       const res = await fetch("/api/auth");
       const data = await res.json();
-      setSession(res.ok && data.role && data.name ? { role: data.role, name: data.name } : null);
+      setSession(
+        res.ok && data.role && data.name
+          ? { role: data.role, uid: typeof data.uid === "number" ? data.uid : null, name: data.name }
+          : null
+      );
     } catch {
       setSession(null);
     } finally {
