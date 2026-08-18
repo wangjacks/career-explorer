@@ -45,8 +45,12 @@ interface LegacyProfile {
  * 校验 SQLite 数据库路径：解析后必须位于项目目录或系统临时目录内，防止路径穿越。
  */
 export function sanitizeSqlitePath(input: string): string {
-  const candidate = path.resolve(process.cwd(), input);
-  const roots = [path.resolve(process.cwd()), path.resolve(tmpdir())];
+  // 动态路径校验需运行时解析（防穿越），豁免 Turbopack 静态追踪
+  const candidate = path.resolve(/*turbopackIgnore: true*/ process.cwd(), input);
+  const roots = [
+    path.resolve(/*turbopackIgnore: true*/ process.cwd()),
+    path.resolve(/*turbopackIgnore: true*/ tmpdir()),
+  ];
   for (const root of roots) {
     const rel = path.relative(root, candidate);
     if (rel !== ".." && !rel.startsWith(`..${path.sep}`) && !path.isAbsolute(rel)) {
