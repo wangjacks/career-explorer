@@ -59,7 +59,7 @@ export default function StudentsTab({ students, loadError, onRetry, onStudentsCh
 
   const refreshClasses = async () => {
     try {
-      const res = await fetch("/api/admin/students/classes");
+      const res = await fetch("/api/admin/classes");
       if (res.ok) {
         const data = await res.json();
         setClassList(data.data || []);
