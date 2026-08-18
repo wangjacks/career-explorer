@@ -7,6 +7,7 @@ import type {
   UserRow,
   TagRow,
   ClassRow,
+  TeacherClassRow,
   Stats,
   DbAdapter,
   BackupData,
@@ -575,6 +576,70 @@ export class MysqlAdapter implements DbAdapter {
       [name, invitationCode, getNow()]
     );
     return (result as mysql.ResultSetHeader).insertId;
+  }
+
+  async updateClass(id: number, fields: { name?: string; invitation_code?: string }): Promise<void> {
+    const sets: string[] = [];
+    const params: (string | number)[] = [];
+    if (fields.name !== undefined) {
+      sets.push("name = ?");
+      params.push(fields.name);
+    }
+    if (fields.invitation_code !== undefined) {
+      sets.push("invitation_code = ?");
+      params.push(fields.invitation_code);
+    }
+    if (sets.length === 0) return;
+    await this.pool.execute(`UPDATE classes SET ${sets.join(", ")} WHERE id = ?`, [...params, id]);
+  }
+
+  async deleteClass(id: number): Promise<void> {
+    // 建表未定义外键，事务内显式清理关联数据
+    const conn = await this.pool.getConnection();
+    try {
+      await conn.beginTransaction();
+      await conn.execute("UPDATE users SET class_id = NULL WHERE class_id = ?", [id]);
+      await conn.execute("DELETE FROM teacher_classes WHERE class_id = ?", [id]);
+      await conn.execute("DELETE FROM classes WHERE id = ?", [id]);
+      await conn.commit();
+    } catch (err) {
+      await conn.rollback();
+      throw err;
+    } finally {
+      conn.release();
+    }
+  }
+
+  async insertTeacherClass(teacherId: number, classId: number): Promise<void> {
+    await this.pool.execute(
+      "INSERT INTO teacher_classes (teacher_id, class_id, created_at) VALUES (?, ?, ?)",
+      [teacherId, classId, getNow()]
+    );
+  }
+
+  async getTeacherClassPairs(): Promise<TeacherClassRow[]> {
+    const [rows] = await this.pool.execute("SELECT * FROM teacher_classes ORDER BY id");
+    return rows as TeacherClassRow[];
+  }
+
+  async getTeachers(): Promise<UserRow[]> {
+    const [rows] = await this.pool.execute("SELECT * FROM users WHERE role = 'teacher' ORDER BY id");
+    return rows as UserRow[];
+  }
+
+  async deleteTeacher(id: number): Promise<void> {
+    const conn = await this.pool.getConnection();
+    try {
+      await conn.beginTransaction();
+      await conn.execute("DELETE FROM teacher_classes WHERE teacher_id = ?", [id]);
+      await conn.execute("DELETE FROM users WHERE id = ?", [id]);
+      await conn.commit();
+    } catch (err) {
+      await conn.rollback();
+      throw err;
+    } finally {
+      conn.release();
+    }
   }
 
   async backup(): Promise<BackupData> {

@@ -234,3 +234,99 @@ describe("提交流程", () => {
     rmSync(path.dirname(dbPath), { recursive: true, force: true });
   });
 });
+
+describe("班级管理与教师账户", () => {
+  it("班级 CRUD：改名/删除，删除后学生 class_id 置 NULL（显式清理）", () => {
+    const dbPath = makeTmpDb();
+    const adapter = new SqliteAdapter(dbPath);
+    adapter.init();
+
+    const classId = adapter.insertClass("一班", "AAAA1111");
+    adapter.updateClass(classId, { name: "一班（改）" });
+    expect(adapter.getClassByName("一班（改）")?.id).toBe(classId);
+
+    adapter.insertUser({ user_code: "202505050101", role: "student", name: "张三", class_id: classId });
+    adapter.deleteClass(classId);
+
+    expect(adapter.getClasses()).toHaveLength(0);
+    expect(adapter.getStudentByCode("202505050101")?.class_id).toBeNull();
+
+    adapter.close();
+    rmSync(path.dirname(dbPath), { recursive: true, force: true });
+  });
+
+  it("删班后统计 compare 归入「未分班」分组", () => {
+    const dbPath = makeTmpDb();
+    const adapter = new SqliteAdapter(dbPath);
+    adapter.init();
+
+    const classId = adapter.insertClass("一班", "BBBB2222");
+    adapter.insertUser({ user_code: "202505050102", role: "student", name: "李四", class_id: classId });
+    adapter.upsertSubmission("202505050102", "[]", "/a.png", "/w.png");
+    expect(adapter.getCompareBy("class")).toEqual([{ key: "一班", count: 1 }]);
+
+    adapter.deleteClass(classId);
+    expect(adapter.getCompareBy("class")).toEqual([{ key: "未分班", count: 1 }]);
+
+    adapter.close();
+    rmSync(path.dirname(dbPath), { recursive: true, force: true });
+  });
+
+  it("邀请码：唯一约束，重置后旧码失效新码可查", () => {
+    const dbPath = makeTmpDb();
+    const adapter = new SqliteAdapter(dbPath);
+    adapter.init();
+
+    const id1 = adapter.insertClass("一班", "CCCC3333");
+    adapter.insertClass("二班", "DDDD4444");
+    expect(() => adapter.insertClass("三班", "CCCC3333")).toThrow();
+
+    adapter.updateClass(id1, { invitation_code: "EEEE5555" });
+    expect(adapter.getClassByInviteCode("CCCC3333")).toBeUndefined();
+    expect(adapter.getClassByInviteCode("EEEE5555")?.id).toBe(id1);
+
+    adapter.close();
+    rmSync(path.dirname(dbPath), { recursive: true, force: true });
+  });
+
+  it("teacher_classes 写入与查询，删班/删教师时连带清理", () => {
+    const dbPath = makeTmpDb();
+    const adapter = new SqliteAdapter(dbPath);
+    adapter.init();
+
+    const teacherId = adapter.insertUser({ user_code: "10000001", role: "teacher", name: "王老师" });
+    const c1 = adapter.insertClass("一班", "FFFF6666");
+    const c2 = adapter.insertClass("二班", "GGGG7777");
+    adapter.insertTeacherClass(teacherId, c1);
+    adapter.insertTeacherClass(teacherId, c2);
+    expect(adapter.getTeacherClassPairs()).toHaveLength(2);
+
+    adapter.deleteClass(c1);
+    expect(adapter.getTeacherClassPairs()).toHaveLength(1);
+
+    adapter.deleteTeacher(teacherId);
+    expect(adapter.getTeacherClassPairs()).toHaveLength(0);
+    expect(adapter.getTeachers()).toHaveLength(0);
+
+    adapter.close();
+    rmSync(path.dirname(dbPath), { recursive: true, force: true });
+  });
+
+  it("教师账户：getTeachers 过滤角色，编号唯一约束", () => {
+    const dbPath = makeTmpDb();
+    const adapter = new SqliteAdapter(dbPath);
+    adapter.init();
+
+    adapter.insertUser({ user_code: "10000001", role: "teacher", name: "王老师" });
+    adapter.insertUser({ user_code: "202505050101", role: "student", name: "张三" });
+
+    const teachers = adapter.getTeachers();
+    expect(teachers).toHaveLength(1);
+    expect(teachers[0].user_code).toBe("10000001");
+
+    expect(() => adapter.insertUser({ user_code: "10000001", role: "teacher", name: "重复" })).toThrow();
+
+    adapter.close();
+    rmSync(path.dirname(dbPath), { recursive: true, force: true });
+  });
+});

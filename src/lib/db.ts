@@ -189,6 +189,14 @@ export interface DbAdapter {
   getClassByName(name: string): Promise<ClassRow | undefined> | ClassRow | undefined;
   getClassByInviteCode(code: string): Promise<ClassRow | undefined> | ClassRow | undefined;
   insertClass(name: string, invitationCode: string): Promise<number> | number;
+  updateClass(id: number, fields: { name?: string; invitation_code?: string }): Promise<void> | void;
+  deleteClass(id: number): Promise<void> | void;
+  insertTeacherClass(teacherId: number, classId: number): Promise<void> | void;
+  getTeacherClassPairs(): Promise<TeacherClassRow[]> | TeacherClassRow[];
+
+  // teachers
+  getTeachers(): Promise<UserRow[]> | UserRow[];
+  deleteTeacher(id: number): Promise<void> | void;
 
   backup(): Promise<BackupData> | BackupData;
   restore(data: BackupData): Promise<void> | void;
@@ -368,6 +376,36 @@ export async function getClassByInviteCode(code: string): Promise<ClassRow | und
 export async function insertClass(name: string, invitationCode: string): Promise<number> {
   const adapter = await ensureInit();
   return Promise.resolve(adapter.insertClass(name, invitationCode));
+}
+
+export async function updateClass(id: number, fields: { name?: string; invitation_code?: string }): Promise<void> {
+  const adapter = await ensureInit();
+  return Promise.resolve(adapter.updateClass(id, fields));
+}
+
+export async function deleteClass(id: number): Promise<void> {
+  const adapter = await ensureInit();
+  return Promise.resolve(adapter.deleteClass(id));
+}
+
+export async function insertTeacherClass(teacherId: number, classId: number): Promise<void> {
+  const adapter = await ensureInit();
+  return Promise.resolve(adapter.insertTeacherClass(teacherId, classId));
+}
+
+export async function getTeacherClassPairs(): Promise<TeacherClassRow[]> {
+  const adapter = await ensureInit();
+  return Promise.resolve(adapter.getTeacherClassPairs());
+}
+
+export async function getTeachers(): Promise<UserRow[]> {
+  const adapter = await ensureInit();
+  return Promise.resolve(adapter.getTeachers());
+}
+
+export async function deleteTeacher(id: number): Promise<void> {
+  const adapter = await ensureInit();
+  return Promise.resolve(adapter.deleteTeacher(id));
 }
 
 export async function backup(): Promise<BackupData> {

@@ -8,6 +8,7 @@ import type {
   UserRow,
   TagRow,
   ClassRow,
+  TeacherClassRow,
   Stats,
   DbAdapter,
   BackupData,
@@ -561,6 +562,53 @@ export class SqliteAdapter implements DbAdapter {
       .prepare("INSERT INTO classes (name, invitation_code, created_at) VALUES (?, ?, ?)")
       .run(name, invitationCode, getNow());
     return Number(result.lastInsertRowid);
+  }
+
+  updateClass(id: number, fields: { name?: string; invitation_code?: string }): void {
+    const sets: string[] = [];
+    const params: (string | number)[] = [];
+    if (fields.name !== undefined) {
+      sets.push("name = ?");
+      params.push(fields.name);
+    }
+    if (fields.invitation_code !== undefined) {
+      sets.push("invitation_code = ?");
+      params.push(fields.invitation_code);
+    }
+    if (sets.length === 0) return;
+    this.db.prepare(`UPDATE classes SET ${sets.join(", ")} WHERE id = ?`).run(...params, id);
+  }
+
+  deleteClass(id: number): void {
+    // 外键级联不可依赖（未启用 PRAGMA foreign_keys），事务内显式清理关联数据
+    const tx = this.db.transaction((classId: number) => {
+      this.db.prepare("UPDATE users SET class_id = NULL WHERE class_id = ?").run(classId);
+      this.db.prepare("DELETE FROM teacher_classes WHERE class_id = ?").run(classId);
+      this.db.prepare("DELETE FROM classes WHERE id = ?").run(classId);
+    });
+    tx(id);
+  }
+
+  insertTeacherClass(teacherId: number, classId: number): void {
+    this.db
+      .prepare("INSERT INTO teacher_classes (teacher_id, class_id, created_at) VALUES (?, ?, ?)")
+      .run(teacherId, classId, getNow());
+  }
+
+  getTeacherClassPairs(): TeacherClassRow[] {
+    return this.db.prepare("SELECT * FROM teacher_classes ORDER BY id").all() as TeacherClassRow[];
+  }
+
+  getTeachers(): UserRow[] {
+    return this.db.prepare("SELECT * FROM users WHERE role = 'teacher' ORDER BY id").all() as UserRow[];
+  }
+
+  deleteTeacher(id: number): void {
+    const tx = this.db.transaction((teacherId: number) => {
+      this.db.prepare("DELETE FROM teacher_classes WHERE teacher_id = ?").run(teacherId);
+      this.db.prepare("DELETE FROM users WHERE id = ?").run(teacherId);
+    });
+    tx(id);
   }
 
   backup(): BackupData {
