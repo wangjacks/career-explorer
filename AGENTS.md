@@ -29,13 +29,13 @@ This version has breaking changes — APIs, conventions, and file structure may 
 | `src/app/setup/` | 安装引导（首次配置数据库 + 管理员密码） |
 | `src/app/api/auth/` | 统一认证端点（POST 登录 / GET 会话 / DELETE 登出） |
 | `src/app/api/auth/register/` | 学生注册端点 |
-| `src/app/api/admin/` | 管理端 API（stats、students、profiles、settings、export、backup、test-db） |
+| `src/app/api/admin/` | 管理端 API（stats、students、classes、teachers、profiles、settings、export、backup、test-db） |
 | `src/app/api/profile/` | 学生档案保存 |
 | `src/app/api/upload/` | 文件上传 |
 | `src/app/api/validate-student/` | 学号验证（快速提交模式） |
 | `src/app/api/setup/` | 安装引导 API（含 status/test 子路由） |
 | `src/app/api/uploads/[...path]/` | 静态文件服务（含路径穿越防护） |
-| `src/components/admin/` | Admin 面板子组件（DashboardTab、ExportTab、OverviewTab、SettingsTab、StudentsTab、TagsTab 等） |
+| `src/components/admin/` | Admin 面板子组件（DashboardTab、ExportTab、OverviewTab、SettingsTab、StudentsTab、TagsTab、ClassesTab、TeachersTab 等） |
 | `src/components/` | 公共组件（ErrorBoundary、InstallGuard、NavigationBar、UserMenu、QuickModeBanner、WordCloudCanvas/Client） |
 | `src/hooks/` | 自定义 React hooks（useAdminAuth、useSession） |
 | `src/lib/` | 数据层和工具库 |
@@ -91,6 +91,7 @@ This version has breaking changes — APIs, conventions, and file structure may 
 - **三角色认证**：admin / teacher / student，统一 `users` 表
 - 认证流程：`/api/auth` POST 验证 `user_code` + 密码（bcrypt）-> 签发 JWT（jose HS256, 24h, 含 role/uid/name）-> HttpOnly Cookie (`auth_token`, secure, sameSite=lax)
 - 中间件：`proxy.ts` 拦截 `/dashboard/admin/:path*` 和 `/api/admin/:path*`，校验角色权限
+- 角色例外（步骤 8）：`/api/admin/classes*` 允许 admin + teacher；`/api/admin/students` 对 teacher 仅 GET 只读；其余 `/api/admin/*` 仅 admin
 - 白名单：`/api/auth/*` 天然在 proxy matcher 范围外；非 API 路由放行（客户端处理登录态）
 - 会话检测：`GET /api/auth` 返回 `{ ok, role, uid, name }`（httpOnly cookie 前端不可读，须经 API 检测）
 - 登出：`DELETE /api/auth` 清除 cookie
