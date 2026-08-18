@@ -2,12 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { verifyToken } from "@/lib/token";
 
 export async function proxy(request: NextRequest) {
-  // Allow auth endpoint through without auth check (all methods)
-  if (request.nextUrl.pathname === "/api/admin/auth") {
-    return NextResponse.next();
-  }
-
-  // Page routes: let client-side handle login state (via GET /api/admin/auth)
+  // Page routes: let client-side handle login state (via GET /api/auth)
   if (!request.nextUrl.pathname.startsWith("/api/")) {
     return NextResponse.next();
   }
@@ -29,15 +24,23 @@ export async function proxy(request: NextRequest) {
     return response;
   }
 
-  // /api/admin/* requires admin role
+  // /api/admin/* 默认仅 admin；例外：
+  // - /api/admin/classes*：admin + teacher（班级管理，步骤 8）
+  // - /api/admin/students：teacher 仅 GET 只读（教师面板学生归属展示）
   if (result.role !== "admin") {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    const { pathname } = request.nextUrl;
+    const classesAllowed = result.role === "teacher" && pathname.startsWith("/api/admin/classes");
+    const studentsReadOnly =
+      result.role === "teacher" && request.method === "GET" && pathname === "/api/admin/students";
+    if (!classesAllowed && !studentsReadOnly) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
   }
 
   return NextResponse.next();
 }
 
 export const config = {
-  // Protect admin pages and API routes, auth endpoint bypassed inside proxy
+  // Protect admin pages and admin API routes
   matcher: ["/dashboard/admin/:path*", "/api/admin/:path*"],
 };

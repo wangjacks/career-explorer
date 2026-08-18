@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import mysql from "mysql2/promise";
 import { isInstalled } from "@/lib/db-config";
-import { SqliteAdapter } from "@/lib/db-sqlite";
+import { SqliteAdapter, sanitizeSqlitePath } from "@/lib/db-sqlite";
 import { mkdirSync, accessSync, constants } from "fs";
 import path from "path";
 
@@ -15,7 +15,7 @@ export async function POST(request: NextRequest) {
     const dbType = body.type || "mysql";
 
     if (dbType === "sqlite") {
-      const dbPath = body.sqlite?.path || "./data/career.db";
+      const dbPath = sanitizeSqlitePath(body.sqlite?.path || "./data/career.db");
       const dir = path.dirname(dbPath);
       mkdirSync(dir, { recursive: true });
       accessSync(dir, constants.W_OK);

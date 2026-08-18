@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import NavigationBar from "@/components/NavigationBar";
+import QuickModeBanner from "@/components/QuickModeBanner";
 import WordCloudClient from "@/components/WordCloudClient";
 
 export default function WordcloudPage() {
@@ -19,6 +20,7 @@ export default function WordcloudPage() {
   return (
     <div className="flex flex-col min-h-screen bg-gray-50">
       <NavigationBar title="词云展示" showBack />
+      <QuickModeBanner />
       <main className="flex-1 px-4 py-6 space-y-6 max-w-lg sm:max-w-xl md:max-w-2xl mx-auto w-full">
         <div className="text-center space-y-1">
           <p className="text-sm text-gray-500">共选择了 {tags.length} 个标签</p>

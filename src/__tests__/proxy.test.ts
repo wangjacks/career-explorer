@@ -4,12 +4,13 @@ import { NextRequest } from "next/server";
 import { signToken } from "@/lib/token";
 import type { Role } from "@/lib/token";
 
-function createRequest(path: string, cookies?: Record<string, string>): NextRequest {
+function createRequest(path: string, cookies?: Record<string, string>, method = "GET"): NextRequest {
   const url = new URL(path, "http://localhost:3000");
   const cookieHeader = cookies
     ? Object.entries(cookies).map(([k, v]) => `${k}=${v}`).join("; ")
     : "";
   return new NextRequest(url, {
+    method,
     headers: cookieHeader ? { cookie: cookieHeader } : {},
   });
 }
@@ -20,14 +21,6 @@ describe("proxy", () => {
       expect(config.matcher).toEqual(
         expect.arrayContaining(["/dashboard/admin/:path*", "/api/admin/:path*"])
       );
-    });
-  });
-
-  describe("auth endpoint bypass", () => {
-    it("should allow /api/admin/auth without token", async () => {
-      const req = createRequest("/api/admin/auth");
-      const res = await proxy(req);
-      expect(res.status).toBe(200);
     });
   });
 
@@ -55,7 +48,7 @@ describe("proxy", () => {
     });
 
     it("should allow access with valid admin token", async () => {
-      const token = await signToken({ role: "admin", uid: 1 });
+      const token = await signToken({ role: "admin", uid: 1, name: "管理员" });
       const req = createRequest("/api/admin/students", { auth_token: token });
       const res = await proxy(req);
       expect(res.status).toBe(200);
@@ -77,7 +70,7 @@ describe("proxy", () => {
 
   describe("role permission", () => {
     it("should return 403 for student token on /api/admin/*", async () => {
-      const token = await signToken({ role: "student", uid: 2 });
+      const token = await signToken({ role: "student", uid: 2, name: "测试学生" });
       const req = createRequest("/api/admin/students", { auth_token: token });
       const res = await proxy(req);
       expect(res.status).toBe(403);
@@ -85,9 +78,31 @@ describe("proxy", () => {
       expect(body.error).toBe("Forbidden");
     });
 
-    it("should return 403 for teacher token on /api/admin/*", async () => {
-      const token = await signToken({ role: "teacher", uid: 3 });
-      const req = createRequest("/api/admin/students", { auth_token: token });
+    it("should return 403 for teacher token on non-whitelisted /api/admin/*", async () => {
+      const token = await signToken({ role: "teacher", uid: 3, name: "测试教师" });
+      const req = createRequest("/api/admin/settings", { auth_token: token });
+      const res = await proxy(req);
+      expect(res.status).toBe(403);
+    });
+
+    it("should allow teacher token on /api/admin/classes*", async () => {
+      const token = await signToken({ role: "teacher", uid: 3, name: "测试教师" });
+      const req = createRequest("/api/admin/classes", { auth_token: token });
+      const res = await proxy(req);
+      expect(res.status).toBe(200);
+    });
+
+    it("should allow teacher GET /api/admin/students but reject writes", async () => {
+      const token = await signToken({ role: "teacher", uid: 3, name: "测试教师" });
+      const getRes = await proxy(createRequest("/api/admin/students", { auth_token: token }, "GET"));
+      expect(getRes.status).toBe(200);
+      const postRes = await proxy(createRequest("/api/admin/students", { auth_token: token }, "POST"));
+      expect(postRes.status).toBe(403);
+    });
+
+    it("should return 403 for student token on /api/admin/classes", async () => {
+      const token = await signToken({ role: "student", uid: 2, name: "测试学生" });
+      const req = createRequest("/api/admin/classes", { auth_token: token });
       const res = await proxy(req);
       expect(res.status).toBe(403);
     });

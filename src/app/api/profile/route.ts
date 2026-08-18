@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getStudentByCode, getTags, upsertSubmission } from "@/lib/db";
+import { getActiveTags, getStudentByCode, upsertSubmission } from "@/lib/db";
 import { tagNamesToIds } from "@/lib/tag-utils";
 
 export async function POST(request: NextRequest) {
@@ -20,7 +20,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "学号不存在" }, { status: 404 });
     }
 
-    const allTags = await getTags();
+    const allTags = await getActiveTags();
     const tagIds = tagNamesToIds(tags as string[], allTags);
     if (tagIds.length === 0) {
       return NextResponse.json({ error: "没有有效的标签" }, { status: 400 });

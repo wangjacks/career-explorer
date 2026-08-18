@@ -3,6 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import NavigationBar from "@/components/NavigationBar";
+import QuickModeBanner from "@/components/QuickModeBanner";
 import { safeImageUrl } from "@/lib/sanitize";
 
 export default function CompletePage() {
@@ -24,6 +25,7 @@ export default function CompletePage() {
   return (
     <div className="flex flex-col min-h-screen bg-gradient-to-b from-green-50 to-white">
       <NavigationBar title="提交完成" showHome />
+      <QuickModeBanner />
       <main className="flex-1 flex flex-col items-center justify-center px-6 gap-8">
         <div className="w-20 h-20 rounded-full bg-green-500 flex items-center justify-center shadow-lg">
           <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">

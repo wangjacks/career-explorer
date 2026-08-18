@@ -79,12 +79,6 @@ cd /var/www/career-app
 # 安装依赖
 npm install
 
-# 生成管理员密码的 bcrypt hash
-node -e "require('bcrypt').hash('你的密码', 10).then(h => console.log(h))"
-
-# 将 hash 写入独立文件（必须用单引号防止 bash 插值 $）
-echo '上面生成的bcrypt hash值' > admin-hash.txt
-
 # 配置环境变量（JWT 签名密钥）
 cat > .env.local << 'EOF'
 JWT_SECRET=一个随机字符串作为JWT签名密钥
@@ -94,7 +88,7 @@ EOF
 npm run build
 ```
 
-构建成功后会生成 `.next/` 目录。
+构建成功后会生成 `.next/` 目录。管理员密码无需在此步配置，将在首次安装引导中设置（见「八、首次安装引导」）。
 
 ## 五、用 PM2 进行进程管理
 
@@ -219,35 +213,23 @@ Let's Encrypt 证书有效期 90 天，Certbot 会自动通过 cron 续期。
 
 系统会自动跳转到安装引导页面：
 
-1. **欢迎页**：点击「开始配置」
-2. **数据库配置**：填写 MySQL 连接信息
+1. **选择数据库**：选择 MySQL 或 SQLite
+2. **数据库配置**：填写连接信息（MySQL 示例）
    - 主机：`127.0.0.1`（如果 MySQL 在同一台服务器）
    - 端口：`3306`
    - 用户名：`root`（或其他有权限的用户）
    - 密码：MySQL root 密码
    - 数据库名：`career_app`（需提前创建）
-3. **测试连接**：点击「测试连接」确认数据库可连接
-4. **安装**：点击「安装」，系统自动创建表结构
-5. **完成**：自动跳转到管理后台
+3. **测试连接**：点击「测试连接」确认数据库可连接，然后点击「下一步」
+4. **管理员密码**：设置管理员密码（至少 8 位），管理员编号固定为 `10001`，请牢记密码
+5. **安装**：点击「安装」，系统自动创建表结构和管理员账户
+6. **完成**：自动跳转到管理后台，使用编号 `10001` + 刚设置的密码登录
 
-### 3. 设置管理员密码
+### 3. 管理员密码说明
 
-安装完成后，需要设置管理员密码：
+管理员密码在安装向导中配置，经 bcrypt 哈希后存储在数据库 `users` 表（编号 `10001`），无需手动生成 hash 或配置环境变量。
 
-```bash
-cd /var/www/career-app
-
-# 生成 bcrypt hash（替换 '你的新密码' 为实际密码）
-node -e "require('bcrypt').hash('你的新密码', 10).then(h => console.log(h))"
-
-# 将 hash 写入独立文件（必须用单引号防止 bash 插值 $）
-echo '上面生成的bcrypt hash值' > admin-hash.txt
-
-# 重启应用使配置生效
-pm2 restart career-app
-```
-
-> **提示**：bcrypt hash 是单向加密，无法从 hash 反推原始密码。每次修改密码都需要重新生成 hash。`admin-hash.txt` 文件已在 `.gitignore` 中排除，不会被提交。
+> **修改/忘记密码**：管理面板改密功能上线前，需直接更新数据库 `users` 表的 `password_hash`（见「常见问题」章节的「忘记管理员密码」）。
 
 ## 九、防火墙配置
 
@@ -319,12 +301,19 @@ mysql -u root -e "SHOW DATABASES;"
 
 ### 忘记管理员密码
 
+管理员密码存储在数据库 `users` 表（bcrypt 哈希），重置方式为直接更新该字段：
+
 ```bash
 cd /var/www/career-app
-# 重新生成 bcrypt hash 并更新 admin-hash.txt
+
+# 生成新密码的 bcrypt hash
 node -e "require('bcrypt').hash('新密码', 10).then(h => console.log(h))"
-echo '新的hash值' > admin-hash.txt
-pm2 restart career-app
+
+# 更新 users 表中管理员（10001）的 password_hash
+# SQLite 部署：
+sqlite3 data/career.db "UPDATE users SET password_hash='新的hash值' WHERE user_code='10001';"
+# MySQL 部署：
+mysql -u root -p career_app -e "UPDATE users SET password_hash='新的hash值' WHERE user_code='10001';"
 ```
 
 ### 更新部署
@@ -342,7 +331,6 @@ pm2 restart career-app
 ```
 /var/www/career-app/
 ├── .env.local          # 环境变量（JWT_SECRET 等）
-├── admin-hash.txt      # 管理员密码 bcrypt hash（不提交到 Git）
 ├── .next/              # 构建产物
 ├── db-config.json      # 数据库配置（安装后自动生成）
 ├── uploads/            # 用户上传的头像和图片

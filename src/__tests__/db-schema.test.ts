@@ -4,6 +4,7 @@ import { mkdtempSync, rmSync, existsSync } from "fs";
 import { tmpdir } from "os";
 import path from "path";
 import { SqliteAdapter } from "../lib/db-sqlite";
+import { normalizeBackupTags } from "../lib/db";
 
 function makeTmpDb(): string {
   const dir = mkdtempSync(path.join(tmpdir(), "career-test-"));
@@ -11,22 +12,110 @@ function makeTmpDb(): string {
 }
 
 describe("新安装 Schema", () => {
-  it("创建 4 张表并预填充 15 个标签", () => {
+  it("创建 4 张表并预填充 3 个分类和 15 个标签", () => {
     const dbPath = makeTmpDb();
     const adapter = new SqliteAdapter(dbPath);
     adapter.init();
 
     const tags = adapter.getTags();
-    expect(tags.length).toBe(15);
-    const categories = new Set(tags.map((t) => t.category));
-    expect(categories.size).toBe(3);
+    expect(tags.filter((tag) => tag.type === "category").length).toBe(3);
+    expect(tags.filter((tag) => tag.type === "tag").length).toBe(15);
+    expect(tags.filter((tag) => tag.parent_id === null).length).toBe(3);
+    expect(adapter.getActiveTags().length).toBe(18);
 
     // 重复 init 不应重复填充
     adapter.init();
-    expect(adapter.getTags().length).toBe(15);
+    expect(adapter.getTags().length).toBe(18);
 
     adapter.close();
     rmSync(path.dirname(dbPath), { recursive: true, force: true });
+  });
+
+  it("支持标签层级 CRUD 和停用，停用不删除历史标签", () => {
+    const dbPath = makeTmpDb();
+    const adapter = new SqliteAdapter(dbPath);
+    adapter.init();
+
+    const categoryId = adapter.insertTag({ name: "能力", type: "category", category_order: 3 });
+    const tagId = adapter.insertTag({ name: "分析", type: "tag", parent_id: categoryId, sort_order: 0 });
+    adapter.updateTag(tagId, { name: "分析能力" });
+    adapter.setTagActive(categoryId, false);
+
+    const allTags = adapter.getTags();
+    expect(allTags.find((tag) => tag.id === tagId)?.name).toBe("分析能力");
+    expect(allTags.find((tag) => tag.id === tagId)?.active).toBe(0);
+    expect(adapter.getActiveTags().some((tag) => tag.id === tagId)).toBe(false);
+
+    adapter.setTagActive(categoryId, true);
+    expect(adapter.getActiveTags().some((tag) => tag.id === tagId)).toBe(true);
+
+    adapter.close();
+    rmSync(path.dirname(dbPath), { recursive: true, force: true });
+  });
+});
+
+describe("按邀请码查班级", () => {
+  it("insertClass 后按邀请码命中 / 无效码返回 undefined", () => {
+    const dbPath = makeTmpDb();
+    const adapter = new SqliteAdapter(dbPath);
+    adapter.init();
+
+    adapter.insertClass("测试班级", "TEST123");
+
+    const found = adapter.getClassByInviteCode("TEST123");
+    expect(found).toBeDefined();
+    expect(found!.name).toBe("测试班级");
+    expect(found!.invitation_code).toBe("TEST123");
+
+    expect(adapter.getClassByInviteCode("NOPE")).toBeUndefined();
+
+    adapter.close();
+    rmSync(path.dirname(dbPath), { recursive: true, force: true });
+  });
+});
+
+describe("旧标签 Schema 迁移", () => {
+  it("将 category 文本迁移为分类记录和 parent_id，保留原标签 ID", () => {
+    const dbPath = makeTmpDb();
+    const legacy = new Database(dbPath);
+    legacy.exec(`
+      CREATE TABLE tags (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        category TEXT NOT NULL,
+        class_id INTEGER,
+        category_order INTEGER DEFAULT 0,
+        sort_order INTEGER DEFAULT 0,
+        UNIQUE(name, class_id)
+      )
+    `);
+    legacy.prepare(
+      "INSERT INTO tags (id, name, category, class_id, category_order, sort_order) VALUES (?, ?, ?, 0, ?, ?)"
+    ).run(10, "阅读", "兴趣", 0, 0);
+    legacy.prepare(
+      "INSERT INTO tags (id, name, category, class_id, category_order, sort_order) VALUES (?, ?, ?, 0, ?, ?)"
+    ).run(11, "音乐", "兴趣", 0, 1);
+    legacy.close();
+
+    const adapter = new SqliteAdapter(dbPath);
+    adapter.init();
+    const tags = adapter.getTags();
+    const category = tags.find((tag) => tag.type === "category" && tag.name === "兴趣");
+    expect(category).toBeDefined();
+    expect(tags.find((tag) => tag.id === 10)).toMatchObject({ type: "tag", parent_id: category!.id });
+    expect(tags.find((tag) => tag.id === 11)).toMatchObject({ type: "tag", parent_id: category!.id });
+
+    adapter.close();
+    rmSync(path.dirname(dbPath), { recursive: true, force: true });
+  });
+
+  it("兼容 v2 备份中的 category 标签结构", () => {
+    const tags = normalizeBackupTags([
+      { id: 10, name: "阅读", category: "兴趣", class_id: 0, category_order: 0, sort_order: 0 },
+    ]);
+    const category = tags.find((tag) => tag.type === "category");
+    expect(category?.name).toBe("兴趣");
+    expect(tags.find((tag) => tag.id === 10)).toMatchObject({ type: "tag", parent_id: category?.id });
   });
 });
 
@@ -135,11 +224,113 @@ describe("提交流程", () => {
 
     // 备份 / 恢复
     const data = adapter.backup();
-    expect(data.version).toBe(2);
+    expect(data.version).toBe(3);
     adapter.clearSubmissions(["202505050101"]);
     expect(adapter.getStats().total).toBe(0);
     adapter.restore(data);
     expect(adapter.getStats().total).toBe(1);
+
+    adapter.close();
+    rmSync(path.dirname(dbPath), { recursive: true, force: true });
+  });
+});
+
+describe("班级管理与教师账户", () => {
+  it("班级 CRUD：改名/删除，删除后学生 class_id 置 NULL（显式清理）", () => {
+    const dbPath = makeTmpDb();
+    const adapter = new SqliteAdapter(dbPath);
+    adapter.init();
+
+    const classId = adapter.insertClass("一班", "AAAA1111");
+    adapter.updateClass(classId, { name: "一班（改）" });
+    expect(adapter.getClassByName("一班（改）")?.id).toBe(classId);
+
+    adapter.insertUser({ user_code: "202505050101", role: "student", name: "张三", class_id: classId });
+    adapter.deleteClass(classId);
+
+    expect(adapter.getClasses()).toHaveLength(0);
+    expect(adapter.getStudentByCode("202505050101")?.class_id).toBeNull();
+
+    adapter.close();
+    rmSync(path.dirname(dbPath), { recursive: true, force: true });
+  });
+
+  it("删班后统计 compare 归入「未分班」分组", () => {
+    const dbPath = makeTmpDb();
+    const adapter = new SqliteAdapter(dbPath);
+    adapter.init();
+
+    const classId = adapter.insertClass("一班", "BBBB2222");
+    adapter.insertUser({ user_code: "202505050102", role: "student", name: "李四", class_id: classId });
+    adapter.upsertSubmission("202505050102", "[]", "/a.png", "/w.png");
+    expect(adapter.getCompareBy("class")).toEqual([{ key: "一班", count: 1 }]);
+
+    adapter.deleteClass(classId);
+    expect(adapter.getCompareBy("class")).toEqual([{ key: "未分班", count: 1 }]);
+
+    adapter.close();
+    rmSync(path.dirname(dbPath), { recursive: true, force: true });
+  });
+
+  it("邀请码：唯一约束，重置后旧码失效新码可查", () => {
+    const dbPath = makeTmpDb();
+    const adapter = new SqliteAdapter(dbPath);
+    adapter.init();
+
+    const id1 = adapter.insertClass("一班", "CCCC3333");
+    adapter.insertClass("二班", "DDDD4444");
+    expect(() => adapter.insertClass("三班", "CCCC3333")).toThrow();
+
+    adapter.updateClass(id1, { invitation_code: "EEEE5555" });
+    expect(adapter.getClassByInviteCode("CCCC3333")).toBeUndefined();
+    expect(adapter.getClassByInviteCode("EEEE5555")?.id).toBe(id1);
+
+    adapter.close();
+    rmSync(path.dirname(dbPath), { recursive: true, force: true });
+  });
+
+  it("teacher_classes 写入与查询，删班/删教师时连带清理", () => {
+    const dbPath = makeTmpDb();
+    const adapter = new SqliteAdapter(dbPath);
+    adapter.init();
+
+    const teacherId = adapter.insertUser({ user_code: "10000001", role: "teacher", name: "王老师" });
+    const c1 = adapter.insertClass("一班", "FFFF6666");
+    const c2 = adapter.insertClass("二班", "GGGG7777");
+    adapter.insertTeacherClass(teacherId, c1);
+    adapter.insertTeacherClass(teacherId, c2);
+    expect(adapter.getTeacherClassPairs()).toHaveLength(2);
+
+    adapter.deleteClass(c1);
+    expect(adapter.getTeacherClassPairs()).toHaveLength(1);
+
+    adapter.deleteTeacher(teacherId);
+    expect(adapter.getTeacherClassPairs()).toHaveLength(0);
+    expect(adapter.getTeachers()).toHaveLength(0);
+
+    adapter.close();
+    rmSync(path.dirname(dbPath), { recursive: true, force: true });
+  });
+
+  it("教师账户：getTeachers 过滤角色，编号唯一约束", () => {
+    const dbPath = makeTmpDb();
+    const adapter = new SqliteAdapter(dbPath);
+    adapter.init();
+
+    adapter.insertUser({ user_code: "10000001", role: "teacher", name: "王老师" });
+    adapter.insertUser({ user_code: "202505050101", role: "student", name: "张三" });
+
+    const teachers = adapter.getTeachers();
+    expect(teachers).toHaveLength(1);
+    expect(teachers[0].user_code).toBe("10000001");
+
+    // 按 id 回查（会话检测实时姓名依赖此方法）
+    const byId = adapter.getUserById(teachers[0].id);
+    expect(byId?.name).toBe("王老师");
+    adapter.updateUser(teachers[0].id, { name: "王老师（改）" });
+    expect(adapter.getUserById(teachers[0].id)?.name).toBe("王老师（改）");
+
+    expect(() => adapter.insertUser({ user_code: "10000001", role: "teacher", name: "重复" })).toThrow();
 
     adapter.close();
     rmSync(path.dirname(dbPath), { recursive: true, force: true });
