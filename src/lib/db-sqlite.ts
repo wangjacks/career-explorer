@@ -3,6 +3,7 @@ import { mkdirSync, readFileSync, existsSync } from "fs";
 import { tmpdir } from "os";
 import path from "path";
 import { tagCategories } from "./tagData";
+import { normalizeBackupTags } from "./db";
 import type {
   UserRow,
   TagRow,
@@ -103,26 +104,97 @@ export class SqliteAdapter implements DbAdapter {
       CREATE TABLE IF NOT EXISTS tags (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         name TEXT NOT NULL,
-        category TEXT NOT NULL,
-        class_id INTEGER,
+        type TEXT NOT NULL,
+        parent_id INTEGER,
+        class_id INTEGER NOT NULL DEFAULT 0,
         category_order INTEGER DEFAULT 0,
         sort_order INTEGER DEFAULT 0,
-        UNIQUE(name, class_id)
+        active INTEGER NOT NULL DEFAULT 1
       )
     `);
-    this.migrateLegacy();
+    this.migrateTagSchema();
     this.seedTags();
+    this.migrateLegacy();
   }
 
-  /** 预填充标签（INSERT OR IGNORE，重复执行安全；class_id=0 表示全局标签，避免 NULL 破坏 UNIQUE 约束） */
-  private seedTags(): void {
-    const stmt = this.db.prepare(
-      `INSERT OR IGNORE INTO tags (name, category, class_id, category_order, sort_order)
-       VALUES (?, ?, 0, ?, ?)`
+  /** 将旧 category 文本迁移为分类记录和 parent_id 层级。 */
+  private migrateTagSchema(): void {
+    const columns = this.db.prepare("PRAGMA table_info(tags)").all() as { name: string }[];
+    const names = new Set(columns.map((column) => column.name));
+    if (!names.has("type")) {
+      this.db.exec("ALTER TABLE tags ADD COLUMN type TEXT NOT NULL DEFAULT 'tag'");
+    }
+    if (!names.has("parent_id")) {
+      this.db.exec("ALTER TABLE tags ADD COLUMN parent_id INTEGER");
+    }
+    if (!names.has("active")) {
+      this.db.exec("ALTER TABLE tags ADD COLUMN active INTEGER NOT NULL DEFAULT 1");
+    }
+    this.db.exec("UPDATE tags SET class_id = 0 WHERE class_id IS NULL");
+    if (!names.has("category")) {
+      this.db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_tags_name_parent_class ON tags(name, parent_id, class_id)");
+      this.db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_tags_category_name_class ON tags(name, type, class_id)");
+      this.db.exec("CREATE INDEX IF NOT EXISTS idx_tags_parent ON tags(parent_id)");
+      this.db.exec("CREATE INDEX IF NOT EXISTS idx_tags_order ON tags(category_order, sort_order)");
+      return;
+    }
+
+    const legacyCategories = this.db
+      .prepare(
+        `SELECT category as name, MIN(category_order) as category_order
+         FROM tags WHERE class_id = 0 GROUP BY category`
+      )
+      .all() as { name: string; category_order: number }[];
+    const insertCategory = this.db.prepare(
+      `INSERT OR IGNORE INTO tags (name, category, type, parent_id, class_id, category_order, sort_order, active)
+       VALUES (?, ?, 'category', NULL, 0, ?, 0, 1)`
     );
+    const updateTag = this.db.prepare(
+      `UPDATE tags SET type = 'tag', parent_id = ?, active = 1
+       WHERE category = ? AND class_id = 0 AND type = 'tag'`
+    );
+    const migrate = this.db.transaction(() => {
+      for (const category of legacyCategories) {
+        insertCategory.run(category.name, category.name, category.category_order);
+        const parent = this.db
+          .prepare("SELECT id FROM tags WHERE name = ? AND type = 'category' AND class_id = 0")
+          .get(category.name) as { id: number } | undefined;
+        if (parent) updateTag.run(parent.id, category.name);
+      }
+    });
+    migrate();
+    this.db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_tags_name_parent_class ON tags(name, parent_id, class_id)");
+    this.db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_tags_category_name_class ON tags(name, type, class_id)");
+    this.db.exec("CREATE INDEX IF NOT EXISTS idx_tags_parent ON tags(parent_id)");
+    this.db.exec("CREATE INDEX IF NOT EXISTS idx_tags_order ON tags(category_order, sort_order)");
+  }
+
+  /** 预填充标签（INSERT OR IGNORE，重复执行安全；class_id=0 表示全局标签） */
+  private seedTags(): void {
+    const columns = this.db.prepare("PRAGMA table_info(tags)").all() as { name: string }[];
+    const hasLegacyCategory = columns.some((column) => column.name === "category");
+    const insertCategory = this.db.prepare(hasLegacyCategory
+      ? `INSERT OR IGNORE INTO tags (name, category, type, parent_id, class_id, category_order, sort_order, active)
+         VALUES (?, ?, 'category', NULL, 0, ?, 0, 1)`
+      : `INSERT OR IGNORE INTO tags (name, type, parent_id, class_id, category_order, sort_order, active)
+         VALUES (?, 'category', NULL, 0, ?, 0, 1)`);
+    const insertTag = this.db.prepare(hasLegacyCategory
+      ? `INSERT OR IGNORE INTO tags (name, category, type, parent_id, class_id, category_order, sort_order, active)
+         VALUES (?, ?, 'tag', ?, 0, ?, ?, 1)`
+      : `INSERT OR IGNORE INTO tags (name, type, parent_id, class_id, category_order, sort_order, active)
+         VALUES (?, 'tag', ?, 0, ?, ?, 1)`);
     const seed = this.db.transaction(() => {
       tagCategories.forEach((cat, ci) => {
-        cat.tags.forEach((tag, ti) => stmt.run(tag, cat.name, ci, ti));
+        if (hasLegacyCategory) insertCategory.run(cat.name, cat.name, ci);
+        else insertCategory.run(cat.name, ci);
+        const parent = this.db
+          .prepare("SELECT id FROM tags WHERE name = ? AND type = 'category' AND class_id = 0")
+          .get(cat.name) as { id: number } | undefined;
+        if (!parent) return;
+        cat.tags.forEach((tag, ti) => {
+          if (hasLegacyCategory) insertTag.run(tag, cat.name, parent.id, ci, ti);
+          else insertTag.run(tag, parent.id, ci, ti);
+        });
       });
     });
     seed();
@@ -153,8 +225,6 @@ export class SqliteAdapter implements DbAdapter {
       : [];
     const profileMap = new Map(profiles.map((p) => [p.student_id, p]));
 
-    // 迁移前必须先填充标签，才能做名称→ID 转换
-    this.seedTags();
     const tagRows = this.db
       .prepare("SELECT id, name FROM tags WHERE class_id = 0")
       .all() as { id: number; name: string }[];
@@ -403,8 +473,75 @@ export class SqliteAdapter implements DbAdapter {
   // tags & classes
   getTags(): TagRow[] {
     return this.db
-      .prepare("SELECT * FROM tags ORDER BY category_order, sort_order, id")
+      .prepare(
+        `SELECT id, name, type, parent_id, class_id, category_order, sort_order, active
+         FROM tags WHERE class_id = 0 ORDER BY category_order, type DESC, sort_order, id`
+      )
       .all() as TagRow[];
+  }
+
+  getActiveTags(): TagRow[] {
+    return this.db
+      .prepare(
+        `SELECT t.id, t.name, t.type, t.parent_id, t.class_id, t.category_order, t.sort_order, t.active
+         FROM tags t
+         LEFT JOIN tags p ON p.id = t.parent_id
+         WHERE t.class_id = 0 AND t.active = 1
+           AND (t.type = 'category' OR (p.active = 1 AND p.type = 'category'))
+         ORDER BY t.category_order, CASE WHEN t.type = 'category' THEN 0 ELSE 1 END, t.sort_order, t.id`
+      )
+      .all() as TagRow[];
+  }
+
+  insertTag(tag: {
+    name: string;
+    type: "category" | "tag";
+    parent_id?: number | null;
+    category_order?: number;
+    sort_order?: number;
+  }): number {
+    const result = this.db
+      .prepare(
+        `INSERT INTO tags (name, type, parent_id, class_id, category_order, sort_order, active)
+         VALUES (?, ?, ?, 0, ?, ?, 1)`
+      )
+      .run(
+        tag.name,
+        tag.type,
+        tag.type === "category" ? null : tag.parent_id ?? null,
+        tag.category_order ?? 0,
+        tag.sort_order ?? 0
+      );
+    return Number(result.lastInsertRowid);
+  }
+
+  updateTag(id: number, fields: {
+    name?: string;
+    parent_id?: number | null;
+    category_order?: number;
+    sort_order?: number;
+  }): void {
+    const assignments: string[] = [];
+    const values: (string | number | null)[] = [];
+    if (fields.name !== undefined) { assignments.push("name = ?"); values.push(fields.name); }
+    if (fields.parent_id !== undefined) { assignments.push("parent_id = ?"); values.push(fields.parent_id); }
+    if (fields.category_order !== undefined) { assignments.push("category_order = ?"); values.push(fields.category_order); }
+    if (fields.sort_order !== undefined) { assignments.push("sort_order = ?"); values.push(fields.sort_order); }
+    if (assignments.length === 0) return;
+    values.push(id);
+    this.db.prepare(`UPDATE tags SET ${assignments.join(", ")} WHERE id = ?`).run(...values);
+  }
+
+  setTagActive(id: number, active: boolean): void {
+    const update = this.db.transaction(() => {
+      const tag = this.db.prepare("SELECT type FROM tags WHERE id = ?").get(id) as { type: string } | undefined;
+      if (!tag) throw new Error("标签不存在");
+      this.db.prepare("UPDATE tags SET active = ? WHERE id = ?").run(active ? 1 : 0, id);
+      if (tag.type === "category") {
+        this.db.prepare("UPDATE tags SET active = ? WHERE parent_id = ?").run(active ? 1 : 0, id);
+      }
+    });
+    update();
   }
 
   getClasses(): ClassRow[] {
@@ -430,9 +567,14 @@ export class SqliteAdapter implements DbAdapter {
     const users = this.db.prepare("SELECT * FROM users ORDER BY id").all() as UserRow[];
     const classes = this.db.prepare("SELECT * FROM classes ORDER BY id").all() as ClassRow[];
     const teacherClasses = this.db.prepare("SELECT * FROM teacher_classes ORDER BY id").all() as BackupData["teacher_classes"];
-    const tags = this.db.prepare("SELECT * FROM tags ORDER BY id").all() as TagRow[];
+    const tags = this.db
+      .prepare(
+        `SELECT id, name, type, parent_id, class_id, category_order, sort_order, active
+         FROM tags ORDER BY id`
+      )
+      .all() as TagRow[];
     return {
-      version: 2,
+      version: 3,
       sourceType: "sqlite",
       createdAt: new Date().toISOString(),
       users,
@@ -444,15 +586,28 @@ export class SqliteAdapter implements DbAdapter {
 
   restore(data: BackupData): void {
     const restoreTx = this.db.transaction((d: BackupData) => {
+      const tags = normalizeBackupTags(d.tags);
       this.db.exec("DELETE FROM teacher_classes");
       this.db.exec("DELETE FROM users");
       this.db.exec("DELETE FROM classes");
       this.db.exec("DELETE FROM tags");
-      if (d.tags.length > 0) {
+      if (tags.length > 0) {
         const stmt = this.db.prepare(
-          "INSERT INTO tags (id, name, category, class_id, category_order, sort_order) VALUES (?, ?, ?, ?, ?, ?)"
+          `INSERT INTO tags (id, name, type, parent_id, class_id, category_order, sort_order, active)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
         );
-        for (const t of d.tags) stmt.run(t.id, t.name, t.category, t.class_id, t.category_order, t.sort_order);
+        for (const t of tags) {
+          stmt.run(
+            t.id,
+            t.name,
+            t.type ?? "tag",
+            t.parent_id ?? null,
+            t.class_id ?? 0,
+            t.category_order ?? 0,
+            t.sort_order ?? 0,
+            t.active ?? 1
+          );
+        }
       }
       if (d.classes.length > 0) {
         const stmt = this.db.prepare(

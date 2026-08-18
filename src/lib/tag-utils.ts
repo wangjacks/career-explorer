@@ -18,5 +18,14 @@ export function tagIdsToNames(ids: number[], allTags: TagRow[]): string[] {
 
 /** 构建标签 ID → 分类名的映射 */
 export function buildTagCategoryMap(allTags: TagRow[]): Map<number, string> {
-  return new Map(allTags.map((t) => [t.id, t.category]));
+  const categories = new Map(
+    allTags
+      .filter((tag) => tag.type === "category")
+      .map((tag) => [tag.id, tag.name])
+  );
+  return new Map(
+    allTags
+      .filter((tag) => tag.type === "tag")
+      .map((tag) => [tag.id, categories.get(tag.parent_id ?? -1) || "自定义"])
+  );
 }

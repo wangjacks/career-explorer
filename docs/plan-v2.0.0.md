@@ -8,7 +8,7 @@
 - **安全优先** — 安全漏洞 > 生产事故 > 体验 Bug > 新功能
 - **先重构再叠加** — 先拆好 admin 结构，再在其上构建新功能
 - **先后端再前端** — API 先行，页面适配
-- **迁移即删除** — 旧路由迁移到新路径后直接删除原路径，不保留并存
+- **迁移即删除** — 旧路由迁移到新路径后直接删除原路径，不保留并存；标签数据例外，必须停用而不能物理删除
 - **解耦变更** — 路由迁移、认证改造、功能新增分开提交，避免耦合导致回退代价大
 
 ---
@@ -120,8 +120,8 @@
 
 ### 全局交互设计
 
-- **右上角用户菜单（全局组件，出现在每一页）**：
-  - 未登录时：显示「登录」按钮，点击跳转 `/login`
+- **右上角用户菜单（全局组件，出现在正常业务页面）**：
+  - 未登录时：显示「未登录」下拉菜单，提供「登录」入口
   - 已登录时：显示用户信息（姓名/编号），点击展开下拉菜单：
     - 「个人信息」→ 跳转对应角色的 dashboard（`/dashboard/admin`、`/dashboard/teacher`、`/dashboard/student`）
     - 「退出登录」→ 清除 session
@@ -161,11 +161,13 @@
   - 二级层级结构（与当前 `tagData.ts` 一致）：
     - 父级：分类（如「兴趣」「技能」「性格」）
     - 子级：具体标签（如「阅读」「编程」「认真」）
-  - `tags` 表字段：`id`, `name`, `category`(父类名), `category_order`, `sort_order`
-  - `users.tags` 存储标签 ID 数组（如 `[1,5,12]`），确保改名/删除后历史数据可追溯
+  - `tags` 表字段：`id`, `name`, `type`(`category`/`tag`), `parent_id`, `class_id`, `category_order`, `sort_order`, `active`
+  - 全局标签使用 `class_id=0`；标签停用而非物理删除
+  - `users.tags` 存储标签 ID 数组（如 `[1,5,12]`），确保改名/停用后历史数据可追溯
+  - 学生端不再提交未配置的自定义标签，标签统一由管理员维护
 - **学生表单**：独立于 dashboard，全部放在 `/form/*` 子路由，默认快速提交模式
 - **安装引导**：首次安装强制配置管理员密码（`user_code` 自动生成，初始为 10001）
-- **备份恢复**：`BackupData` 格式随四表设计更新（`users`+`classes`+`teacher_classes`+`tags`），备份包含 `password_hash`，恢复后用户可直接使用原密码登录；不包含上传文件（头像/评价词云等文件系统数据）
+  - **备份恢复**：`BackupData` 格式随四表设计更新（`users`+`classes`+`teacher_classes`+`tags`），标签结构变化后版本升级为 3，备份包含 `password_hash`，恢复后用户可直接使用原密码登录；不包含上传文件（头像/评价词云等文件系统数据）
 - **学生端双模式**：快速通道（已有账户记录，无需登录）+ 登录后（`/dashboard/student` 查看个人信息）
 - **班级邀请码**：仅在 `/register` 学生注册时要求填写，用于绑定班级；快速提交模式不涉及邀请码
 
@@ -212,17 +214,20 @@ CREATE TABLE teacher_classes (
 CREATE INDEX idx_teacher_classes_teacher ON teacher_classes(teacher_id);
 CREATE INDEX idx_teacher_classes_class ON teacher_classes(class_id);
 
--- 标签表（全局共享 + 班级专属）
+-- 标签表（全局共享 + 二级层级；class_id=0 表示全局）
 CREATE TABLE tags (
   id            INTEGER PRIMARY KEY AUTOINCREMENT,
   name          TEXT    NOT NULL,
-  category      TEXT    NOT NULL,                -- 父分类名（如「兴趣」「技能」「性格」）
-  class_id      INTEGER,                         -- NULL = 全局标签，非NULL = 班级专属
+  type          TEXT    NOT NULL,                -- 'category' | 'tag'
+  parent_id     INTEGER,                         -- 二级标签所属的一级分类
+  class_id      INTEGER NOT NULL DEFAULT 0,      -- 0 = 全局标签，非0 = 班级专属
   category_order INTEGER NOT NULL DEFAULT 0,     -- 分类排序
   sort_order    INTEGER NOT NULL DEFAULT 0,      -- 标签排序
-  FOREIGN KEY (class_id) REFERENCES classes(id) ON DELETE CASCADE
+  active        INTEGER NOT NULL DEFAULT 1,      -- 1 = 启用，0 = 停用
+  -- class_id=0 是全局标签哨兵值，不建立外键；非 0 值才指向 classes.id
 );
-CREATE UNIQUE INDEX idx_tags_name_class ON tags(name, class_id);
+CREATE INDEX idx_tags_parent ON tags(parent_id);
+CREATE UNIQUE INDEX idx_tags_name_parent_class ON tags(name, parent_id, class_id);
 CREATE INDEX idx_tags_category_order ON tags(category_order, sort_order);
 ```
 
@@ -230,7 +235,8 @@ CREATE INDEX idx_tags_category_order ON tags(category_order, sort_order);
 - `users.class_id` → `classes.id`（学生所属班级）
 - `teacher_classes.teacher_id` → `users.id`（教师创建的班级）
 - `teacher_classes.class_id` → `classes.id`
-- `tags.class_id` → `classes.id`（NULL 表示全局标签）
+- `tags.parent_id` → `tags.id`（二级标签指向一级分类）
+- `tags.class_id` → `classes.id`（0 表示全局标签）
 - `users.tags` 存储标签 ID 的 JSON 数组（如 `[1,5,12]`）
 
 ### 执行计划（每步独立 commit）
@@ -243,7 +249,7 @@ CREATE INDEX idx_tags_category_order ON tags(category_order, sort_order);
 | 4 | 安装引导改造 | 2, 3 | setup 流程增加管理员密码配置步骤 |
 | 5 | 登录页 + 学生注册页 | 2, 3 | 新建 `/login`（登录）+ `/register`（学生自助注册，需邀请码绑定班级）；两页底部互相跳转；登录标识为 `user_code`；邀请码验证 API 随本步骤实现，邀请码管理 UI 在步骤 8 |
 | 6 | 全局右上角用户菜单 | 3 | 每一页右上角：未登录显示登录按钮，已登录显示用户信息下拉菜单（个人信息+退出登录） |
-| 7 | 标签可配置化 | 2, 3 | 管理面板标签管理（增删改分类+标签）+ 动态加载替代硬编码 |
+| 7 | 标签可配置化 | 2, 3 | `type + parent_id + active` 层级模型、SQLite/MySQL 迁移、管理端 CRUD、学生端动态加载；移除学生自定义标签 |
 | 8 | 班级管理 | 2, 3 | 邀请码生成/管理 + 班级 CRUD；教师可自由创建班级，admin 可管理所有班级 |
 | 9 | 学生面板 | 3, 6, 8 | `/dashboard/student` 查看个人信息、提交状态（标签/头像/评价词云是否已提交及提交时间）、班级信息；支持直接修改已提交数据（修改时需二次确认） |
 | 10 | 管理面板 UI + 批量操作 | 3, 7, 8 | 页面：admin 用户管理（教师+学生）+ 班级概览统计（各班学生总数/已提交/未提交/提交率）+ 教师管理 + 密码修改；teacher 班级创建 + 学生管理（全部班级）+ 学生账户创建/批量导入 + 密码修改；支持图形化批量管理（创建/导入/删除）和批量修改密码；沿用现有 `/api/admin/*` 路由结构，仅扩展接口支持新角色 |

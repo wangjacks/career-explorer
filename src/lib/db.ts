@@ -19,10 +19,81 @@ export interface UserRow {
 export interface TagRow {
   id: number;
   name: string;
-  category: string;
-  class_id: number | null;
+  type: "category" | "tag";
+  parent_id: number | null;
+  class_id: number;
   category_order: number;
   sort_order: number;
+  active: number;
+}
+
+export interface BackupTagRow {
+  id: number;
+  name: string;
+  type?: "category" | "tag";
+  parent_id?: number | null;
+  category?: string;
+  class_id?: number | null;
+  category_order?: number;
+  sort_order?: number;
+  active?: number;
+}
+
+/** 将 v2 备份中的 category 文本标签转换为 v3 层级标签。 */
+export function normalizeBackupTags(tags: BackupTagRow[]): TagRow[] {
+  const maxId = tags.reduce((max, tag) => Math.max(max, tag.id), 0);
+  let nextCategoryId = maxId + 1;
+  const categories = new Map<string, TagRow>();
+  const result: TagRow[] = [];
+
+  for (const tag of tags) {
+    if (tag.type === "category") {
+      const category: TagRow = {
+        id: tag.id,
+        name: tag.name,
+        type: "category",
+        parent_id: null,
+        class_id: tag.class_id ?? 0,
+        category_order: tag.category_order ?? 0,
+        sort_order: tag.sort_order ?? 0,
+        active: tag.active ?? 1,
+      };
+      categories.set(tag.name, category);
+      result.push(category);
+    }
+  }
+
+  for (const tag of tags) {
+    if (tag.type === "category") continue;
+    const categoryName = tag.category;
+    let parent = categoryName ? categories.get(categoryName) : undefined;
+    if (!parent && categoryName) {
+      parent = {
+        id: nextCategoryId++,
+        name: categoryName,
+        type: "category",
+        parent_id: null,
+        class_id: tag.class_id ?? 0,
+        category_order: tag.category_order ?? 0,
+        sort_order: 0,
+        active: 1,
+      };
+      categories.set(categoryName, parent);
+      result.push(parent);
+    }
+    result.push({
+      id: tag.id,
+      name: tag.name,
+      type: "tag",
+      parent_id: tag.parent_id ?? parent?.id ?? null,
+      class_id: tag.class_id ?? 0,
+      category_order: tag.category_order ?? parent?.category_order ?? 0,
+      sort_order: tag.sort_order ?? 0,
+      active: tag.active ?? 1,
+    });
+  }
+
+  return result.sort((a, b) => a.id - b.id);
 }
 
 export interface ClassRow {
@@ -53,7 +124,7 @@ export interface BackupData {
   users: UserRow[];
   classes: ClassRow[];
   teacher_classes: TeacherClassRow[];
-  tags: TagRow[];
+  tags: BackupTagRow[];
 }
 
 export interface NewUser {
@@ -99,6 +170,21 @@ export interface DbAdapter {
 
   // tags & classes
   getTags(): Promise<TagRow[]> | TagRow[];
+  getActiveTags(): Promise<TagRow[]> | TagRow[];
+  insertTag(tag: {
+    name: string;
+    type: "category" | "tag";
+    parent_id?: number | null;
+    category_order?: number;
+    sort_order?: number;
+  }): Promise<number> | number;
+  updateTag(id: number, fields: {
+    name?: string;
+    parent_id?: number | null;
+    category_order?: number;
+    sort_order?: number;
+  }): Promise<void> | void;
+  setTagActive(id: number, active: boolean): Promise<void> | void;
   getClasses(): Promise<ClassRow[]> | ClassRow[];
   getClassByName(name: string): Promise<ClassRow | undefined> | ClassRow | undefined;
   getClassByInviteCode(code: string): Promise<ClassRow | undefined> | ClassRow | undefined;
@@ -231,6 +317,37 @@ export async function getCompareBy(by: "class" | "segment"): Promise<{ key: stri
 export async function getTags(): Promise<TagRow[]> {
   const adapter = await ensureInit();
   return Promise.resolve(adapter.getTags());
+}
+
+export async function getActiveTags(): Promise<TagRow[]> {
+  const adapter = await ensureInit();
+  return Promise.resolve(adapter.getActiveTags());
+}
+
+export async function insertTag(tag: {
+  name: string;
+  type: "category" | "tag";
+  parent_id?: number | null;
+  category_order?: number;
+  sort_order?: number;
+}): Promise<number> {
+  const adapter = await ensureInit();
+  return Promise.resolve(adapter.insertTag(tag));
+}
+
+export async function updateTag(id: number, fields: {
+  name?: string;
+  parent_id?: number | null;
+  category_order?: number;
+  sort_order?: number;
+}): Promise<void> {
+  const adapter = await ensureInit();
+  return Promise.resolve(adapter.updateTag(id, fields));
+}
+
+export async function setTagActive(id: number, active: boolean): Promise<void> {
+  const adapter = await ensureInit();
+  return Promise.resolve(adapter.setTagActive(id, active));
 }
 
 export async function getClasses(): Promise<ClassRow[]> {

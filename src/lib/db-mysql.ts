@@ -2,6 +2,7 @@ import mysql from "mysql2/promise";
 import { readFileSync, existsSync } from "fs";
 import path from "path";
 import { tagCategories } from "./tagData";
+import { normalizeBackupTags } from "./db";
 import type {
   UserRow,
   TagRow,
@@ -103,15 +104,21 @@ export class MysqlAdapter implements DbAdapter {
       CREATE TABLE IF NOT EXISTS tags (
         id INT AUTO_INCREMENT PRIMARY KEY,
         name VARCHAR(50) NOT NULL,
-        category VARCHAR(50) NOT NULL,
-        class_id INT,
+        type VARCHAR(20) NOT NULL,
+        parent_id INT,
+        class_id INT NOT NULL DEFAULT 0,
         category_order INT DEFAULT 0,
         sort_order INT DEFAULT 0,
-        UNIQUE KEY uq_tag_class (name, class_id)
+        active TINYINT NOT NULL DEFAULT 1,
+        UNIQUE KEY uq_tag_parent_class (name, parent_id, class_id),
+        UNIQUE KEY uq_tag_type_class (name, type, class_id),
+        INDEX idx_tags_parent (parent_id),
+        INDEX idx_tags_order (category_order, sort_order)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
     `);
-    await this.migrateLegacy();
+    await this.migrateTagSchema();
     await this.seedTags();
+    await this.migrateLegacy();
   }
 
   private async tableExists(name: string): Promise<boolean> {
@@ -130,15 +137,72 @@ export class MysqlAdapter implements DbAdapter {
     return (rows as unknown[]).length > 0;
   }
 
-  /** 预填充标签（重复执行安全；class_id=0 表示全局标签，避免 NULL 破坏 UNIQUE 约束） */
+  private async migrateTagSchema(): Promise<void> {
+    const hasCategory = await this.columnExists("tags", "category");
+    const hasType = await this.columnExists("tags", "type");
+    if (!hasType) {
+      await this.pool.execute("ALTER TABLE tags ADD COLUMN type VARCHAR(20) NOT NULL DEFAULT 'tag'");
+    }
+    if (!(await this.columnExists("tags", "parent_id"))) {
+      await this.pool.execute("ALTER TABLE tags ADD COLUMN parent_id INT");
+    }
+    if (!(await this.columnExists("tags", "active"))) {
+      await this.pool.execute("ALTER TABLE tags ADD COLUMN active TINYINT NOT NULL DEFAULT 1");
+    }
+    await this.pool.execute("UPDATE tags SET class_id = 0 WHERE class_id IS NULL");
+    if (!hasCategory) return;
+
+    const [categoryRows] = await this.pool.execute(
+      `SELECT category as name, MIN(category_order) as category_order
+       FROM tags WHERE class_id = 0 GROUP BY category`
+    );
+    const insertCategory =
+      "INSERT IGNORE INTO tags (name, category, type, parent_id, class_id, category_order, sort_order, active) VALUES (?, ?, 'category', NULL, 0, ?, 0, 1)";
+    for (const category of categoryRows as { name: string; category_order: number }[]) {
+      await this.pool.execute(insertCategory, [category.name, category.name, category.category_order]);
+    }
+    await this.pool.execute(
+      `UPDATE tags child
+       JOIN tags parent ON parent.name = child.category AND parent.type = 'category' AND parent.class_id = 0
+       SET child.type = 'tag', child.parent_id = parent.id, child.active = 1
+       WHERE child.class_id = 0 AND child.type = 'tag'`
+    );
+  }
+
+  /** 预填充标签（重复执行安全；class_id=0 表示全局标签） */
   private async seedTags(): Promise<void> {
+    const hasLegacyCategory = await this.columnExists("tags", "category");
     for (let ci = 0; ci < tagCategories.length; ci++) {
       const cat = tagCategories[ci];
+      if (hasLegacyCategory) {
+        await this.pool.execute(
+          `INSERT IGNORE INTO tags (name, category, type, parent_id, class_id, category_order, sort_order, active)
+           VALUES (?, ?, 'category', NULL, 0, ?, 0, 1)`,
+          [cat.name, cat.name, ci]
+        );
+      } else {
+        await this.pool.execute(
+          `INSERT IGNORE INTO tags (name, type, parent_id, class_id, category_order, sort_order, active)
+           VALUES (?, 'category', NULL, 0, ?, 0, 1)`,
+          [cat.name, ci]
+        );
+      }
+      const [parents] = await this.pool.execute(
+        "SELECT id FROM tags WHERE name = ? AND type = 'category' AND class_id = 0",
+        [cat.name]
+      );
+      const parent = (parents as { id: number }[])[0];
+      if (!parent) continue;
       for (let ti = 0; ti < cat.tags.length; ti++) {
         await this.pool.execute(
-          `INSERT IGNORE INTO tags (name, category, class_id, category_order, sort_order)
-           VALUES (?, ?, 0, ?, ?)`,
-          [cat.tags[ti], cat.name, ci, ti]
+          hasLegacyCategory
+            ? `INSERT IGNORE INTO tags (name, category, type, parent_id, class_id, category_order, sort_order, active)
+               VALUES (?, ?, 'tag', ?, 0, ?, ?, 1)`
+            : `INSERT IGNORE INTO tags (name, type, parent_id, class_id, category_order, sort_order, active)
+               VALUES (?, 'tag', ?, 0, ?, ?, 1)`,
+          hasLegacyCategory
+            ? [cat.tags[ti], cat.name, parent.id, ci, ti]
+            : [cat.tags[ti], parent.id, ci, ti]
         );
       }
     }
@@ -164,8 +228,6 @@ export class MysqlAdapter implements DbAdapter {
     }
     const profileMap = new Map(profiles.map((p) => [p.student_id, p]));
 
-    // 迁移前必须先填充标签，才能做名称→ID 转换
-    await this.seedTags();
     const [tagRows] = await this.pool.execute(
       "SELECT id, name FROM tags WHERE class_id = 0"
     );
@@ -421,9 +483,75 @@ export class MysqlAdapter implements DbAdapter {
   // tags & classes
   async getTags(): Promise<TagRow[]> {
     const [rows] = await this.pool.execute(
-      "SELECT * FROM tags ORDER BY category_order, sort_order, id"
+      `SELECT id, name, type, parent_id, class_id, category_order, sort_order, active
+       FROM tags WHERE class_id = 0
+       ORDER BY category_order, CASE WHEN type = 'category' THEN 0 ELSE 1 END, sort_order, id`
     );
     return rows as TagRow[];
+  }
+
+  async getActiveTags(): Promise<TagRow[]> {
+    const [rows] = await this.pool.execute(
+      `SELECT t.id, t.name, t.type, t.parent_id, t.class_id, t.category_order, t.sort_order, t.active
+       FROM tags t
+       LEFT JOIN tags p ON p.id = t.parent_id
+       WHERE t.class_id = 0 AND t.active = 1
+         AND (t.type = 'category' OR (p.active = 1 AND p.type = 'category'))
+         ORDER BY t.category_order, CASE WHEN t.type = 'category' THEN 0 ELSE 1 END, t.sort_order, t.id`
+    );
+    return rows as TagRow[];
+  }
+
+  async insertTag(tag: {
+    name: string;
+    type: "category" | "tag";
+    parent_id?: number | null;
+    category_order?: number;
+    sort_order?: number;
+  }): Promise<number> {
+    const [result] = await this.pool.execute(
+      `INSERT INTO tags (name, type, parent_id, class_id, category_order, sort_order, active)
+       VALUES (?, ?, ?, 0, ?, ?, 1)`,
+      [tag.name, tag.type, tag.type === "category" ? null : tag.parent_id ?? null, tag.category_order ?? 0, tag.sort_order ?? 0]
+    );
+    return (result as mysql.ResultSetHeader).insertId;
+  }
+
+  async updateTag(id: number, fields: {
+    name?: string;
+    parent_id?: number | null;
+    category_order?: number;
+    sort_order?: number;
+  }): Promise<void> {
+    const assignments: string[] = [];
+    const values: (string | number | null)[] = [];
+    if (fields.name !== undefined) { assignments.push("name = ?"); values.push(fields.name); }
+    if (fields.parent_id !== undefined) { assignments.push("parent_id = ?"); values.push(fields.parent_id); }
+    if (fields.category_order !== undefined) { assignments.push("category_order = ?"); values.push(fields.category_order); }
+    if (fields.sort_order !== undefined) { assignments.push("sort_order = ?"); values.push(fields.sort_order); }
+    if (assignments.length === 0) return;
+    values.push(id);
+    await this.pool.execute(`UPDATE tags SET ${assignments.join(", ")} WHERE id = ?`, values);
+  }
+
+  async setTagActive(id: number, active: boolean): Promise<void> {
+    const conn = await this.pool.getConnection();
+    try {
+      await conn.beginTransaction();
+      const [rows] = await conn.execute("SELECT type FROM tags WHERE id = ?", [id]);
+      const tag = (rows as { type: string }[])[0];
+      if (!tag) throw new Error("标签不存在");
+      await conn.execute("UPDATE tags SET active = ? WHERE id = ?", [active ? 1 : 0, id]);
+      if (tag.type === "category") {
+        await conn.execute("UPDATE tags SET active = ? WHERE parent_id = ?", [active ? 1 : 0, id]);
+      }
+      await conn.commit();
+    } catch (err) {
+      await conn.rollback();
+      throw err;
+    } finally {
+      conn.release();
+    }
   }
 
   async getClasses(): Promise<ClassRow[]> {
@@ -453,9 +581,11 @@ export class MysqlAdapter implements DbAdapter {
     const [users] = await this.pool.execute("SELECT * FROM users ORDER BY id");
     const [classes] = await this.pool.execute("SELECT * FROM classes ORDER BY id");
     const [teacherClasses] = await this.pool.execute("SELECT * FROM teacher_classes ORDER BY id");
-    const [tags] = await this.pool.execute("SELECT * FROM tags ORDER BY id");
+    const [tags] = await this.pool.execute(
+      "SELECT id, name, type, parent_id, class_id, category_order, sort_order, active FROM tags ORDER BY id"
+    );
     return {
-      version: 2,
+      version: 3,
       sourceType: "mysql",
       createdAt: new Date().toISOString(),
       users: users as UserRow[],
@@ -469,14 +599,24 @@ export class MysqlAdapter implements DbAdapter {
     const conn = await this.pool.getConnection();
     try {
       await conn.beginTransaction();
+      const tags = normalizeBackupTags(data.tags);
       await conn.execute("DELETE FROM teacher_classes");
       await conn.execute("DELETE FROM users");
       await conn.execute("DELETE FROM classes");
       await conn.execute("DELETE FROM tags");
-      if (data.tags.length > 0) {
-        const values = data.tags.map((t) => [t.id, t.name, t.category, t.class_id, t.category_order, t.sort_order]);
+      if (tags.length > 0) {
+        const values = tags.map((t) => [
+          t.id,
+          t.name,
+          t.type ?? "tag",
+          t.parent_id ?? null,
+          t.class_id ?? 0,
+          t.category_order ?? 0,
+          t.sort_order ?? 0,
+          t.active ?? 1,
+        ]);
         await conn.query(
-          "INSERT INTO tags (id, name, category, class_id, category_order, sort_order) VALUES ?",
+          "INSERT INTO tags (id, name, type, parent_id, class_id, category_order, sort_order, active) VALUES ?",
           [values]
         );
       }

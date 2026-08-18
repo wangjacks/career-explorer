@@ -11,8 +11,9 @@ import StudentsTab from "@/components/admin/StudentsTab";
 import ExportTab from "@/components/admin/ExportTab";
 import DashboardTab from "@/components/admin/DashboardTab";
 import NavigationBar from "@/components/NavigationBar";
+import TagsTab from "@/components/admin/TagsTab";
 
-type Tab = "overview" | "dashboard" | "settings" | "students" | "export";
+type Tab = "overview" | "dashboard" | "settings" | "students" | "export" | "tags";
 
 export default function AdminPage() {
   const router = useRouter();
@@ -98,6 +99,7 @@ export default function AdminPage() {
     { key: "dashboard", label: "数据大屏" },
     { key: "students", label: "学生管理", badge: `${students.length} 名` },
     { key: "export", label: "数据导出" },
+    { key: "tags", label: "标签管理" },
     { key: "settings", label: "数据源设置" },
   ];
 
@@ -191,6 +193,10 @@ export default function AdminPage() {
 
         {activeTab === "export" && (
           <ExportTab />
+        )}
+
+        {activeTab === "tags" && (
+          <TagsTab />
         )}
       </main>
     </div>

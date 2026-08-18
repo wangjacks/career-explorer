@@ -20,7 +20,7 @@ This version has breaking changes — APIs, conventions, and file structure may 
 | 目录 | 职责 |
 |---|---|
 | `src/app/` | Next.js App Router 页面 + API 路由 |
-| `src/app/dashboard/admin/` | 管理面板（Tab 式布局：Dashboard/Students/Export/Overview/Settings） |
+| `src/app/dashboard/admin/` | 管理面板（Tab 式布局：Dashboard/Students/Export/Overview/Settings/Tags） |
 | `src/app/dashboard/student/` | 学生面板（占位，步骤 9 实现） |
 | `src/app/dashboard/teacher/` | 教师面板（占位，步骤 10 实现） |
 | `src/app/form/` | 学生表单流程（student → tags → wordcloud → evaluation → avatar → complete） |
@@ -35,7 +35,7 @@ This version has breaking changes — APIs, conventions, and file structure may 
 | `src/app/api/validate-student/` | 学号验证（快速提交模式） |
 | `src/app/api/setup/` | 安装引导 API（含 status/test 子路由） |
 | `src/app/api/uploads/[...path]/` | 静态文件服务（含路径穿越防护） |
-| `src/components/admin/` | Admin 面板子组件（DashboardTab、ExportTab、OverviewTab、SettingsTab、StudentsTab 等） |
+| `src/components/admin/` | Admin 面板子组件（DashboardTab、ExportTab、OverviewTab、SettingsTab、StudentsTab、TagsTab 等） |
 | `src/components/` | 公共组件（ErrorBoundary、InstallGuard、NavigationBar、UserMenu、QuickModeBanner、WordCloudCanvas/Client） |
 | `src/hooks/` | 自定义 React hooks（useAdminAuth、useSession） |
 | `src/lib/` | 数据层和工具库 |
@@ -46,7 +46,7 @@ This version has breaking changes — APIs, conventions, and file structure may 
 | `src/lib/auth.ts` | 认证工具（bcrypt 密码验证） |
 | `src/lib/token.ts` | JWT 签发/验证（三角色：role + uid + name claim） |
 | `src/lib/sanitize.ts` | URL 安全校验（XSS 防护） |
-| `src/lib/tagData.ts` | 标签数据（硬编码，步骤 7 迁移到数据库） |
+| `src/lib/tagData.ts` | 标签初始化种子（步骤 7 后不参与运行时展示） |
 | `src/lib/tag-utils.ts` | 标签工具函数 |
 | `src/types/` | TypeScript 类型定义 |
 | `src/proxy.ts` | 角色权限中间件（替代已删除的 middleware.ts） |
@@ -69,7 +69,8 @@ This version has breaking changes — APIs, conventions, and file structure may 
     - `name`、`class_id`（仅学生）、`tags`（JSON ID 数组如 `[1,5,12]`）、`avatar_url`、`evaluation_url`、`submitted_at`
   - `classes` — 班级表（`name`、`invitation_code` 唯一）
   - `teacher_classes` — 教师-班级多对多关联
-  - `tags` — 全局共享标签表（二级层级：category + 具体标签，`class_id` NULL = 全局）
+  - `tags` — 全局共享标签表（`type=category` 一级分类、`type=tag` 二级标签，`parent_id` 建立层级，`class_id=0` = 全局）
+    - `active`：1 启用，0 停用；标签不物理删除，以保证历史提交可追溯
 - 初始化流程：首次访问 -> `/setup` 页面配置数据库 + 管理员密码 -> 写入 `db-config.json` + `users` 表
 - 安装状态检查：`isInstalled()` 函数 + `/api/setup/status` 端点
 
@@ -129,7 +130,7 @@ This version has breaking changes — APIs, conventions, and file structure may 
 - 文件上传：`/api/upload` 处理上传 -> `uploads/` 目录 -> `/api/uploads/[...path]` 静态服务
 - 数据导出：ExcelJS (Excel) + JSZip (ZIP 打包)
 - 词云渲染：`WordCloudCanvas` + `WordCloudClient` 客户端组件
-- 管理面板：Tab 式布局（DashboardTab、StudentsTab、ExportTab、OverviewTab、SettingsTab）
+- 管理面板：Tab 式布局（DashboardTab、StudentsTab、ExportTab、OverviewTab、SettingsTab、TagsTab）
 
 ## 8. Development Environment Notes
 
