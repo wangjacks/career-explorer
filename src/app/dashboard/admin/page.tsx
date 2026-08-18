@@ -13,8 +13,9 @@ import DashboardTab from "@/components/admin/DashboardTab";
 import NavigationBar from "@/components/NavigationBar";
 import TagsTab from "@/components/admin/TagsTab";
 import ClassesTab from "@/components/admin/ClassesTab";
+import TeachersTab from "@/components/admin/TeachersTab";
 
-type Tab = "overview" | "dashboard" | "settings" | "students" | "classes" | "export" | "tags";
+type Tab = "overview" | "dashboard" | "settings" | "students" | "classes" | "teachers" | "export" | "tags";
 
 export default function AdminPage() {
   const router = useRouter();
@@ -100,6 +101,7 @@ export default function AdminPage() {
     { key: "dashboard", label: "数据大屏" },
     { key: "students", label: "学生管理", badge: `${students.length} 名` },
     { key: "classes", label: "班级管理" },
+    { key: "teachers", label: "教师管理" },
     { key: "export", label: "数据导出" },
     { key: "tags", label: "标签管理" },
     { key: "settings", label: "数据源设置" },
@@ -195,6 +197,10 @@ export default function AdminPage() {
 
         {activeTab === "classes" && (
           <ClassesTab mode="admin" />
+        )}
+
+        {activeTab === "teachers" && (
+          <TeachersTab />
         )}
 
         {activeTab === "export" && (
