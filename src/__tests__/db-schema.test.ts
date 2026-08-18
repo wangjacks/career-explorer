@@ -324,6 +324,12 @@ describe("班级管理与教师账户", () => {
     expect(teachers).toHaveLength(1);
     expect(teachers[0].user_code).toBe("10000001");
 
+    // 按 id 回查（会话检测实时姓名依赖此方法）
+    const byId = adapter.getUserById(teachers[0].id);
+    expect(byId?.name).toBe("王老师");
+    adapter.updateUser(teachers[0].id, { name: "王老师（改）" });
+    expect(adapter.getUserById(teachers[0].id)?.name).toBe("王老师（改）");
+
     expect(() => adapter.insertUser({ user_code: "10000001", role: "teacher", name: "重复" })).toThrow();
 
     adapter.close();

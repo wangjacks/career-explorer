@@ -318,6 +318,11 @@ export class MysqlAdapter implements DbAdapter {
     return (rows as UserRow[])[0];
   }
 
+  async getUserById(id: number): Promise<UserRow | undefined> {
+    const [rows] = await this.pool.execute("SELECT * FROM users WHERE id = ?", [id]);
+    return (rows as UserRow[])[0];
+  }
+
   async getAdminUser(): Promise<UserRow | undefined> {
     const [rows] = await this.pool.execute("SELECT * FROM users WHERE role = 'admin' LIMIT 1");
     return (rows as UserRow[])[0];

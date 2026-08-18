@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { verifyPassword } from "@/lib/auth";
 import { signToken, verifyToken } from "@/lib/token";
 import type { Role } from "@/lib/token";
-import { getUserByCode } from "@/lib/db";
+import { getUserByCode, getUserById } from "@/lib/db";
 
 const COOKIE_OPTIONS = {
   httpOnly: true,
@@ -68,11 +68,32 @@ export async function GET(request: NextRequest) {
     response.cookies.set("auth_token", "", { ...COOKIE_OPTIONS, maxAge: 0 });
     return response;
   }
+
+  // 回查数据库返回最新姓名/角色（token 载荷会过期于改名等变更）；账户已删除则会话失效
+  let role = result.role;
+  let name = result.name;
+  const uid = result.uid ?? null;
+  if (uid != null) {
+    try {
+      const user = await getUserById(uid);
+      if (!user) {
+        const response = NextResponse.json({ ok: false }, { status: 401 });
+        response.cookies.set("auth_token", "", { ...COOKIE_OPTIONS, maxAge: 0 });
+        return response;
+      }
+      role = user.role;
+      name = user.name;
+    } catch (err) {
+      console.error("Auth GET user lookup error:", err);
+      // 查询失败时降级为 token 载荷，不阻断会话检测
+    }
+  }
+
   return NextResponse.json({
     ok: true,
-    role: result.role,
-    uid: result.uid ?? null,
-    name: result.name ?? null,
+    role,
+    uid,
+    name: name ?? null,
   });
 }
 

@@ -147,6 +147,7 @@ export interface DbAdapter {
   // users
   insertUser(user: NewUser): Promise<number> | number;
   getUserByCode(userCode: string): Promise<UserRow | undefined> | UserRow | undefined;
+  getUserById(id: number): Promise<UserRow | undefined> | UserRow | undefined;
   getAdminUser(): Promise<UserRow | undefined> | UserRow | undefined;
   updateUser(id: number, fields: UserUpdateFields): Promise<void> | void;
   deleteStudents(userCodes: string[]): Promise<number> | number;
@@ -257,6 +258,11 @@ export async function insertUser(user: NewUser): Promise<number> {
 export async function getUserByCode(userCode: string): Promise<UserRow | undefined> {
   const adapter = await ensureInit();
   return Promise.resolve(adapter.getUserByCode(userCode));
+}
+
+export async function getUserById(id: number): Promise<UserRow | undefined> {
+  const adapter = await ensureInit();
+  return Promise.resolve(adapter.getUserById(id));
 }
 
 export async function getAdminUser(): Promise<UserRow | undefined> {

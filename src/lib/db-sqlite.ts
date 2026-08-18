@@ -310,6 +310,10 @@ export class SqliteAdapter implements DbAdapter {
       | undefined;
   }
 
+  getUserById(id: number): UserRow | undefined {
+    return this.db.prepare("SELECT * FROM users WHERE id = ?").get(id) as UserRow | undefined;
+  }
+
   getAdminUser(): UserRow | undefined {
     return this.db.prepare("SELECT * FROM users WHERE role = 'admin' LIMIT 1").get() as
       | UserRow
