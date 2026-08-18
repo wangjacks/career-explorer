@@ -321,49 +321,89 @@ export default function TagsTab() {
               .sort((a, b) => a.sort_order - b.sort_order || a.id - b.id);
             return (
               <div key={category.id} className={`border rounded-lg overflow-hidden ${category.active ? "border-gray-100" : "border-gray-200 bg-gray-50"}`}>
-                <div className="flex items-center gap-2 px-4 py-3 bg-gray-50 min-w-0">
-                  <input
-                    type="checkbox"
-                    className="rounded border-gray-300 text-green-500 focus:ring-green-300 flex-shrink-0"
-                    checked={selected.has(category.id)}
-                    onChange={() => toggleSelect(category.id)}
-                  />
+                <div className="px-4 py-3 bg-gray-50">
                   {editing?.id === category.id ? (
-                    <input autoFocus value={editing.name} onChange={(e) => setEditing({ ...editing, name: e.target.value })} className="flex-1 min-w-0 px-2 py-1 border border-gray-200 rounded text-sm" />
-                  ) : <span className={`flex-1 min-w-0 text-sm font-medium truncate ${category.active ? "text-gray-800" : "text-gray-400 line-through"}`}>{category.name}</span>}
-                  <span className="text-xs text-gray-400 flex-shrink-0 hidden sm:inline">一级分类 · {children.length} 个标签</span>
-                  <SortBtn onClick={() => moveTag(category, -1)} dir="up" title="上移" />
-                  <SortBtn onClick={() => moveTag(category, 1)} dir="down" title="下移" />
-                  {editing?.id === category.id
-                    ? <button onClick={saveEdit} className="text-xs text-green-600 hover:text-green-700 flex-shrink-0">保存</button>
-                    : <button onClick={() => setEditing({ ...category })} className="text-xs text-blue-600 hover:text-blue-700 flex-shrink-0">编辑</button>}
-                  <button onClick={() => toggleActive(category)} className="text-xs text-gray-500 hover:text-gray-700 flex-shrink-0">{category.active ? "停用" : "恢复"}</button>
+                    <>
+                      {/* Mobile: two-row layout */}
+                      <div className="sm:hidden space-y-2">
+                        <div className="flex items-center gap-2">
+                          <input type="checkbox" className="rounded border-gray-300 text-green-500 focus:ring-green-300 flex-shrink-0" checked={selected.has(category.id)} onChange={() => toggleSelect(category.id)} />
+                          <input autoFocus value={editing.name} onChange={(e) => setEditing({ ...editing, name: e.target.value })} className="flex-1 min-w-0 px-2 py-1.5 border border-gray-200 rounded text-sm" />
+                        </div>
+                        <div className="flex items-center gap-2 pl-6">
+                          <span className="text-xs text-gray-400 flex-shrink-0">一级分类 · {children.length} 个标签</span>
+                          <SortBtn onClick={() => moveTag(category, -1)} dir="up" title="上移" />
+                          <SortBtn onClick={() => moveTag(category, 1)} dir="down" title="下移" />
+                          <button onClick={saveEdit} className="text-xs text-green-600 hover:text-green-700 flex-shrink-0">保存</button>
+                          <button onClick={() => setEditing(null)} className="text-xs text-gray-500 hover:text-gray-700 flex-shrink-0">取消</button>
+                        </div>
+                      </div>
+                      {/* Desktop: single-row layout */}
+                      <div className="hidden sm:flex items-center gap-2">
+                        <input type="checkbox" className="rounded border-gray-300 text-green-500 focus:ring-green-300 flex-shrink-0" checked={selected.has(category.id)} onChange={() => toggleSelect(category.id)} />
+                        <input autoFocus value={editing.name} onChange={(e) => setEditing({ ...editing, name: e.target.value })} className="flex-1 min-w-0 px-2 py-1 border border-gray-200 rounded text-sm" />
+                        <SortBtn onClick={() => moveTag(category, -1)} dir="up" title="上移" />
+                        <SortBtn onClick={() => moveTag(category, 1)} dir="down" title="下移" />
+                        <button onClick={saveEdit} className="text-xs text-green-600 hover:text-green-700 flex-shrink-0">保存</button>
+                        <button onClick={() => setEditing(null)} className="text-xs text-gray-500 hover:text-gray-700 flex-shrink-0">取消</button>
+                      </div>
+                    </>
+                  ) : (
+                    <div className="flex items-center gap-2">
+                      <input type="checkbox" className="rounded border-gray-300 text-green-500 focus:ring-green-300 flex-shrink-0" checked={selected.has(category.id)} onChange={() => toggleSelect(category.id)} />
+                      <span className={`flex-1 min-w-0 text-sm font-medium truncate ${category.active ? "text-gray-800" : "text-gray-400 line-through"}`}>{category.name}</span>
+                      <span className="text-xs text-gray-400 flex-shrink-0 hidden sm:inline">一级分类 · {children.length} 个标签</span>
+                      <SortBtn onClick={() => moveTag(category, -1)} dir="up" title="上移" />
+                      <SortBtn onClick={() => moveTag(category, 1)} dir="down" title="下移" />
+                      <button onClick={() => setEditing({ ...category })} className="text-xs text-blue-600 hover:text-blue-700 flex-shrink-0">编辑</button>
+                      <button onClick={() => toggleActive(category)} className="text-xs text-gray-500 hover:text-gray-700 flex-shrink-0">{category.active ? "停用" : "恢复"}</button>
+                    </div>
+                  )}
                 </div>
                 <div className="divide-y divide-gray-100">
                   {children.map((tag) => (
                     <div key={tag.id} className="px-4 py-2 pl-10">
-                      <div className="flex items-center gap-2">
-                        <input
-                          type="checkbox"
-                          className="rounded border-gray-300 text-green-500 focus:ring-green-300 flex-shrink-0"
-                          checked={selected.has(tag.id)}
-                          onChange={() => toggleSelect(tag.id)}
-                        />
-                        {editing?.id === tag.id ? (
-                          <div className="flex flex-1 gap-2 items-center min-w-0">
+                      {editing?.id === tag.id ? (
+                        <>
+                          {/* Mobile: two-row layout */}
+                          <div className="sm:hidden space-y-2">
+                            <div className="flex items-center gap-2">
+                              <input type="checkbox" className="rounded border-gray-300 text-green-500 focus:ring-green-300 flex-shrink-0" checked={selected.has(tag.id)} onChange={() => toggleSelect(tag.id)} />
+                              <input autoFocus value={editing.name} onChange={(e) => setEditing({ ...editing, name: e.target.value })} className="flex-1 min-w-0 px-2 py-1.5 border border-gray-200 rounded text-sm" />
+                            </div>
+                            <div className="flex items-center gap-2 pl-6">
+                              <div className="flex-shrink-0">
+                                {renderCategoryPicker(editCatOpen, setEditCatOpen, editCatSearch, setEditCatSearch, editCatRef, filteredEditCategories, String(editing.parent_id ?? ""), (id) => setEditing({ ...editing, parent_id: Number(id) || null }))}
+                              </div>
+                              <SortBtn onClick={() => moveTag(tag, -1)} dir="up" title="上移" />
+                              <SortBtn onClick={() => moveTag(tag, 1)} dir="down" title="下移" />
+                              <button onClick={saveEdit} className="text-xs text-green-600 hover:text-green-700 flex-shrink-0">保存</button>
+                              <button onClick={() => setEditing(null)} className="text-xs text-gray-500 hover:text-gray-700 flex-shrink-0">取消</button>
+                            </div>
+                          </div>
+                          {/* Desktop: single-row layout */}
+                          <div className="hidden sm:flex items-center gap-2">
+                            <input type="checkbox" className="rounded border-gray-300 text-green-500 focus:ring-green-300 flex-shrink-0" checked={selected.has(tag.id)} onChange={() => toggleSelect(tag.id)} />
                             <input autoFocus value={editing.name} onChange={(e) => setEditing({ ...editing, name: e.target.value })} className="flex-1 min-w-0 px-2 py-1 border border-gray-200 rounded text-sm" />
                             <div className="flex-shrink-0">
                               {renderCategoryPicker(editCatOpen, setEditCatOpen, editCatSearch, setEditCatSearch, editCatRef, filteredEditCategories, String(editing.parent_id ?? ""), (id) => setEditing({ ...editing, parent_id: Number(id) || null }))}
                             </div>
+                            <SortBtn onClick={() => moveTag(tag, -1)} dir="up" title="上移" />
+                            <SortBtn onClick={() => moveTag(tag, 1)} dir="down" title="下移" />
+                            <button onClick={saveEdit} className="text-xs text-green-600 hover:text-green-700 flex-shrink-0">保存</button>
+                            <button onClick={() => setEditing(null)} className="text-xs text-gray-500 hover:text-gray-700 flex-shrink-0">取消</button>
                           </div>
-                        ) : <span className={`flex-1 text-sm ${tag.active ? "text-gray-700" : "text-gray-400 line-through"}`}>{tag.name}</span>}
-                        <SortBtn onClick={() => moveTag(tag, -1)} dir="up" title="上移" />
-                        <SortBtn onClick={() => moveTag(tag, 1)} dir="down" title="下移" />
-                        {editing?.id === tag.id
-                          ? <button onClick={saveEdit} className="text-xs text-green-600 hover:text-green-700 flex-shrink-0">保存</button>
-                          : <button onClick={() => setEditing({ ...tag })} className="text-xs text-blue-600 hover:text-blue-700 flex-shrink-0">编辑</button>}
-                        <button onClick={() => toggleActive(tag)} className="text-xs text-gray-500 hover:text-gray-700 flex-shrink-0">{tag.active ? "停用" : "恢复"}</button>
-                      </div>
+                        </>
+                      ) : (
+                        <div className="flex items-center gap-2">
+                          <input type="checkbox" className="rounded border-gray-300 text-green-500 focus:ring-green-300 flex-shrink-0" checked={selected.has(tag.id)} onChange={() => toggleSelect(tag.id)} />
+                          <span className={`flex-1 min-w-0 text-sm ${tag.active ? "text-gray-700" : "text-gray-400 line-through"}`}>{tag.name}</span>
+                          <SortBtn onClick={() => moveTag(tag, -1)} dir="up" title="上移" />
+                          <SortBtn onClick={() => moveTag(tag, 1)} dir="down" title="下移" />
+                          <button onClick={() => setEditing({ ...tag })} className="text-xs text-blue-600 hover:text-blue-700 flex-shrink-0">编辑</button>
+                          <button onClick={() => toggleActive(tag)} className="text-xs text-gray-500 hover:text-gray-700 flex-shrink-0">{tag.active ? "停用" : "恢复"}</button>
+                        </div>
+                      )}
                     </div>
                   ))}
                   {children.length === 0 && <p className="px-12 py-3 text-xs text-gray-400">暂无标签</p>}
