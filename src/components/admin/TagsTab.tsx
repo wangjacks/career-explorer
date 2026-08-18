@@ -139,6 +139,7 @@ export default function TagsTab() {
   };
 
   const moveTag = async (tag: TagItem, direction: -1 | 1) => {
+    const scrollY = window.scrollY;
     const siblings = tags
       .filter((item) => item.type === tag.type && (tag.type === "category" || item.parent_id === tag.parent_id))
       .sort((a, b) => (tag.type === "category" ? a.category_order - b.category_order : a.sort_order - b.sort_order) || a.id - b.id);
@@ -160,6 +161,7 @@ export default function TagsTab() {
       const responses = await Promise.all(requests);
       if (responses.some((res) => !res.ok)) throw new Error("排序失败");
       await refresh();
+      requestAnimationFrame(() => window.scrollTo(0, scrollY));
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "排序失败");
     }
@@ -282,26 +284,28 @@ export default function TagsTab() {
       <div className="grid gap-4 md:grid-cols-2">
         <div className="border border-gray-100 rounded-lg p-4 space-y-3">
           <h3 className="text-sm font-medium text-gray-700">新增一级分类</h3>
-          <div className="flex gap-2">
+          <div className="flex flex-col sm:flex-row gap-2">
             <input value={categoryName} onChange={(e) => setCategoryName(e.target.value)} placeholder="分类名称"
               className="flex-1 px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-300" />
-            <button onClick={addCategory} className="px-3 py-2 bg-green-500 hover:bg-green-600 text-white text-sm rounded-lg">新增</button>
+            <button onClick={addCategory} className="px-3 py-2 bg-green-500 hover:bg-green-600 text-white text-sm rounded-lg whitespace-nowrap">新增</button>
           </div>
         </div>
         <div className="border border-gray-100 rounded-lg p-4 space-y-3">
           <h3 className="text-sm font-medium text-gray-700">新增二级标签</h3>
-          <div className="flex gap-2">
+          <div className="flex flex-col sm:flex-row gap-2">
             <input value={tagName} onChange={(e) => setTagName(e.target.value)} placeholder="标签名称"
               className="flex-1 min-w-0 px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-300" />
-            {renderCategoryPicker(catOpen, setCatOpen, catSearch, setCatSearch, catRef, filteredAddCategories, selectedCatId, (id) => { setSelectedCatId(id); setCatOpen(false); })}
-            <button onClick={addTag} className="px-3 py-2 bg-green-500 hover:bg-green-600 text-white text-sm rounded-lg">新增</button>
+            <div className="flex gap-2">
+              {renderCategoryPicker(catOpen, setCatOpen, catSearch, setCatSearch, catRef, filteredAddCategories, selectedCatId, (id) => { setSelectedCatId(id); setCatOpen(false); })}
+              <button onClick={addTag} className="px-3 py-2 bg-green-500 hover:bg-green-600 text-white text-sm rounded-lg whitespace-nowrap">新增</button>
+            </div>
           </div>
         </div>
       </div>
 
       {/* Batch actions */}
       {selected.size > 0 && (
-        <div className="flex items-center gap-3 px-4 py-2.5 bg-green-50 rounded-lg border border-green-100">
+        <div className="flex flex-wrap items-center gap-2 sm:gap-3 px-4 py-2.5 bg-green-50 rounded-lg border border-green-100">
           <span className="text-sm text-green-700 font-medium">已选 {selected.size} 项</span>
           <button onClick={() => batchSetActive(true)} className="px-3 py-1 bg-green-500 hover:bg-green-600 text-white text-xs rounded-lg">恢复</button>
           <button onClick={() => batchSetActive(false)} className="px-3 py-1 bg-red-500 hover:bg-red-600 text-white text-xs rounded-lg">停用</button>
@@ -317,45 +321,49 @@ export default function TagsTab() {
               .sort((a, b) => a.sort_order - b.sort_order || a.id - b.id);
             return (
               <div key={category.id} className={`border rounded-lg overflow-hidden ${category.active ? "border-gray-100" : "border-gray-200 bg-gray-50"}`}>
-                <div className="flex items-center gap-2 px-4 py-3 bg-gray-50">
+                <div className="flex items-center gap-2 px-4 py-3 bg-gray-50 min-w-0">
                   <input
                     type="checkbox"
-                    className="rounded border-gray-300 text-green-500 focus:ring-green-300"
+                    className="rounded border-gray-300 text-green-500 focus:ring-green-300 flex-shrink-0"
                     checked={selected.has(category.id)}
                     onChange={() => toggleSelect(category.id)}
                   />
                   {editing?.id === category.id ? (
-                    <input autoFocus value={editing.name} onChange={(e) => setEditing({ ...editing, name: e.target.value })} className="flex-1 px-2 py-1 border border-gray-200 rounded text-sm" />
-                  ) : <span className={`flex-1 text-sm font-medium ${category.active ? "text-gray-800" : "text-gray-400 line-through"}`}>{category.name}</span>}
-                  <span className="text-xs text-gray-400">一级分类 · {children.length} 个标签</span>
+                    <input autoFocus value={editing.name} onChange={(e) => setEditing({ ...editing, name: e.target.value })} className="flex-1 min-w-0 px-2 py-1 border border-gray-200 rounded text-sm" />
+                  ) : <span className={`flex-1 min-w-0 text-sm font-medium truncate ${category.active ? "text-gray-800" : "text-gray-400 line-through"}`}>{category.name}</span>}
+                  <span className="text-xs text-gray-400 flex-shrink-0 hidden sm:inline">一级分类 · {children.length} 个标签</span>
                   <SortBtn onClick={() => moveTag(category, -1)} dir="up" title="上移" />
                   <SortBtn onClick={() => moveTag(category, 1)} dir="down" title="下移" />
                   {editing?.id === category.id
-                    ? <button onClick={saveEdit} className="text-xs text-green-600 hover:text-green-700">保存</button>
-                    : <button onClick={() => setEditing({ ...category })} className="text-xs text-blue-600 hover:text-blue-700">编辑</button>}
-                  <button onClick={() => toggleActive(category)} className="text-xs text-gray-500 hover:text-gray-700">{category.active ? "停用" : "恢复"}</button>
+                    ? <button onClick={saveEdit} className="text-xs text-green-600 hover:text-green-700 flex-shrink-0">保存</button>
+                    : <button onClick={() => setEditing({ ...category })} className="text-xs text-blue-600 hover:text-blue-700 flex-shrink-0">编辑</button>}
+                  <button onClick={() => toggleActive(category)} className="text-xs text-gray-500 hover:text-gray-700 flex-shrink-0">{category.active ? "停用" : "恢复"}</button>
                 </div>
                 <div className="divide-y divide-gray-100">
                   {children.map((tag) => (
-                    <div key={tag.id} className="flex items-center gap-2 px-4 py-2 pl-10">
-                      <input
-                        type="checkbox"
-                        className="rounded border-gray-300 text-green-500 focus:ring-green-300"
-                        checked={selected.has(tag.id)}
-                        onChange={() => toggleSelect(tag.id)}
-                      />
-                      {editing?.id === tag.id ? (
-                        <div className="flex flex-1 gap-2 items-center">
-                          <input autoFocus value={editing.name} onChange={(e) => setEditing({ ...editing, name: e.target.value })} className="flex-1 min-w-0 px-2 py-1 border border-gray-200 rounded text-sm" />
-                          {renderCategoryPicker(editCatOpen, setEditCatOpen, editCatSearch, setEditCatSearch, editCatRef, filteredEditCategories, String(editing.parent_id ?? ""), (id) => setEditing({ ...editing, parent_id: Number(id) || null }))}
-                        </div>
-                      ) : <span className={`flex-1 text-sm ${tag.active ? "text-gray-700" : "text-gray-400 line-through"}`}>{tag.name}</span>}
-                      <SortBtn onClick={() => moveTag(tag, -1)} dir="up" title="上移" />
-                      <SortBtn onClick={() => moveTag(tag, 1)} dir="down" title="下移" />
-                      {editing?.id === tag.id
-                        ? <button onClick={saveEdit} className="text-xs text-green-600 hover:text-green-700">保存</button>
-                        : <button onClick={() => setEditing({ ...tag })} className="text-xs text-blue-600 hover:text-blue-700">编辑</button>}
-                      <button onClick={() => toggleActive(tag)} className="text-xs text-gray-500 hover:text-gray-700">{tag.active ? "停用" : "恢复"}</button>
+                    <div key={tag.id} className="px-4 py-2 pl-10">
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="checkbox"
+                          className="rounded border-gray-300 text-green-500 focus:ring-green-300 flex-shrink-0"
+                          checked={selected.has(tag.id)}
+                          onChange={() => toggleSelect(tag.id)}
+                        />
+                        {editing?.id === tag.id ? (
+                          <div className="flex flex-1 gap-2 items-center min-w-0">
+                            <input autoFocus value={editing.name} onChange={(e) => setEditing({ ...editing, name: e.target.value })} className="flex-1 min-w-0 px-2 py-1 border border-gray-200 rounded text-sm" />
+                            <div className="flex-shrink-0">
+                              {renderCategoryPicker(editCatOpen, setEditCatOpen, editCatSearch, setEditCatSearch, editCatRef, filteredEditCategories, String(editing.parent_id ?? ""), (id) => setEditing({ ...editing, parent_id: Number(id) || null }))}
+                            </div>
+                          </div>
+                        ) : <span className={`flex-1 text-sm ${tag.active ? "text-gray-700" : "text-gray-400 line-through"}`}>{tag.name}</span>}
+                        <SortBtn onClick={() => moveTag(tag, -1)} dir="up" title="上移" />
+                        <SortBtn onClick={() => moveTag(tag, 1)} dir="down" title="下移" />
+                        {editing?.id === tag.id
+                          ? <button onClick={saveEdit} className="text-xs text-green-600 hover:text-green-700 flex-shrink-0">保存</button>
+                          : <button onClick={() => setEditing({ ...tag })} className="text-xs text-blue-600 hover:text-blue-700 flex-shrink-0">编辑</button>}
+                        <button onClick={() => toggleActive(tag)} className="text-xs text-gray-500 hover:text-gray-700 flex-shrink-0">{tag.active ? "停用" : "恢复"}</button>
+                      </div>
                     </div>
                   ))}
                   {children.length === 0 && <p className="px-12 py-3 text-xs text-gray-400">暂无标签</p>}
