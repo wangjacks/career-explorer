@@ -288,7 +288,7 @@ export default function OverviewTab({ installed, loadStats, loadProfiles, studen
                     <td className="px-5 py-3 text-green-600">{r.submitted}</td>
                     <td className="px-5 py-3 text-gray-600">{r.unsubmitted}</td>
                     <td className="px-5 py-3 text-gray-600">
-                      {r.total > 0 ? `${Math.round((r.submitted / r.total) * 100)}%` : "-"}
+                      {r.total > 0 ? `${((r.submitted / r.total) * 100).toFixed(2)}%` : "-"}
                     </td>
                   </tr>
                 ))}
@@ -299,7 +299,7 @@ export default function OverviewTab({ installed, loadStats, loadProfiles, studen
                     <td className="px-5 py-3 text-green-600">{classOverview.unassigned.submitted}</td>
                     <td className="px-5 py-3 text-gray-600">{classOverview.unassigned.unsubmitted}</td>
                     <td className="px-5 py-3 text-gray-600">
-                      {Math.round((classOverview.unassigned.submitted / classOverview.unassigned.total) * 100)}%
+                      {((classOverview.unassigned.submitted / classOverview.unassigned.total) * 100).toFixed(2)}%
                     </td>
                   </tr>
                 )}
@@ -309,7 +309,7 @@ export default function OverviewTab({ installed, loadStats, loadProfiles, studen
                   <td className="px-5 py-3 text-green-700">{classOverview.totalSubmitted}</td>
                   <td className="px-5 py-3 text-gray-800">{classOverview.totalUnsubmitted}</td>
                   <td className="px-5 py-3 text-gray-800">
-                    {classOverview.total > 0 ? `${Math.round((classOverview.totalSubmitted / classOverview.total) * 100)}%` : "-"}
+                    {classOverview.total > 0 ? `${((classOverview.totalSubmitted / classOverview.total) * 100).toFixed(2)}%` : "-"}
                   </td>
                 </tr>
               </tbody>
