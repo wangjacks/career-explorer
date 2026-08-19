@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { Toaster } from "sonner";
 import { useAdminAuth } from "@/hooks/useAdminAuth";
@@ -16,6 +16,7 @@ import ClassesTab from "@/components/admin/ClassesTab";
 import TeachersTab from "@/components/admin/TeachersTab";
 
 type Tab = "overview" | "dashboard" | "settings" | "students" | "classes" | "teachers" | "export" | "tags";
+type TabGroup = "data" | "users" | "system";
 
 export default function AdminPage() {
   const router = useRouter();
@@ -30,7 +31,10 @@ export default function AdminPage() {
     initAfterLogin,
   } = useAdminAuth();
 
+  const [activeGroup, setActiveGroup] = useState<TabGroup>("data");
   const [activeTab, setActiveTab] = useState<Tab>("overview");
+  // 记录各组最后停留的子 Tab，切回时恢复
+  const lastTabOfGroup = useRef<Partial<Record<TabGroup, Tab>>>({});
   const [dbConfig, setDbConfig] = useState<DbConfig | null>(null);
   const [students, setStudents] = useState<Student[]>([]);
   const [studentsError, setStudentsError] = useState(false);
@@ -62,6 +66,7 @@ export default function AdminPage() {
       refreshSettings();
       initAfterLogin().then((isInstalled) => {
         if (!isInstalled) {
+          setActiveGroup("system");
           setActiveTab("settings");
         } else {
           refreshStudents();
@@ -96,16 +101,45 @@ export default function AdminPage() {
     );
   }
 
-  const tabs: { key: Tab; label: string; badge?: string }[] = [
-    { key: "overview", label: "数据概览" },
-    { key: "dashboard", label: "数据大屏" },
-    { key: "students", label: "学生管理", badge: `${students.length} 名` },
-    { key: "classes", label: "班级管理" },
-    { key: "teachers", label: "教师管理" },
-    { key: "export", label: "数据导出" },
-    { key: "tags", label: "标签管理" },
-    { key: "settings", label: "数据源设置" },
+  // 两级导航：一级分组（数据中心/用户管理/系统设置）+ 组内子 Tab
+  const TAB_GROUPS: { key: TabGroup; label: string; tabs: { key: Tab; label: string; badge?: string }[] }[] = [
+    {
+      key: "data",
+      label: "数据中心",
+      tabs: [
+        { key: "overview", label: "数据概览" },
+        { key: "dashboard", label: "数据大屏" },
+        { key: "export", label: "数据导出" },
+      ],
+    },
+    {
+      key: "users",
+      label: "用户管理",
+      tabs: [
+        { key: "students", label: "学生管理", badge: `${students.length} 名` },
+        { key: "teachers", label: "教师管理" },
+        { key: "classes", label: "班级管理" },
+        { key: "tags", label: "标签管理" },
+      ],
+    },
+    {
+      key: "system",
+      label: "系统设置",
+      tabs: [{ key: "settings", label: "数据源设置" }],
+    },
   ];
+
+  const currentGroup = TAB_GROUPS.find((g) => g.key === activeGroup) ?? TAB_GROUPS[0];
+
+  const switchGroup = (group: TabGroup) => {
+    if (group === activeGroup) return;
+    lastTabOfGroup.current[activeGroup] = activeTab;
+    setActiveGroup(group);
+    const target = TAB_GROUPS.find((g) => g.key === group);
+    if (target) {
+      setActiveTab(lastTabOfGroup.current[group] ?? target.tabs[0].key);
+    }
+  };
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -113,41 +147,69 @@ export default function AdminPage() {
 
       <NavigationBar title="后台管理" showHome />
 
-      {/* Tab Navigation */}
+      {/* Tab Navigation：一级分组 + 二级子 Tab */}
       <div className="bg-white border-b border-gray-100">
         <div className="max-w-6xl mx-auto px-6">
-          {/* Desktop: horizontal tabs */}
-          <nav className="hidden md:flex gap-6">
-            {tabs.map((tab) => (
-              <button
-                key={tab.key}
-                onClick={() => setActiveTab(tab.key)}
-                className={`py-3 text-sm font-medium border-b-2 transition-colors ${
-                  activeTab === tab.key
-                    ? "border-green-500 text-green-600"
-                    : "border-transparent text-gray-500 hover:text-gray-700"
-                }`}
-              >
-                {tab.label}
-                {tab.badge && (
-                  <span className="ml-2 px-1.5 py-0.5 bg-gray-100 text-gray-500 rounded text-xs">
-                    {tab.badge}
-                  </span>
-                )}
-              </button>
-            ))}
-          </nav>
-          {/* Mobile: dropdown select */}
+          {/* Desktop: group tabs + sub tabs */}
+          <div className="hidden md:block">
+            <nav className="flex gap-6">
+              {TAB_GROUPS.map((group) => (
+                <button
+                  key={group.key}
+                  onClick={() => switchGroup(group.key)}
+                  className={`py-3 text-sm font-medium border-b-2 transition-colors ${
+                    activeGroup === group.key
+                      ? "border-green-500 text-green-600"
+                      : "border-transparent text-gray-500 hover:text-gray-700"
+                  }`}
+                >
+                  {group.label}
+                </button>
+              ))}
+            </nav>
+            {currentGroup.tabs.length > 1 && (
+              <nav className="flex gap-4 border-t border-gray-50">
+                {currentGroup.tabs.map((tab) => (
+                  <button
+                    key={tab.key}
+                    onClick={() => setActiveTab(tab.key)}
+                    className={`py-2 text-xs font-medium border-b-2 transition-colors ${
+                      activeTab === tab.key
+                        ? "border-green-500 text-green-600"
+                        : "border-transparent text-gray-400 hover:text-gray-600"
+                    }`}
+                  >
+                    {tab.label}
+                    {tab.badge && (
+                      <span className="ml-1.5 px-1.5 py-0.5 bg-gray-100 text-gray-500 rounded text-[10px]">
+                        {tab.badge}
+                      </span>
+                    )}
+                  </button>
+                ))}
+              </nav>
+            )}
+          </div>
+          {/* Mobile: grouped dropdown select */}
           <div className="flex md:hidden py-3">
             <select
-              value={activeTab}
-              onChange={(e) => setActiveTab(e.target.value as Tab)}
+              value={`${activeGroup}:${activeTab}`}
+              onChange={(e) => {
+                const [group, tab] = e.target.value.split(":");
+                setActiveGroup(group as TabGroup);
+                setActiveTab(tab as Tab);
+              }}
               className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm font-medium text-gray-700 bg-white focus:outline-none focus:ring-2 focus:ring-green-300"
             >
-              {tabs.map((tab) => (
-                <option key={tab.key} value={tab.key}>
-                  {tab.label}{tab.badge ? ` (${tab.badge})` : ""}
-                </option>
+              {TAB_GROUPS.map((group) => (
+                <optgroup key={group.key} label={group.label}>
+                  {group.tabs.map((tab) => (
+                    <option key={tab.key} value={`${group.key}:${tab.key}`}>
+                      {tab.label}
+                      {tab.badge ? ` (${tab.badge})` : ""}
+                    </option>
+                  ))}
+                </optgroup>
               ))}
             </select>
           </div>
