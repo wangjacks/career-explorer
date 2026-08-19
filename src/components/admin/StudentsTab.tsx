@@ -98,11 +98,16 @@ export default function StudentsTab({ students, loadError, onRetry, onStudentsCh
   const [classList, setClassList] = useState<ClassItem[]>([]);
   const [selectedStudents, setSelectedStudents] = useState<Set<string>>(new Set());
 
-  // Search & sort & class filter
+  // Search & sort
   const [search, setSearch] = useState("");
   const [sortKey, setSortKey] = useState<SortKey>("user_code");
   const [sortDir, setSortDir] = useState<SortDir>("asc");
-  const [classFilter, setClassFilter] = useState("all");
+
+  // 班级筛选（多选下拉）：未勾选任何项 = 不过滤（默认）；勾选后只显示选中班级，-1 = 未分班
+  const [selectedClasses, setSelectedClasses] = useState<Set<number>>(new Set());
+  const [classDropdownOpen, setClassDropdownOpen] = useState(false);
+  const [classSearch, setClassSearch] = useState("");
+  const classDropdownRef = useRef<HTMLDivElement>(null);
 
   // Import preview (raw matrix + adjustable column mapping)
   const [preview, setPreview] = useState<PreviewState | null>(null);
@@ -149,15 +154,44 @@ export default function StudentsTab({ students, loadError, onRetry, onStudentsCh
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { refreshClasses(); }, []);
 
+  // 点击外部关闭班级筛选下拉
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (classDropdownRef.current && !classDropdownRef.current.contains(e.target as Node)) {
+        setClassDropdownOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
+
   const classNameOf = (s: Student): string =>
     s.class_id != null ? classList.find((c) => c.id === s.class_id)?.name || "" : "";
+
+  // 班级筛选选项（各班 + 未分班），支持搜索
+  const classFilterOptions = useMemo(() => {
+    const opts = classList.map((c) => ({ id: c.id, name: c.name }));
+    opts.push({ id: -1, name: "未分班" });
+    const q = classSearch.trim().toLowerCase();
+    return q ? opts.filter((o) => o.name.toLowerCase().includes(q)) : opts;
+  }, [classList, classSearch]);
+
+  const toggleClassFilter = (id: number) => {
+    setSelectedClasses((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
 
   // Filtered + sorted students
   const filteredStudents = useMemo(() => {
     const q = search.trim().toLowerCase();
     let list = students;
-    if (classFilter === "none") list = list.filter((s) => s.class_id == null);
-    else if (classFilter !== "all") list = list.filter((s) => s.class_id === Number(classFilter));
+    if (selectedClasses.size > 0) {
+      list = list.filter((s) => selectedClasses.has(s.class_id == null ? -1 : s.class_id));
+    }
     if (q) {
       list = list.filter(
         (s) =>
@@ -173,7 +207,7 @@ export default function StudentsTab({ students, loadError, onRetry, onStudentsCh
       return sortDir === "asc" ? cmp : -cmp;
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [students, search, sortKey, sortDir, classList, classFilter]);
+  }, [students, search, sortKey, sortDir, classList, selectedClasses]);
 
   const handleSort = (key: SortKey) => {
     if (sortKey === key) {
@@ -515,26 +549,79 @@ export default function StudentsTab({ students, loadError, onRetry, onStudentsCh
         </div>
       </div>
 
-      {/* Student list with search + class filter */}
-      <div className="border border-gray-100 rounded-lg overflow-hidden">
-        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between px-4 py-3 bg-gray-50 gap-2">
+      {/* Student list with search + class filter（外层不用 overflow-hidden，避免裁剪班级筛选下拉） */}
+      <div className="border border-gray-100 rounded-lg">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between px-4 py-3 bg-gray-50 gap-2 rounded-t-lg">
           <span className="text-sm text-gray-600">
             学生列表（{filteredStudents.length} / {students.length} 名）
           </span>
           <div className="flex items-center gap-2 flex-wrap">
-            <select
-              value={classFilter}
-              onChange={(e) => setClassFilter(e.target.value)}
-              className="px-3 py-1.5 border border-gray-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-green-300"
-            >
-              <option value="all">全部班级</option>
-              <option value="none">未分班</option>
-              {classList.map((c) => (
-                <option key={c.id} value={String(c.id)}>
-                  {c.name}
-                </option>
-              ))}
-            </select>
+            {/* 班级筛选多选下拉（默认全选） */}
+            <div className="relative" ref={classDropdownRef}>
+              <button
+                onClick={() => setClassDropdownOpen((v) => !v)}
+                className={`px-3 py-1.5 rounded-lg text-sm font-medium border transition-colors flex items-center gap-1.5 ${
+                  selectedClasses.size > 0
+                    ? "bg-green-50 text-green-700 border-green-200"
+                    : "bg-white text-gray-600 border-gray-200 hover:border-gray-300"
+                }`}
+              >
+                班级筛选
+                {selectedClasses.size > 0 && (
+                  <span className="ml-0.5 px-1.5 py-0.5 bg-green-500 text-white text-xs rounded-full leading-none">
+                    {selectedClasses.size}
+                  </span>
+                )}
+                <svg
+                  className={`w-3 h-3 transition-transform ${classDropdownOpen ? "rotate-180" : ""}`}
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                </svg>
+              </button>
+              {classDropdownOpen && (
+                <div className="absolute top-full left-0 mt-1 w-64 bg-white rounded-xl border border-gray-200 shadow-lg z-30">
+                  <div className="p-2 border-b border-gray-100">
+                    <input
+                      type="text"
+                      value={classSearch}
+                      onChange={(e) => setClassSearch(e.target.value)}
+                      placeholder="搜索班级..."
+                      className="w-full px-2.5 py-1.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-300"
+                      autoFocus
+                    />
+                  </div>
+                  <div className="max-h-52 overflow-y-auto py-1">
+                    {classFilterOptions.map((o) => {
+                      const isSelected = selectedClasses.has(o.id);
+                      return (
+                        <button
+                          key={o.id}
+                          onClick={() => toggleClassFilter(o.id)}
+                          className={`w-full text-left px-3 py-1.5 text-sm flex items-center gap-2 transition-colors ${
+                            isSelected ? "bg-green-50 text-green-700" : "hover:bg-gray-50 text-gray-700"
+                          }`}
+                        >
+                          <span
+                            className={`w-4 h-4 rounded border flex items-center justify-center flex-shrink-0 text-xs ${
+                              isSelected ? "bg-green-500 border-green-500 text-white" : "border-gray-300"
+                            }`}
+                          >
+                            {isSelected && "✓"}
+                          </span>
+                          <span className="truncate">{o.name}</span>
+                        </button>
+                      );
+                    })}
+                    {classFilterOptions.length === 0 && (
+                      <div className="px-3 py-4 text-center text-sm text-gray-400">无匹配班级</div>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
             <input
               type="text"
               value={search}
@@ -542,6 +629,14 @@ export default function StudentsTab({ students, loadError, onRetry, onStudentsCh
               placeholder="搜索学号/姓名/班级..."
               className="px-3 py-1.5 border border-gray-200 rounded-lg text-sm w-48 focus:outline-none focus:ring-2 focus:ring-green-300"
             />
+            {selectedClasses.size > 0 && (
+              <button
+                onClick={() => setSelectedClasses(new Set())}
+                className="text-xs text-gray-400 hover:text-gray-600 transition-colors"
+              >
+                清除筛选
+              </button>
+            )}
             {selectedStudents.size > 0 && (
               <>
                 <button
@@ -567,7 +662,7 @@ export default function StudentsTab({ students, loadError, onRetry, onStudentsCh
           </div>
         </div>
 
-        <div className="max-h-[500px] overflow-y-auto">
+        <div className="max-h-[500px] overflow-y-auto rounded-b-lg bg-white">
           <table className="w-full text-sm">
             <thead className="sticky top-0 bg-gray-50 z-10">
               <tr className="text-left text-gray-500 border-b border-gray-100">
