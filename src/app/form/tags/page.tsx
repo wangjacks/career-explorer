@@ -5,17 +5,11 @@ import { useRouter } from "next/navigation";
 import { Toaster, toast } from "sonner";
 import NavigationBar from "@/components/NavigationBar";
 import QuickModeBanner from "@/components/QuickModeBanner";
+import TagSelector, { type TagCategory } from "@/components/TagSelector";
 
 interface StudentInfo {
   studentId: string;
   name: string;
-}
-
-interface TagCategory {
-  id: number;
-  name: string;
-  sortOrder: number;
-  tags: { id: number; name: string; sortOrder: number }[];
 }
 
 export default function TagsPage() {
@@ -95,49 +89,13 @@ export default function TagsPage() {
             <button onClick={loadTags} className="px-4 py-1.5 bg-green-500 hover:bg-green-600 text-white text-sm rounded-lg">重试</button>
           </div>
         )}
-        {!loadingTags && !tagsError && categories.map((category) => (
-          <section key={category.id} className="space-y-3">
-            <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide">{category.name}</h2>
-            <div className="flex flex-wrap gap-2">
-              {category.tags.map((tag) => (
-                <button
-                  key={tag.id}
-                  onClick={() => toggleTag(tag.name)}
-                  className={`px-4 py-2 rounded-full text-sm font-medium transition-all ${
-                    selectedTags.includes(tag.name)
-                      ? "bg-green-500 text-white shadow-sm"
-                      : "bg-white text-gray-700 border border-gray-200 hover:border-green-300"
-                  }`}
-                >
-                  {tag.name}
-                </button>
-              ))}
-            </div>
-          </section>
-        ))}
-
-        {selectedTags.length > 0 && (
-          <section className="space-y-2">
-            <h2 className="text-sm font-semibold text-gray-500">
-              已选标签（{selectedTags.length}）
-            </h2>
-            <div className="flex flex-wrap gap-2">
-              {selectedTags.map((tag) => (
-                <span
-                  key={tag}
-                  className="inline-flex items-center gap-1 px-3 py-1 bg-green-50 text-green-700 rounded-full text-sm"
-                >
-                  {tag}
-                  <button
-                    onClick={() => removeTag(tag)}
-                    className="ml-1 hover:text-green-900"
-                  >
-                    ×
-                  </button>
-                </span>
-              ))}
-            </div>
-          </section>
+        {!loadingTags && !tagsError && (
+          <TagSelector
+            categories={categories}
+            selectedTags={selectedTags}
+            onToggle={toggleTag}
+            onRemove={removeTag}
+          />
         )}
 
       </main>
