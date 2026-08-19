@@ -36,35 +36,51 @@ interface CredentialRow {
   password: string;
 }
 
-/** 从文本行解析学生数据：自动识别标题行（学号/姓名/班级关键词），否则按 学号,姓名,班级 顺序 */
-function parseStudentRows(lines: string[]): ParsedRow[] {
-  const idKeywords = ["学号", "student_id", "studentid", "学籍号", "编号", "id"];
-  const nameKeywords = ["姓名", "name", "名字", "学生姓名", "student_name"];
-  const classKeywords = ["班级", "class", "classname", "班"];
+const ID_KEYWORDS = ["学号", "student_id", "studentid", "学籍号", "编号", "id"];
+const NAME_KEYWORDS = ["姓名", "name", "名字", "学生姓名", "student_name"];
+const CLASS_KEYWORDS = ["班级", "class", "classname", "班"];
 
-  const firstCells = lines[0].split(/[,，\t]/).map((s) => s.trim().toLowerCase());
+/** 导入预览状态：原始单元格矩阵 + 列映射（可在预览弹窗中手动调整） */
+interface PreviewState {
+  rawRows: string[][];
+  hasHeader: boolean;
+  idCol: number;
+  nameCol: number;
+  classCol: number; // -1 = 不导入班级
+}
+
+/** 将文本行切分为单元格矩阵（支持逗号、全角逗号、制表符） */
+function splitToCells(lines: string[]): string[][] {
+  return lines.map((line) => line.split(/[,，\t]/).map((s) => s.trim()));
+}
+
+/** 识别标题行与默认列映射；无表头且存在第 3 列时默认其为班级列 */
+function detectMapping(rawRows: string[][]): Pick<PreviewState, "hasHeader" | "idCol" | "nameCol" | "classCol"> {
+  const colCount = rawRows.length > 0 ? Math.max(...rawRows.map((r) => r.length)) : 0;
+  const first = (rawRows[0] || []).map((s) => s.toLowerCase());
   let idCol = -1,
     nameCol = -1,
     classCol = -1;
-  for (let i = 0; i < firstCells.length; i++) {
-    if (idCol === -1 && idKeywords.some((k) => firstCells[i] === k)) idCol = i;
-    if (nameCol === -1 && nameKeywords.some((k) => firstCells[i] === k)) nameCol = i;
-    if (classCol === -1 && classKeywords.some((k) => firstCells[i] === k)) classCol = i;
+  for (let i = 0; i < first.length; i++) {
+    if (idCol === -1 && ID_KEYWORDS.some((k) => first[i] === k)) idCol = i;
+    if (nameCol === -1 && NAME_KEYWORDS.some((k) => first[i] === k)) nameCol = i;
+    if (classCol === -1 && CLASS_KEYWORDS.some((k) => first[i] === k)) classCol = i;
   }
-
   const hasHeader = idCol !== -1 || nameCol !== -1 || classCol !== -1;
-  const dataLines = hasHeader ? lines.slice(1) : lines;
   if (idCol === -1) idCol = 0;
   if (nameCol === -1) nameCol = 1;
+  if (classCol === -1 && !hasHeader && colCount >= 3) classCol = 2;
+  return { hasHeader, idCol, nameCol, classCol };
+}
 
-  return dataLines.map((line) => {
-    const cells = line.split(/[,，\t]/).map((s) => s.trim());
-    return {
-      studentId: cells[idCol] || "",
-      name: cells[nameCol] || "",
-      className: classCol !== -1 ? cells[classCol] || "" : "",
-    };
-  });
+/** 按当前列映射推导解析行 */
+function deriveParsedRows(preview: PreviewState): ParsedRow[] {
+  const dataRows = preview.hasHeader ? preview.rawRows.slice(1) : preview.rawRows;
+  return dataRows.map((cells) => ({
+    studentId: cells[preview.idCol] || "",
+    name: cells[preview.nameCol] || "",
+    className: preview.classCol >= 0 ? cells[preview.classCol] || "" : "",
+  }));
 }
 
 function SortIcon({ active, dir }: { active: boolean; dir: SortDir }) {
@@ -88,8 +104,8 @@ export default function StudentsTab({ students, loadError, onRetry, onStudentsCh
   const [sortDir, setSortDir] = useState<SortDir>("asc");
   const [classFilter, setClassFilter] = useState("all");
 
-  // Import preview
-  const [previewRows, setPreviewRows] = useState<ParsedRow[] | null>(null);
+  // Import preview (raw matrix + adjustable column mapping)
+  const [preview, setPreview] = useState<PreviewState | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Single password reset + credentials display
@@ -198,7 +214,7 @@ export default function StudentsTab({ students, loadError, onRetry, onStudentsCh
     }
   };
 
-  // 粘贴导入：解析后进入预览弹窗二次核对
+  // 粘贴导入：解析后进入预览弹窗二次核对（列映射可调整）
   const handleBatchImport = () => {
     const text = batchInputRef.current?.value || "";
     const lines = text.split("\n").filter((l) => l.trim());
@@ -206,7 +222,8 @@ export default function StudentsTab({ students, loadError, onRetry, onStudentsCh
       toast.warning("请输入学生数据");
       return;
     }
-    setPreviewRows(parseStudentRows(lines));
+    const rawRows = splitToCells(lines);
+    setPreview({ rawRows, ...detectMapping(rawRows) });
   };
 
   // 文件导入：xlsx 用 exceljs 解析，csv 用文本读取，均进入预览弹窗
@@ -238,22 +255,30 @@ export default function StudentsTab({ students, loadError, onRetry, onStudentsCh
         toast.warning("文件没有有效数据");
         return;
       }
-      setPreviewRows(parseStudentRows(lines));
+      const rawRows = splitToCells(lines);
+      setPreview({ rawRows, ...detectMapping(rawRows) });
     } catch (err) {
       console.error("File import parse error:", err);
       toast.error(err instanceof Error ? err.message : "文件解析失败");
     }
   };
 
-  const previewInvalid = useMemo(() => {
-    if (!previewRows) return 0;
-    return previewRows.filter((r) => !/^\d{12}$/.test(r.studentId) || !r.name.trim()).length;
-  }, [previewRows]);
+  // 按当前列映射推导解析行 + 校验统计
+  const parsedRows = useMemo(() => (preview ? deriveParsedRows(preview) : []), [preview]);
+  const previewInvalid = useMemo(
+    () => parsedRows.filter((r) => !/^\d{12}$/.test(r.studentId) || !r.name.trim()).length,
+    [parsedRows]
+  );
+  const columnCount = preview ? Math.max(...preview.rawRows.map((r) => r.length)) : 0;
+  const columnLabel = (i: number) => {
+    const headerText = preview?.hasHeader ? preview.rawRows[0]?.[i] : "";
+    return headerText ? `第 ${i + 1} 列（${headerText}）` : `第 ${i + 1} 列`;
+  };
 
   // 预览确认后才真正调 API 导入
   const confirmImport = async () => {
-    if (!previewRows) return;
-    const validRows = previewRows.filter((r) => /^\d{12}$/.test(r.studentId) && r.name.trim());
+    if (!preview) return;
+    const validRows = parsedRows.filter((r) => /^\d{12}$/.test(r.studentId) && r.name.trim());
     if (validRows.length === 0) {
       toast.warning("没有可导入的有效数据");
       return;
@@ -267,7 +292,7 @@ export default function StudentsTab({ students, loadError, onRetry, onStudentsCh
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
       toast.success(data.message);
-      setPreviewRows(null);
+      setPreview(null);
       if (batchInputRef.current) batchInputRef.current.value = "";
       onStudentsChanged();
       refreshClasses();
@@ -727,20 +752,66 @@ export default function StudentsTab({ students, loadError, onRetry, onStudentsCh
       )}
 
       {/* Import preview modal */}
-      {previewRows && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 px-4" onClick={() => setPreviewRows(null)}>
+      {preview && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 px-4" onClick={() => setPreview(null)}>
           <div
             className="bg-white rounded-2xl shadow-xl max-w-2xl w-full p-6 space-y-4 max-h-[85vh] flex flex-col"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center justify-between">
               <h3 className="font-semibold text-gray-800 text-lg">导入预览</h3>
-              <button onClick={() => setPreviewRows(null)} className="text-gray-400 hover:text-gray-600 text-xl">
+              <button onClick={() => setPreview(null)} className="text-gray-400 hover:text-gray-600 text-xl">
                 ×
               </button>
             </div>
+            {/* 列映射调整 */}
+            <div className="flex flex-wrap items-center gap-3">
+              <label className="flex items-center gap-1.5 text-sm text-gray-600">
+                学号列
+                <select
+                  value={preview.idCol}
+                  onChange={(e) => setPreview({ ...preview, idCol: Number(e.target.value) })}
+                  className="px-2 py-1 border border-gray-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-green-300"
+                >
+                  {Array.from({ length: columnCount }, (_, i) => (
+                    <option key={i} value={i}>
+                      {columnLabel(i)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="flex items-center gap-1.5 text-sm text-gray-600">
+                姓名列
+                <select
+                  value={preview.nameCol}
+                  onChange={(e) => setPreview({ ...preview, nameCol: Number(e.target.value) })}
+                  className="px-2 py-1 border border-gray-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-green-300"
+                >
+                  {Array.from({ length: columnCount }, (_, i) => (
+                    <option key={i} value={i}>
+                      {columnLabel(i)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="flex items-center gap-1.5 text-sm text-gray-600">
+                班级列
+                <select
+                  value={preview.classCol}
+                  onChange={(e) => setPreview({ ...preview, classCol: Number(e.target.value) })}
+                  className="px-2 py-1 border border-gray-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-green-300"
+                >
+                  <option value={-1}>不导入</option>
+                  {Array.from({ length: columnCount }, (_, i) => (
+                    <option key={i} value={i}>
+                      {columnLabel(i)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
             <p className="text-sm text-gray-500">
-              共 {previewRows.length} 条
+              共 {parsedRows.length} 条
               {previewInvalid > 0 && <span className="text-red-500">，其中 {previewInvalid} 条学号/姓名无效（红色，不会导入）</span>}
               。黄色表示班级不存在，导入后将留未分班。
             </p>
@@ -754,7 +825,7 @@ export default function StudentsTab({ students, loadError, onRetry, onStudentsCh
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-50">
-                  {previewRows.map((r, i) => {
+                  {parsedRows.map((r, i) => {
                     const invalid = !/^\d{12}$/.test(r.studentId) || !r.name.trim();
                     const classMissing = !!r.className.trim() && !classList.some((c) => c.name === r.className.trim());
                     return (
@@ -770,7 +841,7 @@ export default function StudentsTab({ students, loadError, onRetry, onStudentsCh
             </div>
             <div className="flex gap-2 pt-1">
               <button
-                onClick={() => setPreviewRows(null)}
+                onClick={() => setPreview(null)}
                 className="flex-1 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm font-medium rounded-lg transition-colors"
               >
                 取消
@@ -779,7 +850,7 @@ export default function StudentsTab({ students, loadError, onRetry, onStudentsCh
                 onClick={confirmImport}
                 className="flex-1 py-2 bg-green-500 hover:bg-green-600 text-white text-sm font-medium rounded-lg transition-colors"
               >
-                确认导入（{previewRows.length - previewInvalid} 条）
+                确认导入（{parsedRows.length - previewInvalid} 条）
               </button>
             </div>
           </div>
