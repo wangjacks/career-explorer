@@ -7,53 +7,38 @@ import { safeImageUrl } from "@/lib/sanitize";
 interface ImageUploadBoxProps {
   /** 已有图片 URL（经 safeImageUrl 校验后展示） */
   initialUrl?: string;
-  /** 上传前缀：avatar / evaluation */
-  prefix: "avatar" | "evaluation";
-  studentId: string;
   /** 预览框宽高比：square 头像 / wide 评价词云 */
   aspect?: "square" | "wide";
   emptyHint?: string;
-  /** 上传成功回调（返回带时间戳的 URL） */
-  onUploaded: (url: string) => void;
+  /** 选图/清除时回调 File（未上传；确认真实保存时才由调用方上传） */
+  onFileSelected: (file: File | null) => void;
 }
 
-/** 图片上传框：点击选图 + 本地预览 + 选中即上传（学生面板就地修改用） */
+/**
+ * 图片上传框：点击选图 + 本地预览。
+ * 采用延迟上传设计——选图只做本地预览并透出 File，
+ * 由调用方在用户确认保存时才真正上传，取消编辑则不产生任何服务端变更。
+ */
 export default function ImageUploadBox({
   initialUrl,
-  prefix,
-  studentId,
   aspect = "square",
   emptyHint = "点击上传图片",
-  onUploaded,
+  onFileSelected,
 }: ImageUploadBoxProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [preview, setPreview] = useState<string | null>(() => safeImageUrl(initialUrl));
-  const [uploading, setUploading] = useState(false);
+  const [pending, setPending] = useState(false);
 
-  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
     if (!file.type.startsWith("image/")) {
       toast.error("请选择图片文件");
       return;
     }
-
     setPreview(URL.createObjectURL(file));
-    setUploading(true);
-    try {
-      const formData = new FormData();
-      formData.append("file", file);
-      formData.append("prefix", prefix);
-      formData.append("studentId", studentId);
-      const res = await fetch("/api/upload", { method: "POST", body: formData });
-      if (!res.ok) throw new Error("上传失败");
-      const { url } = await res.json();
-      onUploaded(`${url}?t=${Date.now()}`);
-    } catch {
-      toast.error("上传失败，请重试");
-    } finally {
-      setUploading(false);
-    }
+    setPending(true);
+    onFileSelected(file);
   };
 
   const aspectClass = aspect === "wide" ? "aspect-[4/3]" : "aspect-square";
@@ -76,10 +61,10 @@ export default function ImageUploadBox({
             <span className="text-xs">{emptyHint}</span>
           </div>
         )}
-        {uploading && (
-          <div className="absolute inset-0 bg-white/70 flex items-center justify-center">
-            <span className="text-sm text-gray-500">上传中...</span>
-          </div>
+        {pending && (
+          <span className="absolute top-2 right-2 px-2 py-0.5 bg-amber-100 text-amber-700 rounded-full text-xs">
+            待保存
+          </span>
         )}
       </div>
       {preview && (

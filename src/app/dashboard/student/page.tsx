@@ -40,10 +40,24 @@ export default function StudentDashboardPage() {
   const [editing, setEditing] = useState(false);
   const [categories, setCategories] = useState<TagCategory[]>([]);
   const [editTags, setEditTags] = useState<string[]>([]);
-  const [editAvatar, setEditAvatar] = useState("");
-  const [editEvaluation, setEditEvaluation] = useState("");
+  // 延迟上传：选图只暂存 File，确认保存时才真正上传
+  const [avatarFile, setAvatarFile] = useState<File | null>(null);
+  const [evaluationFile, setEvaluationFile] = useState<File | null>(null);
   const [confirming, setConfirming] = useState(false);
   const [saving, setSaving] = useState(false);
+
+  // 通览态图片放大预览
+  const [lightbox, setLightbox] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!lightbox) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setLightbox(null);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [lightbox]);
+   
 
   useEffect(() => {
     if (!checking && (!session || session.role !== "student")) {
@@ -86,8 +100,8 @@ export default function StudentDashboardPage() {
   const startEdit = async () => {
     if (!profile) return;
     setEditTags(profile.tags);
-    setEditAvatar(profile.avatar_url);
-    setEditEvaluation(profile.evaluation_url);
+    setAvatarFile(null);
+    setEvaluationFile(null);
     setEditing(true);
     try {
       const res = await fetch("/api/tags");
@@ -119,19 +133,40 @@ export default function StudentDashboardPage() {
     setConfirming(false);
     setSaving(true);
     try {
+      // 确认保存后才上传图片（取消编辑不产生任何服务端变更）
+      const uploadImage = async (file: File, prefix: "avatar" | "evaluation"): Promise<string> => {
+        const formData = new FormData();
+        formData.append("file", file);
+        formData.append("prefix", prefix);
+        formData.append("studentId", profile!.user_code);
+        const res = await fetch("/api/upload", { method: "POST", body: formData });
+        if (!res.ok) throw new Error("图片上传失败");
+        const { url } = await res.json();
+        return `${url}?t=${Date.now()}`;
+      };
+
+      const avatarUrl = avatarFile
+        ? await uploadImage(avatarFile, "avatar")
+        : profile!.avatar_url;
+      const evaluationUrl = evaluationFile
+        ? await uploadImage(evaluationFile, "evaluation")
+        : profile!.evaluation_url;
+
       const res = await fetch("/api/profile", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           tags: editTags,
-          avatarUrl: editAvatar,
-          evaluationUrl: editEvaluation,
+          avatarUrl,
+          evaluationUrl,
         }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "保存失败");
       toast.success("修改已保存");
       setEditing(false);
+      setAvatarFile(null);
+      setEvaluationFile(null);
       await loadProfile();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "保存失败");
@@ -178,7 +213,8 @@ export default function StudentDashboardPage() {
               <img
                 src={avatarPreview}
                 alt="头像"
-                className="w-14 h-14 rounded-full object-cover border border-gray-200"
+                onClick={() => setLightbox(avatarPreview)}
+                className="w-14 h-14 rounded-full object-cover border border-gray-200 cursor-zoom-in"
               />
             ) : (
               <div className="w-14 h-14 rounded-full bg-green-100 flex items-center justify-center text-green-600 font-bold text-lg">
@@ -235,11 +271,12 @@ export default function StudentDashboardPage() {
                   )}
                   {evaluationPreview && (
                     <div className="pt-2 border-t border-gray-50">
-                      <p className="text-xs text-gray-400 mb-2">评价词云</p>
+                      <p className="text-xs text-gray-400 mb-2">评价词云（点击放大）</p>
                       <img
                         src={evaluationPreview}
                         alt="评价词云"
-                        className="w-full max-w-sm rounded-lg border border-gray-100"
+                        onClick={() => setLightbox(evaluationPreview)}
+                        className="w-full max-w-sm rounded-lg border border-gray-100 cursor-zoom-in"
                       />
                     </div>
                   )}
@@ -297,22 +334,18 @@ export default function StudentDashboardPage() {
                   <p className="text-xs text-gray-400">头像</p>
                   <ImageUploadBox
                     initialUrl={profile.avatar_url}
-                    prefix="avatar"
-                    studentId={profile.user_code}
                     aspect="square"
                     emptyHint="点击上传头像"
-                    onUploaded={setEditAvatar}
+                    onFileSelected={setAvatarFile}
                   />
                 </div>
                 <div className="space-y-2">
                   <p className="text-xs text-gray-400">评价词云</p>
                   <ImageUploadBox
                     initialUrl={profile.evaluation_url}
-                    prefix="evaluation"
-                    studentId={profile.user_code}
                     aspect="wide"
                     emptyHint="点击上传评价词云"
-                    onUploaded={setEditEvaluation}
+                    onFileSelected={setEvaluationFile}
                   />
                 </div>
               </div>
@@ -337,6 +370,30 @@ export default function StudentDashboardPage() {
           </div>
         )}
       </main>
+
+      {/* 图片放大预览（点击遮罩 / × / Esc 关闭） */}
+      {lightbox && (
+        <div
+          className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4"
+          onClick={() => setLightbox(null)}
+        >
+          <img
+            src={lightbox}
+            alt="放大预览"
+            onClick={(e) => e.stopPropagation()}
+            className="max-w-full max-h-full object-contain rounded-lg"
+          />
+          <button
+            onClick={() => setLightbox(null)}
+            aria-label="关闭预览"
+            className="absolute top-4 right-4 w-9 h-9 rounded-full bg-white/15 hover:bg-white/30 text-white flex items-center justify-center transition-colors"
+          >
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+      )}
 
       <ConfirmDialog
         open={confirming}
