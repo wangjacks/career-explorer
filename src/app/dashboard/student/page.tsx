@@ -371,10 +371,10 @@ export default function StudentDashboardPage() {
         )}
       </main>
 
-      {/* 图片放大预览（点击遮罩 / × / Esc 关闭） */}
+      {/* 图片放大预览（点击遮罩 / × / Esc 关闭）；z-[100] 高于全局 UserMenu(z-60)，避免关闭按钮被遮挡 */}
       {lightbox && (
         <div
-          className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4"
+          className="fixed inset-0 bg-black/80 z-[100] flex items-center justify-center p-4"
           onClick={() => setLightbox(null)}
         >
           <img
