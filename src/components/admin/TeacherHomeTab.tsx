@@ -44,7 +44,7 @@ export default function TeacherHomeTab({ teacherName, students }: Props) {
       {/* 问候卡 */}
       <div className="bg-white rounded-xl border border-gray-100 p-6">
         <h2 className="text-xl font-semibold text-gray-800">
-          {getGreeting(now.getHours())}，{teacherName}
+          {getGreeting(now.getHours())}，{teacherName}老师
         </h2>
         <p className="text-sm text-gray-400 mt-1">
           {now.toLocaleDateString("zh-CN", { year: "numeric", month: "long", day: "numeric", weekday: "long" })}
