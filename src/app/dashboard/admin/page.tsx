@@ -147,72 +147,46 @@ export default function AdminPage() {
 
       <NavigationBar title="后台管理" showHome />
 
-      {/* Tab Navigation：一级分组 + 二级子 Tab */}
+      {/* Tab Navigation：一级分组 + 二级子 Tab（移动端与桌面端同款两级按钮） */}
       <div className="bg-white border-b border-gray-100">
         <div className="max-w-6xl mx-auto px-6">
-          {/* Desktop: group tabs + sub tabs */}
-          <div className="hidden md:block">
-            <nav className="flex gap-6">
-              {TAB_GROUPS.map((group) => (
+          <nav className="flex gap-4 sm:gap-6">
+            {TAB_GROUPS.map((group) => (
+              <button
+                key={group.key}
+                onClick={() => switchGroup(group.key)}
+                className={`py-3 text-sm font-medium border-b-2 transition-colors ${
+                  activeGroup === group.key
+                    ? "border-green-500 text-green-600"
+                    : "border-transparent text-gray-500 hover:text-gray-700"
+                }`}
+              >
+                {group.label}
+              </button>
+            ))}
+          </nav>
+          {currentGroup.tabs.length > 1 && (
+            <nav className="flex flex-wrap gap-3 sm:gap-4 border-t border-gray-50">
+              {currentGroup.tabs.map((tab) => (
                 <button
-                  key={group.key}
-                  onClick={() => switchGroup(group.key)}
-                  className={`py-3 text-sm font-medium border-b-2 transition-colors ${
-                    activeGroup === group.key
+                  key={tab.key}
+                  onClick={() => setActiveTab(tab.key)}
+                  className={`py-2 text-xs font-medium border-b-2 transition-colors ${
+                    activeTab === tab.key
                       ? "border-green-500 text-green-600"
-                      : "border-transparent text-gray-500 hover:text-gray-700"
+                      : "border-transparent text-gray-400 hover:text-gray-600"
                   }`}
                 >
-                  {group.label}
+                  {tab.label}
+                  {tab.badge && (
+                    <span className="ml-1.5 px-1.5 py-0.5 bg-gray-100 text-gray-500 rounded text-[10px]">
+                      {tab.badge}
+                    </span>
+                  )}
                 </button>
               ))}
             </nav>
-            {currentGroup.tabs.length > 1 && (
-              <nav className="flex gap-4 border-t border-gray-50">
-                {currentGroup.tabs.map((tab) => (
-                  <button
-                    key={tab.key}
-                    onClick={() => setActiveTab(tab.key)}
-                    className={`py-2 text-xs font-medium border-b-2 transition-colors ${
-                      activeTab === tab.key
-                        ? "border-green-500 text-green-600"
-                        : "border-transparent text-gray-400 hover:text-gray-600"
-                    }`}
-                  >
-                    {tab.label}
-                    {tab.badge && (
-                      <span className="ml-1.5 px-1.5 py-0.5 bg-gray-100 text-gray-500 rounded text-[10px]">
-                        {tab.badge}
-                      </span>
-                    )}
-                  </button>
-                ))}
-              </nav>
-            )}
-          </div>
-          {/* Mobile: grouped dropdown select */}
-          <div className="flex md:hidden py-3">
-            <select
-              value={`${activeGroup}:${activeTab}`}
-              onChange={(e) => {
-                const [group, tab] = e.target.value.split(":");
-                setActiveGroup(group as TabGroup);
-                setActiveTab(tab as Tab);
-              }}
-              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm font-medium text-gray-700 bg-white focus:outline-none focus:ring-2 focus:ring-green-300"
-            >
-              {TAB_GROUPS.map((group) => (
-                <optgroup key={group.key} label={group.label}>
-                  {group.tabs.map((tab) => (
-                    <option key={tab.key} value={`${group.key}:${tab.key}`}>
-                      {tab.label}
-                      {tab.badge ? ` (${tab.badge})` : ""}
-                    </option>
-                  ))}
-                </optgroup>
-              ))}
-            </select>
-          </div>
+          )}
         </div>
       </div>
 
