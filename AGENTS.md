@@ -21,15 +21,15 @@ This version has breaking changes — APIs, conventions, and file structure may 
 |---|---|
 | `src/app/` | Next.js App Router 页面 + API 路由 |
 | `src/app/dashboard/admin/` | 管理面板（Tab 式布局：Dashboard/Students/Export/Overview/Settings/Tags） |
-| `src/app/dashboard/student/` | 学生面板（占位，步骤 9 实现） |
-| `src/app/dashboard/teacher/` | 教师面板（占位，步骤 10 实现） |
+| `src/app/dashboard/student/` | 学生面板（个人信息通览 + 就地修改，步骤 9 实现） |
+| `src/app/dashboard/teacher/` | 教师面板（班级管理 / 学生管理 Tab 切换，步骤 10 实现） |
 | `src/app/form/` | 学生表单流程（student → tags → wordcloud → evaluation → avatar → complete） |
 | `src/app/login/` | 登录页（三角色统一登录） |
 | `src/app/register/` | 学生自助注册页（需班级邀请码） |
 | `src/app/setup/` | 安装引导（首次配置数据库 + 管理员密码） |
 | `src/app/api/auth/` | 统一认证端点（POST 登录 / GET 会话 / DELETE 登出） |
 | `src/app/api/auth/register/` | 学生注册端点 |
-| `src/app/api/admin/` | 管理端 API（stats、students、classes、teachers、profiles、settings、export、backup、test-db） |
+| `src/app/api/admin/` | 管理端 API（stats、students、classes、teachers、profiles、settings、export、backup、test-db）；`students/batch-password` 子路由：批量重置学生密码（每人生成不同随机密码） |
 | `src/app/api/profile/` | 学生档案：POST 快速提交/登录态保存（未传学号默认本人）+ GET 会话查询本人档案 |
 | `src/app/api/upload/` | 文件上传 |
 | `src/app/api/validate-student/` | 学号验证（快速提交模式） |
@@ -44,6 +44,7 @@ This version has breaking changes — APIs, conventions, and file structure may 
 | `src/lib/db-sqlite.ts` | SQLite 适配器 |
 | `src/lib/db-config.ts` | 数据库配置读写（db-config.json） |
 | `src/lib/auth.ts` | 认证工具（bcrypt 密码验证） |
+| `src/lib/password.ts` | 强密码生成（crypto.getRandomValues，浏览器/Node 两端通用） |
 | `src/lib/token.ts` | JWT 签发/验证（三角色：role + uid + name claim） |
 | `src/lib/sanitize.ts` | URL 安全校验（XSS 防护） |
 | `src/lib/tagData.ts` | 标签初始化种子（步骤 7 后不参与运行时展示） |
@@ -91,7 +92,7 @@ This version has breaking changes — APIs, conventions, and file structure may 
 - **三角色认证**：admin / teacher / student，统一 `users` 表
 - 认证流程：`/api/auth` POST 验证 `user_code` + 密码（bcrypt）-> 签发 JWT（jose HS256, 24h, 含 role/uid/name）-> HttpOnly Cookie (`auth_token`, secure, sameSite=lax)
 - 中间件：`proxy.ts` 拦截 `/dashboard/admin/:path*` 和 `/api/admin/:path*`，校验角色权限
-- 角色例外（步骤 8）：`/api/admin/classes*` 允许 admin + teacher；`/api/admin/students` 对 teacher 仅 GET 只读；其余 `/api/admin/*` 仅 admin
+- 角色例外：`/api/admin/classes*` 允许 admin + teacher（班级管理，步骤 8）；`/api/admin/students*` 允许 admin + teacher 全部方法（教师可管理所有班级学生，步骤 10）；`/api/admin/teachers*` 仅 admin（教师账户由管理员创建）；其余 `/api/admin/*` 仅 admin
 - 白名单：`/api/auth/*` 天然在 proxy matcher 范围外；非 API 路由放行（客户端处理登录态）
 - 会话检测：`GET /api/auth` 返回 `{ ok, role, uid, name }`（httpOnly cookie 前端不可读，须经 API 检测）
 - 登出：`DELETE /api/auth` 清除 cookie

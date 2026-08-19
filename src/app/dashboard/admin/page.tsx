@@ -170,6 +170,7 @@ export default function AdminPage() {
             installed={installed}
             loadStats={loadStats}
             loadProfiles={loadProfiles}
+            students={students}
           />
         )}
 
