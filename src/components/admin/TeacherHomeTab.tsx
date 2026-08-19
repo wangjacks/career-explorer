@@ -1,54 +1,59 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useEffect, useState } from "react";
 import { StatCard } from "./AdminUI";
 import ClassOverviewTable from "./ClassOverviewTable";
-import ProfilesTab from "./ProfilesTab";
-import type { Stats, PagedData, Student } from "@/hooks/useAdminAuth";
+import type { Stats, Student } from "@/hooks/useAdminAuth";
 
 interface Props {
-  installed: boolean | null;
-  loadStats: () => Promise<Stats | null>;
-  loadProfiles: (p: number) => Promise<PagedData | null>;
+  teacherName: string;
   students: Student[];
-  /** 是否展示数据列表（admin 数据概览内嵌；教师端数据概览传 false，数据列表独立成页） */
-  showProfiles?: boolean;
 }
 
-export default function OverviewTab({ installed, loadStats, loadProfiles, students, showProfiles = true }: Props) {
+/** 按时段返回问候语 */
+function getGreeting(hour: number): string {
+  if (hour < 5) return "夜深了";
+  if (hour < 11) return "早上好";
+  if (hour < 13) return "中午好";
+  if (hour < 18) return "下午好";
+  return "晚上好";
+}
+
+/** 教师面板主页：时段问候 + 数据概览摘要（统计卡 + 班级概览） */
+export default function TeacherHomeTab({ teacherName, students }: Props) {
   const [stats, setStats] = useState<Stats | null>(null);
-  const [loadError, setLoadError] = useState(false);
+  const [now, setNow] = useState(() => new Date());
 
-  const refreshStats = useCallback(async () => {
-    const s = await loadStats();
-    if (s) {
-      setStats(s);
-      setLoadError(false);
-    } else {
-      setLoadError(true);
-    }
-  }, [loadStats]);
-
-  /* eslint-disable react-hooks/set-state-in-effect -- initial data load */
   useEffect(() => {
-    refreshStats();
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- only on mount
+    fetch("/api/admin/stats")
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (data) setStats(data);
+      })
+      .catch((err) => console.error("Failed to load stats:", err));
   }, []);
-  /* eslint-enable react-hooks/set-state-in-effect */
+
+  // 跨时段停留时问候语跟随本地时间更新
+  useEffect(() => {
+    const timer = setInterval(() => setNow(new Date()), 60_000);
+    return () => clearInterval(timer);
+  }, []);
 
   return (
     <>
-      {loadError && !stats && (
-        <div className="text-center py-12 text-red-500">
-          <p>数据加载失败</p>
-          <button onClick={() => refreshStats()}
-            className="mt-2 px-4 py-1.5 bg-red-500 hover:bg-red-600 text-white text-sm rounded-lg transition-colors">重试</button>
-        </div>
-      )}
-      {!stats && !loadError && installed !== false && (
-        <div className="text-center py-12 text-gray-400">加载中...</div>
-      )}
-      {stats && (
+      {/* 问候卡 */}
+      <div className="bg-white rounded-xl border border-gray-100 p-6">
+        <h2 className="text-xl font-semibold text-gray-800">
+          {getGreeting(now.getHours())}，{teacherName}老师
+        </h2>
+        <p className="text-sm text-gray-400 mt-1">
+          {now.toLocaleDateString("zh-CN", { year: "numeric", month: "long", day: "numeric", weekday: "long" })}
+          ，欢迎回来看看学生们的探索进展。
+        </p>
+      </div>
+
+      {/* 统计卡 */}
+      {stats ? (
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <StatCard
             label="总提交数"
@@ -94,13 +99,12 @@ export default function OverviewTab({ installed, loadStats, loadProfiles, studen
             </div>
           </div>
         </div>
+      ) : (
+        <div className="text-center py-8 text-gray-400 text-sm">统计数据加载中...</div>
       )}
 
-      {/* 班级概览统计 */}
+      {/* 班级概览 */}
       <ClassOverviewTable students={students} />
-
-      {/* 数据列表（教师端数据概览不展示，独立成页） */}
-      {showProfiles && <ProfilesTab loadProfiles={loadProfiles} loadStats={loadStats} />}
     </>
   );
 }

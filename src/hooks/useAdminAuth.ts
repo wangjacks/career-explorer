@@ -18,6 +18,7 @@ export interface Student {
   name: string;
   class_id: number | null;
   created_at: string;
+  submitted_at: string | null;
 }
 
 export interface Stats {

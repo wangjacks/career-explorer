@@ -320,8 +320,8 @@ export default function TagsTab() {
             const children = tags.filter((tag) => tag.type === "tag" && tag.parent_id === category.id)
               .sort((a, b) => a.sort_order - b.sort_order || a.id - b.id);
             return (
-              <div key={category.id} className={`border rounded-lg overflow-hidden ${category.active ? "border-gray-100" : "border-gray-200 bg-gray-50"}`}>
-                <div className="px-4 py-3 bg-gray-50">
+              <div key={category.id} className={`border rounded-lg ${category.active ? "border-gray-100" : "border-gray-200 bg-gray-50"}`}>
+                <div className="px-4 py-3 bg-gray-50 rounded-t-lg">
                   {editing?.id === category.id ? (
                     <>
                       {/* Mobile: two-row layout */}
@@ -360,7 +360,8 @@ export default function TagsTab() {
                     </div>
                   )}
                 </div>
-                <div className="divide-y divide-gray-100">
+                {/* 不用 overflow-hidden：编辑二级标签时的分类选择下拉需溢出卡片显示 */}
+                <div className="divide-y divide-gray-100 rounded-b-lg">
                   {children.map((tag) => (
                     <div key={tag.id} className="px-4 py-2 pl-10">
                       {editing?.id === tag.id ? (

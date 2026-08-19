@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getStudents, insertUser, getUserByCode, updateUser, deleteStudents, getClassByName } from "@/lib/db";
+import { hashPassword } from "@/lib/auth";
 
 export async function GET() {
   const students = await getStudents();
@@ -27,21 +28,38 @@ export async function POST(request: NextRequest) {
     // Batch import
     if (Array.isArray(body.students)) {
       const valid = body.students.filter(
-        (s: { studentId: string; name: string }) =>
+        (s: { studentId: string; name: string; className?: string }) =>
           s.studentId && /^\d{12}$/.test(s.studentId) && s.name
       );
       if (valid.length === 0) {
         return NextResponse.json({ error: "没有有效的学生数据" }, { status: 400 });
       }
+      let unbound = 0;
       for (const s of valid) {
+        // 按班级名查 class_id；班级不存在时不绑定并计数
+        const className = (s.className || "").trim();
+        let classId: number | undefined;
+        if (className) {
+          const cls = await getClassByName(className);
+          if (cls) classId = cls.id;
+          else unbound++;
+        }
         const existing = await getUserByCode(s.studentId);
         if (existing) {
-          await updateUser(existing.id, { name: s.name });
+          const fields: { name: string; class_id?: number } = { name: s.name };
+          if (typeof classId === "number") fields.class_id = classId;
+          await updateUser(existing.id, fields);
         } else {
-          await insertUser({ user_code: s.studentId, role: "student", name: s.name });
+          await insertUser({
+            user_code: s.studentId,
+            role: "student",
+            name: s.name,
+            ...(typeof classId === "number" ? { class_id: classId } : {}),
+          });
         }
       }
-      return NextResponse.json({ message: `导入 ${valid.length} 名学生` });
+      const suffix = unbound > 0 ? `，其中 ${unbound} 条因班级不存在未绑定` : "";
+      return NextResponse.json({ message: `导入 ${valid.length} 名学生${suffix}` });
     }
 
     return NextResponse.json({ error: "参数错误" }, { status: 400 });
@@ -68,15 +86,15 @@ export async function DELETE(request: NextRequest) {
 export async function PUT(request: NextRequest) {
   try {
     const body = await request.json();
-    const { studentId, name, className } = body;
-    if (!studentId || (name === undefined && className === undefined)) {
+    const { studentId, name, className, password } = body;
+    if (!studentId || (name === undefined && className === undefined && password === undefined)) {
       return NextResponse.json({ error: "参数错误" }, { status: 400 });
     }
     const existing = await getUserByCode(studentId);
     if (!existing) {
       return NextResponse.json({ error: "学号不存在" }, { status: 404 });
     }
-    const fields: { name?: string; class_id?: number | null } = {};
+    const fields: { name?: string; class_id?: number | null; password_hash?: string } = {};
     if (name !== undefined) fields.name = name;
     if (className !== undefined) {
       if (!className) {
@@ -86,6 +104,13 @@ export async function PUT(request: NextRequest) {
         if (cls) fields.class_id = cls.id;
         // 班级不存在时保持不变（班级管理在步骤 8 实现）
       }
+    }
+    if (password !== undefined) {
+      const pwd = String(password);
+      if (pwd.length < 8) {
+        return NextResponse.json({ error: "密码须至少 8 位" }, { status: 400 });
+      }
+      fields.password_hash = await hashPassword(pwd);
     }
     await updateUser(existing.id, fields);
     return NextResponse.json({ ok: true });
