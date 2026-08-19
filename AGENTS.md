@@ -20,9 +20,9 @@ This version has breaking changes — APIs, conventions, and file structure may 
 | 目录 | 职责 |
 |---|---|
 | `src/app/` | Next.js App Router 页面 + API 路由 |
-| `src/app/dashboard/admin/` | 管理面板（Tab 式布局：Dashboard/Students/Export/Overview/Settings/Tags） |
+| `src/app/dashboard/admin/` | 管理面板（三组两级导航：数据中心[概览/大屏/导出]、用户管理[学生/教师/班级/标签]、系统设置[数据源]） |
 | `src/app/dashboard/student/` | 学生面板（个人信息通览 + 就地修改，步骤 9 实现） |
-| `src/app/dashboard/teacher/` | 教师面板（班级管理 / 学生管理 Tab 切换，步骤 10 实现） |
+| `src/app/dashboard/teacher/` | 教师面板（三组两级导航：主页、数据中心[概览/大屏/导出]、数据管理[数据列表/学生/班级/标签]） |
 | `src/app/form/` | 学生表单流程（student → tags → wordcloud → evaluation → avatar → complete） |
 | `src/app/login/` | 登录页（三角色统一登录） |
 | `src/app/register/` | 学生自助注册页（需班级邀请码） |
@@ -35,7 +35,7 @@ This version has breaking changes — APIs, conventions, and file structure may 
 | `src/app/api/validate-student/` | 学号验证（快速提交模式） |
 | `src/app/api/setup/` | 安装引导 API（含 status/test 子路由） |
 | `src/app/api/uploads/[...path]/` | 静态文件服务（含路径穿越防护） |
-| `src/components/admin/` | Admin 面板子组件（DashboardTab、ExportTab、OverviewTab、SettingsTab、StudentsTab、TagsTab、ClassesTab、TeachersTab 等） |
+| `src/components/admin/` | Admin/Teacher 面板子组件（DashboardTab、ExportTab、OverviewTab、SettingsTab、StudentsTab、TagsTab、ClassesTab、TeachersTab、ProfilesTab 数据列表、ClassOverviewTable 班级概览、TeacherHomeTab 教师主页） |
 | `src/components/` | 公共组件（ErrorBoundary、InstallGuard、NavigationBar、UserMenu、QuickModeBanner、TagSelector、ImageUploadBox、WordCloudCanvas/Client） |
 | `src/hooks/` | 自定义 React hooks（useAdminAuth、useSession） |
 | `src/lib/` | 数据层和工具库 |
@@ -92,7 +92,7 @@ This version has breaking changes — APIs, conventions, and file structure may 
 - **三角色认证**：admin / teacher / student，统一 `users` 表
 - 认证流程：`/api/auth` POST 验证 `user_code` + 密码（bcrypt）-> 签发 JWT（jose HS256, 24h, 含 role/uid/name）-> HttpOnly Cookie (`auth_token`, secure, sameSite=lax)
 - 中间件：`proxy.ts` 拦截 `/dashboard/admin/:path*` 和 `/api/admin/:path*`，校验角色权限
-- 角色例外：`/api/admin/classes*` 允许 admin + teacher（班级管理，步骤 8）；`/api/admin/students*` 允许 admin + teacher 全部方法（教师可管理所有班级学生，步骤 10）；`/api/admin/teachers*` 仅 admin（教师账户由管理员创建）；其余 `/api/admin/*` 仅 admin
+- 角色例外：`/api/admin/classes*`、`/api/admin/students*`、`/api/admin/tags*`、`/api/admin/export*` 允许 admin + teacher；`/api/admin/stats*` 对 teacher 仅 GET 只读；`/api/admin/profiles` 对 teacher 放行 GET+DELETE；`/api/admin/teachers*` 仅 admin（教师账户由管理员创建）；其余 `/api/admin/*` 仅 admin
 - 白名单：`/api/auth/*` 天然在 proxy matcher 范围外；非 API 路由放行（客户端处理登录态）
 - 会话检测：`GET /api/auth` 返回 `{ ok, role, uid, name }`（httpOnly cookie 前端不可读，须经 API 检测）
 - 登出：`DELETE /api/auth` 清除 cookie
