@@ -30,13 +30,13 @@ This version has breaking changes — APIs, conventions, and file structure may 
 | `src/app/api/auth/` | 统一认证端点（POST 登录 / GET 会话 / DELETE 登出） |
 | `src/app/api/auth/register/` | 学生注册端点 |
 | `src/app/api/admin/` | 管理端 API（stats、students、classes、teachers、profiles、settings、export、backup、test-db） |
-| `src/app/api/profile/` | 学生档案保存 |
+| `src/app/api/profile/` | 学生档案：POST 快速提交/登录态保存（未传学号默认本人）+ GET 会话查询本人档案 |
 | `src/app/api/upload/` | 文件上传 |
 | `src/app/api/validate-student/` | 学号验证（快速提交模式） |
 | `src/app/api/setup/` | 安装引导 API（含 status/test 子路由） |
 | `src/app/api/uploads/[...path]/` | 静态文件服务（含路径穿越防护） |
 | `src/components/admin/` | Admin 面板子组件（DashboardTab、ExportTab、OverviewTab、SettingsTab、StudentsTab、TagsTab、ClassesTab、TeachersTab 等） |
-| `src/components/` | 公共组件（ErrorBoundary、InstallGuard、NavigationBar、UserMenu、QuickModeBanner、WordCloudCanvas/Client） |
+| `src/components/` | 公共组件（ErrorBoundary、InstallGuard、NavigationBar、UserMenu、QuickModeBanner、TagSelector、ImageUploadBox、WordCloudCanvas/Client） |
 | `src/hooks/` | 自定义 React hooks（useAdminAuth、useSession） |
 | `src/lib/` | 数据层和工具库 |
 | `src/lib/db.ts` | 数据库抽象层（DbAdapter 接口 + 工厂函数） |
