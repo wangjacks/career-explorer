@@ -54,20 +54,20 @@ export default function LoginPage() {
   // 会话检测中 / 正在重定向：显示 loading 避免登录表单闪现
   if (checking || session) {
     return (
-      <div className="min-h-screen bg-gray-50">
+      <div className="min-h-screen bg-brand">
         <NavigationBar title="登录" showHome />
         <div className="min-h-[calc(100vh-3rem)] flex items-center justify-center px-4">
-          <p className="text-sm text-gray-400">加载中...</p>
+          <p className="text-sm text-white/70">加载中...</p>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-brand">
       <NavigationBar title="登录" showHome />
       <main className="min-h-[calc(100vh-3rem)] flex items-center justify-center px-4">
-        <div className="w-full max-w-sm sm:max-w-md bg-white rounded-2xl shadow-sm border border-gray-100 p-8 space-y-6">
+        <div className="w-full max-w-sm sm:max-w-md bg-card rounded-2xl shadow-xl p-8 space-y-6">
           <div className="text-center">
             <div className="w-12 h-12 rounded-xl bg-green-500 flex items-center justify-center mx-auto mb-3 shadow-sm">
               <Compass size={24} strokeWidth={2} className="text-white" />
