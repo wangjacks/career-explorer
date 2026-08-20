@@ -12,6 +12,7 @@ const ROLE_LABEL: Record<string, string> = {
 
 const APP_PAGES = new Set([
   "/",
+  "/about",
   "/login",
   "/register",
   "/setup",
