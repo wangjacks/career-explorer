@@ -6,7 +6,7 @@ import { Toaster, toast } from "sonner";
 import { SquarePen, X } from "lucide-react";
 import NavigationBar from "@/components/NavigationBar";
 import ConfirmDialog from "@/components/admin/ConfirmDialog";
-import TagSelector, { type TagCategory } from "@/components/TagSelector";
+import TagSelector, { type TagCategory, TAG_CHIP_COLORS } from "@/components/TagSelector";
 import ImageUploadBox from "@/components/ImageUploadBox";
 import { useSession } from "@/hooks/useSession";
 import { safeImageUrl } from "@/lib/sanitize";
@@ -23,9 +23,9 @@ interface MyProfile {
 
 function StatusBadge({ done }: { done: boolean }) {
   return done ? (
-    <span className="px-2 py-0.5 bg-green-50 text-green-600 rounded-full text-xs font-medium">已提交</span>
+    <span className="px-2 py-0.5 bg-green-50 text-green-600 dark:bg-green-900/30 dark:text-green-400 rounded-full text-xs font-medium">已提交</span>
   ) : (
-    <span className="px-2 py-0.5 bg-gray-100 text-gray-400 rounded-full text-xs font-medium">未提交</span>
+    <span className="px-2 py-0.5 bg-gray-100 text-gray-400 dark:bg-gray-800 dark:text-gray-500 rounded-full text-xs font-medium">未提交</span>
   );
 }
 
@@ -81,12 +81,24 @@ export default function StudentDashboardPage() {
     }
   }, []);
 
+  // 加载标签分类（展示态「我的标签」三色 + 编辑态复用）
+  const loadCategories = useCallback(async () => {
+    try {
+      const res = await fetch("/api/tags");
+      const data = await res.json();
+      if (res.ok) setCategories(data.categories || []);
+    } catch (err) {
+      console.error("Failed to load tags:", err);
+    }
+  }, []);
+
   /* eslint-disable react-hooks/set-state-in-effect -- load profile after session check */
   useEffect(() => {
     if (session?.role === "student") {
       loadProfile();
+      loadCategories();
     }
-  }, [session, loadProfile]);
+  }, [session, loadProfile, loadCategories]);
   /* eslint-enable react-hooks/set-state-in-effect */
 
   const hasSubmitted = !!profile?.submitted_at;
@@ -104,6 +116,7 @@ export default function StudentDashboardPage() {
     setAvatarFile(null);
     setEvaluationFile(null);
     setEditing(true);
+    if (categories.length > 0) return;
     try {
       const res = await fetch("/api/tags");
       const data = await res.json();
@@ -178,19 +191,19 @@ export default function StudentDashboardPage() {
 
   if (checking || !session || session.role !== "student" || loading) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center px-4">
-        <p className="text-sm text-gray-400">加载中...</p>
+      <div className="min-h-screen bg-background flex items-center justify-center px-4">
+        <p className="text-sm text-gray-400 dark:text-gray-500">加载中...</p>
       </div>
     );
   }
 
   if (!profile) {
     return (
-      <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center px-4 gap-3">
-        <p className="text-sm text-gray-400">档案加载失败</p>
+      <div className="min-h-screen bg-background flex flex-col items-center justify-center px-4 gap-3">
+        <p className="text-sm text-gray-400 dark:text-gray-500">档案加载失败</p>
         <button
           onClick={loadProfile}
-          className="px-4 py-1.5 bg-green-500 hover:bg-green-600 text-white text-sm rounded-lg"
+          className="px-4 py-1.5 bg-primary hover:bg-primary-strong text-white text-sm rounded-lg"
         >
           重试
         </button>
@@ -201,32 +214,36 @@ export default function StudentDashboardPage() {
   const avatarPreview = safeImageUrl(profile.avatar_url);
   const evaluationPreview = safeImageUrl(profile.evaluation_url);
 
+  // 标签名 → 分类序号（用于「我的标签」三色）
+  const tagCategoryIndex = new Map<string, number>();
+  categories.forEach((c, idx) => c.tags.forEach((t) => tagCategoryIndex.set(t.name, idx)));
+
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-background">
       <Toaster position="top-center" />
       <NavigationBar title="学生面板" showHome />
 
       <main className="max-w-3xl mx-auto px-4 sm:px-6 py-8 space-y-6">
-        {/* 个人信息卡 */}
-        <div className="bg-white rounded-xl border border-gray-100 p-5">
+        {/* 个人信息卡（深绿品牌区） */}
+        <div className="bg-brand rounded-xl p-5 shadow-sm">
           <div className="flex items-center gap-4">
             {avatarPreview ? (
               <img
                 src={avatarPreview}
                 alt="头像"
                 onClick={() => setLightbox(avatarPreview)}
-                className="w-14 h-14 rounded-full object-cover border border-gray-200 cursor-zoom-in"
+                className="w-14 h-14 rounded-full object-cover border-2 border-white/30 cursor-zoom-in"
               />
             ) : (
-              <div className="w-14 h-14 rounded-full bg-green-100 flex items-center justify-center text-green-600 font-bold text-lg">
+              <div className="w-14 h-14 rounded-full bg-white/15 flex items-center justify-center text-white font-bold text-lg">
                 {profile.name.slice(0, 1)}
               </div>
             )}
             <div>
-              <h1 className="text-lg font-bold text-gray-900">{profile.name}</h1>
-              <p className="text-sm text-gray-400 font-mono">{profile.user_code}</p>
+              <h1 className="text-lg font-bold text-white">{profile.name}</h1>
+              <p className="text-sm text-white/70 font-mono">{profile.user_code}</p>
             </div>
-            <span className="ml-auto px-3 py-1 bg-blue-50 text-blue-600 rounded-full text-sm">
+            <span className="ml-auto px-3 py-1 bg-white/15 text-white rounded-full text-sm">
               {profile.class_name}
             </span>
           </div>
@@ -237,33 +254,33 @@ export default function StudentDashboardPage() {
             {hasSubmitted ? (
               <>
                 {/* 提交状态卡 */}
-                <div className="bg-white rounded-xl border border-gray-100 p-5 space-y-4">
+                <div className="bg-card rounded-xl border border-gray-100 dark:border-gray-700 p-5 space-y-4">
                   <div className="flex items-center justify-between">
-                    <h2 className="text-sm font-semibold text-gray-800">提交状态</h2>
-                    <span className="text-xs text-gray-400">提交于 {profile.submitted_at}</span>
+                    <h2 className="text-sm font-semibold text-gray-800 dark:text-gray-100">提交状态</h2>
+                    <span className="text-xs text-gray-400 dark:text-gray-500">提交于 {profile.submitted_at}</span>
                   </div>
                   <div className="space-y-3 text-sm">
                     <div className="flex items-center justify-between">
-                      <span className="text-gray-600">兴趣标签</span>
+                      <span className="text-gray-600 dark:text-gray-300">兴趣标签</span>
                       <StatusBadge done={profile.tags.length > 0} />
                     </div>
                     <div className="flex items-center justify-between">
-                      <span className="text-gray-600">头像</span>
+                      <span className="text-gray-600 dark:text-gray-300">头像</span>
                       <StatusBadge done={!!profile.avatar_url} />
                     </div>
                     <div className="flex items-center justify-between">
-                      <span className="text-gray-600">评价词云</span>
+                      <span className="text-gray-600 dark:text-gray-300">评价词云</span>
                       <StatusBadge done={!!profile.evaluation_url} />
                     </div>
                   </div>
 
                   {/* 内容预览 */}
                   {profile.tags.length > 0 && (
-                    <div className="pt-2 border-t border-gray-50">
-                      <p className="text-xs text-gray-400 mb-2">我的标签</p>
+                    <div className="pt-2 border-t border-gray-50 dark:border-gray-700">
+                      <p className="text-xs text-gray-400 dark:text-gray-500 mb-2">我的标签</p>
                       <div className="flex flex-wrap gap-1.5">
                         {profile.tags.map((tag) => (
-                          <span key={tag} className="px-2.5 py-1 bg-green-50 text-green-700 rounded-full text-xs">
+                          <span key={tag} className={`px-2.5 py-1 rounded-full text-xs ${TAG_CHIP_COLORS[(tagCategoryIndex.get(tag) ?? 0) % TAG_CHIP_COLORS.length]}`}>
                             {tag}
                           </span>
                         ))}
@@ -271,13 +288,13 @@ export default function StudentDashboardPage() {
                     </div>
                   )}
                   {evaluationPreview && (
-                    <div className="pt-2 border-t border-gray-50">
-                      <p className="text-xs text-gray-400 mb-2">评价词云（点击放大）</p>
+                    <div className="pt-2 border-t border-gray-50 dark:border-gray-700">
+                      <p className="text-xs text-gray-400 dark:text-gray-500 mb-2">评价词云（点击放大）</p>
                       <img
                         src={evaluationPreview}
                         alt="评价词云"
                         onClick={() => setLightbox(evaluationPreview)}
-                        className="w-full max-w-sm rounded-lg border border-gray-100 cursor-zoom-in"
+                        className="w-full max-w-sm rounded-lg border border-gray-100 dark:border-gray-700 cursor-zoom-in"
                       />
                     </div>
                   )}
@@ -285,24 +302,24 @@ export default function StudentDashboardPage() {
 
                 <button
                   onClick={startEdit}
-                  className="w-full py-3 bg-green-500 hover:bg-green-600 text-white font-medium rounded-xl transition-colors"
+                  className="w-full py-3 bg-primary hover:bg-primary-strong text-white font-medium rounded-xl transition-colors"
                 >
                   修改数据
                 </button>
               </>
             ) : (
               /* 从未提交：引导卡 */
-              <div className="bg-white rounded-xl border border-gray-100 p-8 text-center space-y-4">
-                <div className="w-14 h-14 bg-green-100 rounded-2xl flex items-center justify-center mx-auto">
-                  <SquarePen className="w-7 h-7 text-green-600" strokeWidth={2} />
+              <div className="bg-card rounded-xl border border-gray-100 dark:border-gray-700 p-8 text-center space-y-4">
+                <div className="w-14 h-14 bg-brand rounded-2xl flex items-center justify-center mx-auto">
+                  <SquarePen className="w-7 h-7 text-accent" strokeWidth={2} />
                 </div>
                 <div>
-                  <h2 className="text-base font-semibold text-gray-800">你还没有提交职业探索档案</h2>
-                  <p className="text-sm text-gray-500 mt-1">完成标签选择、头像与评价词云上传，让老师了解你的职业兴趣方向</p>
+                  <h2 className="text-base font-semibold text-gray-800 dark:text-gray-100">你还没有提交职业探索档案</h2>
+                  <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">完成标签选择、头像与评价词云上传，让老师了解你的职业兴趣方向</p>
                 </div>
                 <button
                   onClick={goSubmit}
-                  className="px-6 py-2.5 bg-green-500 hover:bg-green-600 text-white text-sm font-medium rounded-xl transition-colors"
+                  className="px-6 py-2.5 bg-primary hover:bg-primary-strong text-white text-sm font-medium rounded-xl transition-colors"
                 >
                   去提交
                 </button>
@@ -312,8 +329,8 @@ export default function StudentDashboardPage() {
         ) : (
           /* 编辑模式 */
           <div className="space-y-6">
-            <div className="bg-white rounded-xl border border-gray-100 p-5 space-y-4">
-              <h2 className="text-sm font-semibold text-gray-800">修改标签</h2>
+            <div className="bg-card rounded-xl border border-gray-100 dark:border-gray-700 p-5 space-y-4">
+              <h2 className="text-sm font-semibold text-gray-800 dark:text-gray-100">修改标签</h2>
               {categories.length === 0 ? (
                 <p className="text-sm text-gray-400 py-4 text-center">标签加载中...</p>
               ) : (
@@ -326,8 +343,8 @@ export default function StudentDashboardPage() {
               )}
             </div>
 
-            <div className="bg-white rounded-xl border border-gray-100 p-5">
-              <h2 className="text-sm font-semibold text-gray-800 mb-4">修改头像与评价词云</h2>
+            <div className="bg-card rounded-xl border border-gray-100 dark:border-gray-700 p-5">
+              <h2 className="text-sm font-semibold text-gray-800 dark:text-gray-100 mb-4">修改头像与评价词云</h2>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
                 <div className="space-y-2">
                   <p className="text-xs text-gray-400">头像</p>
@@ -361,7 +378,7 @@ export default function StudentDashboardPage() {
               <button
                 onClick={requestSave}
                 disabled={saving}
-                className="flex-1 py-3 bg-green-500 hover:bg-green-600 disabled:opacity-50 text-white font-medium rounded-xl transition-colors"
+                className="flex-1 py-3 bg-primary hover:bg-primary-strong disabled:opacity-50 text-white font-medium rounded-xl transition-colors"
               >
                 {saving ? "保存中..." : "保存修改"}
               </button>

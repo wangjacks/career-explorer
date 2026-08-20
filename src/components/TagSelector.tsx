@@ -17,14 +17,21 @@ interface TagSelectorProps {
 /**
  * 标签三色系统（三维度色彩编码，>3 类循环取色）。
  * 色彩始终伴随文字标签，不依赖颜色单独传达（无障碍）。
+ * TAG_CHIP_COLORS 为已选 chips 三色，导出供学生面板展示态复用。
  */
+export const TAG_CHIP_COLORS = [
+  "bg-emerald-50 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300",
+  "bg-sky-50 text-sky-700 dark:bg-sky-900/30 dark:text-sky-300",
+  "bg-amber-50 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300",
+];
+
 const TAG_COLORS = [
   {
     // 兴趣绿
     heading: "text-emerald-700 dark:text-emerald-400",
     selected: "bg-emerald-600 text-white shadow-sm",
     unselected: "bg-card text-foreground border border-gray-200 hover:border-emerald-400",
-    chip: "bg-emerald-50 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300",
+    chip: TAG_CHIP_COLORS[0],
     chipRemove: "hover:text-emerald-900 dark:hover:text-emerald-100",
   },
   {
@@ -32,7 +39,7 @@ const TAG_COLORS = [
     heading: "text-sky-700 dark:text-sky-400",
     selected: "bg-sky-600 text-white shadow-sm",
     unselected: "bg-card text-foreground border border-gray-200 hover:border-sky-400",
-    chip: "bg-sky-50 text-sky-700 dark:bg-sky-900/30 dark:text-sky-300",
+    chip: TAG_CHIP_COLORS[1],
     chipRemove: "hover:text-sky-900 dark:hover:text-sky-100",
   },
   {
@@ -40,7 +47,7 @@ const TAG_COLORS = [
     heading: "text-amber-700 dark:text-amber-400",
     selected: "bg-amber-500 text-white shadow-sm",
     unselected: "bg-card text-foreground border border-gray-200 hover:border-amber-400",
-    chip: "bg-amber-50 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300",
+    chip: TAG_CHIP_COLORS[2],
     chipRemove: "hover:text-amber-900 dark:hover:text-amber-100",
   },
 ];
