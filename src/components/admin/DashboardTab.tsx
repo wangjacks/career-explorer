@@ -46,9 +46,9 @@ export default function DashboardTab() {
     setLoading(true);
     try {
       const [tRes, dRes, cRes] = await Promise.all([
-        fetch(`/api/admin/stats/trends?days=${trendDays}`),
-        fetch("/api/admin/stats/distribution"),
-        fetch(`/api/admin/stats/compare?by=${compareBy}`),
+        fetch(`/api/manage/stats/trends?days=${trendDays}`),
+        fetch("/api/manage/stats/distribution"),
+        fetch(`/api/manage/stats/compare?by=${compareBy}`),
       ]);
       if (tRes.ok) setTrends(await tRes.json());
       if (dRes.ok) setDistribution(await dRes.json());

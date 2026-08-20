@@ -29,8 +29,8 @@ This version has breaking changes — APIs, conventions, and file structure may 
 | `src/app/setup/` | 安装引导（首次配置数据库 + 管理员密码） |
 | `src/app/api/auth/` | 统一认证端点（POST 登录 / GET 会话 / DELETE 登出） |
 | `src/app/api/auth/register/` | 学生注册端点 |
-| `src/app/api/admin/` | 管理端 API（stats、students、classes、teachers、profiles、settings、export、backup、test-db）；`students/batch-password` 子路由：批量重置学生密码（每人生成不同随机密码） |
-| `src/app/api/profile/` | 学生档案：POST 快速提交/登录态保存（未传学号默认本人）+ GET 会话查询本人档案 |
+| `src/app/api/manage/` | 管理域 API（stats、students、classes、teachers、profiles、settings、export、backup、test-db）；`students/batch-password` 子路由：批量重置学生密码（每人生成不同随机密码）；admin + teacher 共用，角色差异由 proxy 声明式权限表控制 |
+| `src/app/api/shared/profile/` | 学生档案（路由自鉴权）：POST 快速提交/登录态保存（未传学号默认本人）+ GET 会话查询本人档案 |
 | `src/app/api/upload/` | 文件上传 |
 | `src/app/api/validate-student/` | 学号验证（快速提交模式） |
 | `src/app/api/setup/` | 安装引导 API（含 status/test 子路由） |
@@ -50,7 +50,7 @@ This version has breaking changes — APIs, conventions, and file structure may 
 | `src/lib/tagData.ts` | 标签初始化种子（步骤 7 后不参与运行时展示） |
 | `src/lib/tag-utils.ts` | 标签工具函数 |
 | `src/types/` | TypeScript 类型定义 |
-| `src/proxy.ts` | 角色权限中间件（替代已删除的 middleware.ts） |
+| `src/proxy.ts` | 角色权限中间件（替代已删除的 middleware.ts）；内置 TEACHER_ALLOWED 声明式权限表（前缀 + 方法） |
 | `src/__tests__/` | 单元测试（auth、proxy、sanitize、token、db-schema） |
 | `uploads/` | 用户上传文件（头像、评价词云图片，gitignored） |
 | `data/` | SQLite 数据库文件（gitignored） |
@@ -91,8 +91,9 @@ This version has breaking changes — APIs, conventions, and file structure may 
 
 - **三角色认证**：admin / teacher / student，统一 `users` 表
 - 认证流程：`/api/auth` POST 验证 `user_code` + 密码（bcrypt）-> 签发 JWT（jose HS256, 24h, 含 role/uid/name）-> HttpOnly Cookie (`auth_token`, secure, sameSite=lax)
-- 中间件：`proxy.ts` 拦截 `/dashboard/admin/:path*` 和 `/api/admin/:path*`，校验角色权限
-- 角色例外：`/api/admin/classes*`、`/api/admin/students*`、`/api/admin/tags*`、`/api/admin/export*` 允许 admin + teacher；`/api/admin/stats*` 对 teacher 仅 GET 只读；`/api/admin/profiles` 对 teacher 放行 GET+DELETE；`/api/admin/teachers*` 仅 admin（教师账户由管理员创建）；其余 `/api/admin/*` 仅 admin
+- 中间件：`proxy.ts` 拦截 `/dashboard/admin/:path*` 和 `/api/manage/:path*`，校验角色权限
+- 权限模型（步骤 11 重组）：`/api/manage/*` admin 全部放行；teacher 按 `TEACHER_ALLOWED` 声明式权限表放行（classes/students/tags/export 全方法、stats 仅 GET、profiles GET+DELETE，其余 403）；`/api/shared/*` 不进 matcher 由路由自鉴权；其余 `/api/*` 不在拦截范围
+- 路由设计原则（步骤 11 决策修订）：API 面向资源组织 + 业务域前缀（manage/shared），角色差异收敛于 proxy 权限表，权限演化不搬路径；否决了按角色拆分路由的原设计
 - 白名单：`/api/auth/*` 天然在 proxy matcher 范围外；非 API 路由放行（客户端处理登录态）
 - 会话检测：`GET /api/auth` 返回 `{ ok, role, uid, name }`（httpOnly cookie 前端不可读，须经 API 检测）
 - 登出：`DELETE /api/auth` 清除 cookie

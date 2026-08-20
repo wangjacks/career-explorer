@@ -141,7 +141,7 @@ export default function StudentsTab({ students, loadError, onRetry, onStudentsCh
 
   const refreshClasses = async () => {
     try {
-      const res = await fetch("/api/admin/classes");
+      const res = await fetch("/api/manage/classes");
       if (res.ok) {
         const data = await res.json();
         setClassList(data.data || []);
@@ -228,7 +228,7 @@ export default function StudentsTab({ students, loadError, onRetry, onStudentsCh
       return;
     }
     try {
-      const res = await fetch("/api/admin/students", {
+      const res = await fetch("/api/manage/students", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ studentId: newStudentId, name: newStudentName.trim(), className: newClassName.trim() }),
@@ -318,7 +318,7 @@ export default function StudentsTab({ students, loadError, onRetry, onStudentsCh
       return;
     }
     try {
-      const res = await fetch("/api/admin/students", {
+      const res = await fetch("/api/manage/students", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ students: validRows }),
@@ -343,7 +343,7 @@ export default function StudentsTab({ students, loadError, onRetry, onStudentsCh
       return;
     }
     try {
-      const res = await fetch("/api/admin/students", {
+      const res = await fetch("/api/manage/students", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ studentId: resettingStudent.user_code, password: resetPwd }),
@@ -362,7 +362,7 @@ export default function StudentsTab({ students, loadError, onRetry, onStudentsCh
     const ids = Array.from(selectedStudents);
     setBatchPwdLoading(true);
     try {
-      const res = await fetch("/api/admin/students/batch-password", {
+      const res = await fetch("/api/manage/students/batch-password", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ studentIds: ids }),
@@ -395,7 +395,7 @@ export default function StudentsTab({ students, loadError, onRetry, onStudentsCh
     setInlineEdit(null);
     try {
       const body = field === "name" ? { studentId, name: value } : { studentId, className: value };
-      const res = await fetch("/api/admin/students", {
+      const res = await fetch("/api/manage/students", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
@@ -422,7 +422,7 @@ export default function StudentsTab({ students, loadError, onRetry, onStudentsCh
       return;
     }
     try {
-      const res = await fetch("/api/admin/students", {
+      const res = await fetch("/api/manage/students", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ studentId: editing.user_code, name: editName.trim(), className: editClass.trim() }),
@@ -443,7 +443,7 @@ export default function StudentsTab({ students, loadError, onRetry, onStudentsCh
 
   const executeDelete = async (ids: string[]) => {
     try {
-      const res = await fetch("/api/admin/students", {
+      const res = await fetch("/api/manage/students", {
         method: "DELETE",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ ids }),
@@ -463,7 +463,7 @@ export default function StudentsTab({ students, loadError, onRetry, onStudentsCh
     try {
       await Promise.all(
         ids.map((id) =>
-          fetch("/api/admin/students", {
+          fetch("/api/manage/students", {
             method: "PUT",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ studentId: id, className: batchClassName }),

@@ -253,7 +253,7 @@ CREATE INDEX idx_tags_category_order ON tags(category_order, sort_order);
 | 8 | 班级管理 | 2, 3 | 邀请码生成/管理 + 班级 CRUD；教师可自由创建班级，admin 可管理所有班级 |
 | 9 | 学生面板 | 3, 6, 8 | `/dashboard/student` 查看个人信息、提交状态（标签/头像/评价词云是否已提交及提交时间）、班级信息；支持直接修改已提交数据（修改时需二次确认） |
 | 10 | 管理面板 UI + 批量操作 | 3, 7, 8 | 页面：admin 用户管理（教师+学生）+ 班级概览统计（各班学生总数/已提交/未提交/提交率）+ 教师管理 + 密码修改；teacher 班级创建 + 学生管理（全部班级）+ 学生账户创建/批量导入 + 密码修改；支持图形化批量管理（创建/导入/删除）和批量修改密码；沿用现有 `/api/admin/*` 路由结构，仅扩展接口支持新角色 |
-| 11 | API 路由重组 + 备份恢复改造 | 10 | `/api/admin/*` 重组为角色化路由（`/api/dashboard/admin/*` 管理员专属 + `/api/dashboard/teacher/*` 教师专属 + `/api/shared/*` 共用），与页面路由 `/dashboard/*` 对称；**同步更新所有前端 API 调用路径**；备份恢复：`BackupData` 格式从 `students`+`profiles` 改为 `users`+`classes`+`teacher_classes`+`tags`，备份包含 `password_hash`（恢复后用户密码不变） |
+| 11 | API 路由重组 + 备份恢复改造 | 10 | **决策修订（2026-08-20，B+ 方案）**：否决原设计「按角色拆分 /api/dashboard/{admin,teacher}/*」——API 应面向资源组织，权限已三次演化（步骤 8/10/面板扩容），路径不应绑定角色，且 7 类资源双角色共用拆不住。实际执行：`/api/admin/*` → `/api/manage/*` 前缀更名（资源结构不动），`/api/profile` → `/api/shared/profile`，proxy 重构为声明式权限表（admin 全放行 + teacher 按表）；**备份恢复改造已在步骤 2 完成**（BackupData 四表格式 version 3，含 password_hash），本步仅验收验证 |
 
 ### 执行策略
 

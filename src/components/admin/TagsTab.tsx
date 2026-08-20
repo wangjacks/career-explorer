@@ -70,7 +70,7 @@ export default function TagsTab() {
   const refresh = async () => {
     setLoading(true);
     try {
-      const res = await fetch("/api/admin/tags");
+      const res = await fetch("/api/manage/tags");
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "获取标签失败");
       setTags(data.data || []);
@@ -90,7 +90,7 @@ export default function TagsTab() {
 
   const submit = async (body: Record<string, unknown>, successMessage: string) => {
     try {
-      const res = await fetch("/api/admin/tags", {
+      const res = await fetch("/api/manage/tags", {
         method: body.id ? "PATCH" : "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
@@ -153,7 +153,7 @@ export default function TagsTab() {
       const requests = [
         [tag.id, targetOrder],
         [target.id, currentOrder],
-      ].map(([id, order]) => fetch("/api/admin/tags", {
+      ].map(([id, order]) => fetch("/api/manage/tags", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ id, [field]: order }),
@@ -179,7 +179,7 @@ export default function TagsTab() {
     if (selected.size === 0) return;
     try {
       await Promise.all(
-        Array.from(selected).map((id) => fetch("/api/admin/tags", {
+        Array.from(selected).map((id) => fetch("/api/manage/tags", {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ id, active }),

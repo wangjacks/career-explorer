@@ -70,7 +70,7 @@ export function useAdminAuth() {
 
   const loadStats = useCallback(async (): Promise<Stats | null> => {
     try {
-      const res = await fetch("/api/admin/stats");
+      const res = await fetch("/api/manage/stats");
       if (res.ok) return await res.json();
     } catch (err) {
       console.error("Failed to load stats:", err);
@@ -82,7 +82,7 @@ export function useAdminAuth() {
   const loadProfiles = useCallback(
     async (p: number): Promise<PagedData | null> => {
       try {
-        const res = await fetch(`/api/admin/profiles?page=${p}`);
+        const res = await fetch(`/api/manage/profiles?page=${p}`);
         if (res.ok) return await res.json();
       } catch (err) {
         console.error("Failed to load profiles:", err);
@@ -95,7 +95,7 @@ export function useAdminAuth() {
 
   const loadSettings = useCallback(async (): Promise<DbConfig | null> => {
     try {
-      const res = await fetch("/api/admin/settings");
+      const res = await fetch("/api/manage/settings");
       if (res.ok) return await res.json();
     } catch (err) {
       console.error("Failed to load settings:", err);
@@ -106,7 +106,7 @@ export function useAdminAuth() {
 
   const loadStudents = useCallback(async (): Promise<Student[] | null> => {
     try {
-      const res = await fetch("/api/admin/students");
+      const res = await fetch("/api/manage/students");
       if (res.ok) {
         const data = await res.json();
         return data.data;

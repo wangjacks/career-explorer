@@ -68,7 +68,7 @@ export default function AvatarPage() {
         avatarUrl = `${url}?t=${Date.now()}`;
       }
 
-      const profileRes = await fetch("/api/profile", {
+      const profileRes = await fetch("/api/shared/profile", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ studentId: student.studentId, tags, avatarUrl, evaluationUrl }),

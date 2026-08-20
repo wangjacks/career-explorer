@@ -49,7 +49,7 @@ export default function ProfilesTab({ loadProfiles, loadStats }: Props) {
 
   const defaultLoadProfiles = useCallback(async (p: number): Promise<PagedData | null> => {
     try {
-      const res = await fetch(`/api/admin/profiles?page=${p}`);
+      const res = await fetch(`/api/manage/profiles?page=${p}`);
       if (res.ok) return await res.json();
     } catch (err) {
       console.error("Failed to load profiles:", err);
@@ -60,7 +60,7 @@ export default function ProfilesTab({ loadProfiles, loadStats }: Props) {
 
   const defaultLoadStats = useCallback(async (): Promise<Stats | null> => {
     try {
-      const res = await fetch("/api/admin/stats");
+      const res = await fetch("/api/manage/stats");
       if (res.ok) return await res.json();
     } catch (err) {
       console.error("Failed to load stats:", err);
@@ -156,7 +156,7 @@ export default function ProfilesTab({ loadProfiles, loadStats }: Props) {
 
   const handleDeleteProfiles = async (ids: string[]) => {
     try {
-      const res = await fetch("/api/admin/profiles", {
+      const res = await fetch("/api/manage/profiles", {
         method: "DELETE",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ ids }),

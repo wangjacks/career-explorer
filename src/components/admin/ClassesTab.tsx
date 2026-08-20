@@ -56,8 +56,8 @@ export default function ClassesTab({ mode, teacherUid }: Props) {
     setLoading(true);
     try {
       const [classesRes, studentsRes] = await Promise.all([
-        fetch("/api/admin/classes"),
-        fetch("/api/admin/students"),
+        fetch("/api/manage/classes"),
+        fetch("/api/manage/students"),
       ]);
       const classesData = await classesRes.json();
       if (!classesRes.ok) throw new Error(classesData.error || "获取班级失败");
@@ -68,7 +68,7 @@ export default function ClassesTab({ mode, teacherUid }: Props) {
         setStudents(studentsData.data || []);
       }
       if (mode === "admin") {
-        const teachersRes = await fetch("/api/admin/teachers");
+        const teachersRes = await fetch("/api/manage/teachers");
         if (teachersRes.ok) {
           const teachersData = await teachersRes.json();
           setTeachers(teachersData.data || []);
@@ -121,7 +121,7 @@ export default function ClassesTab({ mode, teacherUid }: Props) {
     const name = nameInput.trim();
     if (!name) return toast.warning("请输入班级名称");
     try {
-      const res = await fetch("/api/admin/classes", {
+      const res = await fetch("/api/manage/classes", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name }),
@@ -141,7 +141,7 @@ export default function ClassesTab({ mode, teacherUid }: Props) {
     const name = renameValue.trim();
     if (!name) return toast.warning("请输入班级名称");
     try {
-      const res = await fetch(`/api/admin/classes/${renaming.id}`, {
+      const res = await fetch(`/api/manage/classes/${renaming.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name }),
@@ -159,7 +159,7 @@ export default function ClassesTab({ mode, teacherUid }: Props) {
   const deleteClass = async () => {
     if (!deleting) return;
     try {
-      const res = await fetch(`/api/admin/classes/${deleting.id}`, { method: "DELETE" });
+      const res = await fetch(`/api/manage/classes/${deleting.id}`, { method: "DELETE" });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "删除失败");
       toast.success(`班级「${deleting.name}」已删除`);
@@ -173,7 +173,7 @@ export default function ClassesTab({ mode, teacherUid }: Props) {
   const resetCode = async () => {
     if (!resetting) return;
     try {
-      const res = await fetch(`/api/admin/classes/${resetting.id}/reset-code`, { method: "POST" });
+      const res = await fetch(`/api/manage/classes/${resetting.id}/reset-code`, { method: "POST" });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "重置失败");
       toast.success(`新邀请码：${data.invitation_code}`);

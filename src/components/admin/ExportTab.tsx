@@ -46,7 +46,7 @@ export default function ExportTab() {
   const handlePreview = async () => {
     setPreviewing(true);
     try {
-      const res = await fetch("/api/admin/export", {
+      const res = await fetch("/api/manage/export", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -74,7 +74,7 @@ export default function ExportTab() {
       const params = getExportParams();
       params.set("format", exportFormat);
       if (exportFormat === "xlsx") params.set("embedImages", String(embedImages));
-      const res = await fetch(`/api/admin/export?${params}`);
+      const res = await fetch(`/api/manage/export?${params}`);
       if (!res.ok) throw new Error("导出失败");
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
@@ -95,7 +95,7 @@ export default function ExportTab() {
     setExporting(true);
     try {
       const params = getExportParams();
-      const res = await fetch(`/api/admin/export-images?${params}`);
+      const res = await fetch(`/api/manage/export-images?${params}`);
       if (!res.ok) {
         const data = await res.json();
         throw new Error(data.error || "导出失败");
