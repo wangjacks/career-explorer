@@ -47,7 +47,7 @@ export default function OverviewTab({ installed, loadStats, loadProfiles, studen
         </div>
       )}
       {!stats && !loadError && installed !== false && (
-        <div className="text-center py-12 text-gray-400">加载中...</div>
+        <div className="text-center py-12 text-gray-400 dark:text-gray-500">加载中...</div>
       )}
       {stats && (
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
@@ -68,20 +68,20 @@ export default function OverviewTab({ installed, loadStats, loadProfiles, studen
               <Tag className="w-5 h-5" strokeWidth={1.5} />
             }
           />
-          <div className="bg-white rounded-xl border border-gray-100 overflow-hidden hover:-translate-y-1 hover:shadow-lg transition-all duration-200 shadow-sm">
+          <div className="bg-card rounded-xl border border-gray-100 dark:border-gray-700 overflow-hidden hover:-translate-y-1 hover:shadow-lg transition-all duration-200 shadow-sm">
             <div className="h-1 bg-gradient-to-r from-amber-500 to-amber-400" />
             <div className="p-5">
               <div className="flex items-center justify-between mb-3">
-                <p className="text-sm font-medium text-gray-500">热门标签</p>
-                <div className="w-10 h-10 rounded-xl bg-amber-100 text-amber-600 flex items-center justify-center">
+                <p className="text-sm font-medium text-gray-500 dark:text-gray-400">热门标签</p>
+                <div className="w-10 h-10 rounded-xl bg-amber-100 dark:bg-amber-900/30 text-amber-600 dark:text-amber-400 flex items-center justify-center">
                   <Flame className="w-5 h-5" strokeWidth={1.5} />
                 </div>
               </div>
               <div className="space-y-2">
                 {stats.topTags.slice(0, 5).map((t) => (
                   <div key={t.tag} className="flex items-center justify-between text-sm">
-                    <span className="text-gray-700 truncate">{t.tag}</span>
-                    <span className="text-xs text-gray-400 ml-2 flex-shrink-0">{t.count}</span>
+                    <span className="text-gray-700 dark:text-gray-200 truncate">{t.tag}</span>
+                    <span className="text-xs text-gray-400 dark:text-gray-500 ml-2 flex-shrink-0">{t.count}</span>
                   </div>
                 ))}
               </div>

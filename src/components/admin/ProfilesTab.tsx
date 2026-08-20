@@ -192,10 +192,10 @@ export default function ProfilesTab({ loadProfiles, loadStats }: Props) {
   };
 
   return (
-    <div className="bg-white rounded-xl border border-gray-100">
-      <div className="px-5 py-4 border-b border-gray-100 flex flex-col gap-3">
+    <div className="bg-card rounded-xl border border-gray-100 dark:border-gray-700">
+      <div className="px-5 py-4 border-b border-gray-100 dark:border-gray-700 flex flex-col gap-3">
         <div className="flex items-center justify-between">
-          <h2 className="font-semibold text-gray-800">
+          <h2 className="font-semibold text-gray-800 dark:text-gray-100">
             数据列表 {paged && `(${paged.total} 条)`}
           </h2>
           {selected.size > 0 && (
@@ -213,7 +213,7 @@ export default function ProfilesTab({ loadProfiles, loadStats }: Props) {
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="搜索学号/姓名..."
-            className="px-3 py-1.5 border border-gray-200 rounded-lg text-sm w-48 focus:outline-none focus:ring-2 focus:ring-green-300"
+            className="px-3 py-1.5 border border-gray-200 dark:border-gray-700 bg-card text-foreground rounded-lg text-sm w-48 focus:outline-none focus:ring-2 focus:ring-green-300"
           />
           {/* Tag dropdown */}
           <div className="relative" ref={tagDropdownRef}>
@@ -221,8 +221,8 @@ export default function ProfilesTab({ loadProfiles, loadStats }: Props) {
               onClick={() => setTagDropdownOpen((v) => !v)}
               className={`px-3 py-1.5 rounded-lg text-sm font-medium border transition-colors flex items-center gap-1.5 ${
                 selectedTags.size > 0
-                  ? "bg-green-50 text-green-700 border-green-200"
-                  : "bg-white text-gray-600 border-gray-200 hover:border-gray-300"
+                  ? "bg-green-50 dark:bg-green-900/30 text-green-700 dark:text-green-300 border-green-200 dark:border-green-800"
+                  : "bg-card text-gray-600 dark:text-gray-300 border-gray-200 dark:border-gray-700 hover:border-gray-300"
               }`}
             >
               <Tag className="w-4 h-4" strokeWidth={1.5} />
@@ -233,14 +233,14 @@ export default function ProfilesTab({ loadProfiles, loadStats }: Props) {
               <ChevronDown className={`w-3 h-3 transition-transform ${tagDropdownOpen ? "rotate-180" : ""}`} />
             </button>
             {tagDropdownOpen && (
-              <div className="absolute top-full left-0 mt-1 w-64 bg-white rounded-xl border border-gray-200 shadow-lg z-30">
-                <div className="p-2 border-b border-gray-100">
+              <div className="absolute top-full left-0 mt-1 w-64 bg-card rounded-xl border border-gray-200 dark:border-gray-700 shadow-lg z-30">
+                <div className="p-2 border-b border-gray-100 dark:border-gray-700">
                   <input
                     type="text"
                     value={tagSearch}
                     onChange={(e) => setTagSearch(e.target.value)}
                     placeholder="搜索标签..."
-                    className="w-full px-2.5 py-1.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-300"
+                    className="w-full px-2.5 py-1.5 border border-gray-200 dark:border-gray-700 bg-card text-foreground rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-300"
                     autoFocus
                   />
                 </div>
@@ -252,7 +252,7 @@ export default function ProfilesTab({ loadProfiles, loadStats }: Props) {
                         key={t.tag}
                         onClick={() => toggleTag(t.tag)}
                         className={`w-full text-left px-3 py-1.5 text-sm flex items-center justify-between transition-colors ${
-                          isActive ? "bg-green-50 text-green-700" : "hover:bg-gray-50 text-gray-700"
+                          isActive ? "bg-green-50 dark:bg-green-900/30 text-green-700 dark:text-green-300" : "hover:bg-gray-50 dark:hover:bg-gray-800 text-gray-700 dark:text-gray-200"
                         }`}
                       >
                         <span className="flex items-center gap-2 truncate">
@@ -276,7 +276,7 @@ export default function ProfilesTab({ loadProfiles, loadStats }: Props) {
           </div>
           {/* Selected tags as removable pills */}
           {Array.from(selectedTags).map((tag) => (
-            <span key={tag} className="inline-flex items-center gap-1 px-2 py-0.5 bg-green-100 text-green-700 rounded-full text-xs font-medium">
+            <span key={tag} className="inline-flex items-center gap-1 px-2 py-0.5 bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 rounded-full text-xs font-medium">
               {tag}
               <button onClick={() => toggleTag(tag)} className="hover:text-green-900 leading-none">×</button>
             </span>
@@ -294,7 +294,7 @@ export default function ProfilesTab({ loadProfiles, loadStats }: Props) {
       <div className="overflow-x-auto rounded-b-xl">
         <table className="w-full text-sm">
           <thead>
-            <tr className="bg-gray-50 text-left text-gray-500">
+            <tr className="bg-gray-50 dark:bg-gray-800 text-left text-gray-500 dark:text-gray-400">
               <th className="px-5 py-3 font-medium w-10">
                 <input
                   type="checkbox"
@@ -312,11 +312,11 @@ export default function ProfilesTab({ loadProfiles, loadStats }: Props) {
               <th className="px-5 py-3 font-medium">操作</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-gray-50">
+          <tbody className="divide-y divide-gray-50 dark:divide-gray-700/50">
             {filteredData?.data.map((p) => (
               <tr
                 key={p.studentId}
-                className={`hover:bg-gray-50/50 ${selected.has(p.studentId) ? "bg-blue-50/30" : ""}`}
+                className={`hover:bg-gray-50/50 dark:hover:bg-gray-800/40 ${selected.has(p.studentId) ? "bg-blue-50/30 dark:bg-blue-900/20" : ""}`}
               >
                 <td className="px-5 py-3">
                   <input
@@ -326,8 +326,8 @@ export default function ProfilesTab({ loadProfiles, loadStats }: Props) {
                     className="rounded border-gray-300"
                   />
                 </td>
-                <td className="px-5 py-3 font-mono text-xs text-gray-600">{p.studentId}</td>
-                <td className="px-5 py-3 text-gray-700">{p.studentName || "-"}</td>
+                <td className="px-5 py-3 font-mono text-xs text-gray-600 dark:text-gray-300">{p.studentId}</td>
+                <td className="px-5 py-3 text-gray-700 dark:text-gray-200">{p.studentName || "-"}</td>
                 <td className="px-5 py-3">
                   {p.avatarUrl ? (
                     <img src={p.avatarUrl} alt="" className="w-8 h-8 rounded-full object-cover" />

@@ -210,7 +210,7 @@ export default function TagsTab() {
       <button
         type="button"
         onClick={() => setOpen(!open)}
-        className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm text-left flex items-center justify-between focus:outline-none focus:ring-2 focus:ring-green-300"
+        className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 bg-card text-foreground rounded-lg text-sm text-left flex items-center justify-between focus:outline-none focus:ring-2 focus:ring-green-300"
       >
         <span className={selectedId ? "text-gray-800" : "text-gray-400"}>
           {selectedId ? filtered.find((c) => c.id === Number(selectedId))?.name || "所属分类" : "所属分类"}
@@ -218,14 +218,14 @@ export default function TagsTab() {
         <ChevronDown className={`w-3.5 h-3.5 text-gray-400 transition-transform ${open ? "rotate-180" : ""}`} />
       </button>
       {open && (
-        <div className="absolute top-full left-0 mt-1 w-56 bg-white rounded-xl border border-gray-200 shadow-lg z-30">
-          <div className="p-2 border-b border-gray-100">
+        <div className="absolute top-full left-0 mt-1 w-56 bg-card rounded-xl border border-gray-200 dark:border-gray-700 shadow-lg z-30">
+          <div className="p-2 border-b border-gray-100 dark:border-gray-700">
             <input
               type="text"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="搜索分类..."
-              className="w-full px-2.5 py-1.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-300"
+              className="w-full px-2.5 py-1.5 border border-gray-200 dark:border-gray-700 bg-card text-foreground rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-300"
               autoFocus
             />
           </div>
@@ -238,7 +238,7 @@ export default function TagsTab() {
                   type="button"
                   onClick={() => { onSelect(isActive ? "" : String(c.id)); setOpen(false); setSearch(""); }}
                   className={`w-full text-left px-3 py-1.5 text-sm flex items-center gap-2 transition-colors ${
-                    isActive ? "bg-green-50 text-green-700" : "hover:bg-gray-50 text-gray-700"
+                    isActive ? "bg-green-50 dark:bg-green-900/30 text-green-700 dark:text-green-300" : "hover:bg-gray-50 dark:hover:bg-gray-800 text-gray-700 dark:text-gray-200"
                   }`}
                 >
                   <span className={`w-4 h-4 rounded border flex items-center justify-center flex-shrink-0 text-xs ${
@@ -277,22 +277,22 @@ export default function TagsTab() {
 
       {/* Add forms */}
       <div className="grid gap-4 md:grid-cols-2">
-        <div className="border border-gray-100 rounded-lg p-4 space-y-3">
-          <h3 className="text-sm font-medium text-gray-700">新增一级分类</h3>
+        <div className="border border-gray-100 dark:border-gray-700 rounded-lg p-4 space-y-3">
+          <h3 className="text-sm font-medium text-gray-700 dark:text-gray-200">新增一级分类</h3>
           <div className="flex flex-col sm:flex-row gap-2">
             <input value={categoryName} onChange={(e) => setCategoryName(e.target.value)} placeholder="分类名称"
-              className="flex-1 px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-300" />
-            <button onClick={addCategory} className="px-3 py-2 bg-green-500 hover:bg-green-600 text-white text-sm rounded-lg whitespace-nowrap">新增</button>
+              className="flex-1 px-3 py-2 border border-gray-200 dark:border-gray-700 bg-card text-foreground rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-300" />
+            <button onClick={addCategory} className="px-3 py-2 bg-primary hover:bg-primary-strong text-white text-sm rounded-lg whitespace-nowrap">新增</button>
           </div>
         </div>
-        <div className="border border-gray-100 rounded-lg p-4 space-y-3">
-          <h3 className="text-sm font-medium text-gray-700">新增二级标签</h3>
+        <div className="border border-gray-100 dark:border-gray-700 rounded-lg p-4 space-y-3">
+          <h3 className="text-sm font-medium text-gray-700 dark:text-gray-200">新增二级标签</h3>
           <div className="flex flex-col sm:flex-row gap-2">
             <input value={tagName} onChange={(e) => setTagName(e.target.value)} placeholder="标签名称"
-              className="flex-1 min-w-0 px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-300" />
+              className="flex-1 min-w-0 px-3 py-2 border border-gray-200 dark:border-gray-700 bg-card text-foreground rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-300" />
             <div className="flex gap-2">
               {renderCategoryPicker(catOpen, setCatOpen, catSearch, setCatSearch, catRef, filteredAddCategories, selectedCatId, (id) => { setSelectedCatId(id); setCatOpen(false); })}
-              <button onClick={addTag} className="px-3 py-2 bg-green-500 hover:bg-green-600 text-white text-sm rounded-lg whitespace-nowrap">新增</button>
+              <button onClick={addTag} className="px-3 py-2 bg-primary hover:bg-primary-strong text-white text-sm rounded-lg whitespace-nowrap">新增</button>
             </div>
           </div>
         </div>
@@ -300,8 +300,8 @@ export default function TagsTab() {
 
       {/* Batch actions */}
       {selected.size > 0 && (
-        <div className="flex flex-wrap items-center gap-2 sm:gap-3 px-4 py-2.5 bg-green-50 rounded-lg border border-green-100">
-          <span className="text-sm text-green-700 font-medium">已选 {selected.size} 项</span>
+        <div className="flex flex-wrap items-center gap-2 sm:gap-3 px-4 py-2.5 bg-green-50 dark:bg-green-900/20 rounded-lg border border-green-100 dark:border-green-900">
+          <span className="text-sm text-green-700 dark:text-green-400 font-medium">已选 {selected.size} 项</span>
           <button onClick={() => batchSetActive(true)} className="px-3 py-1 bg-green-500 hover:bg-green-600 text-white text-xs rounded-lg">恢复</button>
           <button onClick={() => batchSetActive(false)} className="px-3 py-1 bg-red-500 hover:bg-red-600 text-white text-xs rounded-lg">停用</button>
           <button onClick={() => setSelected(new Set())} className="text-xs text-gray-500 hover:text-gray-700">取消选择</button>
@@ -309,14 +309,14 @@ export default function TagsTab() {
       )}
 
       {/* Tag list */}
-      {loading ? <p className="text-center py-8 text-gray-400">加载中...</p> : (
+      {loading ? <p className="text-center py-8 text-gray-400 dark:text-gray-500">加载中...</p> : (
         <div className="space-y-3">
           {categories.map((category) => {
             const children = tags.filter((tag) => tag.type === "tag" && tag.parent_id === category.id)
               .sort((a, b) => a.sort_order - b.sort_order || a.id - b.id);
             return (
-              <div key={category.id} className={`border rounded-lg ${category.active ? "border-gray-100" : "border-gray-200 bg-gray-50"}`}>
-                <div className="px-4 py-3 bg-gray-50 rounded-t-lg">
+              <div key={category.id} className={`border rounded-lg ${category.active ? "border-gray-100 dark:border-gray-700" : "border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50"}`}>
+                <div className="px-4 py-3 bg-gray-50 dark:bg-gray-800 rounded-t-lg">
                   {editing?.id === category.id ? (
                     <>
                       {/* Mobile: two-row layout */}
@@ -356,7 +356,7 @@ export default function TagsTab() {
                   )}
                 </div>
                 {/* 不用 overflow-hidden：编辑二级标签时的分类选择下拉需溢出卡片显示 */}
-                <div className="divide-y divide-gray-100 rounded-b-lg">
+                <div className="divide-y divide-gray-100 dark:divide-gray-700/50 rounded-b-lg">
                   {children.map((tag) => (
                     <div key={tag.id} className="px-4 py-2 pl-10">
                       {editing?.id === tag.id ? (

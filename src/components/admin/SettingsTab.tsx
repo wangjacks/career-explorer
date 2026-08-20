@@ -156,7 +156,7 @@ export default function SettingsTab({ dbConfig, loadError, onRetry, onConfigSave
 
   if (loadError && !config) {
     return (
-      <div className="bg-white rounded-xl border border-gray-100 p-8 text-center space-y-3">
+      <div className="bg-card rounded-xl border border-gray-100 dark:border-gray-700 p-8 text-center space-y-3">
         <p className="text-red-500">配置加载失败</p>
         <button onClick={onRetry}
           className="px-4 py-1.5 bg-red-500 hover:bg-red-600 text-white text-sm rounded-lg transition-colors">重试</button>
@@ -169,10 +169,10 @@ export default function SettingsTab({ dbConfig, loadError, onRetry, onConfigSave
   return (
     <div className="space-y-6">
       {/* Section 1: Current data source */}
-      <div className="bg-white rounded-xl border border-gray-100 p-6 space-y-4">
+      <div className="bg-card rounded-xl border border-gray-100 dark:border-gray-700 p-6 space-y-4">
         <div className="flex items-center justify-between">
-          <h2 className="font-semibold text-gray-800">当前数据源</h2>
-          <span className="px-2 py-0.5 text-xs font-medium rounded-full bg-green-100 text-green-700">
+          <h2 className="font-semibold text-gray-800 dark:text-gray-100">当前数据源</h2>
+          <span className="px-2 py-0.5 text-xs font-medium rounded-full bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400">
             {currentType.toUpperCase()}
           </span>
         </div>
@@ -197,20 +197,20 @@ export default function SettingsTab({ dbConfig, loadError, onRetry, onConfigSave
         )}
         <div className="flex items-center gap-3 pt-2">
           <button onClick={handleTestDb} disabled={testingDb}
-            className="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm font-medium rounded-lg transition-colors disabled:opacity-50">
+            className="px-4 py-2 bg-gray-100 hover:bg-gray-200 dark:bg-gray-800 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-200 text-sm font-medium rounded-lg transition-colors disabled:opacity-50">
             {testingDb ? "测试中..." : "测试连接"}
           </button>
           <button onClick={handleSaveDb} disabled={savingDb}
-            className="px-4 py-2 bg-green-500 hover:bg-green-600 text-white text-sm font-medium rounded-lg transition-colors disabled:opacity-50">
+            className="px-4 py-2 bg-primary hover:bg-primary-strong text-white text-sm font-medium rounded-lg transition-colors disabled:opacity-50">
             {savingDb ? "保存中..." : "保存配置"}
           </button>
         </div>
       </div>
 
       {/* Section 2: Switch data source */}
-      <div className="bg-white rounded-xl border border-gray-100 p-6 space-y-4">
-        <h2 className="font-semibold text-gray-800">切换数据源</h2>
-        <p className="text-sm text-gray-500">
+      <div className="bg-card rounded-xl border border-gray-100 dark:border-gray-700 p-6 space-y-4">
+        <h2 className="font-semibold text-gray-800 dark:text-gray-100">切换数据源</h2>
+        <p className="text-sm text-gray-500 dark:text-gray-400">
           当前使用 {currentType.toUpperCase()}，可切换到{currentType === "mysql" ? "SQLite" : "MySQL"}
         </p>
         {switchType === null ? (
@@ -221,7 +221,7 @@ export default function SettingsTab({ dbConfig, loadError, onRetry, onConfigSave
             切换到 {currentType === "mysql" ? "SQLite" : "MySQL"}
           </button>
         ) : (
-          <div className="space-y-3 p-4 bg-gray-50 rounded-lg">
+          <div className="space-y-3 p-4 bg-gray-50 dark:bg-gray-800 rounded-lg">
             <p className="text-sm text-amber-600 font-medium">
               切换后新数据源为空，现有数据保留在原数据库中，可通过备份恢复迁移
             </p>
@@ -248,7 +248,7 @@ export default function SettingsTab({ dbConfig, loadError, onRetry, onConfigSave
                 {switching ? "切换中..." : "确认切换"}
               </button>
               <button onClick={() => setSwitchType(null)}
-                className="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm font-medium rounded-lg transition-colors">
+                className="px-4 py-2 bg-gray-100 hover:bg-gray-200 dark:bg-gray-800 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-200 text-sm font-medium rounded-lg transition-colors">
                 取消
               </button>
             </div>
@@ -257,8 +257,8 @@ export default function SettingsTab({ dbConfig, loadError, onRetry, onConfigSave
       </div>
 
       {/* Section 3: Backup & Restore */}
-      <div className="bg-white rounded-xl border border-gray-100 p-6 space-y-4">
-        <h2 className="font-semibold text-gray-800">备份与恢复</h2>
+      <div className="bg-card rounded-xl border border-gray-100 dark:border-gray-700 p-6 space-y-4">
+        <h2 className="font-semibold text-gray-800 dark:text-gray-100">备份与恢复</h2>
         <p className="text-sm text-gray-500">导出或导入 JSON 格式数据备份，支持跨数据库类型迁移</p>
         <div className="flex items-center gap-3">
           <button onClick={handleBackup} disabled={backingUp}
