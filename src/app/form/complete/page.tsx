@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { Check } from "lucide-react";
+import { Check, Compass } from "lucide-react";
 import NavigationBar from "@/components/NavigationBar";
 import QuickModeBanner from "@/components/QuickModeBanner";
 import { safeImageUrl } from "@/lib/sanitize";
@@ -34,58 +34,65 @@ export default function CompletePage() {
   /* eslint-enable react-hooks/set-state-in-effect */
 
   return (
-    <div className="flex flex-col min-h-screen bg-gradient-to-b from-green-50 to-white">
+    <div className="flex flex-col min-h-screen bg-background">
       <NavigationBar title="提交完成" showHome />
       <QuickModeBanner />
-      <main className="flex-1 flex flex-col items-center justify-center px-6 gap-8">
-        <div className="w-20 h-20 rounded-full bg-green-500 flex items-center justify-center shadow-lg">
-          <Check size={40} strokeWidth={3} className="text-white" />
-        </div>
-        <div className="text-center space-y-3">
-          <h1 className="text-2xl font-bold text-gray-900">提交成功！</h1>
-          <p className="text-gray-500">你的职业探索档案已保存</p>
-        </div>
+      <main className="flex-1">
+        {/* 深绿仪式感 hero */}
+        <section className="bg-brand text-white">
+          <div className="max-w-xl mx-auto px-6 py-14 sm:py-18 text-center space-y-5">
+            <Compass size={40} strokeWidth={1.5} className="text-accent mx-auto" aria-hidden />
+            <div className="w-20 h-20 rounded-full bg-white/10 flex items-center justify-center mx-auto">
+              <Check size={40} strokeWidth={3} className="text-white" />
+            </div>
+            <h1 className="text-3xl sm:text-4xl font-extrabold tracking-tight">提交成功！</h1>
+            <p className="text-white/80">你的职业探索档案已保存</p>
+          </div>
+        </section>
 
-        <div className="w-full max-w-xs sm:max-w-sm md:max-w-md bg-white rounded-xl p-4 shadow-sm border border-gray-100 space-y-3">
-          {studentName && (
+        {/* 档案摘要 + 评价词云 + CTA */}
+        <div className="max-w-xl mx-auto px-6 py-8 space-y-6">
+          <div className="bg-card rounded-xl p-4 shadow-sm border border-gray-100 dark:border-gray-700 space-y-3">
+            {studentName && (
+              <div className="flex justify-between text-sm">
+                <span className="text-gray-500 dark:text-gray-400">姓名</span>
+                <span className="font-medium text-gray-800 dark:text-gray-100">{studentName}</span>
+              </div>
+            )}
+            {studentId && (
+              <div className="flex justify-between text-sm">
+                <span className="text-gray-500 dark:text-gray-400">学号</span>
+                <span className="font-medium text-gray-800 dark:text-gray-100">{studentId}</span>
+              </div>
+            )}
             <div className="flex justify-between text-sm">
-              <span className="text-gray-500">姓名</span>
-              <span className="font-medium text-gray-800">{studentName}</span>
+              <span className="text-gray-500 dark:text-gray-400">标签数量</span>
+              <span className="font-medium text-gray-800 dark:text-gray-100">{tagCount} 个</span>
+            </div>
+            <div className="flex justify-between text-sm">
+              <span className="text-gray-500 dark:text-gray-400">虚拟形象</span>
+              <span className="font-medium text-gray-800 dark:text-gray-100">{avatarUrl ? "已上传" : "未上传"}</span>
+            </div>
+            <div className="flex justify-between text-sm">
+              <span className="text-gray-500 dark:text-gray-400">评价词云</span>
+              <span className="font-medium text-gray-800 dark:text-gray-100">{evaluationUrl ? "已上传" : "未上传"}</span>
+            </div>
+          </div>
+
+          {evaluationUrl && (
+            <div>
+              <p className="text-xs text-gray-500 dark:text-gray-400 text-center mb-2">评价词云</p>
+              <img src={evaluationUrl} alt="评价词云" className="w-full rounded-xl border border-gray-100 dark:border-gray-700" />
             </div>
           )}
-          {studentId && (
-            <div className="flex justify-between text-sm">
-              <span className="text-gray-500">学号</span>
-              <span className="font-medium text-gray-800">{studentId}</span>
-            </div>
-          )}
-          <div className="flex justify-between text-sm">
-            <span className="text-gray-500">标签数量</span>
-            <span className="font-medium text-gray-800">{tagCount} 个</span>
-          </div>
-          <div className="flex justify-between text-sm">
-            <span className="text-gray-500">虚拟形象</span>
-            <span className="font-medium text-gray-800">{avatarUrl ? "已上传" : "未上传"}</span>
-          </div>
-          <div className="flex justify-between text-sm">
-            <span className="text-gray-500">评价词云</span>
-            <span className="font-medium text-gray-800">{evaluationUrl ? "已上传" : "未上传"}</span>
-          </div>
+
+          <Link
+            href="/"
+            className="block w-full py-3 bg-primary hover:bg-primary-strong text-white font-medium rounded-xl text-center transition-colors shadow-md"
+          >
+            返回首页
+          </Link>
         </div>
-
-        {evaluationUrl && (
-          <div className="w-full max-w-xs sm:max-w-sm md:max-w-md">
-            <p className="text-xs text-gray-500 text-center mb-2">评价词云</p>
-            <img src={evaluationUrl} alt="评价词云" className="w-full rounded-xl border border-gray-100" />
-          </div>
-        )}
-
-        <Link
-          href="/"
-          className="w-full max-w-xs sm:max-w-sm md:max-w-md py-3 bg-green-500 hover:bg-green-600 text-white font-medium rounded-xl text-center transition-colors shadow-md"
-        >
-          返回首页
-        </Link>
       </main>
     </div>
   );

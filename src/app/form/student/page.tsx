@@ -6,6 +6,7 @@ import { Toaster, toast } from "sonner";
 import { User, CircleAlert } from "lucide-react";
 import NavigationBar from "@/components/NavigationBar";
 import QuickModeBanner from "@/components/QuickModeBanner";
+import FormSteps from "@/components/FormSteps";
 
 interface ExistingProfile {
   tags: string[];
@@ -103,17 +104,20 @@ export default function StudentPage() {
   };
 
   return (
-    <div className="flex flex-col min-h-screen bg-gray-50">
+    <div className="flex flex-col min-h-screen bg-background">
       <Toaster position="top-center" />
       <NavigationBar title="学号验证" showBack />
       <QuickModeBanner />
+      <div className="pt-5">
+        <FormSteps current={1} />
+      </div>
       <main className="flex-1 flex flex-col items-center justify-center px-6 gap-8">
-        <div className="w-20 h-20 rounded-2xl bg-blue-500 flex items-center justify-center shadow-lg">
-          <User size={40} strokeWidth={2} className="text-white" />
+        <div className="w-20 h-20 rounded-2xl bg-brand flex items-center justify-center shadow-lg">
+          <User size={40} strokeWidth={2} className="text-accent" />
         </div>
         <div className="text-center space-y-2">
-          <h1 className="text-xl font-bold text-gray-900">请输入学号</h1>
-          <p className="text-sm text-gray-500">12位数字学号</p>
+          <h1 className="text-xl font-bold text-gray-900 dark:text-gray-100">请输入学号</h1>
+          <p className="text-sm text-gray-500 dark:text-gray-400">12位数字学号</p>
         </div>
         <input
           type="text"
@@ -122,12 +126,12 @@ export default function StudentPage() {
           onKeyDown={(e) => e.key === "Enter" && handleSubmit()}
           placeholder="请输入学号"
           maxLength={12}
-          className="w-full max-w-xs sm:max-w-sm md:max-w-md px-4 py-3 border border-gray-200 rounded-xl text-center text-lg tracking-widest focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-transparent"
+          className="w-full max-w-xs sm:max-w-sm md:max-w-md px-4 py-3 border border-gray-200 dark:border-gray-700 bg-card text-foreground rounded-xl text-center text-lg tracking-widest focus:outline-none focus:ring-2 focus:ring-green-300 focus:border-transparent"
         />
         <button
           onClick={handleSubmit}
           disabled={loading}
-          className="w-full max-w-xs sm:max-w-sm md:max-w-md py-3 bg-blue-500 hover:bg-blue-600 disabled:opacity-50 text-white font-medium rounded-xl transition-colors"
+          className="w-full max-w-xs sm:max-w-sm md:max-w-md py-3 bg-primary hover:bg-primary-strong disabled:opacity-50 text-white font-medium rounded-xl transition-colors"
         >
           {loading ? "验证中..." : "下一步"}
         </button>
