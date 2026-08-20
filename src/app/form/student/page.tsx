@@ -139,7 +139,7 @@ export default function StudentPage() {
               <h3 className="text-lg font-semibold text-gray-900">检测到已有填写记录</h3>
               <p className="text-sm text-gray-500">
                 <span className="font-medium text-gray-700">{confirmData.name}</span>
-                同学，你之前已提交过职业规划信息。
+                同学，你之前已提交过职业探索档案。
               </p>
             </div>
 

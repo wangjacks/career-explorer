@@ -147,7 +147,7 @@ export default function SetupPage() {
               <div className="w-16 h-16 bg-green-100 rounded-2xl flex items-center justify-center mx-auto">
                 <Zap className="w-8 h-8 text-green-600" strokeWidth={2} />
               </div>
-              <h1 className="text-xl font-bold text-gray-900">欢迎使用职业规划小程序</h1>
+              <h1 className="text-xl font-bold text-gray-900">欢迎使用 Career Explorer</h1>
               <p className="text-sm text-gray-500">请选择数据库类型</p>
             </div>
             <div className="grid grid-cols-2 gap-4">

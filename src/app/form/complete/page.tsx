@@ -33,7 +33,7 @@ export default function CompletePage() {
         </div>
         <div className="text-center space-y-3">
           <h1 className="text-2xl font-bold text-gray-900">提交成功！</h1>
-          <p className="text-gray-500">你的职业规划信息已保存</p>
+          <p className="text-gray-500">你的职业探索档案已保存</p>
         </div>
 
         <div className="w-full max-w-xs sm:max-w-sm md:max-w-md bg-white rounded-xl p-4 shadow-sm border border-gray-100 space-y-3">
