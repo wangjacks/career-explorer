@@ -223,7 +223,7 @@ export default function StudentDashboardPage() {
       <Toaster position="top-center" />
       <NavigationBar title="学生面板" showHome />
 
-      <main className="max-w-3xl mx-auto px-4 sm:px-6 py-8 space-y-6">
+      <main className="max-w-3xl mx-auto px-4 sm:px-6 py-8 space-y-6 animate-[fade-in_0.2s_ease-out]">
         {/* 个人信息卡（深绿品牌区） */}
         <div className="bg-brand rounded-xl p-5 shadow-sm">
           <div className="flex items-center gap-4">

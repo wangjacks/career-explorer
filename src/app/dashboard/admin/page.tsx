@@ -191,7 +191,7 @@ export default function AdminPage() {
         </div>
       </div>
 
-      <main className="max-w-6xl mx-auto px-6 py-8 space-y-8">
+      <main className="max-w-6xl mx-auto px-6 py-8 space-y-8 animate-[fade-in_0.2s_ease-out]">
         {/* Not Installed Banner */}
         {installed === false && (
           <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 flex items-center gap-3">

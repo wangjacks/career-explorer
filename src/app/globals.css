@@ -64,6 +64,18 @@ body {
   }
 }
 
+/* 内容区入场动画（面板/表单主内容 animate-[fade-in_...] 引用） */
+@keyframes fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
 /* 动效可及性：尊重系统减少动效偏好 */
 @media (prefers-reduced-motion: reduce) {
   *,
