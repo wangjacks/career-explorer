@@ -70,7 +70,7 @@ export default function UserMenu() {
   };
 
   return (
-    <div className="fixed top-0 right-0 z-40 flex items-center h-12 px-4">
+    <div className="fixed top-0 right-0 z-[45] flex items-center h-12 px-4">
       <div ref={containerRef} className="relative">
         <button
           onClick={() => setOpen((v) => !v)}

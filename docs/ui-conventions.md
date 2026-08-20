@@ -66,8 +66,9 @@
 ## 层级（z-index）
 
 ```
-内容 < 下拉 z-30 < 全局导航（UserMenu）z-40 < 弹窗 z-50 < 沉浸式灯箱 z-[100]
+内容 < 表头 sticky z-10 < 下拉 z-30 < 导航栏 sticky z-40 < UserMenu z-[45] < 弹窗 z-50 < 沉浸式灯箱 z-[100]
 ```
 
+- UserMenu 必须高于导航栏（同处顶栏位置），但低于弹窗（弹窗打开时遮罩覆盖 UserMenu）
 - 弹窗必须高于全局导航，遮罩区域点击不被拦截
-- 粘性元素：NavigationBar `sticky z-50`、表头 `sticky z-10`（卡片内局部）
+- 粘性元素：NavigationBar `sticky z-40`、表头 `sticky z-10`（卡片内局部）
