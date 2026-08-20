@@ -76,11 +76,11 @@ export default function UserMenu() {
           onClick={() => setOpen((v) => !v)}
           aria-expanded={open}
           aria-haspopup="menu"
-          className="flex items-center gap-1 px-3 py-1.5 text-sm font-medium text-gray-700 rounded-lg hover:bg-gray-100 transition-colors"
+          className="flex items-center gap-1 px-3 py-1.5 text-sm font-medium text-white rounded-lg hover:bg-white/15 transition-colors"
         >
           <span className="max-w-24 truncate">{session?.name ?? "未登录"}</span>
           <ChevronDown
-            className={`w-3.5 h-3.5 text-gray-400 transition-transform ${open ? "rotate-180" : ""}`}
+            className={`w-3.5 h-3.5 text-white/70 transition-transform ${open ? "rotate-180" : ""}`}
           />
         </button>
         {open && (
