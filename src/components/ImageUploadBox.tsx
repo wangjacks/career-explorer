@@ -36,7 +36,10 @@ export default function ImageUploadBox({
       toast.error("请选择图片文件");
       return;
     }
-    setPreview(URL.createObjectURL(file));
+    const objectUrl = URL.createObjectURL(file);
+    // createObjectURL 理论上恒生成 blob: 协议；显式前缀校验作为渲染前 guard（防 DOM 重解释）
+    if (!objectUrl.startsWith("blob:")) return;
+    setPreview(objectUrl);
     setPending(true);
     onFileSelected(file);
   };
