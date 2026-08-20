@@ -1,15 +1,38 @@
 @import "tailwindcss";
 
+/* class-based dark mode：通过 .dark class 切换暗色（主题三态切换，见 UserMenu） */
+@custom-variant dark (&:where(.dark, .dark *));
+
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  /* 基础语义色（暖底 + 墨色，暗色下在 .dark 重写） */
+  --background: #fafaf9; /* stone-50 暖底 */
+  --foreground: #1c1917; /* stone-900 墨色 */
+  --surface-card: #ffffff; /* 卡片底 */
+  --border-soft: #e7e5e4; /* stone-200 软边框 */
+  /* 品牌色（暗色下在 .dark 提亮） */
+  --brand: #065f46; /* emerald-800 品牌深绿 */
+  --accent: #f59e0b; /* amber-500 能量琥珀 */
+}
+
+.dark {
+  --background: #0d1210; /* 深灰绿带品牌绿调（不用纯黑） */
+  --foreground: #e7e5e4; /* stone-200 浅色文字 */
+  --surface-card: #16201c; /* 暗卡片 */
+  --border-soft: #2a3833; /* 暗边框 */
+  --brand: #059669; /* emerald-600 暗色提亮，避免深底糊成一片 */
+  --accent: #fbbf24; /* amber-400 暗色提亮 */
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
+  --color-card: var(--surface-card);
+  --color-border-soft: var(--border-soft);
   --font-sans: var(--font-misans), "PingFang SC", "Microsoft YaHei", sans-serif;
   --font-mono: ui-monospace, "SF Mono", "Cascadia Mono", Consolas, monospace;
+  /* 品牌色 token（引用 :root/.dark 变量，暗色自动提亮） */
+  --color-brand: var(--brand);
+  --color-accent: var(--accent);
   /* 语义色 token（约束增量代码；存量 green-* 硬编码不强制迁移，见 docs/ui-conventions.md） */
   --color-primary: var(--color-green-600);
   --color-primary-strong: var(--color-green-700);
@@ -18,6 +41,10 @@
   --color-info: var(--color-blue-500);
   --color-warning: var(--color-amber-500);
   --color-danger: var(--color-red-500);
+  /* 标签三色（三维度色彩编码，>3 类循环取色） */
+  --tag-interest: #059669;
+  --tag-skill: #0284c7;
+  --tag-personality: #f59e0b;
 }
 
 body {

@@ -1,21 +1,48 @@
 # UI 组件规范
 
 > 本规范是 UI/UX 一致性收敛的依据。存量代码逐步对齐，增量代码必须遵守。
-> 设计基调：收敛优先于创造——绿色品牌色 + MiSans 字体已定调，不引入新视觉方向。
+> 设计基调：深翡翠绿 + 琥珀能量色品牌色系统 + MiSans 字体；全站大胆统一，只守数据可用底线。详见 docs/plan-v2.0.0-uiux.md。
 
 ## 色彩语义
 
+### 品牌色 token v2
+
+| 语义 | Token | 色值（浅/暗） | 用途 |
+|---|---|---|---|
+| 品牌深绿 | `--color-brand` | `#065f46` / 暗色提亮 `#059669` | hero 底、顶栏、主标题 |
+| 能量琥珀 | `--color-accent` | `#f59e0b` / 暗色提亮 `#fbbf24` | 指南针、CTA、点缀（不作小字） |
+| 背景 | `--color-background` | `#fafaf9` / `#0d1210` | 页面底 |
+| 卡片底 | `--color-card` | `#ffffff` / `#16201c` | 内容卡片 |
+| 软边框 | `--color-border-soft` | `#e7e5e4` / `#2a3833` | 卡片/分隔线 |
+| 墨色 | `--color-foreground` | `#1c1917` / `#e7e5e4` | 标题/正文 |
+
+### 功能色 token
+
 | 语义 | Token | 色阶 | 用途 |
 |---|---|---|---|
-| 品牌/主操作 | `--color-primary` | green-600 | 主按钮、激活态、链接强调 |
+| 主操作 | `--color-primary` | green-600 | 主按钮、激活态、链接强调 |
 | 主操作悬停 | `--color-primary-strong` | green-700 | hover 加深 |
 | 品牌浅底 | `--color-primary-soft` | green-50 | 选中底色、标签浅底 |
 | 焦点环 | `--color-focus-ring` | green-300 | `focus:ring-2 focus:ring-green-300` |
-| 信息/批量 | `--color-info` | blue-500 | 批量操作按钮、信息提示（快速提交横幅） |
+| 信息/批量 | `--color-info` | blue-500 | 批量操作按钮、信息提示 |
 | 警告/凭据 | `--color-warning` | amber-500 | 警告提示、凭据展示、重置密码 |
 | 危险/删除 | `--color-danger` | red-500 | 删除、错误态 |
 
-灰阶层级：`gray-900` 标题 / `gray-800` 卡片标题 / `gray-600` 正文 / `gray-500` 次要 / `gray-400` 辅助与占位。
+### 标签三色（三维度色彩编码，>3 类循环取色）
+
+| 维度 | Token | 色值 |
+|---|---|---|
+| 兴趣 | `--tag-interest` | `#059669` |
+| 技能 | `--tag-skill` | `#0284c7` |
+| 性格 | `--tag-personality` | `#f59e0b` |
+
+### 暗色主题
+
+- class-based dark：`@custom-variant dark (&:where(.dark, .dark *))`，三态切换（浅色/深色/跟随系统）经 UserMenu + localStorage `theme`
+- 品牌色在 `.dark` 下提亮（深绿顶栏用 emerald-600，琥珀用 amber-400），避免深底糊成一片
+- 暗色对比度需重新过 WCAG AA
+
+灰阶层级：`gray-900` 标题 / `gray-800` 卡片标题 / `gray-600` 正文 / `gray-500` 次要 / `gray-400` 仅纯装饰（占位/辅助文字对比不足，逐步收敛至 gray-500+）。
 
 存量代码中的 `green-*` 硬编码（240+ 处）不强制迁移；新代码优先使用语义 token。
 
