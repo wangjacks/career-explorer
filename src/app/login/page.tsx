@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import { Compass } from "lucide-react";
 import { useSession } from "@/hooks/useSession";
 import NavigationBar from "@/components/NavigationBar";
 
@@ -68,6 +69,9 @@ export default function LoginPage() {
       <main className="min-h-[calc(100vh-3rem)] flex items-center justify-center px-4">
         <div className="w-full max-w-sm sm:max-w-md bg-white rounded-2xl shadow-sm border border-gray-100 p-8 space-y-6">
           <div className="text-center">
+            <div className="w-12 h-12 rounded-xl bg-green-500 flex items-center justify-center mx-auto mb-3 shadow-sm">
+              <Compass size={24} strokeWidth={2} className="text-white" />
+            </div>
             <h1 className="text-xl font-bold text-gray-900">登录</h1>
             <p className="text-sm text-gray-500 mt-1">使用编号和密码登录（管理员 / 教师 / 学生）</p>
           </div>
