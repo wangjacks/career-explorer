@@ -59,7 +59,11 @@
 
 依赖 token 层 v2（同套语义变量换暗色值），与品牌色一次建好避免返工。具体见 1A（暗色变量）/1C（UserMenu 三态切换）/1D（防闪烁）。暗色配色：背景深灰绿带品牌绿调（不用纯黑）；深绿顶栏在暗色下提亮（用更亮的 emerald 系，避免糊成一片），琥珀用更亮的 amber-400。
 
-## 阶段二 spec：内部页面（调查后精确版）
+## 阶段二：内部页面（已完成 ✅）
+
+> 已交付：表单流程情绪化（FormSteps 步骤进度 + 各页 dark + 提交成功深绿 hero + TagSelector 微交互）、学生面板品牌强化（深绿品牌区 + 三色标签 + dark）、管理端品牌化（页面框架 bg-background + StatCard dark + 分组导航品牌色激活态）、管理端 Tab 组件 dark 适配（AdminUI/ConfirmDialog/OverviewTab/DashboardTab/SettingsTab/StudentsTab/ClassesTab/TeachersTab/ExportTab/TagsTab/ProfilesTab/TeacherHomeTab/ClassOverviewTable 共 13 个）、动效编排（fade-in 入场，尊重 reduced-motion）。
+
+## 阶段二 spec 存档（调查后精确版）
 
 > 阶段二核心：把品牌色 + 暗色主题从「门面」铺到「内部页」。阶段一只改了公开页（首页/登录/注册/关于）与全局组件；**form 流程、学生面板、管理端内容区仍是 bg-gray-50/bg-white 硬编码，暗色主题下完全不生效**。本阶段补齐。
 
@@ -151,8 +155,8 @@
 
 ## 提交拆分
 
-- 阶段一：`feat: 品牌色 token v2 + 暗色变量基础`、`feat: NavigationBar 品牌深绿顶栏 + UserMenu 适配`、`feat: 首页重做——大字报深绿 hero`、`feat: 登录注册深绿 hero + 标签三色系统`、`feat: 暗色主题三态切换（UserMenu 入口 + 防闪烁）`
-- 阶段二：另行拆分（表单/学生面板/管理端/动效）
+- 阶段一（已完成）：`feat: 品牌色 token v2 + 暗色变量基础`、`feat: NavigationBar 品牌深绿顶栏 + UserMenu 适配`、`feat: 首页重做——大字报深绿 hero`、`feat: 登录注册深绿 hero + 标签三色系统`、`feat: 暗色主题三态切换（UserMenu 入口 + 防闪烁）`
+- 阶段二（已完成）：`feat: 表单流程情绪化——步骤进度 + dark 适配 + 提交成功深绿 hero`、`feat: 学生面板品牌强化——深绿品牌区 + 三色标签 + dark 适配`、`feat: 管理端品牌化——页面框架 + StatCard + 分组导航`、`feat: 管理端 Tab 组件 dark 适配（批量）`、`feat: 动效编排——内容区入场 fade-in 动画`
 
 每 commit 后 tsc/eslint；每阶段末 build 全绿 + 用户视觉确认后再推进下一阶段。
 
