@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
+import { ClipboardList, Tag, Flame } from "lucide-react";
 import { StatCard } from "./AdminUI";
 import ClassOverviewTable from "./ClassOverviewTable";
 import ProfilesTab from "./ProfilesTab";
@@ -56,9 +57,7 @@ export default function OverviewTab({ installed, loadStats, loadProfiles, studen
             color="emerald"
             sub={`今日 +${stats.today}`}
             icon={
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
-              </svg>
+              <ClipboardList className="w-5 h-5" strokeWidth={1.5} />
             }
           />
           <StatCard
@@ -66,10 +65,7 @@ export default function OverviewTab({ installed, loadStats, loadProfiles, studen
             value={stats.uniqueTags}
             color="blue"
             icon={
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9.568 3H5.25A2.25 2.25 0 003 5.25v4.318c0 .597.237 1.17.659 1.591l9.581 9.581c.699.699 1.78.872 2.607.33a18.095 18.095 0 005.223-5.223c.542-.827.369-1.908-.33-2.607L11.16 3.66A2.25 2.25 0 009.568 3z" />
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M6 6h.008v.008H6V6z" />
-              </svg>
+              <Tag className="w-5 h-5" strokeWidth={1.5} />
             }
           />
           <div className="bg-white rounded-xl border border-gray-100 overflow-hidden hover:-translate-y-1 hover:shadow-lg transition-all duration-200 shadow-sm">
@@ -78,9 +74,7 @@ export default function OverviewTab({ installed, loadStats, loadProfiles, studen
               <div className="flex items-center justify-between mb-3">
                 <p className="text-sm font-medium text-gray-500">热门标签</p>
                 <div className="w-10 h-10 rounded-xl bg-amber-100 text-amber-600 flex items-center justify-center">
-                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15.362 5.214A8.252 8.252 0 0112 21 8.252 8.252 0 016.038 7.048 8.287 8.287 0 009 9.6a8.983 8.983 0 013.361-6.867 8.21 8.21 0 003 2.48z" />
-                  </svg>
+                  <Flame className="w-5 h-5" strokeWidth={1.5} />
                 </div>
               </div>
               <div className="space-y-2">

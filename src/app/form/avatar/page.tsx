@@ -3,6 +3,7 @@
 import { useState, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { Toaster, toast } from "sonner";
+import { User } from "lucide-react";
 import NavigationBar from "@/components/NavigationBar";
 import QuickModeBanner from "@/components/QuickModeBanner";
 import { safeImageUrl } from "@/lib/sanitize";
@@ -101,10 +102,7 @@ export default function AvatarPage() {
             <img src={imageUrl} alt="头像预览" className="w-full h-full object-cover" />
           ) : (
             <div className="flex flex-col items-center gap-2 text-gray-400">
-              <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2" />
-                <circle cx="12" cy="7" r="4" />
-              </svg>
+              <User size={48} strokeWidth={1.5} />
               <span className="text-sm">点击选择头像</span>
             </div>
           )}

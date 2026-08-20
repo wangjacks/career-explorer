@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import { Check } from "lucide-react";
 import NavigationBar from "@/components/NavigationBar";
 import QuickModeBanner from "@/components/QuickModeBanner";
 import { safeImageUrl } from "@/lib/sanitize";
@@ -28,9 +29,7 @@ export default function CompletePage() {
       <QuickModeBanner />
       <main className="flex-1 flex flex-col items-center justify-center px-6 gap-8">
         <div className="w-20 h-20 rounded-full bg-green-500 flex items-center justify-center shadow-lg">
-          <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
-            <polyline points="20 6 9 17 4 12" />
-          </svg>
+          <Check size={40} strokeWidth={3} className="text-white" />
         </div>
         <div className="text-center space-y-3">
           <h1 className="text-2xl font-bold text-gray-900">提交成功！</h1>

@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Toaster, toast } from "sonner";
+import { User, CircleAlert } from "lucide-react";
 import NavigationBar from "@/components/NavigationBar";
 import QuickModeBanner from "@/components/QuickModeBanner";
 
@@ -103,19 +104,7 @@ export default function StudentPage() {
       <QuickModeBanner />
       <main className="flex-1 flex flex-col items-center justify-center px-6 gap-8">
         <div className="w-20 h-20 rounded-2xl bg-blue-500 flex items-center justify-center shadow-lg">
-          <svg
-            width="40"
-            height="40"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="white"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          >
-            <path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2" />
-            <circle cx="12" cy="7" r="4" />
-          </svg>
+          <User size={40} strokeWidth={2} className="text-white" />
         </div>
         <div className="text-center space-y-2">
           <h1 className="text-xl font-bold text-gray-900">请输入学号</h1>
@@ -145,10 +134,7 @@ export default function StudentPage() {
           <div className="bg-white rounded-2xl shadow-xl max-w-sm sm:max-w-md w-full p-6 space-y-5">
             <div className="text-center space-y-2">
               <div className="w-14 h-14 mx-auto rounded-full bg-amber-100 flex items-center justify-center">
-                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#d97706" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <circle cx="12" cy="12" r="10" />
-                  <path d="M12 8v4M12 16h.01" />
-                </svg>
+                <CircleAlert size={28} className="text-amber-600" />
               </div>
               <h3 className="text-lg font-semibold text-gray-900">检测到已有填写记录</h3>
               <p className="text-sm text-gray-500">

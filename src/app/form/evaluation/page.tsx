@@ -3,6 +3,7 @@
 import { useState, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { Toaster, toast } from "sonner";
+import { Image as ImageIcon } from "lucide-react";
 import NavigationBar from "@/components/NavigationBar";
 import QuickModeBanner from "@/components/QuickModeBanner";
 import { safeImageUrl } from "@/lib/sanitize";
@@ -76,11 +77,7 @@ export default function EvaluationPage() {
             <img src={imageUrl} alt="评价词云预览" className="w-full h-full object-contain" />
           ) : (
             <div className="flex flex-col items-center gap-2 text-gray-400">
-              <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
-                <circle cx="8.5" cy="8.5" r="1.5" />
-                <polyline points="21 15 16 10 5 21" />
-              </svg>
+              <ImageIcon size={48} strokeWidth={1.5} />
               <span className="text-sm">点击上传评价词云图片</span>
               <span className="text-xs text-gray-300">支持 JPG、PNG、WebP 等格式</span>
             </div>

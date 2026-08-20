@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Toaster, toast } from "sonner";
+import { SquarePen, X } from "lucide-react";
 import NavigationBar from "@/components/NavigationBar";
 import ConfirmDialog from "@/components/admin/ConfirmDialog";
 import TagSelector, { type TagCategory } from "@/components/TagSelector";
@@ -293,9 +294,7 @@ export default function StudentDashboardPage() {
               /* 从未提交：引导卡 */
               <div className="bg-white rounded-xl border border-gray-100 p-8 text-center space-y-4">
                 <div className="w-14 h-14 bg-green-100 rounded-2xl flex items-center justify-center mx-auto">
-                  <svg className="w-7 h-7 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-                  </svg>
+                  <SquarePen className="w-7 h-7 text-green-600" strokeWidth={2} />
                 </div>
                 <div>
                   <h2 className="text-base font-semibold text-gray-800">你还没有提交职业探索档案</h2>
@@ -388,9 +387,7 @@ export default function StudentDashboardPage() {
             aria-label="关闭预览"
             className="absolute top-4 right-4 w-9 h-9 rounded-full bg-white/15 hover:bg-white/30 text-white flex items-center justify-center transition-colors"
           >
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-            </svg>
+            <X className="w-5 h-5" />
           </button>
         </div>
       )}

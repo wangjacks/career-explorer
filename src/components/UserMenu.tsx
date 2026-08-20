@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
+import { ChevronDown } from "lucide-react";
 import { useSession } from "@/hooks/useSession";
 
 const ROLE_LABEL: Record<string, string> = {
@@ -78,14 +79,9 @@ export default function UserMenu() {
           className="flex items-center gap-1 px-3 py-1.5 text-sm font-medium text-gray-700 rounded-lg hover:bg-gray-100 transition-colors"
         >
           <span className="max-w-24 truncate">{session?.name ?? "未登录"}</span>
-          <svg
+          <ChevronDown
             className={`w-3.5 h-3.5 text-gray-400 transition-transform ${open ? "rotate-180" : ""}`}
-            fill="none"
-            stroke="currentColor"
-            viewBox="0 0 24 24"
-          >
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-          </svg>
+          />
         </button>
         {open && (
           <div role="menu" className="absolute right-0 top-full mt-2 w-48 bg-white rounded-xl shadow-lg border border-gray-100 py-2">

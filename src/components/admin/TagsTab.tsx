@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
+import { ChevronDown, ChevronUp } from "lucide-react";
 
 interface TagItem {
   id: number;
@@ -214,9 +215,7 @@ export default function TagsTab() {
         <span className={selectedId ? "text-gray-800" : "text-gray-400"}>
           {selectedId ? filtered.find((c) => c.id === Number(selectedId))?.name || "所属分类" : "所属分类"}
         </span>
-        <svg className={`w-3.5 h-3.5 text-gray-400 transition-transform ${open ? "rotate-180" : ""}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-        </svg>
+        <ChevronDown className={`w-3.5 h-3.5 text-gray-400 transition-transform ${open ? "rotate-180" : ""}`} />
       </button>
       {open && (
         <div className="absolute top-full left-0 mt-1 w-56 bg-white rounded-xl border border-gray-200 shadow-lg z-30">
@@ -265,11 +264,7 @@ export default function TagsTab() {
       title={title}
       className="inline-flex items-center justify-center w-6 h-6 rounded-md text-gray-400 hover:text-green-600 hover:bg-green-50 transition-colors flex-shrink-0"
     >
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-        {dir === "up"
-          ? <path d="M18 15l-6-6-6 6" />
-          : <path d="M6 9l6 6 6-6" />}
-      </svg>
+      {dir === "up" ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
     </button>
   );
 

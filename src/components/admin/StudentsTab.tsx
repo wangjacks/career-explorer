@@ -2,6 +2,7 @@
 
 import { useState, useRef, useEffect, useMemo } from "react";
 import { toast } from "sonner";
+import { ChevronDown } from "lucide-react";
 import { Field } from "./AdminUI";
 import ConfirmDialog from "./ConfirmDialog";
 import type { Student } from "@/hooks/useAdminAuth";
@@ -572,14 +573,9 @@ export default function StudentsTab({ students, loadError, onRetry, onStudentsCh
                     {selectedClasses.size}
                   </span>
                 )}
-                <svg
+                <ChevronDown
                   className={`w-3 h-3 transition-transform ${classDropdownOpen ? "rotate-180" : ""}`}
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                >
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                </svg>
+                />
               </button>
               {classDropdownOpen && (
                 <div className="absolute top-full left-0 mt-1 w-64 bg-white rounded-xl border border-gray-200 shadow-lg z-30">
