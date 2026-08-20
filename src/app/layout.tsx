@@ -1,6 +1,5 @@
 import type { Metadata, Viewport } from "next";
 import localFont from "next/font/local";
-import { InstallGuard } from "@/components/InstallGuard";
 import ErrorBoundary from "@/components/ErrorBoundary";
 import UserMenu from "@/components/UserMenu";
 import "./globals.css";
@@ -46,10 +45,8 @@ export default function RootLayout({
       />
       <body className="min-h-full flex flex-col">
         <ErrorBoundary>
-          <InstallGuard>
-            <UserMenu />
-            {children}
-          </InstallGuard>
+          <UserMenu />
+          {children}
         </ErrorBoundary>
       </body>
     </html>
