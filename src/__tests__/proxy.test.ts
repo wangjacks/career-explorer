@@ -17,9 +17,9 @@ function createRequest(path: string, cookies?: Record<string, string>, method = 
 
 describe("proxy", () => {
   describe("config.matcher", () => {
-    it("should match admin pages and admin API routes", () => {
+    it("should match admin pages and manage API routes", () => {
       expect(config.matcher).toEqual(
-        expect.arrayContaining(["/dashboard/admin/:path*", "/api/admin/:path*"])
+        expect.arrayContaining(["/dashboard/admin/:path*", "/api/manage/:path*"])
       );
     });
   });
@@ -40,7 +40,7 @@ describe("proxy", () => {
 
   describe("API route authentication", () => {
     it("should return 401 when no token is provided", async () => {
-      const req = createRequest("/api/admin/students");
+      const req = createRequest("/api/manage/students");
       const res = await proxy(req);
       expect(res.status).toBe(401);
       const body = await res.json();
@@ -49,13 +49,13 @@ describe("proxy", () => {
 
     it("should allow access with valid admin token", async () => {
       const token = await signToken({ role: "admin", uid: 1, name: "管理员" });
-      const req = createRequest("/api/admin/students", { auth_token: token });
+      const req = createRequest("/api/manage/students", { auth_token: token });
       const res = await proxy(req);
       expect(res.status).toBe(200);
     });
 
     it("should return 401 and clear cookie with invalid token", async () => {
-      const req = createRequest("/api/admin/students", { auth_token: "invalid-token" });
+      const req = createRequest("/api/manage/students", { auth_token: "invalid-token" });
       const res = await proxy(req);
 
       expect(res.status).toBe(401);
@@ -68,108 +68,71 @@ describe("proxy", () => {
     });
   });
 
-  describe("role permission", () => {
-    it("should return 403 for student token on /api/admin/*", async () => {
-      const token = await signToken({ role: "student", uid: 2, name: "测试学生" });
-      const req = createRequest("/api/admin/students", { auth_token: token });
-      const res = await proxy(req);
-      expect(res.status).toBe(403);
-      const body = await res.json();
-      expect(body.error).toBe("Forbidden");
+  describe("admin role", () => {
+    it("should allow admin all methods on admin-only routes", async () => {
+      const token = await signToken({ role: "admin", uid: 1, name: "管理员" });
+      for (const path of ["/api/manage/teachers", "/api/manage/settings", "/api/manage/backup", "/api/manage/test-db"]) {
+        const res = await proxy(createRequest(path, { auth_token: token }, "POST"));
+        expect(res.status).toBe(200);
+      }
+    });
+  });
+
+  describe("teacher role", () => {
+    it("should allow teacher all methods on classes/students/tags/export", async () => {
+      const token = await signToken({ role: "teacher", uid: 3, name: "测试教师" });
+      const paths = [
+        "/api/manage/classes",
+        "/api/manage/students",
+        "/api/manage/students/batch-password",
+        "/api/manage/tags",
+        "/api/manage/export",
+        "/api/manage/export-images",
+      ];
+      for (const path of paths) {
+        for (const method of ["GET", "POST", "PUT", "DELETE"]) {
+          const res = await proxy(createRequest(path, { auth_token: token }, method));
+          expect(res.status).toBe(200);
+        }
+      }
     });
 
-    it("should return 403 for teacher token on non-whitelisted /api/admin/*", async () => {
+    it("should allow teacher GET-only on stats (including sub routes)", async () => {
       const token = await signToken({ role: "teacher", uid: 3, name: "测试教师" });
-      const req = createRequest("/api/admin/settings", { auth_token: token });
-      const res = await proxy(req);
-      expect(res.status).toBe(403);
+      for (const path of ["/api/manage/stats", "/api/manage/stats/trends", "/api/manage/stats/distribution", "/api/manage/stats/compare"]) {
+        const getRes = await proxy(createRequest(path, { auth_token: token }, "GET"));
+        expect(getRes.status).toBe(200);
+        const postRes = await proxy(createRequest(path, { auth_token: token }, "POST"));
+        expect(postRes.status).toBe(403);
+      }
     });
 
-    it("should return 403 for teacher token on /api/admin/teachers*", async () => {
+    it("should allow teacher GET and DELETE on profiles but reject other methods", async () => {
       const token = await signToken({ role: "teacher", uid: 3, name: "测试教师" });
-      const req = createRequest("/api/admin/teachers", { auth_token: token });
-      const res = await proxy(req);
-      expect(res.status).toBe(403);
-    });
-
-    it("should allow teacher token on /api/admin/classes*", async () => {
-      const token = await signToken({ role: "teacher", uid: 3, name: "测试教师" });
-      const req = createRequest("/api/admin/classes", { auth_token: token });
-      const res = await proxy(req);
-      expect(res.status).toBe(200);
-    });
-
-    it("should allow teacher all methods on /api/admin/students*", async () => {
-      const token = await signToken({ role: "teacher", uid: 3, name: "测试教师" });
-      const getRes = await proxy(createRequest("/api/admin/students", { auth_token: token }, "GET"));
+      const getRes = await proxy(createRequest("/api/manage/profiles", { auth_token: token }, "GET"));
       expect(getRes.status).toBe(200);
-      const postRes = await proxy(createRequest("/api/admin/students", { auth_token: token }, "POST"));
-      expect(postRes.status).toBe(200);
-      const putRes = await proxy(createRequest("/api/admin/students", { auth_token: token }, "PUT"));
-      expect(putRes.status).toBe(200);
-      const deleteRes = await proxy(createRequest("/api/admin/students", { auth_token: token }, "DELETE"));
+      const deleteRes = await proxy(createRequest("/api/manage/profiles", { auth_token: token }, "DELETE"));
       expect(deleteRes.status).toBe(200);
-      const batchRes = await proxy(
-        createRequest("/api/admin/students/batch-password", { auth_token: token }, "POST")
-      );
-      expect(batchRes.status).toBe(200);
-    });
-
-    it("should allow teacher GET on /api/admin/stats* but reject writes", async () => {
-      const token = await signToken({ role: "teacher", uid: 3, name: "测试教师" });
-      const getRes = await proxy(createRequest("/api/admin/stats", { auth_token: token }, "GET"));
-      expect(getRes.status).toBe(200);
-      const trendsRes = await proxy(createRequest("/api/admin/stats/trends", { auth_token: token }, "GET"));
-      expect(trendsRes.status).toBe(200);
-      const postRes = await proxy(createRequest("/api/admin/stats", { auth_token: token }, "POST"));
+      const postRes = await proxy(createRequest("/api/manage/profiles", { auth_token: token }, "POST"));
       expect(postRes.status).toBe(403);
     });
 
-    it("should allow teacher GET and DELETE on /api/admin/profiles but reject other methods", async () => {
+    it("should return 403 for teacher on admin-only routes", async () => {
       const token = await signToken({ role: "teacher", uid: 3, name: "测试教师" });
-      const getRes = await proxy(createRequest("/api/admin/profiles", { auth_token: token }, "GET"));
-      expect(getRes.status).toBe(200);
-      const deleteRes = await proxy(createRequest("/api/admin/profiles", { auth_token: token }, "DELETE"));
-      expect(deleteRes.status).toBe(200);
-      const postRes = await proxy(createRequest("/api/admin/profiles", { auth_token: token }, "POST"));
-      expect(postRes.status).toBe(403);
+      for (const path of ["/api/manage/teachers", "/api/manage/settings", "/api/manage/backup", "/api/manage/test-db"]) {
+        const res = await proxy(createRequest(path, { auth_token: token }, "GET"));
+        expect(res.status).toBe(403);
+      }
     });
+  });
 
-    it("should allow teacher all methods on /api/admin/tags*", async () => {
-      const token = await signToken({ role: "teacher", uid: 3, name: "测试教师" });
-      const getRes = await proxy(createRequest("/api/admin/tags", { auth_token: token }, "GET"));
-      expect(getRes.status).toBe(200);
-      const postRes = await proxy(createRequest("/api/admin/tags", { auth_token: token }, "POST"));
-      expect(postRes.status).toBe(200);
-      const patchRes = await proxy(createRequest("/api/admin/tags", { auth_token: token }, "PATCH"));
-      expect(patchRes.status).toBe(200);
-      const deleteRes = await proxy(createRequest("/api/admin/tags", { auth_token: token }, "DELETE"));
-      expect(deleteRes.status).toBe(200);
-    });
-
-    it("should allow teacher on /api/admin/export*", async () => {
-      const token = await signToken({ role: "teacher", uid: 3, name: "测试教师" });
-      const getRes = await proxy(createRequest("/api/admin/export", { auth_token: token }, "GET"));
-      expect(getRes.status).toBe(200);
-      const postRes = await proxy(createRequest("/api/admin/export", { auth_token: token }, "POST"));
-      expect(postRes.status).toBe(200);
-      const imagesRes = await proxy(createRequest("/api/admin/export-images", { auth_token: token }, "GET"));
-      expect(imagesRes.status).toBe(200);
-    });
-
-    it("should return 403 for student token on teacher-allowed paths", async () => {
+  describe("student role", () => {
+    it("should return 403 for student token on /api/manage/*", async () => {
       const token = await signToken({ role: "student", uid: 2, name: "测试学生" });
-      const statsRes = await proxy(createRequest("/api/admin/stats", { auth_token: token }, "GET"));
-      expect(statsRes.status).toBe(403);
-      const tagsRes = await proxy(createRequest("/api/admin/tags", { auth_token: token }, "GET"));
-      expect(tagsRes.status).toBe(403);
-    });
-
-    it("should return 403 for student token on /api/admin/classes", async () => {
-      const token = await signToken({ role: "student", uid: 2, name: "测试学生" });
-      const req = createRequest("/api/admin/classes", { auth_token: token });
-      const res = await proxy(req);
-      expect(res.status).toBe(403);
+      for (const path of ["/api/manage/students", "/api/manage/classes", "/api/manage/stats", "/api/manage/settings"]) {
+        const res = await proxy(createRequest(path, { auth_token: token }, "GET"));
+        expect(res.status).toBe(403);
+      }
     });
   });
 
