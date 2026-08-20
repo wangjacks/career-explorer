@@ -8,24 +8,29 @@ export const dynamic = "force-dynamic";
 
 export default function IndexPage() {
   return (
-    <div className="flex flex-col min-h-screen bg-gradient-to-b from-green-50 to-white pb-16 md:pb-0">
+    <div className="flex flex-col min-h-screen bg-background pb-16 md:pb-0">
       <NavigationBar title="Career Explorer" showHome />
-      <main className="flex-1 flex flex-col items-center justify-center px-6 gap-8">
-        <div className="w-20 h-20 rounded-2xl bg-green-500 flex items-center justify-center shadow-lg">
-          <Compass size={40} strokeWidth={2} className="text-white" />
-        </div>
-        <div className="text-center space-y-3">
-          <h1 className="text-2xl font-bold text-gray-900">职业探索</h1>
-          <p className="text-gray-500 text-base">
-            开始你的职业探索之旅
-          </p>
-        </div>
-        <Link
-          href="/form/student"
-          className="w-full max-w-xs sm:max-w-sm md:max-w-md py-3 bg-green-500 hover:bg-green-600 text-white font-medium rounded-xl text-center transition-colors shadow-md"
-        >
-          开始探索
-        </Link>
+      <main className="flex-1">
+        {/* 大字报深绿 hero：品牌深绿底 + 白字大标题 + 琥珀指南针装饰 */}
+        <section className="bg-brand text-white">
+          <div className="max-w-5xl mx-auto px-6 py-20 sm:py-28 space-y-6">
+            <Compass size={48} strokeWidth={1.5} className="text-accent" aria-hidden />
+            <h1 className="text-4xl sm:text-5xl font-extrabold tracking-tight leading-tight">
+              找到属于你的
+              <br className="hidden sm:block" />
+              职业方向
+            </h1>
+            <p className="text-white/80 text-lg max-w-xl leading-relaxed">
+              通过兴趣、技能与性格标签，探索真实的自己，生成一份专属的职业探索档案。
+            </p>
+            <Link
+              href="/form/student"
+              className="inline-block mt-2 px-8 py-3.5 bg-accent text-stone-900 text-base font-semibold rounded-xl hover:brightness-105 transition-all shadow-lg"
+            >
+              开始探索
+            </Link>
+          </div>
+        </section>
       </main>
       <SiteFooter />
     </div>
