@@ -34,7 +34,7 @@ export default function TeacherDashboardPage() {
   // 教师面板不复用 useAdminAuth（其登录检测仅认 admin），直接拉取数据（teacher 已放行）
   const refreshStudents = useCallback(async () => {
     try {
-      const res = await fetch("/api/admin/students");
+      const res = await fetch("/api/manage/students");
       if (!res.ok) throw new Error("加载学生失败");
       const data = await res.json();
       setStudents(data.data || []);
@@ -47,7 +47,7 @@ export default function TeacherDashboardPage() {
 
   const loadStats = useCallback(async (): Promise<Stats | null> => {
     try {
-      const res = await fetch("/api/admin/stats");
+      const res = await fetch("/api/manage/stats");
       if (res.ok) return await res.json();
     } catch (err) {
       console.error("Failed to load stats:", err);
@@ -57,7 +57,7 @@ export default function TeacherDashboardPage() {
 
   const loadProfiles = useCallback(async (p: number): Promise<PagedData | null> => {
     try {
-      const res = await fetch(`/api/admin/profiles?page=${p}`);
+      const res = await fetch(`/api/manage/profiles?page=${p}`);
       if (res.ok) return await res.json();
     } catch (err) {
       console.error("Failed to load profiles:", err);

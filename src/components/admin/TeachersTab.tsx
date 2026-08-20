@@ -98,7 +98,7 @@ export default function TeachersTab() {
   const refresh = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch("/api/admin/teachers");
+      const res = await fetch("/api/manage/teachers");
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "获取教师列表失败");
       setTeachers(data.data || []);
@@ -123,7 +123,7 @@ export default function TeachersTab() {
     if (!name) return toast.warning("请输入姓名");
     if (newPassword.length < 8) return toast.warning("密码须至少 8 位（可点「自动生成」）");
     try {
-      const res = await fetch("/api/admin/teachers", {
+      const res = await fetch("/api/manage/teachers", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ userCode: code, name, password: newPassword }),
@@ -144,7 +144,7 @@ export default function TeachersTab() {
     if (!resetting) return;
     if (resetPassword.length < 8) return toast.warning("密码须至少 8 位（可点「自动生成」）");
     try {
-      const res = await fetch(`/api/admin/teachers/${resetting.id}`, {
+      const res = await fetch(`/api/manage/teachers/${resetting.id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ password: resetPassword }),
@@ -164,7 +164,7 @@ export default function TeachersTab() {
     const name = renameValue.trim();
     if (!name) return toast.warning("请输入姓名");
     try {
-      const res = await fetch(`/api/admin/teachers/${renaming.id}`, {
+      const res = await fetch(`/api/manage/teachers/${renaming.id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name }),
@@ -182,7 +182,7 @@ export default function TeachersTab() {
   const deleteTeacher = async () => {
     if (!deleting) return;
     try {
-      const res = await fetch(`/api/admin/teachers/${deleting.id}`, { method: "DELETE" });
+      const res = await fetch(`/api/manage/teachers/${deleting.id}`, { method: "DELETE" });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "删除失败");
       toast.success(`教师「${deleting.name}」已删除`);

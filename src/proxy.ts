@@ -1,6 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
 import { verifyToken } from "@/lib/token";
 
+/** 声明式权限表：teacher 可用的 manage 路由（前缀 + 允许的 HTTP 方法） */
+const TEACHER_ALLOWED: { prefix: string; methods: "all" | string[] }[] = [
+  { prefix: "/api/manage/classes", methods: "all" },
+  { prefix: "/api/manage/students", methods: "all" },
+  { prefix: "/api/manage/tags", methods: "all" },
+  { prefix: "/api/manage/export", methods: "all" }, // startsWith 覆盖 export-images
+  { prefix: "/api/manage/stats", methods: ["GET"] },
+  { prefix: "/api/manage/profiles", methods: ["GET", "DELETE"] },
+];
+
 export async function proxy(request: NextRequest) {
   // Page routes: let client-side handle login state (via GET /api/auth)
   if (!request.nextUrl.pathname.startsWith("/api/")) {
@@ -24,34 +34,26 @@ export async function proxy(request: NextRequest) {
     return response;
   }
 
-  // /api/admin/* 默认仅 admin；例外：
-  // - /api/admin/classes*：admin + teacher（班级管理，步骤 8）
-  // - /api/admin/students*：admin + teacher（教师可管理所有班级学生，步骤 10）
-  // - /api/admin/stats*：teacher 仅 GET 只读；/api/admin/profiles：teacher GET+DELETE（数据列表）
-  // - /api/admin/tags*、/api/admin/export*：admin + teacher（标签管理、数据导出）
-  // - /api/admin/teachers*：仅 admin（教师账户由管理员创建）
-  if (result.role !== "admin") {
-    if (result.role !== "teacher") {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-    }
+  // /api/manage/*：admin 全部放行；teacher 按权限表放行；其余角色 403
+  // /api/shared/*、/api/auth、/api/setup 等不在 matcher 内，由路由自行鉴权
+  if (result.role === "admin") {
+    return NextResponse.next();
+  }
+  if (result.role === "teacher") {
     const { pathname } = request.nextUrl;
-    const method = request.method;
-    const allowed =
-      pathname.startsWith("/api/admin/classes") ||
-      pathname.startsWith("/api/admin/students") ||
-      (pathname.startsWith("/api/admin/stats") && method === "GET") ||
-      (pathname === "/api/admin/profiles" && (method === "GET" || method === "DELETE")) ||
-      pathname.startsWith("/api/admin/tags") ||
-      pathname.startsWith("/api/admin/export");
-    if (!allowed) {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    const allowed = TEACHER_ALLOWED.some(
+      (rule) =>
+        pathname.startsWith(rule.prefix) &&
+        (rule.methods === "all" || rule.methods.includes(request.method))
+    );
+    if (allowed) {
+      return NextResponse.next();
     }
   }
-
-  return NextResponse.next();
+  return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 }
 
 export const config = {
-  // Protect admin pages and admin API routes
-  matcher: ["/dashboard/admin/:path*", "/api/admin/:path*"],
+  // Protect admin pages and manage API routes
+  matcher: ["/dashboard/admin/:path*", "/api/manage/:path*"],
 };

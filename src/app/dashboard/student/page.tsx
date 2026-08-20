@@ -68,7 +68,7 @@ export default function StudentDashboardPage() {
   const loadProfile = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch("/api/profile");
+      const res = await fetch("/api/shared/profile");
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "档案加载失败");
       setProfile(data);
@@ -152,7 +152,7 @@ export default function StudentDashboardPage() {
         ? await uploadImage(evaluationFile, "evaluation")
         : profile!.evaluation_url;
 
-      const res = await fetch("/api/profile", {
+      const res = await fetch("/api/shared/profile", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

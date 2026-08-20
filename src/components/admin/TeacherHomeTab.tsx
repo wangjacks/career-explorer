@@ -25,7 +25,7 @@ export default function TeacherHomeTab({ teacherName, students }: Props) {
   const [now, setNow] = useState(() => new Date());
 
   useEffect(() => {
-    fetch("/api/admin/stats")
+    fetch("/api/manage/stats")
       .then((res) => (res.ok ? res.json() : null))
       .then((data) => {
         if (data) setStats(data);

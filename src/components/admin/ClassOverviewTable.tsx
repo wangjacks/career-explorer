@@ -12,7 +12,7 @@ export default function ClassOverviewTable({ students }: Props) {
   const [classList, setClassList] = useState<{ id: number; name: string }[]>([]);
 
   useEffect(() => {
-    fetch("/api/admin/classes")
+    fetch("/api/manage/classes")
       .then((res) => (res.ok ? res.json() : null))
       .then((data) => {
         if (data) setClassList(data.data || []);
