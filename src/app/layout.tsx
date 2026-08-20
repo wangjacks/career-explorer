@@ -38,6 +38,12 @@ export default function RootLayout({
       lang="zh-CN"
       className={`${miSans.variable} h-full antialiased`}
     >
+      {/* 防闪烁：hydration 前读 localStorage 主题，预设 .dark class（见 useTheme） */}
+      <script
+        dangerouslySetInnerHTML={{
+          __html: `(function(){try{var t=localStorage.getItem('theme')||'system';var d=t==='dark'||(t==='system'&&window.matchMedia('(prefers-color-scheme: dark)').matches);if(d)document.documentElement.classList.add('dark');}catch(e){}})();`,
+        }}
+      />
       <body className="min-h-full flex flex-col">
         <ErrorBoundary>
           <InstallGuard>

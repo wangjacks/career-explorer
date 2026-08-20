@@ -2,8 +2,9 @@
 
 import { useEffect, useRef, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
-import { ChevronDown } from "lucide-react";
+import { ChevronDown, Sun, Moon, Monitor } from "lucide-react";
 import { useSession } from "@/hooks/useSession";
+import { useTheme, type Theme } from "@/hooks/useTheme";
 
 const ROLE_LABEL: Record<string, string> = {
   admin: "管理员",
@@ -40,6 +41,7 @@ export default function UserMenu() {
   const pathname = usePathname();
   const router = useRouter();
   const { session, checking, refresh } = useSession();
+  const { theme, setTheme } = useTheme();
   const [open, setOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -84,11 +86,32 @@ export default function UserMenu() {
           />
         </button>
         {open && (
-          <div role="menu" className="absolute right-0 top-full mt-2 w-48 bg-white rounded-xl shadow-lg border border-gray-100 py-2">
+          <div role="menu" className="absolute right-0 top-full mt-2 w-48 bg-card rounded-xl shadow-lg border border-gray-100 dark:border-gray-700 py-2">
+            {/* 主题切换（浅色/深色/跟随系统） */}
+            <div className="px-4 py-2 border-b border-gray-100 dark:border-gray-700">
+              <p className="text-xs text-gray-400 mb-1.5">主题</p>
+              <div className="flex gap-1">
+                {([["light", Sun, "浅色"], ["dark", Moon, "深色"], ["system", Monitor, "系统"]] as [Theme, typeof Sun, string][]).map(([value, Icon, label]) => (
+                  <button
+                    key={value}
+                    onClick={() => setTheme(value)}
+                    aria-label={`主题：${label}`}
+                    aria-pressed={theme === value}
+                    className={`flex-1 flex items-center justify-center px-2 py-1.5 rounded-lg transition-colors ${
+                      theme === value
+                        ? "bg-primary-soft text-primary-strong"
+                        : "text-gray-500 hover:bg-gray-50 dark:text-gray-400 dark:hover:bg-gray-700"
+                    }`}
+                  >
+                    <Icon size={15} />
+                  </button>
+                ))}
+              </div>
+            </div>
             {session ? (
               <>
-                <div className="px-4 py-2 border-b border-gray-100">
-                  <p className="text-sm font-medium text-gray-900 truncate">{session.name}</p>
+                <div className="px-4 py-2 border-b border-gray-100 dark:border-gray-700">
+                  <p className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">{session.name}</p>
                   <p className="text-xs text-gray-400 mt-0.5">{ROLE_LABEL[session.role] ?? session.role}</p>
                 </div>
                 <button
@@ -96,21 +119,21 @@ export default function UserMenu() {
                     setOpen(false);
                     router.push(`/dashboard/${session.role}`);
                   }}
-                  className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
+                  className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 dark:text-gray-200 dark:hover:bg-gray-700 transition-colors"
                 >
                   个人信息
                 </button>
                 <button
                   onClick={handleLogout}
-                  className="w-full text-left px-4 py-2 text-sm text-red-500 hover:bg-red-50 transition-colors"
+                  className="w-full text-left px-4 py-2 text-sm text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
                 >
                   退出登录
                 </button>
               </>
             ) : (
               <>
-                <div className="px-4 py-2 border-b border-gray-100">
-                  <p className="text-sm font-medium text-gray-900">未登录</p>
+                <div className="px-4 py-2 border-b border-gray-100 dark:border-gray-700">
+                  <p className="text-sm font-medium text-gray-900 dark:text-gray-100">未登录</p>
                   <p className="text-xs text-gray-400 mt-0.5">登录后管理个人信息</p>
                 </div>
                 <button
@@ -118,7 +141,7 @@ export default function UserMenu() {
                     setOpen(false);
                     router.push("/login");
                   }}
-                  className="w-full text-left px-4 py-2 text-sm text-green-600 hover:bg-green-50 transition-colors"
+                  className="w-full text-left px-4 py-2 text-sm text-green-600 hover:bg-green-50 dark:text-green-400 dark:hover:bg-green-900/20 transition-colors"
                 >
                   登录
                 </button>
