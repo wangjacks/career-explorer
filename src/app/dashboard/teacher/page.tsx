@@ -81,8 +81,8 @@ export default function TeacherDashboardPage() {
 
   if (checking || !session || session.role !== "teacher") {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center px-4">
-        <p className="text-sm text-gray-400">加载中...</p>
+      <div className="min-h-screen bg-background flex items-center justify-center px-4">
+        <p className="text-sm text-gray-400 dark:text-gray-500">加载中...</p>
       </div>
     );
   }
@@ -127,12 +127,12 @@ export default function TeacherDashboardPage() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-background">
       <Toaster position="top-center" />
       <NavigationBar title="教师面板" showHome />
 
       {/* Tab Navigation：一级分组 + 二级子 Tab（移动端与桌面端同款两级按钮） */}
-      <div className="bg-white border-b border-gray-100">
+      <div className="bg-card border-b border-gray-100 dark:border-gray-700">
         <div className="max-w-6xl mx-auto px-6">
           <nav className="flex gap-4 sm:gap-6">
             {TAB_GROUPS.map((group) => (
@@ -141,8 +141,8 @@ export default function TeacherDashboardPage() {
                 onClick={() => switchGroup(group.key)}
                 className={`py-3 text-sm font-medium border-b-2 transition-colors ${
                   activeGroup === group.key
-                    ? "border-green-500 text-green-600"
-                    : "border-transparent text-gray-500 hover:text-gray-700"
+                    ? "border-primary text-primary-strong dark:text-green-400"
+                    : "border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200"
                 }`}
               >
                 {group.label}
@@ -150,20 +150,20 @@ export default function TeacherDashboardPage() {
             ))}
           </nav>
           {currentGroup.tabs.length > 1 && (
-            <nav className="flex flex-wrap gap-3 sm:gap-4 border-t border-gray-50">
+            <nav className="flex flex-wrap gap-3 sm:gap-4 border-t border-gray-50 dark:border-gray-700/50">
               {currentGroup.tabs.map((tab) => (
                 <button
                   key={tab.key}
                   onClick={() => setActiveTab(tab.key)}
                   className={`py-2 text-xs font-medium border-b-2 transition-colors ${
                     activeTab === tab.key
-                      ? "border-green-500 text-green-600"
-                      : "border-transparent text-gray-400 hover:text-gray-600"
+                      ? "border-primary text-primary-strong dark:text-green-400"
+                      : "border-transparent text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300"
                   }`}
                 >
                   {tab.label}
                   {tab.badge && (
-                    <span className="ml-1.5 px-1.5 py-0.5 bg-gray-100 text-gray-500 rounded text-[10px]">
+                    <span className="ml-1.5 px-1.5 py-0.5 bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 rounded text-[10px]">
                       {tab.badge}
                     </span>
                   )}
