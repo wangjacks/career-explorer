@@ -36,13 +36,17 @@ export default function RootLayout({
     <html
       lang="zh-CN"
       className={`${miSans.variable} h-full antialiased`}
+      suppressHydrationWarning
     >
-      {/* 防闪烁：hydration 前读 localStorage 主题，预设 .dark class（见 useTheme） */}
-      <script
-        dangerouslySetInnerHTML={{
-          __html: `(function(){try{var t=localStorage.getItem('theme')||'system';var d=t==='dark'||(t==='system'&&window.matchMedia('(prefers-color-scheme: dark)').matches);if(d)document.documentElement.classList.add('dark');}catch(e){}})();`,
-        }}
-      />
+      <head>
+        {/* 防闪烁：hydration 前读 localStorage 主题，预设 .dark class（见 useTheme）；
+            suppressHydrationWarning 拑制内联脚本添加 dark class 引发的 html 属性 mismatch */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `(function(){try{var t=localStorage.getItem('theme')||'system';var d=t==='dark'||(t==='system'&&window.matchMedia('(prefers-color-scheme: dark)').matches);if(d)document.documentElement.classList.add('dark');}catch(e){}})();`,
+          }}
+        />
+      </head>
       <body className="min-h-full flex flex-col">
         <ErrorBoundary>
           <UserMenu />
