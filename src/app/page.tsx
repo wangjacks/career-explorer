@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { Compass } from "lucide-react";
 import NavigationBar from "@/components/NavigationBar";
 
 // 强制动态渲染，避免 Next.js 静态预渲染添加 s-maxage 缓存头
@@ -10,19 +11,7 @@ export default function IndexPage() {
       <NavigationBar title="职业规划小程序" showHome />
       <main className="flex-1 flex flex-col items-center justify-center px-6 gap-8">
         <div className="w-20 h-20 rounded-2xl bg-green-500 flex items-center justify-center shadow-lg">
-          <svg
-            width="40"
-            height="40"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="white"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          >
-            <circle cx="12" cy="12" r="10" />
-            <path d="M12 16v-4M12 8h.01" />
-          </svg>
+          <Compass size={40} strokeWidth={2} className="text-white" />
         </div>
         <div className="text-center space-y-3">
           <h1 className="text-2xl font-bold text-gray-900">职业规划</h1>
@@ -31,7 +20,7 @@ export default function IndexPage() {
           </p>
         </div>
         <Link
-          href="/student"
+          href="/form/student"
           className="w-full max-w-xs sm:max-w-sm md:max-w-md py-3 bg-green-500 hover:bg-green-600 text-white font-medium rounded-xl text-center transition-colors shadow-md"
         >
           开始探索

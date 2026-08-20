@@ -64,4 +64,4 @@ src/
 | Phase 5 | 数据大屏（stats API 扩展 + recharts 图表） | #19 #20 | 🔜 待开始 |
 | Phase 6 | 响应式适配 + 安全收尾（响应式 + 空 catch + XSS 修复） | #21 #22 #25 | 🔜 待开始 |
 
-详见 `docs/plan.md`。
+详见 `docs/plan-v2.0.0.md`。

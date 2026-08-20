@@ -34,7 +34,7 @@ export default function SettingsTab({ dbConfig, loadError, onRetry, onConfigSave
     if (!config) return;
     setTestingDb(true);
     try {
-      const res = await fetch("/api/admin/test-db", {
+      const res = await fetch("/api/manage/test-db", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ type: currentType, mysql: config.mysql, sqlite: config.sqlite }),
@@ -53,7 +53,7 @@ export default function SettingsTab({ dbConfig, loadError, onRetry, onConfigSave
     if (!config) return;
     setSavingDb(true);
     try {
-      const res = await fetch("/api/admin/settings", {
+      const res = await fetch("/api/manage/settings", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(config),
@@ -81,7 +81,7 @@ export default function SettingsTab({ dbConfig, loadError, onRetry, onConfigSave
         type: switchType,
         ...(switchType === "mysql" ? { mysql: switchConfig.mysql } : { sqlite: switchConfig.sqlite }),
       };
-      const res = await fetch("/api/admin/settings", {
+      const res = await fetch("/api/manage/settings", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(newConfig),
@@ -107,7 +107,7 @@ export default function SettingsTab({ dbConfig, loadError, onRetry, onConfigSave
   const handleBackup = async () => {
     setBackingUp(true);
     try {
-      const res = await fetch("/api/admin/backup");
+      const res = await fetch("/api/manage/backup");
       if (!res.ok) {
         toast.error("备份失败");
         return;
@@ -134,7 +134,7 @@ export default function SettingsTab({ dbConfig, loadError, onRetry, onConfigSave
     try {
       const text = await file.text();
       const data = JSON.parse(text);
-      const res = await fetch("/api/admin/backup", {
+      const res = await fetch("/api/manage/backup", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(data),

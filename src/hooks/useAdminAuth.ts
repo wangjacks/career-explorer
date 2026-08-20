@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { toast } from "sonner";
 
 export interface Profile {
@@ -13,10 +13,12 @@ export interface Profile {
 }
 
 export interface Student {
-  student_id: string;
+  id: number;
+  user_code: string;
   name: string;
-  class_name: string;
+  class_id: number | null;
   created_at: string;
+  submitted_at: string | null;
 }
 
 export interface Stats {
@@ -48,42 +50,27 @@ export interface DbConfig {
 }
 
 export function useAdminAuth() {
-  const [loggedIn, setLoggedIn] = useState(() => {
-    if (typeof document === "undefined") return false;
-    return document.cookie.includes("admin_token=");
-  });
+  // null = 会话检测中（httpOnly cookie 不可读，需通过 API 检测）
+  const [loggedIn, setLoggedIn] = useState<boolean | null>(null);
   const [installed, setInstalled] = useState<boolean | null>(null);
 
-  const handleLogin = async (pw: string) => {
-    try {
-      const res = await fetch("/api/admin/auth", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ password: pw }),
-      });
-      const data = await res.json();
-      if (data.ok) {
-        setLoggedIn(true);
-        return true;
+   
+  useEffect(() => {
+    const check = async () => {
+      try {
+        const res = await fetch("/api/auth");
+        const data = await res.json();
+        setLoggedIn(res.ok && data.role === "admin");
+      } catch {
+        setLoggedIn(false);
       }
-      return data.error || "密码错误";
-    } catch {
-      return "登录失败";
-    }
-  };
-
-  const handleLogout = async () => {
-    try {
-      await fetch("/api/admin/auth", { method: "DELETE" });
-    } catch (err) {
-      console.error("Logout failed:", err);
-    }
-    setLoggedIn(false);
-  };
+    };
+    check();
+  }, []);
 
   const loadStats = useCallback(async (): Promise<Stats | null> => {
     try {
-      const res = await fetch("/api/admin/stats");
+      const res = await fetch("/api/manage/stats");
       if (res.ok) return await res.json();
     } catch (err) {
       console.error("Failed to load stats:", err);
@@ -95,7 +82,7 @@ export function useAdminAuth() {
   const loadProfiles = useCallback(
     async (p: number): Promise<PagedData | null> => {
       try {
-        const res = await fetch(`/api/admin/profiles?page=${p}`);
+        const res = await fetch(`/api/manage/profiles?page=${p}`);
         if (res.ok) return await res.json();
       } catch (err) {
         console.error("Failed to load profiles:", err);
@@ -108,7 +95,7 @@ export function useAdminAuth() {
 
   const loadSettings = useCallback(async (): Promise<DbConfig | null> => {
     try {
-      const res = await fetch("/api/admin/settings");
+      const res = await fetch("/api/manage/settings");
       if (res.ok) return await res.json();
     } catch (err) {
       console.error("Failed to load settings:", err);
@@ -119,7 +106,7 @@ export function useAdminAuth() {
 
   const loadStudents = useCallback(async (): Promise<Student[] | null> => {
     try {
-      const res = await fetch("/api/admin/students");
+      const res = await fetch("/api/manage/students");
       if (res.ok) {
         const data = await res.json();
         return data.data;
@@ -153,8 +140,6 @@ export function useAdminAuth() {
     loggedIn,
     installed,
     setInstalled,
-    handleLogin,
-    handleLogout,
     loadStats,
     loadProfiles,
     loadSettings,

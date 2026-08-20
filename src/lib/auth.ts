@@ -1,10 +1,9 @@
 import bcrypt from "bcrypt";
-import { SignJWT, jwtVerify } from "jose";
 
-const JWT_SECRET = new TextEncoder().encode(
-  process.env.JWT_SECRET || "career-explorer-default-secret-change-me"
-);
-const TOKEN_EXPIRY = "24h";
+/** 生成密码哈希（bcrypt，cost 10） */
+export async function hashPassword(plain: string): Promise<string> {
+  return bcrypt.hash(plain, 10);
+}
 
 /** 验证密码（bcrypt） */
 export async function verifyPassword(
@@ -12,25 +11,4 @@ export async function verifyPassword(
   hash: string
 ): Promise<boolean> {
   return bcrypt.compare(plain, hash);
-}
-
-/** 签发 JWT token */
-export async function signToken(): Promise<string> {
-  return new SignJWT({ role: "admin" })
-    .setProtectedHeader({ alg: "HS256" })
-    .setIssuedAt()
-    .setExpirationTime(TOKEN_EXPIRY)
-    .sign(JWT_SECRET);
-}
-
-/** 验证 JWT token */
-export async function verifyToken(
-  token: string
-): Promise<{ valid: boolean }> {
-  try {
-    await jwtVerify(token, JWT_SECRET);
-    return { valid: true };
-  } catch {
-    return { valid: false };
-  }
 }
