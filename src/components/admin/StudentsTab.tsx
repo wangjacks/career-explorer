@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect, useMemo } from "react";
 import { toast } from "sonner";
-import { ChevronDown } from "lucide-react";
+import { ChevronDown, Users } from "lucide-react";
 import { Field } from "./AdminUI";
 import ConfirmDialog from "./ConfirmDialog";
 import type { Student } from "@/hooks/useAdminAuth";
@@ -771,7 +771,14 @@ export default function StudentsTab({ students, loadError, onRetry, onStudentsCh
               {filteredStudents.length === 0 && (
                 <tr>
                   <td colSpan={5} className="px-4 py-8 text-center text-gray-400 text-sm">
-                    {students.length === 0 ? "暂无学生数据" : "无匹配结果"}
+                    {students.length === 0 ? (
+                      <span className="inline-flex flex-col items-center gap-2">
+                        <Users size={28} strokeWidth={1.5} className="text-gray-300" />
+                        还没有学生，在上方添加或导入名单
+                      </span>
+                    ) : (
+                      "无匹配结果"
+                    )}
                   </td>
                 </tr>
               )}

@@ -22,9 +22,9 @@ export default function ConfirmDialog({
   if (!open) return null;
 
   const btnClass = {
-    danger: "bg-red-500 hover:bg-red-600 text-white",
-    warning: "bg-amber-500 hover:bg-amber-600 text-white",
-    default: "bg-green-500 hover:bg-green-600 text-white",
+    danger: "bg-red-500 hover:bg-red-600 text-white focus-visible:ring-red-300",
+    warning: "bg-amber-500 hover:bg-amber-600 text-white focus-visible:ring-amber-300",
+    default: "bg-green-500 hover:bg-green-600 text-white focus-visible:ring-green-300",
   }[variant];
 
   return (
@@ -36,11 +36,11 @@ export default function ConfirmDialog({
         <div className="text-sm text-gray-600">{message}</div>
         <div className="flex gap-2 pt-2">
           <button onClick={onCancel}
-            className="flex-1 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm font-medium rounded-lg transition-colors">
+            className="flex-1 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm font-medium rounded-lg transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-green-300">
             {cancelText}
           </button>
           <button onClick={onConfirm}
-            className={`flex-1 py-2 text-sm font-medium rounded-lg transition-colors ${btnClass}`}>
+            className={`flex-1 py-2 text-sm font-medium rounded-lg transition-colors focus-visible:outline-none focus-visible:ring-2 ${btnClass}`}>
             {confirmText}
           </button>
         </div>

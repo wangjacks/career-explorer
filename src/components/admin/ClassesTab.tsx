@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
-import { ChevronRight, Copy, RefreshCw } from "lucide-react";
+import { ChevronRight, Copy, RefreshCw, FolderPlus } from "lucide-react";
 import ConfirmDialog from "./ConfirmDialog";
 
 interface ClassItem {
@@ -235,7 +235,10 @@ export default function ClassesTab({ mode, teacherUid }: Props) {
         {loading ? (
           <p className="p-5 text-sm text-gray-400">加载中...</p>
         ) : classes.length === 0 ? (
-          <p className="p-5 text-sm text-gray-400">暂无班级，请先创建</p>
+          <p className="p-5 text-sm text-gray-400 flex items-center justify-center gap-2">
+            <FolderPlus size={18} strokeWidth={1.5} className="text-gray-300" />
+            暂无班级，请先创建
+          </p>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
