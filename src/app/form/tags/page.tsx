@@ -14,17 +14,21 @@ interface StudentInfo {
 
 export default function TagsPage() {
   const router = useRouter();
-  const [selectedTags, setSelectedTags] = useState<string[]>(() => {
-    const stored = localStorage.getItem("career_demo_tags");
-    return stored ? JSON.parse(stored) : [];
-  });
+  const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const [categories, setCategories] = useState<TagCategory[]>([]);
   const [loadingTags, setLoadingTags] = useState(true);
   const [tagsError, setTagsError] = useState(false);
-  const [student] = useState<StudentInfo | null>(() => {
-    const stored = localStorage.getItem("career_demo_student");
-    return stored ? JSON.parse(stored) : null;
-  });
+  const [student, setStudent] = useState<StudentInfo | null>(null);
+
+  // 挂载后读取已选标签与学生信息（避免 SSR/prerender 访问 localStorage）
+  /* eslint-disable react-hooks/set-state-in-effect -- load persisted state on mount */
+  useEffect(() => {
+    const storedTags = localStorage.getItem("career_demo_tags");
+    setSelectedTags(storedTags ? JSON.parse(storedTags) : []);
+    const storedStudent = localStorage.getItem("career_demo_student");
+    setStudent(storedStudent ? JSON.parse(storedStudent) : null);
+  }, []);
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   const loadTags = async () => {
     setLoadingTags(true);

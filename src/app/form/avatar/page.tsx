@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef } from "react";
+import { useEffect, useState, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { Toaster, toast } from "sonner";
 import { User } from "lucide-react";
@@ -11,19 +11,23 @@ import { safeImageUrl } from "@/lib/sanitize";
 export default function AvatarPage() {
   const router = useRouter();
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const [imageUrl, setImageUrl] = useState<string | null>(() => {
+  const [imageUrl, setImageUrl] = useState<string | null>(null);
+  const [uploading, setUploading] = useState(false);
+
+  // 挂载后读取已有头像（避免 SSR/prerender 访问 localStorage）
+  /* eslint-disable react-hooks/set-state-in-effect -- load persisted state on mount */
+  useEffect(() => {
     const profileStr = localStorage.getItem("career_demo_profile");
     if (profileStr) {
       try {
         const profile = JSON.parse(profileStr);
-        return safeImageUrl(profile.avatarUrl);
+        setImageUrl(safeImageUrl(profile.avatarUrl));
       } catch {
         // corrupted profile in localStorage, start fresh
       }
     }
-    return null;
-  });
-  const [uploading, setUploading] = useState(false);
+  }, []);
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];

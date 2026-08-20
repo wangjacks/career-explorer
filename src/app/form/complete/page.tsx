@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { Check } from "lucide-react";
 import NavigationBar from "@/components/NavigationBar";
@@ -8,20 +8,30 @@ import QuickModeBanner from "@/components/QuickModeBanner";
 import { safeImageUrl } from "@/lib/sanitize";
 
 export default function CompletePage() {
-  const [{ tagCount, avatarUrl, evaluationUrl, studentName, studentId }] = useState(() => {
+  const [{ tagCount, avatarUrl, evaluationUrl, studentName, studentId }, setSummary] = useState<{
+    tagCount: number;
+    avatarUrl: string | null;
+    evaluationUrl: string | null;
+    studentName: string;
+    studentId: string;
+  }>({ tagCount: 0, avatarUrl: null, evaluationUrl: null, studentName: "", studentId: "" });
+
+  // 挂载后读取档案摘要（避免 SSR/prerender 访问 localStorage）
+  /* eslint-disable react-hooks/set-state-in-effect -- load persisted state on mount */
+  useEffect(() => {
     const profile = localStorage.getItem("career_demo_profile");
     if (profile) {
       const data = JSON.parse(profile);
-      return {
+      setSummary({
         tagCount: data.tags?.length || 0,
         avatarUrl: safeImageUrl(data.avatarUrl),
         evaluationUrl: safeImageUrl(data.evaluationUrl),
         studentName: data.name || "",
         studentId: data.studentId || "",
-      };
+      });
     }
-    return { tagCount: 0, avatarUrl: null, evaluationUrl: null, studentName: "", studentId: "" };
-  });
+  }, []);
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   return (
     <div className="flex flex-col min-h-screen bg-gradient-to-b from-green-50 to-white">

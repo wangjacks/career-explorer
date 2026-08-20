@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import NavigationBar from "@/components/NavigationBar";
 import QuickModeBanner from "@/components/QuickModeBanner";
@@ -8,10 +8,15 @@ import WordCloudClient from "@/components/WordCloudClient";
 
 export default function WordcloudPage() {
   const router = useRouter();
-  const [tags] = useState<string[]>(() => {
+  const [tags, setTags] = useState<string[]>([]);
+
+  // 挂载后读取已选标签（避免 SSR/prerender 访问 localStorage）
+  /* eslint-disable react-hooks/set-state-in-effect -- load persisted state on mount */
+  useEffect(() => {
     const stored = localStorage.getItem("career_demo_tags");
-    return stored ? JSON.parse(stored) : [];
-  });
+    setTags(stored ? JSON.parse(stored) : []);
+  }, []);
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   const handleNext = () => {
     router.push("/form/evaluation");

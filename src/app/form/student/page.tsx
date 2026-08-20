@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Toaster, toast } from "sonner";
 import { User, CircleAlert } from "lucide-react";
@@ -15,15 +15,20 @@ interface ExistingProfile {
 
 export default function StudentPage() {
   const router = useRouter();
-  const [studentId, setStudentId] = useState(
-    () => localStorage.getItem("career_demo_student_id") || ""
-  );
+  const [studentId, setStudentId] = useState("");
   const [loading, setLoading] = useState(false);
   const [confirmData, setConfirmData] = useState<{
     studentId: string;
     name: string;
     profile: ExistingProfile;
   } | null>(null);
+
+  // 挂载后读取上次学号（避免 SSR/prerender 访问 localStorage）
+  /* eslint-disable react-hooks/set-state-in-effect -- load persisted state on mount */
+  useEffect(() => {
+    setStudentId(localStorage.getItem("career_demo_student_id") || "");
+  }, []);
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   const updateStudentId = (value: string) => {
     const cleaned = value.replace(/\D/g, "").slice(0, 12);

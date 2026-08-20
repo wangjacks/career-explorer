@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef } from "react";
+import { useEffect, useState, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { Toaster, toast } from "sonner";
 import { Image as ImageIcon } from "lucide-react";
@@ -11,10 +11,15 @@ import { safeImageUrl } from "@/lib/sanitize";
 export default function EvaluationPage() {
   const router = useRouter();
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const [imageUrl, setImageUrl] = useState<string | null>(
-    () => safeImageUrl(localStorage.getItem("career_demo_evaluation"))
-  );
+  const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
+
+  // 挂载后读取已上传评价词云（避免 SSR/prerender 访问 localStorage）
+  /* eslint-disable react-hooks/set-state-in-effect -- load persisted state on mount */
+  useEffect(() => {
+    setImageUrl(safeImageUrl(localStorage.getItem("career_demo_evaluation")));
+  }, []);
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
