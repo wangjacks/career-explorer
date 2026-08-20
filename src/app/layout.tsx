@@ -12,6 +12,7 @@ const miSans = localFont({
     { path: "../fonts/MiSans-Medium.woff2", weight: "500" },
     { path: "../fonts/MiSans-Semibold.woff2", weight: "600" },
     { path: "../fonts/MiSans-Bold.woff2", weight: "700" },
+    { path: "../fonts/MiSans-Heavy.woff2", weight: "800" },
   ],
   variable: "--font-misans",
   display: "swap",
