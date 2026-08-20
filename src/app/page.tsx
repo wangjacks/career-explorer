@@ -8,7 +8,7 @@ export const dynamic = "force-dynamic";
 
 export default function IndexPage() {
   return (
-    <div className="flex flex-col min-h-screen bg-gradient-to-b from-green-50 to-white">
+    <div className="flex flex-col min-h-screen bg-gradient-to-b from-green-50 to-white pb-16 md:pb-0">
       <NavigationBar title="Career Explorer" showHome />
       <main className="flex-1 flex flex-col items-center justify-center px-6 gap-8">
         <div className="w-20 h-20 rounded-2xl bg-green-500 flex items-center justify-center shadow-lg">

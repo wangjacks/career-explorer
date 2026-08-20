@@ -3,6 +3,7 @@ import Link from "next/link";
 import { Compass, Sparkles, Users, BarChart3 } from "lucide-react";
 import NavigationBar from "@/components/NavigationBar";
 import SiteFooter from "@/components/SiteFooter";
+import pkg from "../../../package.json";
 
 export const metadata: Metadata = {
   title: "关于 · Career Explorer",
@@ -29,7 +30,7 @@ const features = [
 
 export default function AboutPage() {
   return (
-    <div className="flex flex-col min-h-screen bg-gradient-to-b from-green-50 to-white">
+    <div className="flex flex-col min-h-screen bg-gradient-to-b from-green-50 to-white pb-16 md:pb-0">
       <NavigationBar title="Career Explorer" showHome />
       <main className="flex-1 w-full max-w-3xl mx-auto px-6 py-12 space-y-10">
         {/* 产品介绍 */}
@@ -79,9 +80,9 @@ export default function AboutPage() {
           </Link>
         </section>
 
-        {/* 版本信息 */}
+        {/* 版本信息（动态读取 package.json，发布时随 npm version 更新） */}
         <p className="text-xs text-gray-400 pt-4 border-t border-gray-100">
-          Career Explorer v2.0.0 · 三角色支持（学生 / 教师 / 管理员）
+          Career Explorer v{pkg.version} · 三角色支持（学生 / 教师 / 管理员）
         </p>
       </main>
       <SiteFooter />
