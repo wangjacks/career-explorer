@@ -81,9 +81,12 @@ export default function AboutPage() {
         </section>
 
         {/* 版本信息（动态读取 package.json，发布时随 npm version 更新） */}
-        <p className="text-xs text-gray-400 pt-4 border-t border-gray-100">
-          Career Explorer v{pkg.version} · 三角色支持（学生 / 教师 / 管理员）
-        </p>
+        <div className="space-y-1.5 pt-4 border-t border-gray-100">
+          <p className="text-xs text-gray-400">
+            Career Explorer v{pkg.version} · 三角色支持（学生 / 教师 / 管理员）
+          </p>
+          <p className="text-xs text-gray-400">本站使用小米 MiSans 字体</p>
+        </div>
       </main>
       <SiteFooter />
     </div>
