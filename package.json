@@ -19,7 +19,7 @@
     "better-sqlite3": "^13.0.3",
     "exceljs": "^4.4.0",
     "image-size": "^2.0.2",
-    "jose": "^6.2.3",
+    "jose": "^6.2.9",
     "jszip": "^3.10.1",
     "lucide-react": "^1.33.0",
     "mysql2": "^3.23.3",
