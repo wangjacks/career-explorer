@@ -10,6 +10,14 @@
   --color-foreground: var(--foreground);
   --font-sans: var(--font-misans), "PingFang SC", "Microsoft YaHei", sans-serif;
   --font-mono: ui-monospace, "SF Mono", "Cascadia Mono", Consolas, monospace;
+  /* 语义色 token（约束增量代码；存量 green-* 硬编码不强制迁移，见 docs/ui-conventions.md） */
+  --color-primary: var(--color-green-600);
+  --color-primary-strong: var(--color-green-700);
+  --color-primary-soft: var(--color-green-50);
+  --color-focus-ring: var(--color-green-300);
+  --color-info: var(--color-blue-500);
+  --color-warning: var(--color-amber-500);
+  --color-danger: var(--color-red-500);
 }
 
 body {
