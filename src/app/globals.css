@@ -28,7 +28,7 @@
   --color-foreground: var(--foreground);
   --color-card: var(--surface-card);
   --color-border-soft: var(--border-soft);
-  --font-sans: var(--font-misans), "PingFang SC", "Microsoft YaHei", sans-serif;
+  --font-sans: "Noto Sans SC", "PingFang SC", "Microsoft YaHei", sans-serif;
   --font-mono: ui-monospace, "SF Mono", "Cascadia Mono", Consolas, monospace;
   /* 品牌色 token（引用 :root/.dark 变量，暗色自动提亮） */
   --color-brand: var(--brand);

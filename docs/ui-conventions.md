@@ -1,7 +1,7 @@
 # UI 组件规范
 
 > 本规范是 UI/UX 一致性收敛的依据。存量代码逐步对齐，增量代码必须遵守。
-> 设计基调：深翡翠绿 + 琥珀能量色品牌色系统 + MiSans 字体；全站大胆统一，只守数据可用底线。详见 docs/plan-v2.0.0-uiux.md。
+> 设计基调：深翡翠绿 + 琥珀能量色品牌色系统 + Noto Sans SC 字体；全站大胆统一，只守数据可用底线。详见 docs/plan-v2.0.0-uiux.md。
 
 ## 色彩语义
 
@@ -48,7 +48,7 @@
 
 ## 字体
 
-- 全站 MiSans 自托管（Regular 400 / Medium 500 / Semibold 600 / Bold 700 / Heavy 800）
+- 全站 Noto Sans SC（Google Fonts 加载，镜像前缀可配 FONT_CDN_PREFIX；字重 400 / 500 / 600 / 700 / 800）
 - 等宽场景（学号、密码、邀请码）走系统等宽栈 `font-mono`
 - 字号阶梯：页面大标题 `text-2xl font-bold`、区块标题 `text-lg font-semibold`、卡片标题 `text-sm font-semibold`、正文 `text-sm`、辅助 `text-xs`
 

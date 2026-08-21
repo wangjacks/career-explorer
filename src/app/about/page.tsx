@@ -88,7 +88,6 @@ export default function AboutPage() {
           <p className="text-xs text-gray-400 dark:text-gray-500">
             Career Explorer v{pkg.version} · 三角色支持（学生 / 教师 / 管理员）
           </p>
-          <p className="text-xs text-gray-400 dark:text-gray-500">本站使用小米 MiSans 字体</p>
         </div>
       </main>
       <SiteFooter />

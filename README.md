@@ -63,7 +63,3 @@ src/
 ├── lib/                      # 数据库、配置、标签数据
 └── types/                    # TypeScript 类型定义
 ```
-
-## 第三方资源
-
-- 本项目使用小米 MiSans 字体，授权说明见 [src/fonts/LICENSE.txt](./src/fonts/LICENSE.txt)

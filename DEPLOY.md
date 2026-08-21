@@ -79,9 +79,11 @@ cd /var/www/career-app
 # 安装依赖
 npm install
 
-# 配置环境变量（JWT 签名密钥）
+# 配置环境变量（JWT 签名密钥；FONT_CDN_PREFIX 为可选的 Google Fonts 镜像前缀）
 cat > .env.local << 'EOF'
 JWT_SECRET=一个随机字符串作为JWT签名密钥
+# 可选：Google Fonts 镜像前缀（官方域名访问不畅的环境配置，构建前生效）
+#FONT_CDN_PREFIX=https://fonts.loli.net
 EOF
 
 # 构建生产版本
