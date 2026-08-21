@@ -23,8 +23,8 @@ export default function FormSteps({ current }: { current: number }) {
           >
             {idx > 0 && (
               <span
-                className={`mt-3 w-4 sm:w-8 h-px flex-shrink-0 transition-colors duration-300 ${
-                  step <= current ? "bg-primary" : "bg-gray-200 dark:bg-gray-700"
+                className={`mt-3 w-4 sm:w-8 h-px flex-shrink-0 ${
+                  step <= current ? "progress-sweep" : "bg-gray-200 dark:bg-gray-700"
                 }`}
                 aria-hidden
               />
@@ -35,7 +35,7 @@ export default function FormSteps({ current }: { current: number }) {
                   done
                     ? "bg-primary text-white"
                     : active
-                      ? "bg-brand text-white ring-2 ring-accent/60 ring-offset-1 animate-[step-pulse_1.8s_ease-in-out_infinite]"
+                      ? "bg-brand text-white ring-2 ring-accent/60 ring-offset-1"
                       : "bg-gray-100 dark:bg-gray-800 text-gray-400 dark:text-gray-500"
                 }`}
               >

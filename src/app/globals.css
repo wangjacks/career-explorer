@@ -106,14 +106,24 @@ body {
   }
 }
 
-/* 表单进度当前步：呼吸脉冲（轻微缩放，提示当前所在步） */
-@keyframes step-pulse {
-  0%,
-  100% {
-    transform: scale(1);
+/* 表单进度已完成连接线：仿系统文件管理器进度条，亮色光带从左向右缓慢循环扫动 */
+.progress-sweep {
+  background-image: linear-gradient(
+    90deg,
+    var(--color-primary) 30%,
+    #34d399 50%,
+    var(--color-primary) 70%
+  );
+  background-size: 300% 100%;
+  animation: progress-sweep-ltr 2.6s linear infinite;
+}
+
+@keyframes progress-sweep-ltr {
+  from {
+    background-position: 100% 0;
   }
-  50% {
-    transform: scale(1.15);
+  to {
+    background-position: 0% 0;
   }
 }
 
