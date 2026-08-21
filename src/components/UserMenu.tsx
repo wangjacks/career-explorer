@@ -16,7 +16,7 @@ const APP_PAGES = new Set([
   "/",
   "/about",
   "/login",
-  "/register",
+  "/activate",
   "/setup",
   "/dashboard/admin",
   "/dashboard/student",
@@ -32,7 +32,7 @@ const APP_PAGES = new Set([
 function shouldShowMenu(pathname: string | null): boolean {
   if (!pathname) return false;
   const normalizedPath = pathname.replace(/\/+$/, "") || "/";
-  if (["/login", "/register", "/setup"].includes(normalizedPath)) return false;
+  if (["/login", "/activate", "/setup"].includes(normalizedPath)) return false;
   return APP_PAGES.has(normalizedPath);
 }
 

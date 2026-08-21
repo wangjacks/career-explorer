@@ -13,7 +13,7 @@ This version has breaking changes — APIs, conventions, and file structure may 
 - 数据库：MySQL (mysql2) / SQLite (better-sqlite3) 双适配器
 - 关键依赖：jose (JWT)、bcrypt、recharts、exceljs、jszip、sharp、sonner
 - 开发环境：Node.js 24 LTS, npm
-- **v2.0.0 目标**：三角色统一用户体系（admin / teacher / student），四表设计，班级邀请码注册
+- **v2.0.0 目标**：三角色统一用户体系（admin / teacher / student），四表设计，班级邀请码激活
 
 ## 2. Directory Structure & Module Responsibilities
 
@@ -25,10 +25,10 @@ This version has breaking changes — APIs, conventions, and file structure may 
 | `src/app/dashboard/teacher/` | 教师面板（三组两级导航：主页、数据中心[概览/大屏/导出]、数据管理[数据列表/学生/班级/标签]） |
 | `src/app/form/` | 学生表单流程（student → tags → wordcloud → evaluation → avatar → complete） |
 | `src/app/login/` | 登录页（三角色统一登录） |
-| `src/app/register/` | 学生自助注册页（需班级邀请码） |
+| `src/app/activate/` | 学生账户激活页（学号 + 姓名 + 邀请码三要素核验） |
 | `src/app/setup/` | 安装引导（首次配置数据库 + 管理员密码） |
 | `src/app/api/auth/` | 统一认证端点（POST 登录 / GET 会话 / DELETE 登出） |
-| `src/app/api/auth/register/` | 学生注册端点 |
+| `src/app/api/auth/activate/` | 学生账户激活端点 |
 | `src/app/api/manage/` | 管理域 API（stats、students、classes、teachers、profiles、settings、export、backup、test-db）；`students/batch-password` 子路由：批量重置学生密码（每人生成不同随机密码）；admin + teacher 共用，角色差异由 proxy 声明式权限表控制 |
 | `src/app/api/shared/profile/` | 学生档案（路由自鉴权）：POST 快速提交/登录态保存（未传学号默认本人）+ GET 会话查询本人档案 |
 | `src/app/api/upload/` | 文件上传 |
@@ -97,8 +97,8 @@ This version has breaking changes — APIs, conventions, and file structure may 
 - 白名单：`/api/auth/*` 天然在 proxy matcher 范围外；非 API 路由放行（客户端处理登录态）
 - 会话检测：`GET /api/auth` 返回 `{ ok, role, uid, name }`（httpOnly cookie 前端不可读，须经 API 检测）
 - 登出：`DELETE /api/auth` 清除 cookie
-- 注册：`POST /api/auth/register` — 12 位学号 + 邀请码绑定班级 + bcrypt hash + 签发 token 自动登录
-- 已登录访问 `/login`、`/register` 自动重定向到对应角色面板
+- 激活：`POST /api/auth/activate` — 名单内学号 + 姓名 + 本班邀请码三者一致后设置密码激活（账户须先由教师导入名单预建），成功自动登录
+- 已登录访问 `/login`、`/activate` 自动重定向到对应角色面板
 - 用户不存在与密码错误共用「编号或密码错误」（不泄露账号存在性）；无 password_hash 账户提示「该账户尚未设置密码，请联系管理员」
 - URL 安全：`sanitize.ts` 防止 `javascript:` 协议 XSS
 - 路径穿越防护：`/api/uploads/[...path]` 已加固
@@ -131,7 +131,7 @@ This version has breaking changes — APIs, conventions, and file structure may 
 - 共享会话检测：`useSession` hook 供 UserMenu 与 NavigationBar 共用，按 pathname 变化重新检测
 - 快速提交模式：未登录访问 `/form/*` 时，NavigationBar 下方显示 `QuickModeBanner` 横幅（登录后消失）
 - 学生双模式：快速通道（已有账户记录，无需登录，走 `/form/*`）+ 登录后（`/dashboard/student` 查看个人信息）
-- 班级邀请码：仅在 `/register` 学生注册时要求填写，用于绑定班级；快速提交模式不涉及邀请码
+- 班级邀请码：仅在 `/activate` 学生激活时要求填写，用于核验学号所属班级；快速提交模式不涉及邀请码
 - 文件上传：`/api/upload` 处理上传 -> `uploads/` 目录 -> `/api/uploads/[...path]` 静态服务
 - 数据导出：ExcelJS (Excel) + JSZip (ZIP 打包)
 - 词云渲染：`WordCloudCanvas` + `WordCloudClient` 客户端组件

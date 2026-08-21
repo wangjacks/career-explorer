@@ -104,9 +104,9 @@ export default function LoginPage() {
           </button>
 
           <p className="text-center text-sm text-gray-500">
-            还没有账号？{" "}
-            <Link href="/register" className="text-green-600 hover:underline">
-              学生注册
+            还未激活账户？{" "}
+            <Link href="/activate" className="text-green-600 hover:underline">
+              激活账户
             </Link>
           </p>
         </div>
