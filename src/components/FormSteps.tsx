@@ -23,7 +23,7 @@ export default function FormSteps({ current }: { current: number }) {
           >
             {idx > 0 && (
               <span
-                className={`mt-3 w-4 sm:w-8 h-px flex-shrink-0 ${
+                className={`mt-3 w-4 sm:w-8 h-px flex-shrink-0 transition-colors duration-300 ${
                   step <= current ? "bg-primary" : "bg-gray-200 dark:bg-gray-700"
                 }`}
                 aria-hidden
@@ -31,11 +31,11 @@ export default function FormSteps({ current }: { current: number }) {
             )}
             <span className="flex flex-col items-center gap-1 px-0.5">
               <span
-                className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-semibold flex-shrink-0 ${
+                className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-semibold flex-shrink-0 transition-colors duration-300 ${
                   done
                     ? "bg-primary text-white"
                     : active
-                      ? "bg-brand text-white ring-2 ring-accent/60 ring-offset-1"
+                      ? "bg-brand text-white ring-2 ring-accent/60 ring-offset-1 animate-[step-pulse_1.8s_ease-in-out_infinite]"
                       : "bg-gray-100 dark:bg-gray-800 text-gray-400 dark:text-gray-500"
                 }`}
               >

@@ -106,6 +106,17 @@ body {
   }
 }
 
+/* 表单进度当前步：呼吸脉冲（轻微缩放，提示当前所在步） */
+@keyframes step-pulse {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.15);
+  }
+}
+
 /* 动效可及性：尊重系统减少动效偏好 */
 @media (prefers-reduced-motion: reduce) {
   *,
