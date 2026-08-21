@@ -30,7 +30,7 @@ const features = [
 
 export default function AboutPage() {
   return (
-    <div className="flex flex-col min-h-screen bg-background pb-16">
+    <div className="flex flex-col min-h-dvh md:h-dvh md:overflow-y-auto bg-background pb-16 md:[scrollbar-width:none] md:[&::-webkit-scrollbar]:hidden">
       <NavigationBar title="Career Explorer" showHome />
       <main className="flex-1 w-full max-w-3xl mx-auto px-6 py-12 space-y-10">
         {/* 产品介绍 */}
