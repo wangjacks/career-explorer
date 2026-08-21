@@ -8,7 +8,7 @@ export const dynamic = "force-dynamic";
 
 export default function IndexPage() {
   return (
-    <div className="flex flex-col h-dvh bg-background pb-16">
+    <div className="flex flex-col h-dvh bg-background">
       <NavigationBar title="Career Explorer" showHome />
       <main className="flex-1 flex flex-col">
         {/* 大字报深绿 hero：品牌深绿底 + 白字大标题 + 琥珀指南针装饰（flex-1 撑满顶栏与页脚之间） */}
