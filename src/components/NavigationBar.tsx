@@ -18,7 +18,7 @@ export default function NavigationBar({
 
   return (
     <div className="sticky top-0 z-40 flex items-center h-12 bg-brand px-4">
-      <div className="flex items-center gap-2 w-24">
+      <div className="flex items-center gap-2 w-24 md:w-auto">
         {showBack && (
           <button
             onClick={() => router.back()}
@@ -38,7 +38,7 @@ export default function NavigationBar({
           </button>
         )}
       </div>
-      <div className="flex-1 text-center text-sm font-medium text-white truncate">
+      <div className="flex-1 text-center md:text-left md:pl-3 text-sm font-medium text-white truncate">
         {title}
       </div>
       <div className="w-24" />
