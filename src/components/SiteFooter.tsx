@@ -37,9 +37,9 @@ export default function SiteFooter() {
         </div>
       </nav>
 
-      {/* 桌面端：文档流页脚 */}
-      <footer className="hidden md:block border-t border-gray-100 dark:border-gray-700 bg-card/70 backdrop-blur-sm">
-        <div className="max-w-6xl mx-auto px-6 py-6 flex items-center justify-between gap-3">
+      {/* 桌面端：固定底部导航条（便于随时切换页面） */}
+      <footer className="hidden md:block fixed bottom-0 inset-x-0 z-40 border-t border-gray-100 dark:border-gray-700 bg-card/70 backdrop-blur-md">
+        <div className="max-w-6xl mx-auto px-6 py-3.5 flex items-center justify-between gap-3">
           <p className="text-sm font-medium text-gray-600 dark:text-gray-300">Career Explorer</p>
           <nav className="flex items-center gap-6">
             {links.map((l) => {
