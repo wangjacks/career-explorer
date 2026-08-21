@@ -1,18 +1,21 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { ChevronLeft, Home } from "lucide-react";
+import { ChevronLeft, Home, Menu } from "lucide-react";
 
 interface NavigationBarProps {
   title?: string;
   showBack?: boolean;
   showHome?: boolean;
+  /** 传入时在 home/back 按钮右侧渲染侧边栏切换按钮（仅带侧边栏的页面使用） */
+  onToggleSidebar?: () => void;
 }
 
 export default function NavigationBar({
   title,
   showBack = false,
   showHome = false,
+  onToggleSidebar,
 }: NavigationBarProps) {
   const router = useRouter();
 
@@ -35,6 +38,15 @@ export default function NavigationBar({
             className="flex items-center justify-center w-8 h-8 rounded-full text-white hover:bg-white/15 transition-colors"
           >
             <Home size={18} />
+          </button>
+        )}
+        {onToggleSidebar && (
+          <button
+            onClick={onToggleSidebar}
+            aria-label="切换侧边栏"
+            className="flex items-center justify-center w-8 h-8 rounded-full text-white hover:bg-white/15 transition-colors"
+          >
+            <Menu size={18} />
           </button>
         )}
       </div>
