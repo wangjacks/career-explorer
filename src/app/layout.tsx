@@ -3,6 +3,13 @@ import ErrorBoundary from "@/components/ErrorBoundary";
 import UserMenu from "@/components/UserMenu";
 import "./globals.css";
 
+/*
+ * 彩蛋 · 字体小史：
+ * 哈哈哈，真是没办法。好不容易把 MiSans 自托管安排上，一看，给服务器带宽拉爆了——
+ * 五个字重 24MB，onload 直接炸掉 70 秒。
+ * 没办法，没钱上 CDN，为了救网络性能，只好回退 Google Fonts。
+ * 没事的，其实美观度还是可以的。
+ */
 // 字体：Noto Sans SC（Google Fonts）。运行时 <link> 加载，构建无需外网；
 // unicode-range 分包按需下载，避免全量中文字体拖慢冷缓存首屏。
 // 镜像前缀可选：FONT_CDN_PREFIX（如 https://fonts.loli.net）；默认 Google Fonts 官方域名
