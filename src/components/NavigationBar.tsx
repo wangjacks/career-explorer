@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { ChevronLeft, Home, Menu } from "lucide-react";
+import { ChevronLeft, Home, PanelLeft } from "lucide-react";
 
 interface NavigationBarProps {
   title?: string;
@@ -46,7 +46,7 @@ export default function NavigationBar({
             aria-label="切换侧边栏"
             className="flex items-center justify-center w-8 h-8 rounded-full text-white hover:bg-white/15 transition-colors"
           >
-            <Menu size={18} />
+            <PanelLeft size={18} />
           </button>
         )}
       </div>
