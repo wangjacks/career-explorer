@@ -1,10 +1,12 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Toaster, toast } from "sonner";
+import { User, CircleAlert } from "lucide-react";
 import NavigationBar from "@/components/NavigationBar";
 import QuickModeBanner from "@/components/QuickModeBanner";
+import FormSteps from "@/components/FormSteps";
 
 interface ExistingProfile {
   tags: string[];
@@ -14,15 +16,20 @@ interface ExistingProfile {
 
 export default function StudentPage() {
   const router = useRouter();
-  const [studentId, setStudentId] = useState(
-    () => localStorage.getItem("career_demo_student_id") || ""
-  );
+  const [studentId, setStudentId] = useState("");
   const [loading, setLoading] = useState(false);
   const [confirmData, setConfirmData] = useState<{
     studentId: string;
     name: string;
     profile: ExistingProfile;
   } | null>(null);
+
+  // 挂载后读取上次学号（避免 SSR/prerender 访问 localStorage）
+  /* eslint-disable react-hooks/set-state-in-effect -- load persisted state on mount */
+  useEffect(() => {
+    setStudentId(localStorage.getItem("career_demo_student_id") || "");
+  }, []);
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   const updateStudentId = (value: string) => {
     const cleaned = value.replace(/\D/g, "").slice(0, 12);
@@ -97,29 +104,20 @@ export default function StudentPage() {
   };
 
   return (
-    <div className="flex flex-col min-h-screen bg-gray-50">
+    <div className="flex flex-col min-h-screen bg-background">
       <Toaster position="top-center" />
       <NavigationBar title="学号验证" showBack />
       <QuickModeBanner />
+      <div className="pt-5">
+        <FormSteps current={1} />
+      </div>
       <main className="flex-1 flex flex-col items-center justify-center px-6 gap-8">
-        <div className="w-20 h-20 rounded-2xl bg-blue-500 flex items-center justify-center shadow-lg">
-          <svg
-            width="40"
-            height="40"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="white"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          >
-            <path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2" />
-            <circle cx="12" cy="7" r="4" />
-          </svg>
+        <div className="w-20 h-20 rounded-2xl bg-brand flex items-center justify-center shadow-lg">
+          <User size={40} strokeWidth={2} className="text-accent" />
         </div>
         <div className="text-center space-y-2">
-          <h1 className="text-xl font-bold text-gray-900">请输入学号</h1>
-          <p className="text-sm text-gray-500">12位数字学号</p>
+          <h1 className="text-xl font-bold text-gray-900 dark:text-gray-100">请输入学号</h1>
+          <p className="text-sm text-gray-500 dark:text-gray-400">12位数字学号</p>
         </div>
         <input
           type="text"
@@ -128,12 +126,12 @@ export default function StudentPage() {
           onKeyDown={(e) => e.key === "Enter" && handleSubmit()}
           placeholder="请输入学号"
           maxLength={12}
-          className="w-full max-w-xs sm:max-w-sm md:max-w-md px-4 py-3 border border-gray-200 rounded-xl text-center text-lg tracking-widest focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-transparent"
+          className="w-full max-w-xs sm:max-w-sm md:max-w-md px-4 py-3 border border-gray-200 dark:border-gray-700 bg-card text-foreground rounded-xl text-center text-lg tracking-widest focus:outline-none focus:ring-2 focus:ring-green-300 focus:border-transparent"
         />
         <button
           onClick={handleSubmit}
           disabled={loading}
-          className="w-full max-w-xs sm:max-w-sm md:max-w-md py-3 bg-blue-500 hover:bg-blue-600 disabled:opacity-50 text-white font-medium rounded-xl transition-colors"
+          className="w-full max-w-xs sm:max-w-sm md:max-w-md py-3 bg-primary hover:bg-primary-strong disabled:opacity-50 text-white font-medium rounded-xl transition-colors"
         >
           {loading ? "验证中..." : "下一步"}
         </button>
@@ -145,15 +143,12 @@ export default function StudentPage() {
           <div className="bg-white rounded-2xl shadow-xl max-w-sm sm:max-w-md w-full p-6 space-y-5">
             <div className="text-center space-y-2">
               <div className="w-14 h-14 mx-auto rounded-full bg-amber-100 flex items-center justify-center">
-                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#d97706" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <circle cx="12" cy="12" r="10" />
-                  <path d="M12 8v4M12 16h.01" />
-                </svg>
+                <CircleAlert size={28} className="text-amber-600" />
               </div>
               <h3 className="text-lg font-semibold text-gray-900">检测到已有填写记录</h3>
               <p className="text-sm text-gray-500">
                 <span className="font-medium text-gray-700">{confirmData.name}</span>
-                同学，你之前已提交过职业规划信息。
+                同学，你之前已提交过职业探索档案。
               </p>
             </div>
 

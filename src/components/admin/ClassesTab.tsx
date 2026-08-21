@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
+import { ChevronRight, Copy, RefreshCw, FolderPlus } from "lucide-react";
 import ConfirmDialog from "./ConfirmDialog";
 
 interface ClassItem {
@@ -205,19 +206,19 @@ export default function ClassesTab({ mode, teacherUid }: Props) {
   return (
     <div className="space-y-6">
       {/* 创建班级 */}
-      <div className="bg-white rounded-xl border border-gray-100 p-5">
-        <h3 className="text-sm font-semibold text-gray-800 mb-3">创建班级</h3>
+      <div className="bg-card rounded-xl border border-gray-100 dark:border-gray-700 p-5">
+        <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-100 mb-3">创建班级</h3>
         <div className="flex flex-col sm:flex-row gap-2">
           <input
             value={nameInput}
             onChange={(e) => setNameInput(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && createClass()}
             placeholder="班级名称，如 2026级1班"
-            className="flex-1 px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-300"
+            className="flex-1 px-3 py-2 border border-gray-200 dark:border-gray-700 bg-card text-foreground rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-300"
           />
           <button
             onClick={createClass}
-            className="px-4 py-2 bg-green-500 hover:bg-green-600 text-white text-sm font-medium rounded-lg transition-colors"
+            className="px-4 py-2 bg-primary hover:bg-primary-strong text-white text-sm font-medium rounded-lg transition-colors"
           >
             创建（自动生成邀请码）
           </button>
@@ -225,21 +226,24 @@ export default function ClassesTab({ mode, teacherUid }: Props) {
       </div>
 
       {/* 班级列表 */}
-      <div className="bg-white rounded-xl border border-gray-100 overflow-hidden">
-        <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
-          <h3 className="text-sm font-semibold text-gray-800">班级列表</h3>
-          <span className="text-xs text-gray-400">{classes.length} 个班级</span>
+      <div className="bg-card rounded-xl border border-gray-100 dark:border-gray-700 overflow-hidden">
+        <div className="px-5 py-4 border-b border-gray-100 dark:border-gray-700 flex items-center justify-between">
+          <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-100">班级列表</h3>
+          <span className="text-xs text-gray-400 dark:text-gray-500">{classes.length} 个班级</span>
         </div>
 
         {loading ? (
-          <p className="p-5 text-sm text-gray-400">加载中...</p>
+          <p className="p-5 text-sm text-gray-400 dark:text-gray-500">加载中...</p>
         ) : classes.length === 0 ? (
-          <p className="p-5 text-sm text-gray-400">暂无班级，请先创建</p>
+          <p className="p-5 text-sm text-gray-400 dark:text-gray-500 flex items-center justify-center gap-2">
+            <FolderPlus size={18} strokeWidth={1.5} className="text-gray-300" />
+            暂无班级，请先创建
+          </p>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
-                <tr className="text-left text-xs text-gray-400 border-b border-gray-100">
+                <tr className="text-left text-xs text-gray-400 dark:text-gray-500 border-b border-gray-100 dark:border-gray-700">
                   <th className="px-5 py-2.5 font-medium w-8"></th>
                   <th className="px-3 py-2.5 font-medium">班级名称</th>
                   <th className="px-3 py-2.5 font-medium">学生数</th>
@@ -286,26 +290,26 @@ export default function ClassesTab({ mode, teacherUid }: Props) {
           onClick={() => setRenaming(null)}
         >
           <div
-            className="bg-white rounded-2xl shadow-xl max-w-sm w-full p-6 space-y-4"
+            className="bg-card rounded-2xl shadow-xl max-w-sm w-full p-6 space-y-4"
             onClick={(e) => e.stopPropagation()}
           >
-            <h3 className="font-semibold text-gray-800 text-lg">班级改名</h3>
+            <h3 className="font-semibold text-gray-800 dark:text-gray-100 text-lg">班级改名</h3>
             <input
               value={renameValue}
               onChange={(e) => setRenameValue(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && renameClass()}
-              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-300"
+              className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 bg-card text-foreground rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-300"
             />
             <div className="flex gap-2 pt-2">
               <button
                 onClick={() => setRenaming(null)}
-                className="flex-1 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm font-medium rounded-lg transition-colors"
+                className="flex-1 py-2 bg-gray-100 hover:bg-gray-200 dark:bg-gray-800 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-200 text-sm font-medium rounded-lg transition-colors"
               >
                 取消
               </button>
               <button
                 onClick={renameClass}
-                className="flex-1 py-2 bg-green-500 hover:bg-green-600 text-white text-sm font-medium rounded-lg transition-colors"
+                className="flex-1 py-2 bg-primary hover:bg-primary-strong text-white text-sm font-medium rounded-lg transition-colors"
               >
                 保存
               </button>
@@ -370,60 +374,41 @@ function FragmentRow({
 }) {
   return (
     <>
-      <tr className="border-b border-gray-50 hover:bg-gray-50/60">
+      <tr className="border-b border-gray-50 dark:border-gray-700/50 hover:bg-gray-50/60 dark:hover:bg-gray-800/40">
         <td className="px-5 py-3">
           <button
             onClick={onToggle}
             className="text-gray-400 hover:text-gray-600"
             aria-label={isOpen ? "收起学生名单" : "展开学生名单"}
           >
-            <svg
+            <ChevronRight
               className={`w-3.5 h-3.5 transition-transform ${isOpen ? "rotate-90" : ""}`}
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-            >
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-            </svg>
+            />
           </button>
         </td>
         <td className="px-3 py-3">
-          <span className="font-medium text-gray-800">{klass.name}</span>
+          <span className="font-medium text-gray-800 dark:text-gray-100">{klass.name}</span>
           {creator && (
-            <span className="ml-2 px-1.5 py-0.5 bg-blue-50 text-blue-500 rounded text-xs">{creator}</span>
+            <span className="ml-2 px-1.5 py-0.5 bg-blue-50 dark:bg-blue-900/30 text-blue-500 dark:text-blue-400 rounded text-xs">{creator}</span>
           )}
         </td>
-        <td className="px-3 py-3 text-gray-600">{members.length} 人</td>
+        <td className="px-3 py-3 text-gray-600 dark:text-gray-300">{members.length} 人</td>
         <td className="px-3 py-3">
           <span className="inline-flex items-center gap-1.5">
-            <code className="px-2 py-0.5 bg-gray-100 rounded text-xs font-mono text-gray-700">
+            <code className="px-2 py-0.5 bg-gray-100 dark:bg-gray-800 rounded text-xs font-mono text-gray-700 dark:text-gray-300">
               {klass.invitation_code}
             </code>
             <button onClick={onCopy} className="text-gray-400 hover:text-green-600" aria-label="复制邀请码">
-              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"
-                />
-              </svg>
+              <Copy className="w-3.5 h-3.5" />
             </button>
             {modifiable && (
               <button onClick={onReset} className="text-gray-400 hover:text-amber-600" aria-label="重置邀请码">
-                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
-                  />
-                </svg>
+                <RefreshCw className="w-3.5 h-3.5" />
               </button>
             )}
           </span>
         </td>
-        <td className="px-3 py-3 text-gray-400 text-xs hidden md:table-cell">{klass.created_at}</td>
+        <td className="px-3 py-3 text-gray-400 dark:text-gray-500 text-xs hidden md:table-cell">{klass.created_at}</td>
         <td className="px-5 py-3 text-right whitespace-nowrap">
           {modifiable ? (
             <>
@@ -440,17 +425,17 @@ function FragmentRow({
         </td>
       </tr>
       {isOpen && (
-        <tr className="border-b border-gray-100 bg-gray-50/50">
+        <tr className="border-b border-gray-100 dark:border-gray-700 bg-gray-50/50 dark:bg-gray-800/30">
           <td></td>
           <td colSpan={5} className="px-3 py-3">
             {members.length === 0 ? (
-              <p className="text-xs text-gray-400">该班级暂无学生</p>
+              <p className="text-xs text-gray-400 dark:text-gray-500">该班级暂无学生</p>
             ) : (
               <div className="flex flex-wrap gap-1.5">
                 {members.map((s) => (
                   <span
                     key={s.id}
-                    className="px-2 py-1 bg-white border border-gray-200 rounded text-xs text-gray-600"
+                    className="px-2 py-1 bg-card border border-gray-200 dark:border-gray-700 rounded text-xs text-gray-600 dark:text-gray-300"
                     title={s.user_code}
                   >
                     {s.name}

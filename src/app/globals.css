@@ -1,19 +1,139 @@
 @import "tailwindcss";
 
+/* class-based dark mode：通过 .dark class 切换暗色（主题三态切换，见 UserMenu） */
+@custom-variant dark (&:where(.dark, .dark *));
+
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  /* 基础语义色（暖底 + 墨色，暗色下在 .dark 重写） */
+  --background: #fafaf9; /* stone-50 暖底 */
+  --foreground: #1c1917; /* stone-900 墨色 */
+  --surface-card: #ffffff; /* 卡片底 */
+  --border-soft: #e7e5e4; /* stone-200 软边框 */
+  /* 品牌色（暗色下在 .dark 提亮） */
+  --brand: #065f46; /* emerald-800 品牌深绿 */
+  --accent: #f59e0b; /* amber-500 能量琥珀 */
+}
+
+.dark {
+  --background: #0d1210; /* 深灰绿带品牌绿调（不用纯黑） */
+  --foreground: #e7e5e4; /* stone-200 浅色文字 */
+  --surface-card: #16201c; /* 暗卡片 */
+  --border-soft: #2a3833; /* 暗边框 */
+  --brand: #059669; /* emerald-600 暗色提亮，避免深底糊成一片 */
+  --accent: #fbbf24; /* amber-400 暗色提亮 */
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --color-card: var(--surface-card);
+  --color-border-soft: var(--border-soft);
+  --font-sans: var(--font-misans), "PingFang SC", "Microsoft YaHei", sans-serif;
+  --font-mono: ui-monospace, "SF Mono", "Cascadia Mono", Consolas, monospace;
+  /* 品牌色 token（引用 :root/.dark 变量，暗色自动提亮） */
+  --color-brand: var(--brand);
+  --color-accent: var(--accent);
+  /* 语义色 token（约束增量代码；存量 green-* 硬编码不强制迁移，见 docs/ui-conventions.md） */
+  --color-primary: var(--color-green-600);
+  --color-primary-strong: var(--color-green-700);
+  --color-primary-soft: var(--color-green-50);
+  --color-focus-ring: var(--color-green-300);
+  --color-info: var(--color-blue-500);
+  --color-warning: var(--color-amber-500);
+  --color-danger: var(--color-red-500);
+  /* 标签三色（三维度色彩编码，>3 类循环取色） */
+  --tag-interest: #059669;
+  --tag-skill: #0284c7;
+  --tag-personality: #f59e0b;
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+}
+
+/* 弹窗入场动画（ConfirmDialog 等 animate-[scale-in_...] 引用） */
+@keyframes scale-in {
+  from {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+/* 内容区入场动画（面板/表单主内容 animate-[fade-in_...] 引用） */
+@keyframes fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* 主页 hero 指南针：浮现 + 旋转一圈（非匀速 easeOutExpo）→ 上滑到位 */
+@keyframes hero-compass {
+  0% {
+    opacity: 0;
+    transform: translateY(56px) rotate(0deg) scale(0.85);
+    animation-timing-function: cubic-bezier(0.16, 1, 0.3, 1);
+  }
+  55% {
+    opacity: 1;
+    transform: translateY(56px) rotate(360deg) scale(1);
+    animation-timing-function: cubic-bezier(0.33, 1, 0.68, 1);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) rotate(360deg) scale(1);
+  }
+}
+
+/* 主页 hero 文字/按钮：从右向左渐入 */
+@keyframes hero-slide-in {
+  from {
+    opacity: 0;
+    transform: translateX(48px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+/* 表单进度已完成连接线：仿系统文件管理器进度条，亮色光带从左向右缓慢循环扫动 */
+.progress-sweep {
+  background-image: linear-gradient(
+    90deg,
+    var(--color-primary) 30%,
+    #34d399 50%,
+    var(--color-primary) 70%
+  );
+  background-size: 300% 100%;
+  animation: progress-sweep-ltr 2.6s linear infinite;
+}
+
+@keyframes progress-sweep-ltr {
+  from {
+    background-position: 100% 0;
+  }
+  to {
+    background-position: 0% 0;
+  }
+}
+
+/* 动效可及性：尊重系统减少动效偏好 */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }

@@ -6,6 +6,7 @@ import { Toaster, toast } from "sonner";
 import NavigationBar from "@/components/NavigationBar";
 import QuickModeBanner from "@/components/QuickModeBanner";
 import TagSelector, { type TagCategory } from "@/components/TagSelector";
+import FormSteps from "@/components/FormSteps";
 
 interface StudentInfo {
   studentId: string;
@@ -14,17 +15,21 @@ interface StudentInfo {
 
 export default function TagsPage() {
   const router = useRouter();
-  const [selectedTags, setSelectedTags] = useState<string[]>(() => {
-    const stored = localStorage.getItem("career_demo_tags");
-    return stored ? JSON.parse(stored) : [];
-  });
+  const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const [categories, setCategories] = useState<TagCategory[]>([]);
   const [loadingTags, setLoadingTags] = useState(true);
   const [tagsError, setTagsError] = useState(false);
-  const [student] = useState<StudentInfo | null>(() => {
-    const stored = localStorage.getItem("career_demo_student");
-    return stored ? JSON.parse(stored) : null;
-  });
+  const [student, setStudent] = useState<StudentInfo | null>(null);
+
+  // 挂载后读取已选标签与学生信息（避免 SSR/prerender 访问 localStorage）
+  /* eslint-disable react-hooks/set-state-in-effect -- load persisted state on mount */
+  useEffect(() => {
+    const storedTags = localStorage.getItem("career_demo_tags");
+    setSelectedTags(storedTags ? JSON.parse(storedTags) : []);
+    const storedStudent = localStorage.getItem("career_demo_student");
+    setStudent(storedStudent ? JSON.parse(storedStudent) : null);
+  }, []);
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   const loadTags = async () => {
     setLoadingTags(true);
@@ -71,22 +76,25 @@ export default function TagsPage() {
   };
 
   return (
-    <div className="flex flex-col min-h-screen bg-gray-50">
+    <div className="flex flex-col min-h-screen bg-background">
       <Toaster position="top-center" />
       <NavigationBar title="标签填写" showBack />
       <QuickModeBanner />
+      <div className="pt-5">
+        <FormSteps current={2} />
+      </div>
       <main className="flex-1 px-4 py-6 space-y-6 max-w-lg sm:max-w-xl md:max-w-2xl mx-auto w-full">
         {student && (
-          <div className="text-center text-sm text-gray-600">
-            你好，<span className="font-semibold text-gray-800">{student.name}</span>同学！
+          <div className="text-center text-sm text-gray-600 dark:text-gray-300">
+            你好，<span className="font-semibold text-gray-800 dark:text-gray-100">{student.name}</span>同学！
           </div>
         )}
 
-        {loadingTags && <p className="text-center py-8 text-gray-400">标签加载中...</p>}
+        {loadingTags && <p className="text-center py-8 text-gray-400 dark:text-gray-500">标签加载中...</p>}
         {tagsError && (
           <div className="text-center py-8 space-y-2">
             <p className="text-sm text-red-500">标签加载失败</p>
-            <button onClick={loadTags} className="px-4 py-1.5 bg-green-500 hover:bg-green-600 text-white text-sm rounded-lg">重试</button>
+            <button onClick={loadTags} className="px-4 py-1.5 bg-primary hover:bg-primary-strong text-white text-sm rounded-lg">重试</button>
           </div>
         )}
         {!loadingTags && !tagsError && (
@@ -100,10 +108,10 @@ export default function TagsPage() {
 
       </main>
 
-      <div className="sticky bottom-0 bg-white/80 backdrop-blur-md border-t border-gray-100 p-4">
+      <div className="sticky bottom-0 bg-card/80 backdrop-blur-md border-t border-gray-100 dark:border-gray-700 p-4">
         <button
           onClick={handleNext}
-          className="w-full max-w-lg sm:max-w-xl md:max-w-2xl mx-auto block py-3 bg-green-500 hover:bg-green-600 text-white font-medium rounded-xl transition-colors"
+          className="w-full max-w-lg sm:max-w-xl md:max-w-2xl mx-auto block py-3 bg-primary hover:bg-primary-strong text-white font-medium rounded-xl transition-colors"
         >
           下一步
         </button>

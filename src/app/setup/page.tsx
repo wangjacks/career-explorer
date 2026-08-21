@@ -3,6 +3,7 @@
 import { Fragment, useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { Toaster, toast } from "sonner";
+import { Zap, Check } from "lucide-react";
 
 type Step = "welcome" | "config" | "password" | "installing" | "done";
 type DbType = "mysql" | "sqlite";
@@ -144,11 +145,9 @@ export default function SetupPage() {
           <>
             <div className="text-center space-y-2">
               <div className="w-16 h-16 bg-green-100 rounded-2xl flex items-center justify-center mx-auto">
-                <svg className="w-8 h-8 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
-                </svg>
+                <Zap className="w-8 h-8 text-green-600" strokeWidth={2} />
               </div>
-              <h1 className="text-xl font-bold text-gray-900">欢迎使用职业规划小程序</h1>
+              <h1 className="text-xl font-bold text-gray-900">欢迎使用 Career Explorer</h1>
               <p className="text-sm text-gray-500">请选择数据库类型</p>
             </div>
             <div className="grid grid-cols-2 gap-4">
@@ -336,9 +335,7 @@ export default function SetupPage() {
         {step === "done" && (
           <div className="text-center space-y-4 py-8">
             <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto">
-              <svg className="w-8 h-8 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-              </svg>
+              <Check className="w-8 h-8 text-green-600" strokeWidth={2} />
             </div>
             <div>
               <h2 className="text-lg font-bold text-gray-900">安装成功</h2>

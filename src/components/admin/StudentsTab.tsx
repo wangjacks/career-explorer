@@ -2,6 +2,7 @@
 
 import { useState, useRef, useEffect, useMemo } from "react";
 import { toast } from "sonner";
+import { ChevronDown, Users } from "lucide-react";
 import { Field } from "./AdminUI";
 import ConfirmDialog from "./ConfirmDialog";
 import type { Student } from "@/hooks/useAdminAuth";
@@ -481,8 +482,8 @@ export default function StudentsTab({ students, loadError, onRetry, onStudentsCh
   };
 
   return (
-    <div className="bg-white rounded-xl border border-gray-100 p-6 space-y-6">
-      <h2 className="font-semibold text-gray-800">学生管理</h2>
+    <div className="bg-card rounded-xl border border-gray-100 dark:border-gray-700 p-6 space-y-6">
+      <h2 className="font-semibold text-gray-800 dark:text-gray-100">学生管理</h2>
 
       {loadError && students.length === 0 && (
         <div className="text-center py-6 text-red-500 space-y-2">
@@ -507,7 +508,7 @@ export default function StudentsTab({ students, loadError, onRetry, onStudentsCh
             value={newClassName}
             onChange={(e) => setNewClassName(e.target.value)}
             placeholder="可选"
-            className="px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-300"
+            className="px-3 py-2 border border-gray-200 dark:border-gray-700 bg-card text-foreground rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-300"
           />
           <datalist id="class-datalist-add">
             {classList.map((c) => (
@@ -517,7 +518,7 @@ export default function StudentsTab({ students, loadError, onRetry, onStudentsCh
         </div>
         <button
           onClick={handleAddStudent}
-          className="px-4 py-2 bg-green-500 hover:bg-green-600 text-white text-sm font-medium rounded-lg transition-colors whitespace-nowrap"
+          className="px-4 py-2 bg-primary hover:bg-primary-strong text-white text-sm font-medium rounded-lg transition-colors whitespace-nowrap"
         >
           添加
         </button>
@@ -530,7 +531,7 @@ export default function StudentsTab({ students, loadError, onRetry, onStudentsCh
           ref={batchInputRef}
           rows={3}
           placeholder={"学号,姓名,班级\n202505050101,张三,2025级1班"}
-          className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm font-mono focus:outline-none focus:ring-2 focus:ring-green-300"
+          className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 bg-card text-foreground rounded-lg text-sm font-mono focus:outline-none focus:ring-2 focus:ring-green-300"
         />
         <div className="flex flex-wrap gap-2">
           <button
@@ -550,9 +551,9 @@ export default function StudentsTab({ students, loadError, onRetry, onStudentsCh
       </div>
 
       {/* Student list with search + class filter（外层不用 overflow-hidden，避免裁剪班级筛选下拉） */}
-      <div className="border border-gray-100 rounded-lg">
-        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between px-4 py-3 bg-gray-50 gap-2 rounded-t-lg">
-          <span className="text-sm text-gray-600">
+      <div className="border border-gray-100 dark:border-gray-700 rounded-lg">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between px-4 py-3 bg-gray-50 dark:bg-gray-800 gap-2 rounded-t-lg">
+          <span className="text-sm text-gray-600 dark:text-gray-300">
             学生列表（{filteredStudents.length} / {students.length} 名）
           </span>
           <div className="flex items-center gap-2 flex-wrap">
@@ -562,8 +563,8 @@ export default function StudentsTab({ students, loadError, onRetry, onStudentsCh
                 onClick={() => setClassDropdownOpen((v) => !v)}
                 className={`px-3 py-1.5 rounded-lg text-sm font-medium border transition-colors flex items-center gap-1.5 ${
                   selectedClasses.size > 0
-                    ? "bg-green-50 text-green-700 border-green-200"
-                    : "bg-white text-gray-600 border-gray-200 hover:border-gray-300"
+                    ? "bg-green-50 dark:bg-green-900/30 text-green-700 dark:text-green-300 border-green-200 dark:border-green-800"
+                    : "bg-card text-gray-600 dark:text-gray-300 border-gray-200 dark:border-gray-700 hover:border-gray-300"
                 }`}
               >
                 班级筛选
@@ -572,24 +573,19 @@ export default function StudentsTab({ students, loadError, onRetry, onStudentsCh
                     {selectedClasses.size}
                   </span>
                 )}
-                <svg
+                <ChevronDown
                   className={`w-3 h-3 transition-transform ${classDropdownOpen ? "rotate-180" : ""}`}
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                >
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                </svg>
+                />
               </button>
               {classDropdownOpen && (
-                <div className="absolute top-full left-0 mt-1 w-64 bg-white rounded-xl border border-gray-200 shadow-lg z-30">
-                  <div className="p-2 border-b border-gray-100">
+                <div className="absolute top-full left-0 mt-1 w-64 bg-card rounded-xl border border-gray-200 dark:border-gray-700 shadow-lg z-30">
+                  <div className="p-2 border-b border-gray-100 dark:border-gray-700">
                     <input
                       type="text"
                       value={classSearch}
                       onChange={(e) => setClassSearch(e.target.value)}
                       placeholder="搜索班级..."
-                      className="w-full px-2.5 py-1.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-300"
+                      className="w-full px-2.5 py-1.5 border border-gray-200 dark:border-gray-700 bg-card text-foreground rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-300"
                       autoFocus
                     />
                   </div>
@@ -601,7 +597,7 @@ export default function StudentsTab({ students, loadError, onRetry, onStudentsCh
                           key={o.id}
                           onClick={() => toggleClassFilter(o.id)}
                           className={`w-full text-left px-3 py-1.5 text-sm flex items-center gap-2 transition-colors ${
-                            isSelected ? "bg-green-50 text-green-700" : "hover:bg-gray-50 text-gray-700"
+                            isSelected ? "bg-green-50 dark:bg-green-900/30 text-green-700 dark:text-green-300" : "hover:bg-gray-50 dark:hover:bg-gray-800 text-gray-700 dark:text-gray-200"
                           }`}
                         >
                           <span
@@ -662,10 +658,10 @@ export default function StudentsTab({ students, loadError, onRetry, onStudentsCh
           </div>
         </div>
 
-        <div className="max-h-[500px] overflow-y-auto rounded-b-lg bg-white">
+        <div className="max-h-[500px] overflow-y-auto rounded-b-lg bg-card">
           <table className="w-full text-sm">
-            <thead className="sticky top-0 bg-gray-50 z-10">
-              <tr className="text-left text-gray-500 border-b border-gray-100">
+            <thead className="sticky top-0 bg-gray-50 dark:bg-gray-800 z-10">
+              <tr className="text-left text-gray-500 dark:text-gray-400 border-b border-gray-100 dark:border-gray-700">
                 <th className="px-4 py-2 w-10">
                   <input
                     type="checkbox"
@@ -689,9 +685,9 @@ export default function StudentsTab({ students, loadError, onRetry, onStudentsCh
                 <th className="px-4 py-2">操作</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-gray-50">
+            <tbody className="divide-y divide-gray-50 dark:divide-gray-700/50">
               {filteredStudents.map((s) => (
-                <tr key={s.user_code} className="hover:bg-gray-50/50 group">
+                <tr key={s.user_code} className="hover:bg-gray-50/50 dark:hover:bg-gray-800/40 group">
                   <td className="px-4 py-2">
                     <input
                       type="checkbox"
@@ -705,7 +701,7 @@ export default function StudentsTab({ students, loadError, onRetry, onStudentsCh
                       }}
                     />
                   </td>
-                  <td className="px-4 py-2 font-mono text-xs text-gray-600">{s.user_code}</td>
+                  <td className="px-4 py-2 font-mono text-xs text-gray-600 dark:text-gray-300">{s.user_code}</td>
                   <td className="px-4 py-2">
                     {inlineEdit?.studentId === s.user_code && inlineEdit.field === "name" ? (
                       <input
@@ -717,11 +713,11 @@ export default function StudentsTab({ students, loadError, onRetry, onStudentsCh
                           if (e.key === "Enter") saveInlineEdit(s.user_code, "name", inlineEdit.value);
                           if (e.key === "Escape") setInlineEdit(null);
                         }}
-                        className="px-2 py-0.5 border border-gray-300 rounded text-sm w-24 focus:outline-none focus:ring-1 focus:ring-green-300"
+                        className="px-2 py-0.5 border border-gray-300 dark:border-gray-600 bg-card text-foreground rounded text-sm w-24 focus:outline-none focus:ring-1 focus:ring-green-300"
                       />
                     ) : (
                       <span
-                        className="cursor-pointer hover:bg-gray-100 px-1 rounded"
+                        className="cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-800 px-1 rounded"
                         onClick={() => setInlineEdit({ studentId: s.user_code, field: "name", value: s.name })}
                       >
                         {s.name}
@@ -740,14 +736,14 @@ export default function StudentsTab({ students, loadError, onRetry, onStudentsCh
                           if (e.key === "Enter") saveInlineEdit(s.user_code, "class_name", inlineEdit.value);
                           if (e.key === "Escape") setInlineEdit(null);
                         }}
-                        className="px-2 py-0.5 border border-gray-300 rounded text-sm w-28 focus:outline-none focus:ring-1 focus:ring-green-300"
+                        className="px-2 py-0.5 border border-gray-300 dark:border-gray-600 bg-card text-foreground rounded text-sm w-28 focus:outline-none focus:ring-1 focus:ring-green-300"
                       />
                     ) : (
                       <span
-                        className="cursor-pointer hover:bg-gray-100 px-1 rounded"
+                        className="cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-800 px-1 rounded"
                         onClick={() => setInlineEdit({ studentId: s.user_code, field: "class_name", value: classNameOf(s) })}
                       >
-                        {classNameOf(s) || <span className="text-gray-400">-</span>}
+                        {classNameOf(s) || <span className="text-gray-400 dark:text-gray-500">-</span>}
                       </span>
                     )}
                   </td>
@@ -774,8 +770,15 @@ export default function StudentsTab({ students, loadError, onRetry, onStudentsCh
               ))}
               {filteredStudents.length === 0 && (
                 <tr>
-                  <td colSpan={5} className="px-4 py-8 text-center text-gray-400 text-sm">
-                    {students.length === 0 ? "暂无学生数据" : "无匹配结果"}
+                  <td colSpan={5} className="px-4 py-8 text-center text-gray-400 dark:text-gray-500 text-sm">
+                    {students.length === 0 ? (
+                      <span className="inline-flex flex-col items-center gap-2">
+                        <Users size={28} strokeWidth={1.5} className="text-gray-300" />
+                        还没有学生，在上方添加或导入名单
+                      </span>
+                    ) : (
+                      "无匹配结果"
+                    )}
                   </td>
                 </tr>
               )}
@@ -792,34 +795,34 @@ export default function StudentsTab({ students, loadError, onRetry, onStudentsCh
       {/* Edit Modal */}
       {editing && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 px-4" onClick={() => setEditing(null)}>
-          <div className="bg-white rounded-2xl shadow-xl max-w-sm w-full p-6 space-y-4" onClick={(e) => e.stopPropagation()}>
+          <div className="bg-card rounded-2xl shadow-xl max-w-sm w-full p-6 space-y-4" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between">
-              <h3 className="font-semibold text-gray-800">编辑学生</h3>
-              <button onClick={() => setEditing(null)} className="text-gray-400 hover:text-gray-600 text-xl">
+              <h3 className="font-semibold text-gray-800 dark:text-gray-100">编辑学生</h3>
+              <button onClick={() => setEditing(null)} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 text-xl">
                 ×
               </button>
             </div>
             <div className="space-y-3">
               <div>
-                <label className="text-xs text-gray-500">学号</label>
-                <p className="font-mono text-sm text-gray-700 bg-gray-50 px-3 py-2 rounded-lg">{editing.user_code}</p>
+                <label className="text-xs text-gray-500 dark:text-gray-400">学号</label>
+                <p className="font-mono text-sm text-gray-700 dark:text-gray-200 bg-gray-50 dark:bg-gray-800 px-3 py-2 rounded-lg">{editing.user_code}</p>
               </div>
               <div className="space-y-1">
-                <label className="text-xs text-gray-500">姓名</label>
+                <label className="text-xs text-gray-500 dark:text-gray-400">姓名</label>
                 <input
                   value={editName}
                   onChange={(e) => setEditName(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-300"
+                  className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 bg-card text-foreground rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-300"
                 />
               </div>
               <div className="space-y-1">
-                <label className="text-xs text-gray-500">班级</label>
+                <label className="text-xs text-gray-500 dark:text-gray-400">班级</label>
                 <input
                   list="class-datalist-modal"
                   value={editClass}
                   onChange={(e) => setEditClass(e.target.value)}
                   placeholder="输入班级"
-                  className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-300"
+                  className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 bg-card text-foreground rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-300"
                 />
                 <datalist id="class-datalist-modal">
                   {classList.map((c) => (
@@ -831,13 +834,13 @@ export default function StudentsTab({ students, loadError, onRetry, onStudentsCh
             <div className="flex gap-2 pt-2">
               <button
                 onClick={() => setEditing(null)}
-                className="flex-1 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm font-medium rounded-lg transition-colors"
+                className="flex-1 py-2 bg-gray-100 hover:bg-gray-200 dark:bg-gray-800 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-200 text-sm font-medium rounded-lg transition-colors"
               >
                 取消
               </button>
               <button
                 onClick={saveEditModal}
-                className="flex-1 py-2 bg-green-500 hover:bg-green-600 text-white text-sm font-medium rounded-lg transition-colors"
+                className="flex-1 py-2 bg-primary hover:bg-primary-strong text-white text-sm font-medium rounded-lg transition-colors"
               >
                 保存
               </button>
@@ -850,23 +853,23 @@ export default function StudentsTab({ students, loadError, onRetry, onStudentsCh
       {preview && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 px-4" onClick={() => setPreview(null)}>
           <div
-            className="bg-white rounded-2xl shadow-xl max-w-2xl w-full p-6 space-y-4 max-h-[85vh] flex flex-col"
+            className="bg-card rounded-2xl shadow-xl max-w-2xl w-full p-6 space-y-4 max-h-[85vh] flex flex-col"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center justify-between">
-              <h3 className="font-semibold text-gray-800 text-lg">导入预览</h3>
-              <button onClick={() => setPreview(null)} className="text-gray-400 hover:text-gray-600 text-xl">
+              <h3 className="font-semibold text-gray-800 dark:text-gray-100 text-lg">导入预览</h3>
+              <button onClick={() => setPreview(null)} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 text-xl">
                 ×
               </button>
             </div>
             {/* 列映射调整 */}
             <div className="flex flex-wrap items-center gap-3">
-              <label className="flex items-center gap-1.5 text-sm text-gray-600">
+              <label className="flex items-center gap-1.5 text-sm text-gray-600 dark:text-gray-300">
                 学号列
                 <select
                   value={preview.idCol}
                   onChange={(e) => setPreview({ ...preview, idCol: Number(e.target.value) })}
-                  className="px-2 py-1 border border-gray-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-green-300"
+                  className="px-2 py-1 border border-gray-200 dark:border-gray-700 rounded-lg text-sm bg-card text-foreground focus:outline-none focus:ring-2 focus:ring-green-300"
                 >
                   {Array.from({ length: columnCount }, (_, i) => (
                     <option key={i} value={i}>
@@ -880,7 +883,7 @@ export default function StudentsTab({ students, loadError, onRetry, onStudentsCh
                 <select
                   value={preview.nameCol}
                   onChange={(e) => setPreview({ ...preview, nameCol: Number(e.target.value) })}
-                  className="px-2 py-1 border border-gray-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-green-300"
+                  className="px-2 py-1 border border-gray-200 dark:border-gray-700 rounded-lg text-sm bg-card text-foreground focus:outline-none focus:ring-2 focus:ring-green-300"
                 >
                   {Array.from({ length: columnCount }, (_, i) => (
                     <option key={i} value={i}>
@@ -894,7 +897,7 @@ export default function StudentsTab({ students, loadError, onRetry, onStudentsCh
                 <select
                   value={preview.classCol}
                   onChange={(e) => setPreview({ ...preview, classCol: Number(e.target.value) })}
-                  className="px-2 py-1 border border-gray-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-green-300"
+                  className="px-2 py-1 border border-gray-200 dark:border-gray-700 rounded-lg text-sm bg-card text-foreground focus:outline-none focus:ring-2 focus:ring-green-300"
                 >
                   <option value={-1}>不导入</option>
                   {Array.from({ length: columnCount }, (_, i) => (
@@ -955,8 +958,8 @@ export default function StudentsTab({ students, loadError, onRetry, onStudentsCh
       {/* Single reset password modal */}
       {resettingStudent && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 px-4" onClick={() => setResettingStudent(null)}>
-          <div className="bg-white rounded-2xl shadow-xl max-w-sm w-full p-6 space-y-4" onClick={(e) => e.stopPropagation()}>
-            <h3 className="font-semibold text-gray-800 text-lg">重置密码 — {resettingStudent.name}</h3>
+          <div className="bg-card rounded-2xl shadow-xl max-w-sm w-full p-6 space-y-4" onClick={(e) => e.stopPropagation()}>
+            <h3 className="font-semibold text-gray-800 dark:text-gray-100 text-lg">重置密码 — {resettingStudent.name}</h3>
             <div className="flex gap-2">
               <input
                 type="text"
@@ -994,8 +997,8 @@ export default function StudentsTab({ students, loadError, onRetry, onStudentsCh
       {/* Single credentials dialog (one-time) */}
       {credential && (
         <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 px-4" onClick={() => setCredential(null)}>
-          <div className="bg-white rounded-2xl shadow-xl max-w-sm w-full p-6 space-y-4" onClick={(e) => e.stopPropagation()}>
-            <h3 className="font-semibold text-gray-800 text-lg">密码已重置</h3>
+          <div className="bg-card rounded-2xl shadow-xl max-w-sm w-full p-6 space-y-4" onClick={(e) => e.stopPropagation()}>
+            <h3 className="font-semibold text-gray-800 dark:text-gray-100 text-lg">密码已重置</h3>
             <p className="text-xs text-amber-600">请立即记录并告知学生，关闭后将无法再次查看密码。</p>
             <div className="space-y-2 text-sm">
               <div className="flex justify-between items-center bg-gray-50 rounded-lg px-3 py-2">
@@ -1024,10 +1027,10 @@ export default function StudentsTab({ students, loadError, onRetry, onStudentsCh
           onClick={() => setBatchPwdResults(null)}
         >
           <div
-            className="bg-white rounded-2xl shadow-xl max-w-lg w-full p-6 space-y-4 max-h-[85vh] flex flex-col"
+            className="bg-card rounded-2xl shadow-xl max-w-lg w-full p-6 space-y-4 max-h-[85vh] flex flex-col"
             onClick={(e) => e.stopPropagation()}
           >
-            <h3 className="font-semibold text-gray-800 text-lg">批量重置完成（{batchPwdResults.length} 人）</h3>
+            <h3 className="font-semibold text-gray-800 dark:text-gray-100 text-lg">批量重置完成（{batchPwdResults.length} 人）</h3>
             <p className="text-xs text-amber-600">请立即记录或复制，关闭后将无法再次查看密码。</p>
             <div className="overflow-y-auto border border-gray-100 rounded-lg flex-1">
               <table className="w-full text-sm">

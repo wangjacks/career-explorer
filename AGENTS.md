@@ -36,8 +36,8 @@ This version has breaking changes — APIs, conventions, and file structure may 
 | `src/app/api/setup/` | 安装引导 API（含 status/test 子路由） |
 | `src/app/api/uploads/[...path]/` | 静态文件服务（含路径穿越防护） |
 | `src/components/admin/` | Admin/Teacher 面板子组件（DashboardTab、ExportTab、OverviewTab、SettingsTab、StudentsTab、TagsTab、ClassesTab、TeachersTab、ProfilesTab 数据列表、ClassOverviewTable 班级概览、TeacherHomeTab 教师主页） |
-| `src/components/` | 公共组件（ErrorBoundary、InstallGuard、NavigationBar、UserMenu、QuickModeBanner、TagSelector、ImageUploadBox、WordCloudCanvas/Client） |
-| `src/hooks/` | 自定义 React hooks（useAdminAuth、useSession） |
+| `src/components/` | 公共组件（ErrorBoundary、NavigationBar、UserMenu、SiteFooter、QuickModeBanner、TagSelector、ImageUploadBox、WordCloudCanvas/Client） |
+| `src/hooks/` | 自定义 React hooks（useAdminAuth、useSession、useTheme） |
 | `src/lib/` | 数据层和工具库 |
 | `src/lib/db.ts` | 数据库抽象层（DbAdapter 接口 + 工厂函数） |
 | `src/lib/db-mysql.ts` | MySQL 适配器 |
@@ -54,7 +54,7 @@ This version has breaking changes — APIs, conventions, and file structure may 
 | `src/__tests__/` | 单元测试（auth、proxy、sanitize、token、db-schema） |
 | `uploads/` | 用户上传文件（头像、评价词云图片，gitignored） |
 | `data/` | SQLite 数据库文件（gitignored） |
-| `docs/` | 项目文档（architecture、standards、plan、overview、issue-standard）— **已纳入 Git 跟踪** |
+| `docs/` | 项目文档（architecture、standards、plan、plan-v2.0.0-uiux、ui-conventions、overview、issue-standard）— **已纳入 Git 跟踪** |
 
 ## 3. Database Conventions
 
@@ -124,8 +124,10 @@ This version has breaking changes — APIs, conventions, and file structure may 
 
 ## 7. Key Design Patterns
 
-- 安装引导：`InstallGuard` 组件检测安装状态，未安装时重定向到 `/setup`
-- 全局用户菜单：`UserMenu` 组件在根布局 `layout.tsx` 单点挂载（`fixed top-0 right-0 z-[60]`），未登录显示「登录」按钮，已登录显示姓名 + 下拉菜单（个人信息 + 退出登录）
+- 安装引导：手动访问 `/setup` 完成首次安装（InstallGuard 全局安装拦截已移除，不再自动重定向；未安装时管理面板显示「数据库未配置」提示）
+- 全局用户菜单：`UserMenu` 组件在根布局 `layout.tsx` 单点挂载（`fixed top-0 right-0 z-[45]`），未登录显示「登录」按钮，已登录显示姓名 + 下拉菜单（主题切换 + 个人信息 + 退出登录）
+- 主题系统：`useTheme` hook 三态切换（浅色/深色/跟随系统），持久化 localStorage `theme`；`layout.tsx` 内联脚本在 hydration 前预设 `.dark` class 防闪烁，`<html>` 加 `suppressHydrationWarning`；class-based dark（`@custom-variant dark`）
+- 品牌色系统：`globals.css` 语义 token（`--color-brand` 深绿 / `--color-accent` 琥珀 / `--color-background` / `--color-card` 等），品牌色在 `.dark` 下自动提亮；全站深绿顶栏 + 大字报 hero；TagSelector 标签三色（兴趣绿/技能蓝/性格琥珀）；详见 `docs/plan-v2.0.0-uiux.md` 与 `docs/ui-conventions.md`
 - 共享会话检测：`useSession` hook 供 UserMenu 与 NavigationBar 共用，按 pathname 变化重新检测
 - 快速提交模式：未登录访问 `/form/*` 时，NavigationBar 下方显示 `QuickModeBanner` 横幅（登录后消失）
 - 学生双模式：快速通道（已有账户记录，无需登录，走 `/form/*`）+ 登录后（`/dashboard/student` 查看个人信息）

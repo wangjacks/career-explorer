@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
+import { Image as ImageIcon } from "lucide-react";
 import { toast } from "sonner";
 import { safeImageUrl } from "@/lib/sanitize";
 
@@ -56,11 +57,7 @@ export default function ImageUploadBox({
           <img src={preview} alt="预览" className="w-full h-full object-contain" />
         ) : (
           <div className="flex flex-col items-center gap-2 text-gray-400 px-4 text-center">
-            <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-              <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
-              <circle cx="8.5" cy="8.5" r="1.5" />
-              <polyline points="21 15 16 10 5 21" />
-            </svg>
+            <ImageIcon size={36} strokeWidth={1.5} />
             <span className="text-xs">{emptyHint}</span>
           </div>
         )}

@@ -1,6 +1,7 @@
 "use client";
 
 import { Component, type ReactNode } from "react";
+import { CircleAlert } from "lucide-react";
 import Link from "next/link";
 
 interface Props {
@@ -43,10 +44,7 @@ export default class ErrorBoundary extends Component<Props, State> {
         <div className="min-h-screen bg-gray-50 flex items-center justify-center px-4">
           <div className="text-center space-y-4 max-w-sm">
             <div className="w-16 h-16 mx-auto rounded-full bg-red-100 flex items-center justify-center">
-              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#ef4444" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <circle cx="12" cy="12" r="10" />
-                <path d="M12 8v4M12 16h.01" />
-              </svg>
+              <CircleAlert size={32} className="text-red-500" />
             </div>
             <div>
               <h2 className="text-lg font-bold text-gray-900">页面出错了</h2>

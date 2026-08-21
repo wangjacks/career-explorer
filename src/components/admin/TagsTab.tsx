@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
+import { ChevronDown, ChevronUp } from "lucide-react";
 
 interface TagItem {
   id: number;
@@ -29,6 +30,9 @@ export default function TagsTab() {
   const [editing, setEditing] = useState<EditingTag | null>(null);
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [selectedCatId, setSelectedCatId] = useState("");
+  // 排序草稿：非 null 表示有未保存的本地排序变更（避免每次移动都调 API 导致闪烁）
+  const [draftTags, setDraftTags] = useState<TagItem[] | null>(null);
+  const [savingSort, setSavingSort] = useState(false);
 
   // Category picker for add-tag form
   const [catOpen, setCatOpen] = useState(false);
@@ -40,9 +44,10 @@ export default function TagsTab() {
   const [editCatSearch, setEditCatSearch] = useState("");
   const editCatRef = useRef<HTMLDivElement>(null);
 
+  const displayTags = draftTags ?? tags;
   const categories = useMemo(
-    () => tags.filter((tag) => tag.type === "category").sort((a, b) => a.category_order - b.category_order || a.id - b.id),
-    [tags]
+    () => displayTags.filter((tag) => tag.type === "category").sort((a, b) => a.category_order - b.category_order || a.id - b.id),
+    [displayTags]
   );
 
   const filteredAddCategories = useMemo(() => {
@@ -138,32 +143,55 @@ export default function TagsTab() {
     await submit({ id: tag.id, active: !tag.active }, tag.active ? "已停用" : "已恢复");
   };
 
-  const moveTag = async (tag: TagItem, direction: -1 | 1) => {
-    const scrollY = window.scrollY;
-    const siblings = tags
+  const moveTag = (tag: TagItem, direction: -1 | 1) => {
+    const base = draftTags ?? tags;
+    const field = tag.type === "category" ? "category_order" : "sort_order";
+    const siblings = base
       .filter((item) => item.type === tag.type && (tag.type === "category" || item.parent_id === tag.parent_id))
       .sort((a, b) => (tag.type === "category" ? a.category_order - b.category_order : a.sort_order - b.sort_order) || a.id - b.id);
     const index = siblings.findIndex((item) => item.id === tag.id);
     const target = siblings[index + direction];
     if (!target) return;
-    const currentOrder = tag.type === "category" ? tag.category_order : tag.sort_order;
-    const targetOrder = tag.type === "category" ? target.category_order : target.sort_order;
-    const field = tag.type === "category" ? "category_order" : "sort_order";
+    const currentOrder = tag[field];
+    const targetOrder = target[field];
+    // 仅本地交换顺序，不调 API；由底部浮动 dock 统一保存/取消
+    setDraftTags(base.map((item) => {
+      if (item.id === tag.id) return { ...item, [field]: targetOrder };
+      if (item.id === target.id) return { ...item, [field]: currentOrder };
+      return item;
+    }));
+  };
+
+  const cancelSort = () => setDraftTags(null);
+
+  const saveSort = async () => {
+    if (!draftTags) return;
+    setSavingSort(true);
     try {
-      const requests = [
-        [tag.id, targetOrder],
-        [target.id, currentOrder],
-      ].map(([id, order]) => fetch("/api/manage/tags", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id, [field]: order }),
+      const changes = draftTags.filter((d) => {
+        const orig = tags.find((t) => t.id === d.id);
+        if (!orig) return false;
+        const field = d.type === "category" ? "category_order" : "sort_order";
+        return orig[field] !== d[field];
+      });
+      const responses = await Promise.all(changes.map((d) => {
+        const field = d.type === "category" ? "category_order" : "sort_order";
+        return fetch("/api/manage/tags", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ id: d.id, [field]: d[field] }),
+        });
       }));
-      const responses = await Promise.all(requests);
-      if (responses.some((res) => !res.ok)) throw new Error("排序失败");
-      await refresh();
-      requestAnimationFrame(() => window.scrollTo(0, scrollY));
+      if (responses.some((r) => !r.ok)) throw new Error("排序失败");
+      // 乐观更新：直接生效草稿避免重新加载闪烁；后台同步服务端保证一致
+      setTags(draftTags);
+      setDraftTags(null);
+      toast.success("已保存排序");
+      fetch("/api/manage/tags").then((r) => r.json()).then((d) => { if (d.data) setTags(d.data); }).catch(() => {});
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "排序失败");
+      toast.error(err instanceof Error ? err.message : "保存排序失败");
+    } finally {
+      setSavingSort(false);
     }
   };
 
@@ -209,24 +237,22 @@ export default function TagsTab() {
       <button
         type="button"
         onClick={() => setOpen(!open)}
-        className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm text-left flex items-center justify-between focus:outline-none focus:ring-2 focus:ring-green-300"
+        className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 bg-card text-foreground rounded-lg text-sm text-left flex items-center justify-between focus:outline-none focus:ring-2 focus:ring-green-300"
       >
         <span className={selectedId ? "text-gray-800" : "text-gray-400"}>
           {selectedId ? filtered.find((c) => c.id === Number(selectedId))?.name || "所属分类" : "所属分类"}
         </span>
-        <svg className={`w-3.5 h-3.5 text-gray-400 transition-transform ${open ? "rotate-180" : ""}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-        </svg>
+        <ChevronDown className={`w-3.5 h-3.5 text-gray-400 transition-transform ${open ? "rotate-180" : ""}`} />
       </button>
       {open && (
-        <div className="absolute top-full left-0 mt-1 w-56 bg-white rounded-xl border border-gray-200 shadow-lg z-30">
-          <div className="p-2 border-b border-gray-100">
+        <div className="absolute top-full left-0 mt-1 w-56 bg-card rounded-xl border border-gray-200 dark:border-gray-700 shadow-lg z-30">
+          <div className="p-2 border-b border-gray-100 dark:border-gray-700">
             <input
               type="text"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="搜索分类..."
-              className="w-full px-2.5 py-1.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-300"
+              className="w-full px-2.5 py-1.5 border border-gray-200 dark:border-gray-700 bg-card text-foreground rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-300"
               autoFocus
             />
           </div>
@@ -239,7 +265,7 @@ export default function TagsTab() {
                   type="button"
                   onClick={() => { onSelect(isActive ? "" : String(c.id)); setOpen(false); setSearch(""); }}
                   className={`w-full text-left px-3 py-1.5 text-sm flex items-center gap-2 transition-colors ${
-                    isActive ? "bg-green-50 text-green-700" : "hover:bg-gray-50 text-gray-700"
+                    isActive ? "bg-green-50 dark:bg-green-900/30 text-green-700 dark:text-green-300" : "hover:bg-gray-50 dark:hover:bg-gray-800 text-gray-700 dark:text-gray-200"
                   }`}
                 >
                   <span className={`w-4 h-4 rounded border flex items-center justify-center flex-shrink-0 text-xs ${
@@ -263,41 +289,37 @@ export default function TagsTab() {
     <button
       onClick={onClick}
       title={title}
-      className="inline-flex items-center justify-center w-6 h-6 rounded-md text-gray-400 hover:text-green-600 hover:bg-green-50 transition-colors flex-shrink-0"
+      className="inline-flex items-center justify-center w-6 h-6 rounded-md text-gray-400 dark:text-gray-500 hover:text-green-600 dark:hover:text-green-400 hover:bg-green-50 dark:hover:bg-green-900/30 transition-colors flex-shrink-0"
     >
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-        {dir === "up"
-          ? <path d="M18 15l-6-6-6 6" />
-          : <path d="M6 9l6 6 6-6" />}
-      </svg>
+      {dir === "up" ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
     </button>
   );
 
   return (
-    <div className="bg-white rounded-xl border border-gray-100 p-6 space-y-6">
+    <div className="bg-card rounded-xl border border-gray-100 dark:border-gray-700 p-6 space-y-6">
       <div>
-        <h2 className="font-semibold text-gray-800">标签管理</h2>
-        <p className="text-xs text-gray-400 mt-1">停用不会删除历史标签数据。</p>
+        <h2 className="font-semibold text-gray-800 dark:text-gray-100">标签管理</h2>
+        <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">停用不会删除历史标签数据。</p>
       </div>
 
       {/* Add forms */}
       <div className="grid gap-4 md:grid-cols-2">
-        <div className="border border-gray-100 rounded-lg p-4 space-y-3">
-          <h3 className="text-sm font-medium text-gray-700">新增一级分类</h3>
+        <div className="border border-gray-100 dark:border-gray-700 rounded-lg p-4 space-y-3">
+          <h3 className="text-sm font-medium text-gray-700 dark:text-gray-200">新增一级分类</h3>
           <div className="flex flex-col sm:flex-row gap-2">
             <input value={categoryName} onChange={(e) => setCategoryName(e.target.value)} placeholder="分类名称"
-              className="flex-1 px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-300" />
-            <button onClick={addCategory} className="px-3 py-2 bg-green-500 hover:bg-green-600 text-white text-sm rounded-lg whitespace-nowrap">新增</button>
+              className="flex-1 px-3 py-2 border border-gray-200 dark:border-gray-700 bg-card text-foreground rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-300" />
+            <button onClick={addCategory} className="px-3 py-2 bg-primary hover:bg-primary-strong text-white text-sm rounded-lg whitespace-nowrap">新增</button>
           </div>
         </div>
-        <div className="border border-gray-100 rounded-lg p-4 space-y-3">
-          <h3 className="text-sm font-medium text-gray-700">新增二级标签</h3>
+        <div className="border border-gray-100 dark:border-gray-700 rounded-lg p-4 space-y-3">
+          <h3 className="text-sm font-medium text-gray-700 dark:text-gray-200">新增二级标签</h3>
           <div className="flex flex-col sm:flex-row gap-2">
             <input value={tagName} onChange={(e) => setTagName(e.target.value)} placeholder="标签名称"
-              className="flex-1 min-w-0 px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-300" />
+              className="flex-1 min-w-0 px-3 py-2 border border-gray-200 dark:border-gray-700 bg-card text-foreground rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-300" />
             <div className="flex gap-2">
               {renderCategoryPicker(catOpen, setCatOpen, catSearch, setCatSearch, catRef, filteredAddCategories, selectedCatId, (id) => { setSelectedCatId(id); setCatOpen(false); })}
-              <button onClick={addTag} className="px-3 py-2 bg-green-500 hover:bg-green-600 text-white text-sm rounded-lg whitespace-nowrap">新增</button>
+              <button onClick={addTag} className="px-3 py-2 bg-primary hover:bg-primary-strong text-white text-sm rounded-lg whitespace-nowrap">新增</button>
             </div>
           </div>
         </div>
@@ -305,8 +327,8 @@ export default function TagsTab() {
 
       {/* Batch actions */}
       {selected.size > 0 && (
-        <div className="flex flex-wrap items-center gap-2 sm:gap-3 px-4 py-2.5 bg-green-50 rounded-lg border border-green-100">
-          <span className="text-sm text-green-700 font-medium">已选 {selected.size} 项</span>
+        <div className="flex flex-wrap items-center gap-2 sm:gap-3 px-4 py-2.5 bg-green-50 dark:bg-green-900/20 rounded-lg border border-green-100 dark:border-green-900">
+          <span className="text-sm text-green-700 dark:text-green-400 font-medium">已选 {selected.size} 项</span>
           <button onClick={() => batchSetActive(true)} className="px-3 py-1 bg-green-500 hover:bg-green-600 text-white text-xs rounded-lg">恢复</button>
           <button onClick={() => batchSetActive(false)} className="px-3 py-1 bg-red-500 hover:bg-red-600 text-white text-xs rounded-lg">停用</button>
           <button onClick={() => setSelected(new Set())} className="text-xs text-gray-500 hover:text-gray-700">取消选择</button>
@@ -314,14 +336,14 @@ export default function TagsTab() {
       )}
 
       {/* Tag list */}
-      {loading ? <p className="text-center py-8 text-gray-400">加载中...</p> : (
+      {loading ? <p className="text-center py-8 text-gray-400 dark:text-gray-500">加载中...</p> : (
         <div className="space-y-3">
           {categories.map((category) => {
-            const children = tags.filter((tag) => tag.type === "tag" && tag.parent_id === category.id)
+            const children = displayTags.filter((tag) => tag.type === "tag" && tag.parent_id === category.id)
               .sort((a, b) => a.sort_order - b.sort_order || a.id - b.id);
             return (
-              <div key={category.id} className={`border rounded-lg ${category.active ? "border-gray-100" : "border-gray-200 bg-gray-50"}`}>
-                <div className="px-4 py-3 bg-gray-50 rounded-t-lg">
+              <div key={category.id} className={`border rounded-lg ${category.active ? "border-gray-100 dark:border-gray-700" : "border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50"}`}>
+                <div className="px-4 py-3 bg-gray-50 dark:bg-gray-800 rounded-t-lg">
                   {editing?.id === category.id ? (
                     <>
                       {/* Mobile: two-row layout */}
@@ -331,11 +353,11 @@ export default function TagsTab() {
                           <input autoFocus value={editing.name} onChange={(e) => setEditing({ ...editing, name: e.target.value })} className="flex-1 min-w-0 px-2 py-1.5 border border-gray-200 rounded text-sm" />
                         </div>
                         <div className="flex items-center gap-2 pl-6">
-                          <span className="text-xs text-gray-400 flex-shrink-0">一级分类 · {children.length} 个标签</span>
+                          <span className="text-xs text-gray-400 dark:text-gray-500 flex-shrink-0">一级分类 · {children.length} 个标签</span>
                           <SortBtn onClick={() => moveTag(category, -1)} dir="up" title="上移" />
                           <SortBtn onClick={() => moveTag(category, 1)} dir="down" title="下移" />
-                          <button onClick={saveEdit} className="text-xs text-green-600 hover:text-green-700 flex-shrink-0">保存</button>
-                          <button onClick={() => setEditing(null)} className="text-xs text-gray-500 hover:text-gray-700 flex-shrink-0">取消</button>
+                          <button onClick={saveEdit} className="text-xs text-green-600 dark:text-green-400 hover:text-green-700 dark:hover:text-green-300 flex-shrink-0">保存</button>
+                          <button onClick={() => setEditing(null)} className="text-xs text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 flex-shrink-0">取消</button>
                         </div>
                       </div>
                       {/* Desktop: single-row layout */}
@@ -344,24 +366,24 @@ export default function TagsTab() {
                         <input autoFocus value={editing.name} onChange={(e) => setEditing({ ...editing, name: e.target.value })} className="flex-1 min-w-0 px-2 py-1 border border-gray-200 rounded text-sm" />
                         <SortBtn onClick={() => moveTag(category, -1)} dir="up" title="上移" />
                         <SortBtn onClick={() => moveTag(category, 1)} dir="down" title="下移" />
-                        <button onClick={saveEdit} className="text-xs text-green-600 hover:text-green-700 flex-shrink-0">保存</button>
-                        <button onClick={() => setEditing(null)} className="text-xs text-gray-500 hover:text-gray-700 flex-shrink-0">取消</button>
+                        <button onClick={saveEdit} className="text-xs text-green-600 dark:text-green-400 hover:text-green-700 dark:hover:text-green-300 flex-shrink-0">保存</button>
+                        <button onClick={() => setEditing(null)} className="text-xs text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 flex-shrink-0">取消</button>
                       </div>
                     </>
                   ) : (
                     <div className="flex items-center gap-2">
                       <input type="checkbox" className="rounded border-gray-300 text-green-500 focus:ring-green-300 flex-shrink-0" checked={selected.has(category.id)} onChange={() => toggleSelect(category.id)} />
-                      <span className={`flex-1 min-w-0 text-sm font-medium truncate ${category.active ? "text-gray-800" : "text-gray-400 line-through"}`}>{category.name}</span>
-                      <span className="text-xs text-gray-400 flex-shrink-0 hidden sm:inline">一级分类 · {children.length} 个标签</span>
+                      <span className={`flex-1 min-w-0 text-sm font-medium truncate ${category.active ? "text-gray-800 dark:text-gray-100" : "text-gray-400 dark:text-gray-500 line-through"}`}>{category.name}</span>
+                      <span className="text-xs text-gray-400 dark:text-gray-500 flex-shrink-0 hidden sm:inline">一级分类 · {children.length} 个标签</span>
                       <SortBtn onClick={() => moveTag(category, -1)} dir="up" title="上移" />
                       <SortBtn onClick={() => moveTag(category, 1)} dir="down" title="下移" />
-                      <button onClick={() => setEditing({ ...category })} className="text-xs text-blue-600 hover:text-blue-700 flex-shrink-0">编辑</button>
-                      <button onClick={() => toggleActive(category)} className="text-xs text-gray-500 hover:text-gray-700 flex-shrink-0">{category.active ? "停用" : "恢复"}</button>
+                      <button onClick={() => setEditing({ ...category })} className="text-xs text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 flex-shrink-0">编辑</button>
+                      <button onClick={() => toggleActive(category)} className="text-xs text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 flex-shrink-0">{category.active ? "停用" : "恢复"}</button>
                     </div>
                   )}
                 </div>
                 {/* 不用 overflow-hidden：编辑二级标签时的分类选择下拉需溢出卡片显示 */}
-                <div className="divide-y divide-gray-100 rounded-b-lg">
+                <div className="divide-y divide-gray-100 dark:divide-gray-700/50 rounded-b-lg">
                   {children.map((tag) => (
                     <div key={tag.id} className="px-4 py-2 pl-10">
                       {editing?.id === tag.id ? (
@@ -378,8 +400,8 @@ export default function TagsTab() {
                               </div>
                               <SortBtn onClick={() => moveTag(tag, -1)} dir="up" title="上移" />
                               <SortBtn onClick={() => moveTag(tag, 1)} dir="down" title="下移" />
-                              <button onClick={saveEdit} className="text-xs text-green-600 hover:text-green-700 flex-shrink-0">保存</button>
-                              <button onClick={() => setEditing(null)} className="text-xs text-gray-500 hover:text-gray-700 flex-shrink-0">取消</button>
+                              <button onClick={saveEdit} className="text-xs text-green-600 dark:text-green-400 hover:text-green-700 dark:hover:text-green-300 flex-shrink-0">保存</button>
+                              <button onClick={() => setEditing(null)} className="text-xs text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 flex-shrink-0">取消</button>
                             </div>
                           </div>
                           {/* Desktop: single-row layout */}
@@ -391,18 +413,18 @@ export default function TagsTab() {
                             </div>
                             <SortBtn onClick={() => moveTag(tag, -1)} dir="up" title="上移" />
                             <SortBtn onClick={() => moveTag(tag, 1)} dir="down" title="下移" />
-                            <button onClick={saveEdit} className="text-xs text-green-600 hover:text-green-700 flex-shrink-0">保存</button>
-                            <button onClick={() => setEditing(null)} className="text-xs text-gray-500 hover:text-gray-700 flex-shrink-0">取消</button>
+                            <button onClick={saveEdit} className="text-xs text-green-600 dark:text-green-400 hover:text-green-700 dark:hover:text-green-300 flex-shrink-0">保存</button>
+                            <button onClick={() => setEditing(null)} className="text-xs text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 flex-shrink-0">取消</button>
                           </div>
                         </>
                       ) : (
                         <div className="flex items-center gap-2">
                           <input type="checkbox" className="rounded border-gray-300 text-green-500 focus:ring-green-300 flex-shrink-0" checked={selected.has(tag.id)} onChange={() => toggleSelect(tag.id)} />
-                          <span className={`flex-1 min-w-0 text-sm ${tag.active ? "text-gray-700" : "text-gray-400 line-through"}`}>{tag.name}</span>
+                          <span className={`flex-1 min-w-0 text-sm ${tag.active ? "text-gray-700 dark:text-gray-200" : "text-gray-400 dark:text-gray-500 line-through"}`}>{tag.name}</span>
                           <SortBtn onClick={() => moveTag(tag, -1)} dir="up" title="上移" />
                           <SortBtn onClick={() => moveTag(tag, 1)} dir="down" title="下移" />
-                          <button onClick={() => setEditing({ ...tag })} className="text-xs text-blue-600 hover:text-blue-700 flex-shrink-0">编辑</button>
-                          <button onClick={() => toggleActive(tag)} className="text-xs text-gray-500 hover:text-gray-700 flex-shrink-0">{tag.active ? "停用" : "恢复"}</button>
+                          <button onClick={() => setEditing({ ...tag })} className="text-xs text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 flex-shrink-0">编辑</button>
+                          <button onClick={() => toggleActive(tag)} className="text-xs text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 flex-shrink-0">{tag.active ? "停用" : "恢复"}</button>
                         </div>
                       )}
                     </div>
@@ -412,7 +434,27 @@ export default function TagsTab() {
               </div>
             );
           })}
-          {categories.length === 0 && <p className="text-center py-8 text-gray-400">暂无分类</p>}
+          {categories.length === 0 && <p className="text-center py-8 text-gray-400 dark:text-gray-500">暂无分类</p>}
+        </div>
+      )}
+
+      {/* 排序草稿浮动 dock：有未保存排序变更时出现，取消恢复/保存批量提交 */}
+      {draftTags && (
+        <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-50 flex items-center gap-3 px-4 py-3 bg-card border border-gray-200 dark:border-gray-700 rounded-xl shadow-lg animate-[fade-in_0.2s_ease-out]">
+          <span className="text-sm text-gray-600 dark:text-gray-300">有未保存的排序变更</span>
+          <button
+            onClick={cancelSort}
+            className="px-3 py-1.5 bg-gray-100 hover:bg-gray-200 dark:bg-gray-800 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-200 text-sm rounded-lg transition-colors"
+          >
+            取消
+          </button>
+          <button
+            onClick={saveSort}
+            disabled={savingSort}
+            className="px-3 py-1.5 bg-primary hover:bg-primary-strong disabled:opacity-50 text-white text-sm rounded-lg transition-colors"
+          >
+            {savingSort ? "保存中..." : "保存排序"}
+          </button>
         </div>
       )}
     </div>

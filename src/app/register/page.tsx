@@ -65,20 +65,20 @@ export default function RegisterPage() {
   // 会话检测中 / 正在重定向：显示 loading 避免注册表单闪现
   if (checking || session) {
     return (
-      <div className="min-h-screen bg-gray-50">
+      <div className="min-h-screen bg-brand">
         <NavigationBar title="学生注册" showHome />
         <div className="min-h-[calc(100vh-3rem)] flex items-center justify-center px-4">
-          <p className="text-sm text-gray-400">加载中...</p>
+          <p className="text-sm text-white/70">加载中...</p>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-brand">
       <NavigationBar title="学生注册" showHome />
       <main className="min-h-[calc(100vh-3rem)] flex items-center justify-center px-4 py-12">
-        <div className="w-full max-w-sm sm:max-w-md bg-white rounded-2xl shadow-sm border border-gray-100 p-8 space-y-6">
+        <div className="w-full max-w-sm sm:max-w-md bg-card rounded-2xl shadow-xl p-8 space-y-6">
           <div className="text-center">
             <h1 className="text-xl font-bold text-gray-900">学生注册</h1>
             <p className="text-sm text-gray-500 mt-1">凭班级邀请码注册并绑定班级</p>

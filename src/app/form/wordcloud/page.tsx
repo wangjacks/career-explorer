@@ -1,42 +1,51 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import NavigationBar from "@/components/NavigationBar";
 import QuickModeBanner from "@/components/QuickModeBanner";
 import WordCloudClient from "@/components/WordCloudClient";
+import FormSteps from "@/components/FormSteps";
 
 export default function WordcloudPage() {
   const router = useRouter();
-  const [tags] = useState<string[]>(() => {
+  const [tags, setTags] = useState<string[]>([]);
+
+  // 挂载后读取已选标签（避免 SSR/prerender 访问 localStorage）
+  /* eslint-disable react-hooks/set-state-in-effect -- load persisted state on mount */
+  useEffect(() => {
     const stored = localStorage.getItem("career_demo_tags");
-    return stored ? JSON.parse(stored) : [];
-  });
+    setTags(stored ? JSON.parse(stored) : []);
+  }, []);
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   const handleNext = () => {
     router.push("/form/evaluation");
   };
 
   return (
-    <div className="flex flex-col min-h-screen bg-gray-50">
+    <div className="flex flex-col min-h-screen bg-background">
       <NavigationBar title="词云展示" showBack />
       <QuickModeBanner />
+      <div className="pt-5">
+        <FormSteps current={3} />
+      </div>
       <main className="flex-1 px-4 py-6 space-y-6 max-w-lg sm:max-w-xl md:max-w-2xl mx-auto w-full">
         <div className="text-center space-y-1">
-          <p className="text-sm text-gray-500">共选择了 {tags.length} 个标签</p>
+          <p className="text-sm text-gray-500 dark:text-gray-400">共选择了 {tags.length} 个标签</p>
         </div>
 
         <WordCloudClient words={tags} />
 
-        <p className="text-xs text-gray-400 text-center">
+        <p className="text-xs text-gray-400 dark:text-gray-500 text-center">
           以下是基于你的标签生成的词云
         </p>
       </main>
 
-      <div className="sticky bottom-0 bg-white/80 backdrop-blur-md border-t border-gray-100 p-4">
+      <div className="sticky bottom-0 bg-card/80 backdrop-blur-md border-t border-gray-100 dark:border-gray-700 p-4">
         <button
           onClick={handleNext}
-          className="w-full max-w-lg sm:max-w-xl md:max-w-2xl mx-auto block py-3 bg-green-500 hover:bg-green-600 text-white font-medium rounded-xl transition-colors"
+          className="w-full max-w-lg sm:max-w-xl md:max-w-2xl mx-auto block py-3 bg-primary hover:bg-primary-strong text-white font-medium rounded-xl transition-colors"
         >
           下一步
         </button>

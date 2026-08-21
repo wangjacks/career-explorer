@@ -3,9 +3,11 @@
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Toaster, toast } from "sonner";
+import { Compass, SquarePen, X } from "lucide-react";
 import NavigationBar from "@/components/NavigationBar";
+import StudentSidebar from "@/components/student/StudentSidebar";
 import ConfirmDialog from "@/components/admin/ConfirmDialog";
-import TagSelector, { type TagCategory } from "@/components/TagSelector";
+import TagSelector, { type TagCategory, TAG_CHIP_COLORS } from "@/components/TagSelector";
 import ImageUploadBox from "@/components/ImageUploadBox";
 import { useSession } from "@/hooks/useSession";
 import { safeImageUrl } from "@/lib/sanitize";
@@ -20,21 +22,75 @@ interface MyProfile {
   submitted_at: string | null;
 }
 
-function StatusBadge({ done }: { done: boolean }) {
-  return done ? (
-    <span className="px-2 py-0.5 bg-green-50 text-green-600 rounded-full text-xs font-medium">已提交</span>
-  ) : (
-    <span className="px-2 py-0.5 bg-gray-100 text-gray-400 rounded-full text-xs font-medium">未提交</span>
+/** 罗盘进度环（signature）：档案完成度 x/3，琥珀弧线随完成度填充 */
+function ProgressRing({ completion }: { completion: number }) {
+  const r = 34;
+  const C = 2 * Math.PI * r;
+  return (
+    <div
+      className="relative w-14 h-14 sm:w-20 sm:h-20 flex-shrink-0"
+      role="img"
+      aria-label={`档案完成度 ${completion}/3`}
+    >
+      <svg viewBox="0 0 80 80" className="w-full h-full -rotate-90">
+        <circle cx="40" cy="40" r={r} stroke="rgba(255,255,255,0.18)" strokeWidth="6" fill="none" />
+        <circle
+          cx="40"
+          cy="40"
+          r={r}
+          stroke="var(--color-accent)"
+          strokeWidth="6"
+          fill="none"
+          strokeLinecap="round"
+          strokeDasharray={C}
+          strokeDashoffset={C * (1 - completion / 3)}
+          className="transition-[stroke-dashoffset] duration-700 ease-out"
+        />
+      </svg>
+      <div className="absolute inset-0 flex flex-col items-center justify-center">
+        <Compass size={16} className="text-accent" aria-hidden />
+        <span className="text-[10px] sm:text-xs font-semibold text-white mt-0.5">{completion}/3</span>
+      </div>
+    </div>
   );
 }
 
-/** 学生面板：信息通览 + 就地修改（不跳转表单流程） */
+/** 分区小标（eyebrow）：琥珀竖条为纯装饰（琥珀不承载小字）；done 省略则不显示角标 */
+function SectionHeader({ label, done }: { label: string; done?: boolean }) {
+  return (
+    <div className="flex items-center gap-2">
+      <span className="w-1 h-4 rounded-full bg-accent" aria-hidden />
+      <h2 className="text-sm font-semibold text-gray-800 dark:text-gray-100">{label}</h2>
+      {done !== undefined && (
+        <span
+          className={`ml-auto px-2 py-0.5 rounded-full text-xs font-medium ${
+            done
+              ? "bg-green-50 text-green-600 dark:bg-green-900/30 dark:text-green-400"
+              : "bg-gray-100 text-gray-400 dark:bg-gray-800 dark:text-gray-500"
+          }`}
+        >
+          {done ? "✓ 已完成" : "待完成"}
+        </span>
+      )}
+    </div>
+  );
+}
+
+/** 学生面板：探索档案 · 罗盘进度——信息通览 + 就地修改 + 预留侧边栏 */
 export default function StudentDashboardPage() {
   const router = useRouter();
   const { session, checking } = useSession();
 
   const [profile, setProfile] = useState<MyProfile | null>(null);
   const [loading, setLoading] = useState(true);
+
+  // 侧边栏：初始收起，挂载后按视口宽度决定桌面默认展开（避免 hydration 不一致）
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  /* eslint-disable react-hooks/set-state-in-effect -- 桌面默认展开需挂载后按视口判断 */
+  useEffect(() => {
+    if (window.matchMedia("(min-width: 768px)").matches) setSidebarOpen(true);
+  }, []);
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   // 编辑模式状态
   const [editing, setEditing] = useState(false);
@@ -57,7 +113,6 @@ export default function StudentDashboardPage() {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [lightbox]);
-   
 
   useEffect(() => {
     if (!checking && (!session || session.role !== "student")) {
@@ -80,12 +135,24 @@ export default function StudentDashboardPage() {
     }
   }, []);
 
+  // 加载标签分类（展示态「我的标签」三色分组 + 编辑态复用）
+  const loadCategories = useCallback(async () => {
+    try {
+      const res = await fetch("/api/tags");
+      const data = await res.json();
+      if (res.ok) setCategories(data.categories || []);
+    } catch (err) {
+      console.error("Failed to load tags:", err);
+    }
+  }, []);
+
   /* eslint-disable react-hooks/set-state-in-effect -- load profile after session check */
   useEffect(() => {
     if (session?.role === "student") {
       loadProfile();
+      loadCategories();
     }
-  }, [session, loadProfile]);
+  }, [session, loadProfile, loadCategories]);
   /* eslint-enable react-hooks/set-state-in-effect */
 
   const hasSubmitted = !!profile?.submitted_at;
@@ -103,6 +170,7 @@ export default function StudentDashboardPage() {
     setAvatarFile(null);
     setEvaluationFile(null);
     setEditing(true);
+    if (categories.length > 0) return;
     try {
       const res = await fetch("/api/tags");
       const data = await res.json();
@@ -177,19 +245,19 @@ export default function StudentDashboardPage() {
 
   if (checking || !session || session.role !== "student" || loading) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center px-4">
-        <p className="text-sm text-gray-400">加载中...</p>
+      <div className="min-h-screen bg-background flex items-center justify-center px-4">
+        <p className="text-sm text-gray-400 dark:text-gray-500">加载中...</p>
       </div>
     );
   }
 
   if (!profile) {
     return (
-      <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center px-4 gap-3">
-        <p className="text-sm text-gray-400">档案加载失败</p>
+      <div className="min-h-screen bg-background flex flex-col items-center justify-center px-4 gap-3">
+        <p className="text-sm text-gray-400 dark:text-gray-500">档案加载失败</p>
         <button
           onClick={loadProfile}
-          className="px-4 py-1.5 bg-green-500 hover:bg-green-600 text-white text-sm rounded-lg"
+          className="px-4 py-1.5 bg-primary hover:bg-primary-strong text-white text-sm rounded-lg"
         >
           重试
         </button>
@@ -200,178 +268,215 @@ export default function StudentDashboardPage() {
   const avatarPreview = safeImageUrl(profile.avatar_url);
   const evaluationPreview = safeImageUrl(profile.evaluation_url);
 
+  // 档案完成度：兴趣标签 / 头像 / 评价词云（进度环 x/3）
+  const completion =
+    (profile.tags.length > 0 ? 1 : 0) +
+    (profile.avatar_url ? 1 : 0) +
+    (profile.evaluation_url ? 1 : 0);
+
+  // 标签按 API 返回的 categories 动态分组（组标题 category.name，三色循环）；未匹配任何分类的兜底单列
+  const groupedTags = categories.map((cat, catIdx) => ({
+    name: cat.name,
+    color: TAG_CHIP_COLORS[catIdx % TAG_CHIP_COLORS.length],
+    tags: cat.tags.filter((t) => profile.tags.includes(t.name)).map((t) => t.name),
+  }));
+  const groupedNames = new Set(groupedTags.flatMap((g) => g.tags));
+  const ungrouped = profile.tags.filter((t) => !groupedNames.has(t));
+
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-background">
       <Toaster position="top-center" />
-      <NavigationBar title="学生面板" showHome />
+      <NavigationBar title="学生面板" showHome onToggleSidebar={() => setSidebarOpen((v) => !v)} />
 
-      <main className="max-w-3xl mx-auto px-4 sm:px-6 py-8 space-y-6">
-        {/* 个人信息卡 */}
-        <div className="bg-white rounded-xl border border-gray-100 p-5">
-          <div className="flex items-center gap-4">
-            {avatarPreview ? (
-              <img
-                src={avatarPreview}
-                alt="头像"
-                onClick={() => setLightbox(avatarPreview)}
-                className="w-14 h-14 rounded-full object-cover border border-gray-200 cursor-zoom-in"
-              />
-            ) : (
-              <div className="w-14 h-14 rounded-full bg-green-100 flex items-center justify-center text-green-600 font-bold text-lg">
-                {profile.name.slice(0, 1)}
+      {/* 注意：此 flex 容器不设任何 overflow，避免破坏侧边栏 sticky */}
+      <div className="flex">
+        <StudentSidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
+
+        <main className="flex-1 min-w-0 px-4 sm:px-6 py-6 animate-[fade-in_0.2s_ease-out]">
+          <div className="max-w-3xl mx-auto space-y-5">
+            {/* Hero：深绿品牌区——头像 + 身份 + 状态印章 + 罗盘进度环 */}
+            <section className="bg-brand rounded-2xl p-5 sm:p-6 shadow-sm">
+              <div className="flex items-center gap-4 sm:gap-5">
+                {avatarPreview ? (
+                  <img
+                    src={avatarPreview}
+                    alt="头像"
+                    onClick={() => setLightbox(avatarPreview)}
+                    className="w-16 h-16 sm:w-20 sm:h-20 rounded-full object-cover border-2 border-accent/70 cursor-zoom-in flex-shrink-0"
+                  />
+                ) : (
+                  <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-full bg-white/15 border-2 border-white/20 flex items-center justify-center text-white font-bold text-2xl flex-shrink-0">
+                    {profile.name.slice(0, 1)}
+                  </div>
+                )}
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2.5 flex-wrap">
+                    <h1 className="text-2xl font-extrabold text-white leading-tight">{profile.name}</h1>
+                    <span
+                      className={`px-2.5 py-0.5 rounded-full text-xs font-medium border ${
+                        hasSubmitted
+                          ? "bg-accent/20 text-white border-accent/50"
+                          : "bg-white/10 text-white/80 border-white/25"
+                      }`}
+                    >
+                      {hasSubmitted ? "已归档" : "建档中"}
+                    </span>
+                  </div>
+                  <p className="text-sm text-white/70 font-mono mt-1">{profile.user_code}</p>
+                  <div className="flex items-center gap-2 mt-2 flex-wrap">
+                    <span className="px-2.5 py-0.5 bg-white/15 text-white/90 rounded-full text-xs">
+                      {profile.class_name}
+                    </span>
+                    {profile.submitted_at && (
+                      <span className="text-xs text-white/60">提交于 {profile.submitted_at}</span>
+                    )}
+                  </div>
+                </div>
+                <ProgressRing completion={completion} />
               </div>
-            )}
-            <div>
-              <h1 className="text-lg font-bold text-gray-900">{profile.name}</h1>
-              <p className="text-sm text-gray-400 font-mono">{profile.user_code}</p>
-            </div>
-            <span className="ml-auto px-3 py-1 bg-blue-50 text-blue-600 rounded-full text-sm">
-              {profile.class_name}
-            </span>
-          </div>
-        </div>
+            </section>
 
-        {!editing ? (
-          <>
-            {hasSubmitted ? (
-              <>
-                {/* 提交状态卡 */}
-                <div className="bg-white rounded-xl border border-gray-100 p-5 space-y-4">
-                  <div className="flex items-center justify-between">
-                    <h2 className="text-sm font-semibold text-gray-800">提交状态</h2>
-                    <span className="text-xs text-gray-400">提交于 {profile.submitted_at}</span>
-                  </div>
-                  <div className="space-y-3 text-sm">
-                    <div className="flex items-center justify-between">
-                      <span className="text-gray-600">兴趣标签</span>
-                      <StatusBadge done={profile.tags.length > 0} />
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <span className="text-gray-600">头像</span>
-                      <StatusBadge done={!!profile.avatar_url} />
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <span className="text-gray-600">评价词云</span>
-                      <StatusBadge done={!!profile.evaluation_url} />
-                    </div>
-                  </div>
-
-                  {/* 内容预览 */}
-                  {profile.tags.length > 0 && (
-                    <div className="pt-2 border-t border-gray-50">
-                      <p className="text-xs text-gray-400 mb-2">我的标签</p>
-                      <div className="flex flex-wrap gap-1.5">
-                        {profile.tags.map((tag) => (
-                          <span key={tag} className="px-2.5 py-1 bg-green-50 text-green-700 rounded-full text-xs">
-                            {tag}
-                          </span>
-                        ))}
+            {!editing ? (
+              hasSubmitted ? (
+                <>
+                  {/* 我的标签（按 API 分类分组三色） */}
+                  <section className="bg-card rounded-xl border border-gray-100 dark:border-gray-700 p-5 space-y-4">
+                    <SectionHeader label="我的标签" done={profile.tags.length > 0} />
+                    {profile.tags.length === 0 ? (
+                      <p className="text-sm text-gray-400 dark:text-gray-500">暂无标签</p>
+                    ) : (
+                      <div className="space-y-3">
+                        {groupedTags
+                          .filter((g) => g.tags.length > 0)
+                          .map((g) => (
+                            <div key={g.name}>
+                              <p className="text-xs text-gray-400 dark:text-gray-500 mb-1.5">{g.name}</p>
+                              <div className="flex flex-wrap gap-1.5">
+                                {g.tags.map((tag) => (
+                                  <span key={tag} className={`px-2.5 py-1 rounded-full text-xs ${g.color}`}>
+                                    {tag}
+                                  </span>
+                                ))}
+                              </div>
+                            </div>
+                          ))}
+                        {ungrouped.length > 0 && (
+                          <div className="flex flex-wrap gap-1.5">
+                            {ungrouped.map((tag) => (
+                              <span key={tag} className={`px-2.5 py-1 rounded-full text-xs ${TAG_CHIP_COLORS[0]}`}>
+                                {tag}
+                              </span>
+                            ))}
+                          </div>
+                        )}
                       </div>
-                    </div>
-                  )}
-                  {evaluationPreview && (
-                    <div className="pt-2 border-t border-gray-50">
-                      <p className="text-xs text-gray-400 mb-2">评价词云（点击放大）</p>
+                    )}
+                  </section>
+
+                  {/* 评价词云（预览可放大） */}
+                  <section className="bg-card rounded-xl border border-gray-100 dark:border-gray-700 p-5 space-y-4">
+                    <SectionHeader label="评价词云" done={!!profile.evaluation_url} />
+                    {evaluationPreview ? (
                       <img
                         src={evaluationPreview}
                         alt="评价词云"
                         onClick={() => setLightbox(evaluationPreview)}
-                        className="w-full max-w-sm rounded-lg border border-gray-100 cursor-zoom-in"
+                        className="w-full max-w-sm rounded-lg border border-gray-100 dark:border-gray-700 cursor-zoom-in"
+                      />
+                    ) : (
+                      <p className="text-sm text-gray-400 dark:text-gray-500">暂无评价词云</p>
+                    )}
+                  </section>
+
+                  <button
+                    onClick={startEdit}
+                    className="w-full py-3 bg-primary hover:bg-primary-strong text-white font-medium rounded-xl transition-colors"
+                  >
+                    修改数据
+                  </button>
+                </>
+              ) : (
+                /* 从未提交：引导卡 */
+                <div className="bg-card rounded-xl border border-gray-100 dark:border-gray-700 p-8 text-center space-y-4">
+                  <div className="w-14 h-14 bg-brand rounded-2xl flex items-center justify-center mx-auto">
+                    <SquarePen className="w-7 h-7 text-accent" strokeWidth={2} />
+                  </div>
+                  <div>
+                    <h2 className="text-base font-semibold text-gray-800 dark:text-gray-100">你还没有提交职业探索档案</h2>
+                    <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">完成标签选择、头像与评价词云上传，让老师了解你的职业兴趣方向</p>
+                  </div>
+                  <button
+                    onClick={goSubmit}
+                    className="px-6 py-2.5 bg-primary hover:bg-primary-strong text-white text-sm font-medium rounded-xl transition-colors"
+                  >
+                    去提交
+                  </button>
+                </div>
+              )
+            ) : (
+              /* 编辑模式（hero 保留在顶部） */
+              <div className="space-y-5">
+                <section className="bg-card rounded-xl border border-gray-100 dark:border-gray-700 p-5 space-y-4">
+                  <SectionHeader label="修改标签" />
+                  {categories.length === 0 ? (
+                    <p className="text-sm text-gray-400 py-4 text-center">标签加载中...</p>
+                  ) : (
+                    <TagSelector
+                      categories={categories}
+                      selectedTags={editTags}
+                      onToggle={toggleTag}
+                      onRemove={removeTag}
+                    />
+                  )}
+                </section>
+
+                <section className="bg-card rounded-xl border border-gray-100 dark:border-gray-700 p-5 space-y-4">
+                  <SectionHeader label="头像与评价词云" />
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+                    <div className="space-y-2">
+                      <p className="text-xs text-gray-400">头像</p>
+                      <ImageUploadBox
+                        initialUrl={profile.avatar_url}
+                        aspect="square"
+                        emptyHint="点击上传头像"
+                        onFileSelected={setAvatarFile}
                       />
                     </div>
-                  )}
-                </div>
+                    <div className="space-y-2">
+                      <p className="text-xs text-gray-400">评价词云</p>
+                      <ImageUploadBox
+                        initialUrl={profile.evaluation_url}
+                        aspect="wide"
+                        emptyHint="点击上传评价词云"
+                        onFileSelected={setEvaluationFile}
+                      />
+                    </div>
+                  </div>
+                </section>
 
-                <button
-                  onClick={startEdit}
-                  className="w-full py-3 bg-green-500 hover:bg-green-600 text-white font-medium rounded-xl transition-colors"
-                >
-                  修改数据
-                </button>
-              </>
-            ) : (
-              /* 从未提交：引导卡 */
-              <div className="bg-white rounded-xl border border-gray-100 p-8 text-center space-y-4">
-                <div className="w-14 h-14 bg-green-100 rounded-2xl flex items-center justify-center mx-auto">
-                  <svg className="w-7 h-7 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-                  </svg>
+                <div className="flex gap-3">
+                  <button
+                    onClick={() => setEditing(false)}
+                    disabled={saving}
+                    className="flex-1 py-3 bg-gray-100 hover:bg-gray-200 disabled:opacity-50 text-gray-700 font-medium rounded-xl transition-colors"
+                  >
+                    取消
+                  </button>
+                  <button
+                    onClick={requestSave}
+                    disabled={saving}
+                    className="flex-1 py-3 bg-primary hover:bg-primary-strong disabled:opacity-50 text-white font-medium rounded-xl transition-colors"
+                  >
+                    {saving ? "保存中..." : "保存修改"}
+                  </button>
                 </div>
-                <div>
-                  <h2 className="text-base font-semibold text-gray-800">你还没有提交职业探索档案</h2>
-                  <p className="text-sm text-gray-500 mt-1">完成标签选择、头像与评价词云上传，让老师了解你的职业兴趣方向</p>
-                </div>
-                <button
-                  onClick={goSubmit}
-                  className="px-6 py-2.5 bg-green-500 hover:bg-green-600 text-white text-sm font-medium rounded-xl transition-colors"
-                >
-                  去提交
-                </button>
               </div>
             )}
-          </>
-        ) : (
-          /* 编辑模式 */
-          <div className="space-y-6">
-            <div className="bg-white rounded-xl border border-gray-100 p-5 space-y-4">
-              <h2 className="text-sm font-semibold text-gray-800">修改标签</h2>
-              {categories.length === 0 ? (
-                <p className="text-sm text-gray-400 py-4 text-center">标签加载中...</p>
-              ) : (
-                <TagSelector
-                  categories={categories}
-                  selectedTags={editTags}
-                  onToggle={toggleTag}
-                  onRemove={removeTag}
-                />
-              )}
-            </div>
-
-            <div className="bg-white rounded-xl border border-gray-100 p-5">
-              <h2 className="text-sm font-semibold text-gray-800 mb-4">修改头像与评价词云</h2>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
-                <div className="space-y-2">
-                  <p className="text-xs text-gray-400">头像</p>
-                  <ImageUploadBox
-                    initialUrl={profile.avatar_url}
-                    aspect="square"
-                    emptyHint="点击上传头像"
-                    onFileSelected={setAvatarFile}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <p className="text-xs text-gray-400">评价词云</p>
-                  <ImageUploadBox
-                    initialUrl={profile.evaluation_url}
-                    aspect="wide"
-                    emptyHint="点击上传评价词云"
-                    onFileSelected={setEvaluationFile}
-                  />
-                </div>
-              </div>
-            </div>
-
-            <div className="flex gap-3">
-              <button
-                onClick={() => setEditing(false)}
-                disabled={saving}
-                className="flex-1 py-3 bg-gray-100 hover:bg-gray-200 disabled:opacity-50 text-gray-700 font-medium rounded-xl transition-colors"
-              >
-                取消
-              </button>
-              <button
-                onClick={requestSave}
-                disabled={saving}
-                className="flex-1 py-3 bg-green-500 hover:bg-green-600 disabled:opacity-50 text-white font-medium rounded-xl transition-colors"
-              >
-                {saving ? "保存中..." : "保存修改"}
-              </button>
-            </div>
           </div>
-        )}
-      </main>
+        </main>
+      </div>
 
-      {/* 图片放大预览（点击遮罩 / × / Esc 关闭）；z-[100] 高于全局 UserMenu(z-60)，避免关闭按钮被遮挡 */}
+      {/* 图片放大预览（点击遮罩 / × / Esc 关闭）；z-[100] 高于全局 UserMenu，避免关闭按钮被遮挡 */}
       {lightbox && (
         <div
           className="fixed inset-0 bg-black/80 z-[100] flex items-center justify-center p-4"
@@ -388,9 +493,7 @@ export default function StudentDashboardPage() {
             aria-label="关闭预览"
             className="absolute top-4 right-4 w-9 h-9 rounded-full bg-white/15 hover:bg-white/30 text-white flex items-center justify-center transition-colors"
           >
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-            </svg>
+            <X className="w-5 h-5" />
           </button>
         </div>
       )}
