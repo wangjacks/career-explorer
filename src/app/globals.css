@@ -76,6 +76,36 @@ body {
   }
 }
 
+/* 主页 hero 指南针：浮现 + 旋转一圈（非匀速 easeOutExpo）→ 上滑到位 */
+@keyframes hero-compass {
+  0% {
+    opacity: 0;
+    transform: translateY(56px) rotate(0deg) scale(0.85);
+    animation-timing-function: cubic-bezier(0.16, 1, 0.3, 1);
+  }
+  55% {
+    opacity: 1;
+    transform: translateY(56px) rotate(360deg) scale(1);
+    animation-timing-function: cubic-bezier(0.33, 1, 0.68, 1);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) rotate(360deg) scale(1);
+  }
+}
+
+/* 主页 hero 文字/按钮：从右向左渐入 */
+@keyframes hero-slide-in {
+  from {
+    opacity: 0;
+    transform: translateX(48px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
 /* 动效可及性：尊重系统减少动效偏好 */
 @media (prefers-reduced-motion: reduce) {
   *,
