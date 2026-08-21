@@ -108,4 +108,4 @@ pm2 save
 ## 配置文件
 
 - `db-config.json` — 数据库连接信息（本地文件，gitignored）
-- `.env.local` — 环境变量（`JWT_SECRET`、`ALLOWED_ORIGINS`，gitignored）
+- `.env.local` — 环境变量（必需 `JWT_SECRET`，可选 `FONT_CDN_PREFIX`；gitignored），模板见 `.env.example`

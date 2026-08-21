@@ -163,6 +163,9 @@ CI workflow 遵循最小权限原则：`permissions: contents: read`。
 
 | 变量 | 说明 |
 |---|---|
-| `ADMIN_PASSWORD` | 教师面板登录密码 |
-| `PORT` | 应用端口（默认 3000） |
-| `ALLOWED_ORIGINS` | 允许的跨域来源（逗号分隔） |
+| `JWT_SECRET` | JWT 签名密钥（生产必需；未配置会回退到代码内置的不安全默认值） |
+| `FONT_CDN_PREFIX` | 可选：Google Fonts 镜像前缀（构建时生效，如 https://fonts.loli.net） |
+| `ALLOWED_ORIGINS` | 仅 dev 模式：Next.js 开发服务器 origin 白名单（逗号分隔），生产无效 |
+| `PORT` | 应用端口（Next.js 内置，默认 3000） |
+
+模板文件为 `.env.example`（部署时复制为 `.env.local` 填写）；部署流程见 DEPLOY.md。

@@ -102,7 +102,7 @@ This version has breaking changes — APIs, conventions, and file structure may 
 - 用户不存在与密码错误共用「编号或密码错误」（不泄露账号存在性）；无 password_hash 账户提示「该账户尚未设置密码，请联系管理员」
 - URL 安全：`sanitize.ts` 防止 `javascript:` 协议 XSS
 - 路径穿越防护：`/api/uploads/[...path]` 已加固
-- 环境变量：`JWT_SECRET`（JWT 签名密钥）、`ALLOWED_ORIGINS`（CORS 白名单）
+- 环境变量（模板 `.env.example`）：`JWT_SECRET`（JWT 签名密钥，生产必需）、`FONT_CDN_PREFIX`（可选，Google Fonts 镜像前缀，构建时生效）、`ALLOWED_ORIGINS`（仅 dev 模式 allowedDevOrigins 白名单，生产无效）
 - 管理员密码：在安装引导中配置，bcrypt 哈希存于 `users` 表（user_code=10001）
 
 ## 6. Git Workflow & Commit Conventions
