@@ -23,7 +23,7 @@ export default function FormSteps({ current }: { current: number }) {
           >
             {idx > 0 && (
               <span
-                className={`mt-3 w-4 sm:w-8 h-px flex-shrink-0 ${
+                className={`mt-[11px] w-4 sm:w-8 h-0.5 flex-shrink-0 ${
                   step <= current ? "progress-sweep" : "bg-gray-200 dark:bg-gray-700"
                 }`}
                 aria-hidden
