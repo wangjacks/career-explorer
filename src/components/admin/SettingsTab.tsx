@@ -216,7 +216,7 @@ export default function SettingsTab({ dbConfig, loadError, onRetry, onConfigSave
         {switchType === null ? (
           <button
             onClick={() => setSwitchType(currentType === "mysql" ? "sqlite" : "mysql")}
-            className="px-4 py-2 bg-blue-50 hover:bg-blue-100 text-blue-700 text-sm font-medium rounded-lg transition-colors"
+            className="px-4 py-2 bg-blue-50 hover:bg-blue-100 dark:bg-blue-900/30 dark:hover:bg-blue-900/50 text-blue-700 dark:text-blue-300 text-sm font-medium rounded-lg transition-colors"
           >
             切换到 {currentType === "mysql" ? "SQLite" : "MySQL"}
           </button>
@@ -262,10 +262,10 @@ export default function SettingsTab({ dbConfig, loadError, onRetry, onConfigSave
         <p className="text-sm text-gray-500">导出或导入 JSON 格式数据备份，支持跨数据库类型迁移</p>
         <div className="flex items-center gap-3">
           <button onClick={handleBackup} disabled={backingUp}
-            className="px-4 py-2 bg-green-50 hover:bg-green-100 text-green-700 text-sm font-medium rounded-lg transition-colors disabled:opacity-50">
+            className="px-4 py-2 bg-green-50 hover:bg-green-100 dark:bg-green-900/30 dark:hover:bg-green-900/50 text-green-700 dark:text-green-300 text-sm font-medium rounded-lg transition-colors disabled:opacity-50">
             {backingUp ? "导出中..." : "导出备份"}
           </button>
-          <label className="px-4 py-2 bg-orange-50 hover:bg-orange-100 text-orange-700 text-sm font-medium rounded-lg transition-colors cursor-pointer">
+          <label className="px-4 py-2 bg-orange-50 hover:bg-orange-100 dark:bg-orange-900/30 dark:hover:bg-orange-900/50 text-orange-700 dark:text-orange-300 text-sm font-medium rounded-lg transition-colors cursor-pointer">
             {restoring ? "导入中..." : "导入恢复"}
             <input
               ref={fileInputRef}

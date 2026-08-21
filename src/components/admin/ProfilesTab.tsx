@@ -345,7 +345,7 @@ export default function ProfilesTab({ loadProfiles, loadStats }: Props) {
                 <td className="px-5 py-3">
                   <div className="flex flex-wrap gap-1">
                     {p.tags.slice(0, 3).map((t) => (
-                      <span key={t} className="px-2 py-0.5 bg-green-50 text-green-700 rounded text-xs">
+                      <span key={t} className="px-2 py-0.5 bg-green-50 dark:bg-green-900/30 text-green-700 dark:text-green-300 rounded text-xs">
                         {t}
                       </span>
                     ))}
@@ -392,47 +392,47 @@ export default function ProfilesTab({ loadProfiles, loadStats }: Props) {
       {detail && (
         <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 px-4"
           onClick={() => setDetail(null)}>
-          <div className="bg-white rounded-2xl shadow-xl max-w-md w-full p-6 space-y-4 max-h-[85vh] overflow-y-auto"
+          <div className="bg-card rounded-2xl shadow-xl max-w-md w-full p-6 space-y-4 max-h-[85vh] overflow-y-auto"
             onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between">
-              <h3 className="font-semibold text-gray-800 text-lg">档案详情</h3>
-              <button onClick={() => setDetail(null)} className="text-gray-400 hover:text-gray-600 text-xl">×</button>
+              <h3 className="font-semibold text-gray-800 dark:text-gray-100 text-lg">档案详情</h3>
+              <button onClick={() => setDetail(null)} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 text-xl">×</button>
             </div>
 
             <div className="grid grid-cols-2 gap-3 text-sm">
-              <div className="bg-gray-50 rounded-lg p-3">
-                <p className="text-xs text-gray-500">学号</p>
-                <p className="font-mono font-medium text-gray-800 mt-0.5">{detail.studentId}</p>
+              <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-3">
+                <p className="text-xs text-gray-500 dark:text-gray-400">学号</p>
+                <p className="font-mono font-medium text-gray-800 dark:text-gray-100 mt-0.5">{detail.studentId}</p>
               </div>
-              <div className="bg-gray-50 rounded-lg p-3">
-                <p className="text-xs text-gray-500">姓名</p>
-                <p className="font-medium text-gray-800 mt-0.5">{detail.studentName || "-"}</p>
+              <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-3">
+                <p className="text-xs text-gray-500 dark:text-gray-400">姓名</p>
+                <p className="font-medium text-gray-800 dark:text-gray-100 mt-0.5">{detail.studentName || "-"}</p>
               </div>
-              <div className="bg-gray-50 rounded-lg p-3 col-span-2">
-                <p className="text-xs text-gray-500">提交时间</p>
-                <p className="font-medium text-gray-800 mt-0.5">{detail.createdAt}</p>
+              <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-3 col-span-2">
+                <p className="text-xs text-gray-500 dark:text-gray-400">提交时间</p>
+                <p className="font-medium text-gray-800 dark:text-gray-100 mt-0.5">{detail.createdAt}</p>
               </div>
             </div>
 
             {detail.avatarUrl && (
               <div>
-                <p className="text-xs text-gray-500 mb-2">虚拟形象</p>
+                <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">虚拟形象</p>
                 <img src={detail.avatarUrl} alt="" className="w-20 h-20 rounded-xl object-cover border border-gray-100" />
               </div>
             )}
 
             <div>
-              <p className="text-xs text-gray-500 mb-2">标签（{detail.tags.length}个）</p>
+              <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">标签（{detail.tags.length}个）</p>
               <div className="flex flex-wrap gap-1.5">
                 {detail.tags.map((t) => (
-                  <span key={t} className="px-2.5 py-1 bg-green-50 text-green-700 rounded-full text-xs font-medium">{t}</span>
+                  <span key={t} className="px-2.5 py-1 bg-green-50 dark:bg-green-900/30 text-green-700 dark:text-green-300 rounded-full text-xs font-medium">{t}</span>
                 ))}
               </div>
             </div>
 
             {detail.evaluationUrl && (
               <div>
-                <p className="text-xs text-gray-500 mb-2">评价词云</p>
+                <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">评价词云</p>
                 <img src={detail.evaluationUrl} alt="" className="w-full rounded-xl border border-gray-100" />
               </div>
             )}

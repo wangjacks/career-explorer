@@ -122,19 +122,24 @@ export default function ExportTab() {
       {/* Scope */}
       <div className="space-y-2">
         <label className="text-sm font-medium text-gray-700 dark:text-gray-200">导出范围</label>
-        <div className="flex flex-wrap gap-4">
+        <div className="flex flex-wrap gap-2">
           {([
             ["all", "全部档案"],
             ["students", "学生名单"],
             ["byIds", "按学号筛选"],
             ["date", "按时间筛选"],
           ] as const).map(([val, label]) => (
-            <label key={val} className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-300 cursor-pointer">
-              <input type="radio" name="exportScope" checked={exportScope === val}
-                onChange={() => setExportScope(val)}
-                className="text-green-500 focus:ring-green-300" />
+            <button
+              key={val}
+              onClick={() => setExportScope(val)}
+              className={`px-3.5 py-1.5 rounded-lg text-sm font-medium border transition-colors ${
+                exportScope === val
+                  ? "bg-primary text-white border-primary"
+                  : "bg-card text-gray-600 dark:text-gray-300 border-gray-200 dark:border-gray-700 hover:border-green-300"
+              }`}
+            >
               {label}
-            </label>
+            </button>
           ))}
         </div>
       </div>
@@ -166,31 +171,46 @@ export default function ExportTab() {
       {/* Format */}
       <div className="space-y-2">
         <label className="text-sm font-medium text-gray-700 dark:text-gray-200">导出格式</label>
-        <div className="flex gap-4">
-          <label className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-300 cursor-pointer">
-            <input type="radio" name="exportFormat" checked={exportFormat === "csv"}
-              onChange={() => setExportFormat("csv")} className="text-green-500 focus:ring-green-300" />
+        <div className="flex flex-wrap gap-2">
+          <button
+            onClick={() => setExportFormat("csv")}
+            className={`px-3.5 py-1.5 rounded-lg text-sm font-medium border transition-colors ${
+              exportFormat === "csv"
+                ? "bg-primary text-white border-primary"
+                : "bg-card text-gray-600 dark:text-gray-300 border-gray-200 dark:border-gray-700 hover:border-green-300"
+            }`}
+          >
             CSV
-          </label>
-          <label className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-300 cursor-pointer">
-            <input type="radio" name="exportFormat" checked={exportFormat === "xlsx"}
-              onChange={() => setExportFormat("xlsx")} className="text-green-500 focus:ring-green-300" />
+          </button>
+          <button
+            onClick={() => setExportFormat("xlsx")}
+            className={`px-3.5 py-1.5 rounded-lg text-sm font-medium border transition-colors ${
+              exportFormat === "xlsx"
+                ? "bg-primary text-white border-primary"
+                : "bg-card text-gray-600 dark:text-gray-300 border-gray-200 dark:border-gray-700 hover:border-green-300"
+            }`}
+          >
             Excel (.xlsx)
-          </label>
+          </button>
+          {exportFormat === "xlsx" && (
+            <button
+              onClick={() => setEmbedImages(!embedImages)}
+              className={`px-3.5 py-1.5 rounded-lg text-sm font-medium border transition-colors ${
+                embedImages
+                  ? "bg-primary-soft dark:bg-green-900/30 text-primary-strong dark:text-green-300 border-green-200 dark:border-green-800"
+                  : "bg-card text-gray-600 dark:text-gray-300 border-gray-200 dark:border-gray-700 hover:border-green-300"
+              }`}
+            >
+              {embedImages ? "✓ 图片嵌入表格" : "图片嵌入表格"}
+            </button>
+          )}
         </div>
-        {exportFormat === "xlsx" && (
-          <label className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-300 cursor-pointer ml-1">
-            <input type="checkbox" checked={embedImages} onChange={(e) => setEmbedImages(e.target.checked)}
-              className="rounded border-gray-300 text-green-500 focus:ring-green-300" />
-            将图片资源插入到表格中
-          </label>
-        )}
       </div>
 
       {/* Columns */}
       <div className="space-y-2">
         <label className="text-sm font-medium text-gray-700 dark:text-gray-200">自定义列</label>
-        <div className="flex flex-wrap gap-4">
+        <div className="flex flex-wrap gap-2">
           {([
             ["studentId", "学号"],
             ["name", "姓名"],
@@ -199,12 +219,17 @@ export default function ExportTab() {
             ["evaluationUrl", "评价词云URL"],
             ["createdAt", "提交时间"],
           ] as const).map(([key, label]) => (
-            <label key={key} className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-300 cursor-pointer">
-              <input type="checkbox" checked={exportColumns[key]}
-                onChange={(e) => setExportColumns({ ...exportColumns, [key]: e.target.checked })}
-                className="rounded border-gray-300 text-green-500 focus:ring-green-300" />
+            <button
+              key={key}
+              onClick={() => setExportColumns({ ...exportColumns, [key]: !exportColumns[key] })}
+              className={`px-3.5 py-1.5 rounded-lg text-sm font-medium border transition-colors ${
+                exportColumns[key]
+                  ? "bg-primary text-white border-primary"
+                  : "bg-card text-gray-600 dark:text-gray-300 border-gray-200 dark:border-gray-700 hover:border-green-300"
+              }`}
+            >
               {label}
-            </label>
+            </button>
           ))}
         </div>
       </div>
