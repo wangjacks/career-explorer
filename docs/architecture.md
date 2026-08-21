@@ -7,7 +7,7 @@
 - 统一 `users` 表存储三角色账户，bcrypt 哈希密码（`password_hash` 可为 NULL = 未设置密码）
 - 登录签发 JWT（jose HS256, 24h，含 role/uid/name），HttpOnly Cookie `auth_token` 传递
 - `proxy.ts`（Next.js 16，替代已弃用的 middleware）拦截管理域路由做角色权限校验
-- 学生注册需班级邀请码，且只能激活后台预建的无密码账户
+- 学生账户由教师导入名单预建（无密码），学生凭学号 + 姓名 + 本班邀请码三要素核验后激活
 
 | 面板 | 路由 | 访问权限 |
 |---|---|---|
@@ -21,7 +21,7 @@
 |---|---|
 | `/` | 首页 |
 | `/login` | 登录页（三角色统一） |
-| `/register` | 学生自助注册（需邀请码） |
+| `/activate` | 学生账户激活（学号 + 姓名 + 邀请码三要素核验） |
 | `/form/student → tags → wordcloud → evaluation → avatar → complete` | 学生表单流程（快速提交模式，无需登录） |
 | `/dashboard/admin` | 管理面板（三组两级导航：数据中心 / 用户管理 / 系统设置） |
 | `/dashboard/teacher` | 教师面板（三组两级导航：主页 / 数据中心 / 数据管理） |
@@ -35,7 +35,7 @@
 | 路由 | 方法 | 说明 |
 |---|---|---|
 | `/api/auth` | POST / GET / DELETE | 登录 / 会话检测 / 登出 |
-| `/api/auth/register` | POST | 学生注册（邀请码绑定班级） |
+| `/api/auth/activate` | POST | 学生账户激活（三要素核验通过后设置密码并自动登录） |
 
 ### 安装层（proxy 之外）
 

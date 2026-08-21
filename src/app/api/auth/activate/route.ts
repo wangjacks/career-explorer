@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { hashPassword } from "@/lib/auth";
 import { signToken } from "@/lib/token";
-import { getClassByInviteCode, getUserByCode, insertUser } from "@/lib/db";
+import { getClassByInviteCode, getUserByCode, updateUser } from "@/lib/db";
+import { validateActivation } from "@/lib/activate";
 
 const COOKIE_OPTIONS = {
   httpOnly: true,
@@ -11,7 +12,18 @@ const COOKIE_OPTIONS = {
   maxAge: 60 * 60 * 24,
 };
 
-/** 学生自助注册：自填 12 位编号 + 邀请码绑定班级，成功即自动登录 */
+/** 激活错误类型 → 用户文案（姓名/邀请码类错误统一提示，防探测名单信息） */
+const ACTIVATION_ERROR_TEXT: Record<string, { status: number; error: string }> = {
+  "not-in-roster": { status: 404, error: "该学号不在名单中，请联系教师导入" },
+  "already-activated": { status: 409, error: "该账户已激活，请直接登录" },
+  mismatch: { status: 400, error: "学号、姓名或班级邀请码不匹配" },
+};
+
+/**
+ * 学生账户激活（Issue #93，替代原自助注册）：
+ * 账户须先由教师导入名单后存在，凭学号 + 姓名 + 本班邀请码三者一致核验身份，
+ * 通过后设置密码并自动登录。
+ */
 export async function POST(request: NextRequest) {
   try {
     const { userCode, name, password, inviteCode } = await request.json();
@@ -39,26 +51,23 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ ok: false, error: "邀请码无效" }, { status: 400 });
     }
 
-    const existing = await getUserByCode(code);
-    if (existing) {
-      return NextResponse.json({ ok: false, error: "该编号已注册" }, { status: 409 });
+    const user = await getUserByCode(code);
+    const activationError = validateActivation(user, userName, klass.id);
+    if (activationError) {
+      const { status, error } = ACTIVATION_ERROR_TEXT[activationError];
+      return NextResponse.json({ ok: false, error }, { status });
     }
 
     const passwordHash = await hashPassword(pwd);
-    const uid = await insertUser({
-      user_code: code,
-      password_hash: passwordHash,
-      role: "student",
-      name: userName,
-      class_id: klass.id,
-    });
+    await updateUser(user!.id, { password_hash: passwordHash });
 
-    const token = await signToken({ role: "student", uid, name: userName });
+    // 姓名以名单记录为准，不用提交值
+    const token = await signToken({ role: "student", uid: user!.id, name: user!.name });
     const response = NextResponse.json({ ok: true, role: "student" });
     response.cookies.set("auth_token", token, COOKIE_OPTIONS);
     return response;
   } catch (err) {
-    console.error("Register POST error:", err);
+    console.error("Activate POST error:", err);
     return NextResponse.json({ ok: false, error: "服务器错误" }, { status: 500 });
   }
 }

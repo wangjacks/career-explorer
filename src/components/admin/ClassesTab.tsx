@@ -339,7 +339,7 @@ export default function ClassesTab({ mode, teacherUid }: Props) {
         confirmText="重置"
         message={
           <>
-            确定重置班级「{resetting?.name}」的邀请码？旧邀请码将立即失效，正在使用该码注册的学生将无法完成注册。
+            确定重置班级「{resetting?.name}」的邀请码？旧邀请码将立即失效，正在使用该码激活的学生将无法完成激活。
           </>
         }
         onConfirm={resetCode}

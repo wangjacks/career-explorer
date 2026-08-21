@@ -69,7 +69,7 @@ export default function AboutPage() {
         <section className="space-y-4">
           <h2 className="text-lg font-semibold text-foreground">学生探索流程</h2>
           <ol className="space-y-2 text-gray-600 dark:text-gray-300 text-sm leading-relaxed list-decimal list-inside">
-            <li>输入学号开始（已注册的学生也可登录后在面板中修改）</li>
+            <li>输入学号开始（已激活的学生也可登录后在面板中修改）</li>
             <li>选择兴趣 / 技能 / 性格标签</li>
             <li>查看专属标签词云</li>
             <li>上传同学评价词云与虚拟形象</li>

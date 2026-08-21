@@ -6,7 +6,7 @@ import Link from "next/link";
 import { useSession } from "@/hooks/useSession";
 import NavigationBar from "@/components/NavigationBar";
 
-export default function RegisterPage() {
+export default function ActivatePage() {
   const router = useRouter();
   const { session, checking } = useSession();
   const [userCode, setUserCode] = useState("");
@@ -36,7 +36,7 @@ export default function RegisterPage() {
     setError("");
     setLoading(true);
     try {
-      const res = await fetch("/api/auth/register", {
+      const res = await fetch("/api/auth/activate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -51,9 +51,9 @@ export default function RegisterPage() {
         router.push("/dashboard/student");
         return;
       }
-      setError(data.error || "注册失败");
+      setError(data.error || "激活失败");
     } catch {
-      setError("注册失败，请稍后重试");
+      setError("激活失败，请稍后重试");
     } finally {
       setLoading(false);
     }
@@ -62,11 +62,11 @@ export default function RegisterPage() {
   const inputClass =
     "w-full px-4 py-3 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-green-300 focus:border-transparent";
 
-  // 会话检测中 / 正在重定向：显示 loading 避免注册表单闪现
+  // 会话检测中 / 正在重定向：显示 loading 避免激活表单闪现
   if (checking || session) {
     return (
       <div className="min-h-screen bg-brand">
-        <NavigationBar title="学生注册" showHome />
+        <NavigationBar title="账户激活" showHome />
         <div className="min-h-[calc(100vh-3rem)] flex items-center justify-center px-4">
           <p className="text-sm text-white/70">加载中...</p>
         </div>
@@ -76,12 +76,12 @@ export default function RegisterPage() {
 
   return (
     <div className="min-h-screen bg-brand">
-      <NavigationBar title="学生注册" showHome />
+      <NavigationBar title="账户激活" showHome />
       <main className="min-h-[calc(100vh-3rem)] flex items-center justify-center px-4 py-12">
         <div className="w-full max-w-sm sm:max-w-md bg-card rounded-2xl shadow-xl p-8 space-y-6">
           <div className="text-center">
-            <h1 className="text-xl font-bold text-gray-900">学生注册</h1>
-            <p className="text-sm text-gray-500 mt-1">凭班级邀请码注册并绑定班级</p>
+            <h1 className="text-xl font-bold text-gray-900">学生账户激活</h1>
+            <p className="text-sm text-gray-500 mt-1">账户须由教师导入名单后创建，凭学号、姓名与班级邀请码激活</p>
           </div>
 
           <div className="space-y-4">
@@ -141,7 +141,7 @@ export default function RegisterPage() {
             disabled={!formValid || loading}
             className="w-full py-3 bg-green-500 hover:bg-green-600 disabled:bg-gray-300 text-white font-medium rounded-xl transition-colors"
           >
-            {loading ? "注册中..." : "注册"}
+            {loading ? "激活中..." : "激活"}
           </button>
 
           <p className="text-center text-sm text-gray-500">
