@@ -198,6 +198,8 @@ export interface DbAdapter {
   }): Promise<void> | void;
   /** 物理删除标签；分类会级联删除其下标签（#94：停用机制下线） */
   deleteTags(ids: number[]): Promise<void> | void;
+  /** 重置为默认预设（标签管理页「恢复默认」，#94 补充） */
+  resetTagsToDefaults(): Promise<void> | void;
   getClasses(): Promise<ClassRow[]> | ClassRow[];
   getClassByName(name: string): Promise<ClassRow | undefined> | ClassRow | undefined;
   getClassByInviteCode(code: string): Promise<ClassRow | undefined> | ClassRow | undefined;
@@ -378,6 +380,11 @@ export async function updateTag(id: number, fields: {
 export async function deleteTags(ids: number[]): Promise<void> {
   const adapter = await ensureInit();
   return Promise.resolve(adapter.deleteTags(ids));
+}
+
+export async function resetTagsToDefaults(): Promise<void> {
+  const adapter = await ensureInit();
+  return Promise.resolve(adapter.resetTagsToDefaults());
 }
 
 export async function getClasses(): Promise<ClassRow[]> {

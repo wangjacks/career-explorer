@@ -186,8 +186,23 @@ export class SqliteAdapter implements DbAdapter {
     this.db.exec("CREATE INDEX IF NOT EXISTS idx_tags_order ON tags(category_order, sort_order)");
   }
 
-  /** 预填充标签（INSERT OR IGNORE，重复执行安全；class_id=0 表示全局标签） */
+  /**
+   * 仅首次安装时种子填充（以 configs_profile 的 tags_seeded 为标记）；
+   * 升级场景一次性幂等补齐缺失默认项，此后不再自动回填（#94 补充：避免污染已整理标签的环境）。
+   */
   private seedTags(): void {
+    const marker = this.db
+      .prepare("SELECT value FROM configs_profile WHERE key = ?")
+      .get("tags_seeded") as { value: string } | undefined;
+    if (marker) return;
+    this.seedDefaultTags();
+    this.db
+      .prepare("INSERT OR IGNORE INTO configs_profile (key, value, updated_at) VALUES (?, ?, ?)")
+      .run("tags_seeded", "1", getNow());
+  }
+
+  /** 默认预设插入（INSERT OR IGNORE，重复执行安全；class_id=0 表示全局标签） */
+  private seedDefaultTags(): void {
     const columns = this.db.prepare("PRAGMA table_info(tags)").all() as { name: string }[];
     const hasLegacyCategory = columns.some((column) => column.name === "category");
     const insertCategory = this.db.prepare(hasLegacyCategory
@@ -215,6 +230,12 @@ export class SqliteAdapter implements DbAdapter {
       });
     });
     seed();
+  }
+
+  /** 重置为默认预设（标签管理页「恢复默认」，#94 补充）：清空全部标签后重插默认预设；学生已提交标签为文本直存，不受影响 */
+  resetTagsToDefaults(): void {
+    this.db.exec("DELETE FROM tags");
+    this.seedDefaultTags();
   }
 
   /** 检测旧 students 表并迁移到 users 表 */

@@ -29,6 +29,13 @@ function errorResponse(err: unknown, fallback: string) {
   );
 }
 
+/** 一级分类重名校验（#94 补充：一级分类不得重名；唯一索引对 NULL parent_id 不生效，须应用层校验） */
+function findDuplicateCategory(tags: TagRow[], name: string, excludeId?: number): boolean {
+  return tags.some(
+    (t) => t.type === "category" && t.class_id === 0 && t.name === name && t.id !== excludeId
+  );
+}
+
 export async function GET() {
   try {
     return NextResponse.json({ data: await getTags() });
@@ -50,6 +57,9 @@ export async function POST(request: NextRequest) {
     const parentId = validateParent(tags, type, body.parent_id);
     if (parentId === undefined) {
       return NextResponse.json({ error: "请选择有效的一级分类" }, { status: 400 });
+    }
+    if (type === "category" && findDuplicateCategory(tags, name)) {
+      return NextResponse.json({ error: "分类名称已存在" }, { status: 409 });
     }
     const categoryOrder = parseOrder(body.category_order);
     const sortOrder = parseOrder(body.sort_order);
@@ -84,6 +94,9 @@ export async function PATCH(request: NextRequest) {
     const name = body.name === undefined ? undefined : String(body.name).trim();
     if (name !== undefined && (!name || name.length > 50)) {
       return NextResponse.json({ error: "标签名称无效" }, { status: 400 });
+    }
+    if (current.type === "category" && name !== undefined && name !== current.name && findDuplicateCategory(tags, name, id)) {
+      return NextResponse.json({ error: "分类名称已存在" }, { status: 409 });
     }
     const categoryOrder = parseOrder(body.category_order, current.category_order);
     const sortOrder = parseOrder(body.sort_order, current.sort_order);

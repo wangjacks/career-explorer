@@ -12,20 +12,55 @@ function makeTmpDb(): string {
 }
 
 describe("新安装 Schema", () => {
-  it("创建 4 张表并预填充 3 个分类和 15 个标签", () => {
+  it("创建 4 张表并预填充 3 个分类和 36 个标签（仅安装时种子一次）", () => {
     const dbPath = makeTmpDb();
     const adapter = new SqliteAdapter(dbPath);
     adapter.init();
 
     const tags = adapter.getTags();
     expect(tags.filter((tag) => tag.type === "category").length).toBe(3);
-    expect(tags.filter((tag) => tag.type === "tag").length).toBe(15);
+    expect(tags.filter((tag) => tag.type === "tag").length).toBe(36);
     expect(tags.filter((tag) => tag.parent_id === null).length).toBe(3);
-    expect(adapter.getActiveTags().length).toBe(18);
+    expect(adapter.getActiveTags().length).toBe(39);
 
-    // 重复 init 不应重复填充
+    // 重复 init 不会重复填充（种子标记已写入）
     adapter.init();
-    expect(adapter.getTags().length).toBe(18);
+    expect(adapter.getTags().length).toBe(39);
+
+    adapter.close();
+    rmSync(path.dirname(dbPath), { recursive: true, force: true });
+  });
+
+  it("种子仅在首次安装执行：手动清空后重启不会自动回填（#94 补充）", () => {
+    const dbPath = makeTmpDb();
+    const adapter = new SqliteAdapter(dbPath);
+    adapter.init();
+    expect(adapter.getTags().length).toBe(39);
+
+    // 模拟运营手动清空标签（如重新导入前的准备）
+    adapter.deleteTags(adapter.getTags().map((t) => t.id));
+    expect(adapter.getTags().length).toBe(0);
+
+    // 再次 init（模拟重启）：种子标记已存在，不再自动回填污染环境
+    adapter.init();
+    expect(adapter.getTags().length).toBe(0);
+
+    adapter.close();
+    rmSync(path.dirname(dbPath), { recursive: true, force: true });
+  });
+
+  it("恢复默认预设：清空后重插默认预设（#94 补充）", () => {
+    const dbPath = makeTmpDb();
+    const adapter = new SqliteAdapter(dbPath);
+    adapter.init();
+
+    // 自定义改动后重置：应回到 3 分类 + 36 标签
+    adapter.insertTag({ name: "自定义分类", type: "category", category_order: 9 });
+    adapter.resetTagsToDefaults();
+    const tags = adapter.getTags();
+    expect(tags.filter((tag) => tag.type === "category").length).toBe(3);
+    expect(tags.filter((tag) => tag.type === "tag").length).toBe(36);
+    expect(tags.some((tag) => tag.name === "自定义分类")).toBe(false);
 
     adapter.close();
     rmSync(path.dirname(dbPath), { recursive: true, force: true });

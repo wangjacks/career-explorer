@@ -185,8 +185,25 @@ export class MysqlAdapter implements DbAdapter {
     );
   }
 
-  /** 预填充标签（重复执行安全；class_id=0 表示全局标签） */
+  /**
+   * 仅首次安装时种子填充（以 configs_profile 的 tags_seeded 为标记）；
+   * 升级场景一次性幂等补齐缺失默认项，此后不再自动回填（#94 补充：避免污染已整理标签的环境）。
+   */
   private async seedTags(): Promise<void> {
+    const [rows] = await this.pool.execute(
+      "SELECT value FROM configs_profile WHERE `key` = ?",
+      ["tags_seeded"]
+    );
+    if ((rows as unknown[]).length > 0) return;
+    await this.seedDefaultTags();
+    await this.pool.execute(
+      "INSERT IGNORE INTO configs_profile (`key`, value, updated_at) VALUES (?, ?, ?)",
+      ["tags_seeded", "1", getNow()]
+    );
+  }
+
+  /** 默认预设插入（INSERT IGNORE，重复执行安全；class_id=0 表示全局标签） */
+  private async seedDefaultTags(): Promise<void> {
     const hasLegacyCategory = await this.columnExists("tags", "category");
     for (let ci = 0; ci < tagCategories.length; ci++) {
       const cat = tagCategories[ci];
@@ -222,6 +239,12 @@ export class MysqlAdapter implements DbAdapter {
         );
       }
     }
+  }
+
+  /** 重置为默认预设（标签管理页「恢复默认」，#94 补充）：清空全部标签后重插默认预设；学生已提交标签为文本直存，不受影响 */
+  async resetTagsToDefaults(): Promise<void> {
+    await this.pool.execute("DELETE FROM tags");
+    await this.seedDefaultTags();
   }
 
   /** 检测旧 students 表并迁移到 users 表 */

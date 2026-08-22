@@ -34,6 +34,9 @@ export default function TagsTab() {
   // 删除确认（#94：物理删除，单个/批量均需二次确认）
   const [deleting, setDeleting] = useState<TagItem | null>(null);
   const [batchDeleteOpen, setBatchDeleteOpen] = useState(false);
+  // 恢复默认预设（#94 补充：二次确认后清空重插）
+  const [restoreOpen, setRestoreOpen] = useState(false);
+  const [restoring, setRestoring] = useState(false);
   // 批量导入：粘贴/文件 → 预览核对 → 确认导入
   const [batchText, setBatchText] = useState("");
   const [batchPreview, setBatchPreview] = useState<{ category: string; name: string }[] | null>(null);
@@ -176,6 +179,23 @@ export default function TagsTab() {
     await doDelete(Array.from(selected), `已删除 ${selected.size} 项`);
   };
 
+  const confirmRestore = async () => {
+    setRestoreOpen(false);
+    setRestoring(true);
+    try {
+      const res = await fetch("/api/manage/tags/restore", { method: "POST" });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "恢复失败");
+      toast.success("已恢复默认预设");
+      setSelected(new Set());
+      await refresh();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "恢复默认失败");
+    } finally {
+      setRestoring(false);
+    }
+  };
+
   const moveTag = (tag: TagItem, direction: -1 | 1) => {
     const base = draftTags ?? tags;
     const field = tag.type === "category" ? "category_order" : "sort_order";
@@ -238,12 +258,16 @@ export default function TagsTab() {
 
   // ---- 批量导入（#94）----
 
-  /** 逐行解析「分类,标签名」（兼容中文逗号/制表符分隔），无效行丢弃 */
+  /** 逐行解析「分类,标签名」（兼容中文逗号/制表符分隔），跳过表头行，无效行丢弃 */
   const parseBatchText = (text: string): { category: string; name: string }[] => {
-    return text
+    const lines = text
       .split(/\r?\n/)
       .map((line) => line.trim())
-      .filter(Boolean)
+      .filter(Boolean);
+    // 跳过表头行（如 CSV 首行「分类,标签名」），避免误导入
+    const start = lines.length > 0 && /^分类[,，\t]/.test(lines[0]) ? 1 : 0;
+    return lines
+      .slice(start)
       .map((line) => {
         const [category, name] = line.split(/[,，\t]/).map((s) => s.trim());
         return { category: category || "", name: name || "" };
@@ -376,9 +400,18 @@ export default function TagsTab() {
 
   return (
     <div className="bg-card rounded-xl border border-gray-100 dark:border-gray-700 p-6 space-y-6">
-      <div>
-        <h2 className="font-semibold text-gray-800 dark:text-gray-100">标签管理</h2>
-        <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">删除为物理删除，不影响学生已提交的标签数据；删除分类会同时删除其下标签。</p>
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div>
+          <h2 className="font-semibold text-gray-800 dark:text-gray-100">标签管理</h2>
+          <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">删除为物理删除，不影响学生已提交的标签数据；删除分类会同时删除其下标签。</p>
+        </div>
+        <button
+          onClick={() => setRestoreOpen(true)}
+          disabled={restoring}
+          className="px-3 py-1.5 bg-gray-100 hover:bg-gray-200 dark:bg-gray-800 dark:hover:bg-gray-700 disabled:opacity-50 text-gray-700 dark:text-gray-200 text-xs rounded-lg transition-colors"
+        >
+          {restoring ? "恢复中..." : "恢复默认预设"}
+        </button>
       </div>
 
       {/* Add forms */}
@@ -616,6 +649,15 @@ export default function TagsTab() {
         variant="danger"
         onConfirm={confirmBatchDelete}
         onCancel={() => setBatchDeleteOpen(false)}
+      />
+      <ConfirmDialog
+        open={restoreOpen}
+        title="恢复默认预设"
+        message="将清空当前所有标签（含自定义）并重置为默认预设。不影响学生已提交的标签数据。确定继续？"
+        confirmText="恢复默认"
+        variant="warning"
+        onConfirm={confirmRestore}
+        onCancel={() => setRestoreOpen(false)}
       />
     </div>
   );
