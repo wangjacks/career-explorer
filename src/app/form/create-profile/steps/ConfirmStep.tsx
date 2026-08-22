@@ -172,7 +172,7 @@ export default function ConfirmStep({ draft, studentName, onBack, onSubmitted }:
           <button
             onClick={handleSubmit}
             disabled={submitting || !profile || !!profile.submitted_at || loadFailed}
-            className="flex-[2] py-3 bg-primary hover:bg-primary-strong disabled:opacity-50 text-white font-medium rounded-xl transition-colors"
+            className="flex-1 py-3 bg-primary hover:bg-primary-strong disabled:opacity-50 text-white font-medium rounded-xl transition-colors"
           >
             {submitting ? progress || "提交中..." : "确认提交"}
           </button>

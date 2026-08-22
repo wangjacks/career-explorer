@@ -34,7 +34,7 @@ export default function WordcloudStep({ tags, onBack, onNext }: WordcloudStepPro
           </button>
           <button
             onClick={onNext}
-            className="flex-[2] py-3 bg-primary hover:bg-primary-strong text-white font-medium rounded-xl transition-colors"
+            className="flex-1 py-3 bg-primary hover:bg-primary-strong text-white font-medium rounded-xl transition-colors"
           >
             下一步
           </button>

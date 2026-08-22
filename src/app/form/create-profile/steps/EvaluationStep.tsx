@@ -26,12 +26,14 @@ export default function EvaluationStep({ draft, onBack, onNext }: EvaluationStep
         <p className="text-sm text-gray-500 dark:text-gray-400 text-center">
           上传同学们对你的评价词云图片（选择后暂存本地，最终确认时才上传）
         </p>
-        <ImageUploadBox
-          initialUrl={draft.evaluationPreview ?? undefined}
-          aspect="wide"
-          emptyHint="点击选择评价词云图片"
-          onFileSelected={draft.setEvaluationFile}
-        />
+        <div className="w-full max-w-xs sm:max-w-sm mx-auto">
+          <ImageUploadBox
+            initialUrl={draft.evaluationPreview ?? undefined}
+            aspect="wide"
+            emptyHint="点击选择评价词云图片"
+            onFileSelected={draft.setEvaluationFile}
+          />
+        </div>
       </main>
 
       <div className="sticky bottom-0 bg-card/80 backdrop-blur-md border-t border-gray-100 dark:border-gray-700 p-4">
@@ -44,7 +46,7 @@ export default function EvaluationStep({ draft, onBack, onNext }: EvaluationStep
           </button>
           <button
             onClick={handleNext}
-            className="flex-[2] py-3 bg-primary hover:bg-primary-strong text-white font-medium rounded-xl transition-colors"
+            className="flex-1 py-3 bg-primary hover:bg-primary-strong text-white font-medium rounded-xl transition-colors"
           >
             下一步
           </button>
