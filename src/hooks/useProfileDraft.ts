@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   DRAFT_TAGS_KEY,
   DRAFT_META_KEY,
@@ -9,6 +9,7 @@ import {
   toggleTag,
   type DraftMeta,
 } from "@/lib/profile-draft";
+import { clearAllDraftFiles, loadDraftFile, removeDraftFile, storeDraftFile } from "@/lib/draft-idb";
 
 function readStoredTags(): string[] {
   const parsed = parseJsonOrNull<string[]>(localStorage.getItem(DRAFT_TAGS_KEY));
@@ -25,7 +26,7 @@ export interface UseProfileDraftResult {
   evaluationPreview: string | null;
   avatarFile: File | null;
   avatarPreview: string | null;
-  /** 按持久化状态判断是否有草稿（供恢复提示弹窗；刷新后 File 丢失但元数据仍在） */
+  /** 按持久化状态判断是否有草稿（供恢复提示弹窗） */
   storedHasDraft: () => boolean;
   toggleTag: (tag: string) => void;
   setEvaluationFile: (file: File | null) => void;
@@ -35,8 +36,10 @@ export interface UseProfileDraftResult {
 }
 
 /**
- * 档案创建表单草稿状态：标签实时持久化；图片 File 存内存（object URL 预览），
- * 仅「已选」元数据持久化（File 不可序列化）。
+ * 档案创建表单草稿状态：
+ * - 标签实时持久化到 localStorage；
+ * - 图片 File 持久化到 IndexedDB（刷新后可恢复），预览用 object URL；
+ * - 所有存储读取均在挂载副作用中进行，避免 SSR 访问 localStorage。
  */
 export function useProfileDraft(): UseProfileDraftResult {
   const [tags, setTags] = useState<string[]>([]);
@@ -44,15 +47,36 @@ export function useProfileDraft(): UseProfileDraftResult {
   const [evaluationPreview, setEvaluationPreview] = useState<string | null>(null);
   const [avatarFile, setAvatarFileState] = useState<File | null>(null);
   const [avatarPreview, setAvatarPreview] = useState<string | null>(null);
-  const [loaded, setLoaded] = useState(false);
 
-  // 挂载后恢复标签草稿（避免 SSR/prerender 访问 localStorage）
-   
-  if (!loaded) {
+  // 挂载后恢复草稿：标签（localStorage）+ 图片 File（IndexedDB）
+  /* eslint-disable react-hooks/set-state-in-effect -- load persisted draft on mount */
+  useEffect(() => {
     setTags(readStoredTags());
-    setLoaded(true);
-  }
-   
+    let cancelled = false;
+    (async () => {
+      try {
+        const [storedEvaluation, storedAvatar] = await Promise.all([
+          loadDraftFile("evaluation"),
+          loadDraftFile("avatar"),
+        ]);
+        if (cancelled) return;
+        if (storedEvaluation) {
+          setEvaluationFileState(storedEvaluation);
+          setEvaluationPreview(URL.createObjectURL(storedEvaluation));
+        }
+        if (storedAvatar) {
+          setAvatarFileState(storedAvatar);
+          setAvatarPreview(URL.createObjectURL(storedAvatar));
+        }
+      } catch (err) {
+        console.error("Failed to load draft images:", err);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   const storedHasDraft = useCallback(
     () => hasMeaningfulDraft(readStoredTags(), readStoredMeta()),
@@ -83,6 +107,11 @@ export function useProfileDraft(): UseProfileDraftResult {
     });
     const meta = readStoredMeta() ?? {};
     persistMeta({ ...meta, evaluation: !!file });
+    if (file) {
+      storeDraftFile("evaluation", file).catch((err) => console.error("Draft image save failed:", err));
+    } else {
+      removeDraftFile("evaluation").catch((err) => console.error("Draft image remove failed:", err));
+    }
   }, []);
 
   const setAvatarFile = useCallback((file: File | null) => {
@@ -93,11 +122,17 @@ export function useProfileDraft(): UseProfileDraftResult {
     });
     const meta = readStoredMeta() ?? {};
     persistMeta({ ...meta, avatar: !!file });
+    if (file) {
+      storeDraftFile("avatar", file).catch((err) => console.error("Draft image save failed:", err));
+    } else {
+      removeDraftFile("avatar").catch((err) => console.error("Draft image remove failed:", err));
+    }
   }, []);
 
   const clearDraft = useCallback(() => {
     localStorage.removeItem(DRAFT_TAGS_KEY);
     localStorage.removeItem(DRAFT_META_KEY);
+    clearAllDraftFiles().catch((err) => console.error("Draft files clear failed:", err));
     setTags([]);
     setEvaluationFileState(null);
     setEvaluationPreview((prev) => {

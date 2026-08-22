@@ -45,12 +45,15 @@ function CreateProfileForm() {
 
   const [profile, setProfile] = useState<ProfileInfo | null>(null);
   const [submittedTagCount, setSubmittedTagCount] = useState(0);
-  const [draftPromptOpen, setDraftPromptOpen] = useState(false);
+  // 草稿恢复提示上下文：gate = 登录门进入时；midflow = 中途刷新/直接访问表单步骤时；每次进入只提示一次
+  const [draftPrompt, setDraftPrompt] = useState<"gate" | "midflow" | null>(null);
   const enteredRef = useRef(false);
 
   const goTo = (next: Step) => {
     router.push(`/form/create-profile?step=${next}`);
   };
+
+  const storedHasDraft = draft.storedHasDraft;
 
   // 非登录门步骤要求已登录学生身份（含直接拼 URL 进入的防护）
    
@@ -73,11 +76,37 @@ function CreateProfileForm() {
 
   const handleEnter = (p: ProfileInfo) => {
     setProfile(p);
-    if (!enteredRef.current && draft.storedHasDraft()) {
+    if (!enteredRef.current && storedHasDraft()) {
       enteredRef.current = true;
-      setDraftPromptOpen(true);
+      setDraftPrompt("gate");
       return;
     }
+    goTo("tags");
+  };
+
+  // 中途刷新/直接访问任意表单步骤时的草稿恢复提示（登录门与完成页除外，每次进入只提示一次）
+  /* eslint-disable react-hooks/set-state-in-effect -- 挂载时一次性读取外部存储（草稿）并触发提示，属 effect 正当用法 */
+  useEffect(() => {
+    if (checking) return;
+    if (!session || session.role !== "student") return;
+    if (step === "login" || step === "complete") return;
+    if (enteredRef.current) return;
+    if (storedHasDraft()) {
+      enteredRef.current = true;
+      setDraftPrompt("midflow");
+    }
+  }, [checking, session, step, storedHasDraft]);
+  /* eslint-enable react-hooks/set-state-in-effect */
+
+  const continueDraft = () => {
+    const ctx = draftPrompt;
+    setDraftPrompt(null);
+    if (ctx === "gate") goTo("tags");
+  };
+
+  const restartDraft = () => {
+    draft.clearDraft();
+    setDraftPrompt(null);
     goTo("tags");
   };
 
@@ -141,8 +170,8 @@ function CreateProfileForm() {
         <CompleteStep studentName={studentName} userCode={profile?.user_code ?? ""} tagCount={submittedTagCount} />
       )}
 
-      {/* 草稿恢复提示：中途刷新/再次进入且存在草稿时询问 */}
-      {draftPromptOpen && (
+      {/* 草稿恢复提示：任意步骤中途刷新/再次进入且存在草稿时询问 */}
+      {draftPrompt !== null && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 px-4">
           <div className="bg-card rounded-2xl shadow-xl max-w-sm sm:max-w-md w-full p-6 space-y-5">
             <div className="text-center space-y-2">
@@ -155,20 +184,13 @@ function CreateProfileForm() {
             </div>
             <div className="space-y-2">
               <button
-                onClick={() => {
-                  setDraftPromptOpen(false);
-                  goTo("tags");
-                }}
+                onClick={continueDraft}
                 className="w-full py-3 bg-primary hover:bg-primary-strong text-white font-medium rounded-xl transition-colors"
               >
                 继续填写
               </button>
               <button
-                onClick={() => {
-                  draft.clearDraft();
-                  setDraftPromptOpen(false);
-                  goTo("tags");
-                }}
+                onClick={restartDraft}
                 className="w-full py-3 bg-gray-100 hover:bg-gray-200 dark:bg-gray-800 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-200 font-medium rounded-xl transition-colors"
               >
                 重新开始
