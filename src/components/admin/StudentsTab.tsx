@@ -849,16 +849,19 @@ export default function StudentsTab({ students, loadError, onRetry, onStudentsCh
         </div>
       )}
 
-      {/* Import preview modal */}
+      {/* Import preview modal（#98：背景层不响应点击关闭，防止核对/调整列映射时误触丢失已解析数据；仅右上角 × 与「取消」按钮可退出） */}
       {preview && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 px-4" onClick={() => setPreview(null)}>
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 px-4">
           <div
             className="bg-card rounded-2xl shadow-xl max-w-2xl w-full p-6 space-y-4 max-h-[85vh] flex flex-col"
-            onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center justify-between">
               <h3 className="font-semibold text-gray-800 dark:text-gray-100 text-lg">导入预览</h3>
-              <button onClick={() => setPreview(null)} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 text-xl">
+              <button
+                onClick={() => setPreview(null)}
+                aria-label="关闭导入预览"
+                className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 text-xl"
+              >
                 ×
               </button>
             </div>
