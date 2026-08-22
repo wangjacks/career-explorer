@@ -12,26 +12,61 @@ function makeTmpDb(): string {
 }
 
 describe("新安装 Schema", () => {
-  it("创建 4 张表并预填充 3 个分类和 15 个标签", () => {
+  it("创建 4 张表并预填充 5 个分类和 56 个标签（仅安装时种子一次）", () => {
     const dbPath = makeTmpDb();
     const adapter = new SqliteAdapter(dbPath);
     adapter.init();
 
     const tags = adapter.getTags();
-    expect(tags.filter((tag) => tag.type === "category").length).toBe(3);
-    expect(tags.filter((tag) => tag.type === "tag").length).toBe(15);
-    expect(tags.filter((tag) => tag.parent_id === null).length).toBe(3);
-    expect(adapter.getActiveTags().length).toBe(18);
+    expect(tags.filter((tag) => tag.type === "category").length).toBe(5);
+    expect(tags.filter((tag) => tag.type === "tag").length).toBe(56);
+    expect(tags.filter((tag) => tag.parent_id === null).length).toBe(5);
+    expect(adapter.getActiveTags().length).toBe(61);
 
-    // 重复 init 不应重复填充
+    // 重复 init 不会重复填充（种子标记已写入）
     adapter.init();
-    expect(adapter.getTags().length).toBe(18);
+    expect(adapter.getTags().length).toBe(61);
 
     adapter.close();
     rmSync(path.dirname(dbPath), { recursive: true, force: true });
   });
 
-  it("支持标签层级 CRUD 和停用，停用不删除历史标签", () => {
+  it("种子仅在首次安装执行：手动清空后重启不会自动回填（#94 补充）", () => {
+    const dbPath = makeTmpDb();
+    const adapter = new SqliteAdapter(dbPath);
+    adapter.init();
+    expect(adapter.getTags().length).toBe(61);
+
+    // 模拟运营手动清空标签（如重新导入前的准备）
+    adapter.deleteTags(adapter.getTags().map((t) => t.id));
+    expect(adapter.getTags().length).toBe(0);
+
+    // 再次 init（模拟重启）：种子标记已存在，不再自动回填污染环境
+    adapter.init();
+    expect(adapter.getTags().length).toBe(0);
+
+    adapter.close();
+    rmSync(path.dirname(dbPath), { recursive: true, force: true });
+  });
+
+  it("恢复默认预设：清空后重插默认预设（#94 补充）", () => {
+    const dbPath = makeTmpDb();
+    const adapter = new SqliteAdapter(dbPath);
+    adapter.init();
+
+    // 自定义改动后重置：应回到 5 分类 + 56 标签
+    adapter.insertTag({ name: "自定义分类", type: "category", category_order: 9 });
+    adapter.resetTagsToDefaults();
+    const tags = adapter.getTags();
+    expect(tags.filter((tag) => tag.type === "category").length).toBe(5);
+    expect(tags.filter((tag) => tag.type === "tag").length).toBe(56);
+    expect(tags.some((tag) => tag.name === "自定义分类")).toBe(false);
+
+    adapter.close();
+    rmSync(path.dirname(dbPath), { recursive: true, force: true });
+  });
+
+  it("支持标签层级 CRUD 与物理删除（#94：停用机制下线，删除分类级联删除其下标签）", () => {
     const dbPath = makeTmpDb();
     const adapter = new SqliteAdapter(dbPath);
     adapter.init();
@@ -39,15 +74,24 @@ describe("新安装 Schema", () => {
     const categoryId = adapter.insertTag({ name: "能力", type: "category", category_order: 3 });
     const tagId = adapter.insertTag({ name: "分析", type: "tag", parent_id: categoryId, sort_order: 0 });
     adapter.updateTag(tagId, { name: "分析能力" });
-    adapter.setTagActive(categoryId, false);
+    expect(adapter.getTags().find((tag) => tag.id === tagId)?.name).toBe("分析能力");
 
-    const allTags = adapter.getTags();
-    expect(allTags.find((tag) => tag.id === tagId)?.name).toBe("分析能力");
-    expect(allTags.find((tag) => tag.id === tagId)?.active).toBe(0);
-    expect(adapter.getActiveTags().some((tag) => tag.id === tagId)).toBe(false);
+    // 删除分类：其下标签一并物理删除（含重复分类下的标签）
+    const otherTagId = adapter.insertTag({ name: "协作", type: "tag", parent_id: categoryId, sort_order: 1 });
+    adapter.deleteTags([categoryId]);
+    const afterDelete = adapter.getTags();
+    expect(afterDelete.some((tag) => tag.id === categoryId)).toBe(false);
+    expect(afterDelete.some((tag) => tag.id === tagId)).toBe(false);
+    expect(afterDelete.some((tag) => tag.id === otherTagId)).toBe(false);
 
-    adapter.setTagActive(categoryId, true);
-    expect(adapter.getActiveTags().some((tag) => tag.id === tagId)).toBe(true);
+    // 单个二级标签删除不影响分类本身；空数组无副作用；学生已提交数据（文本直存）不受影响——此处仅验证标签表行为
+    const keepCatId = adapter.insertTag({ name: "临时分类", type: "category", category_order: 4 });
+    const singleTagId = adapter.insertTag({ name: "临时标签", type: "tag", parent_id: keepCatId, sort_order: 0 });
+    adapter.deleteTags([singleTagId]);
+    expect(adapter.getTags().some((tag) => tag.id === singleTagId)).toBe(false);
+    expect(adapter.getTags().some((tag) => tag.id === keepCatId)).toBe(true);
+    adapter.deleteTags([]);
+    expect(adapter.getTags().some((tag) => tag.id === keepCatId)).toBe(true);
 
     adapter.close();
     rmSync(path.dirname(dbPath), { recursive: true, force: true });

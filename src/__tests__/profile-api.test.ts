@@ -9,10 +9,11 @@ vi.mock("@/lib/db", () => ({
   upsertSubmission: vi.fn(),
   getClasses: vi.fn(),
   getTags: vi.fn(),
+  getMaxCustomTags: vi.fn(),
 }));
 
 import { POST, GET } from "@/app/api/shared/profile/route";
-import { getUserById, getActiveTags, upsertSubmission } from "@/lib/db";
+import { getUserById, getActiveTags, upsertSubmission, getMaxCustomTags } from "@/lib/db";
 
 function createPostRequest(body: unknown, cookies?: Record<string, string>): NextRequest {
   const url = new URL("/api/shared/profile", "http://localhost:3000");
@@ -85,16 +86,34 @@ describe("POST /api/shared/profile — 快速提交下线后的安全收紧（#9
     expect(upsertSubmission).not.toHaveBeenCalled();
   });
 
-  it("学生本人会话 + 不传学号 → 保存成功，归属本人学号", async () => {
+  it("学生本人会话 + 不传学号 → 标签文本直存，归属本人学号（#94）", async () => {
     const token = await signToken({ role: "student", uid: 7, name: "测试学生" });
     vi.mocked(getUserById).mockResolvedValue(STUDENT_USER);
     vi.mocked(getActiveTags).mockResolvedValue([
       { id: 1, name: "兴趣", type: "category", parent_id: null, class_id: 0, category_order: 0, sort_order: 0, active: 1 },
       { id: 2, name: "阅读", type: "tag", parent_id: 1, class_id: 0, category_order: 0, sort_order: 0, active: 1 },
     ]);
-    const res = await POST(createPostRequest({ tags: ["阅读"] }, { auth_token: token }));
+    vi.mocked(getMaxCustomTags).mockResolvedValue(6);
+    const res = await POST(createPostRequest({ tags: ["阅读", "自定义爱好"] }, { auth_token: token }));
     expect(res.status).toBe(200);
-    expect(upsertSubmission).toHaveBeenCalledWith("202505050102", expect.any(String), "", "");
+    // 文本直存：预设 + 自定义均按名称存入（去空去重后的 JSON 数组）
+    expect(upsertSubmission).toHaveBeenCalledWith("202505050102", JSON.stringify(["阅读", "自定义爱好"]), "", "");
+  });
+
+  it("自定义标签超过配置上限 → 400 拒绝（#94）", async () => {
+    const token = await signToken({ role: "student", uid: 7, name: "测试学生" });
+    vi.mocked(getUserById).mockResolvedValue(STUDENT_USER);
+    vi.mocked(getActiveTags).mockResolvedValue([
+      { id: 2, name: "阅读", type: "tag", parent_id: 1, class_id: 0, category_order: 0, sort_order: 0, active: 1 },
+    ]);
+    vi.mocked(getMaxCustomTags).mockResolvedValue(1);
+    const res = await POST(
+      createPostRequest({ tags: ["阅读", "自定义一", "自定义二"] }, { auth_token: token })
+    );
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error).toBe("自定义标签最多 1 个，当前 2 个");
+    expect(upsertSubmission).not.toHaveBeenCalled();
   });
 });
 

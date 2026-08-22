@@ -9,6 +9,7 @@ const TEACHER_ALLOWED: { prefix: string; methods: "all" | string[] }[] = [
   { prefix: "/api/manage/export", methods: "all" }, // startsWith 覆盖 export-images
   { prefix: "/api/manage/stats", methods: ["GET"] },
   { prefix: "/api/manage/profiles", methods: ["GET", "DELETE"] },
+  { prefix: "/api/manage/profile-config", methods: "all" },
 ];
 
 export async function proxy(request: NextRequest) {

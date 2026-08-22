@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getSubmittedProfiles, getTags, clearSubmissions } from "@/lib/db";
-import { tagIdsToNames } from "@/lib/tag-utils";
+import { getSubmittedProfiles, clearSubmissions } from "@/lib/db";
 
 export async function GET(request: NextRequest) {
   try {
@@ -9,18 +8,19 @@ export async function GET(request: NextRequest) {
     const pageSize = parseInt(searchParams.get("pageSize") || "20", 10);
 
     const { rows, total } = await getSubmittedProfiles(page, pageSize);
-    const allTags = await getTags();
 
     return NextResponse.json({
       data: rows.map((r) => {
-        let ids: number[] = [];
+        // #94：标签文本直存，原样返回（容忍旧格式）
+        let tags: string[] = [];
         try {
-          ids = r.tags ? (JSON.parse(r.tags) as number[]) : [];
+          const parsed = r.tags ? JSON.parse(r.tags) : [];
+          tags = Array.isArray(parsed) ? parsed.map((t) => String(t)) : [];
         } catch {}
         return {
           studentId: r.user_code,
           studentName: r.name,
-          tags: tagIdsToNames(ids, allTags),
+          tags,
           avatarUrl: r.avatar_url,
           evaluationUrl: r.evaluation_url,
           createdAt: r.submitted_at,

@@ -11,6 +11,7 @@ import {
   MonitorPlay,
   School,
   ShieldCheck,
+  SlidersHorizontal,
   Tags,
   TriangleAlert,
   Users,
@@ -27,8 +28,9 @@ import PanelSidebar, { type PanelSidebarGroup } from "@/components/dashboard/Pan
 import TagsTab from "@/components/admin/TagsTab";
 import ClassesTab from "@/components/admin/ClassesTab";
 import TeachersTab from "@/components/admin/TeachersTab";
+import ProfileConfigTab from "@/components/admin/ProfileConfigTab";
 
-type Tab = "overview" | "dashboard" | "settings" | "students" | "classes" | "teachers" | "export" | "tags";
+type Tab = "overview" | "dashboard" | "settings" | "students" | "classes" | "teachers" | "export" | "tags" | "profile-config";
 
 /** 管理面板：分组侧边栏导航（数据中心 + 用户管理 + 系统设置） */
 export default function AdminPage() {
@@ -143,7 +145,10 @@ export default function AdminPage() {
     },
     {
       label: "系统设置",
-      items: [{ key: "settings", label: "数据源设置", icon: Database }],
+      items: [
+        { key: "settings", label: "数据源设置", icon: Database },
+        { key: "profile-config", label: "功能设置", icon: SlidersHorizontal },
+      ],
     },
   ];
 
@@ -219,6 +224,10 @@ export default function AdminPage() {
 
             {activeTab === "tags" && (
               <TagsTab />
+            )}
+
+            {activeTab === "profile-config" && (
+              <ProfileConfigTab />
             )}
           </div>
         </main>
