@@ -1,0 +1,55 @@
+"use client";
+
+import { toast } from "sonner";
+import ImageUploadBox from "@/components/ImageUploadBox";
+import type { UseProfileDraftResult } from "@/hooks/useProfileDraft";
+
+interface AvatarStepProps {
+  draft: UseProfileDraftResult;
+  onBack: () => void;
+  onNext: () => void;
+}
+
+/** 第五步 · 虚拟形象选图（延迟上传：只本地预览，确认页提交时才真正上传） */
+export default function AvatarStep({ draft, onBack, onNext }: AvatarStepProps) {
+  const handleNext = () => {
+    if (!draft.avatarFile && !draft.avatarPreview) {
+      toast.warning("请选择虚拟形象图片");
+      return;
+    }
+    onNext();
+  };
+
+  return (
+    <>
+      <main className="flex-1 px-4 py-6 space-y-6 max-w-lg sm:max-w-xl md:max-w-2xl mx-auto w-full">
+        <p className="text-sm text-gray-500 dark:text-gray-400 text-center">
+          选择你的虚拟形象（选择后暂存本地，最终确认时才上传）
+        </p>
+        <ImageUploadBox
+          initialUrl={draft.avatarPreview ?? undefined}
+          aspect="square"
+          emptyHint="点击选择虚拟形象"
+          onFileSelected={draft.setAvatarFile}
+        />
+      </main>
+
+      <div className="sticky bottom-0 bg-card/80 backdrop-blur-md border-t border-gray-100 dark:border-gray-700 p-4">
+        <div className="max-w-lg sm:max-w-xl md:max-w-2xl mx-auto flex gap-3">
+          <button
+            onClick={onBack}
+            className="flex-1 py-3 bg-gray-100 hover:bg-gray-200 dark:bg-gray-800 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-200 font-medium rounded-xl transition-colors"
+          >
+            上一步
+          </button>
+          <button
+            onClick={handleNext}
+            className="flex-[2] py-3 bg-primary hover:bg-primary-strong text-white font-medium rounded-xl transition-colors"
+          >
+            下一步
+          </button>
+        </div>
+      </div>
+    </>
+  );
+}

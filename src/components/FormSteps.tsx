@@ -2,10 +2,10 @@
 
 import { Check } from "lucide-react";
 
-const STEPS = ["学号", "标签", "词云", "评价", "形象", "完成"];
+const STEPS = ["登录", "标签", "词云", "评价", "形象", "确认", "完成"];
 
 /**
- * 表单流程步骤进度条（6 步）。
+ * 表单流程步骤进度条（7 步）。
  * 当前步高亮 + 已完成步打勾 + 数字伴随（不依赖颜色单独传达）；aria-current 标注当前步。
  */
 export default function FormSteps({ current }: { current: number }) {
