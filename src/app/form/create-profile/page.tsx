@@ -45,9 +45,12 @@ function CreateProfileForm() {
 
   const [profile, setProfile] = useState<ProfileInfo | null>(null);
   const [submittedTagCount, setSubmittedTagCount] = useState(0);
-  // 草稿恢复提示上下文：gate = 登录门进入时；midflow = 中途刷新/直接访问表单步骤时；每次进入只提示一次
+  // 草稿恢复提示上下文：gate = 登录页加载时预检发现；midflow = 中途刷新/直接访问表单步骤时；每次进入只提示一次
   const [draftPrompt, setDraftPrompt] = useState<"gate" | "midflow" | null>(null);
   const enteredRef = useRef(false);
+  // 登录页加载即预检：已提交引导去面板 / 存在草稿直接提示，不等用户点「下一步」
+  const [precheckedSubmitted, setPrecheckedSubmitted] = useState(false);
+  const precheckedRef = useRef(false);
 
   const goTo = (next: Step) => {
     router.push(`/form/create-profile?step=${next}`);
@@ -84,7 +87,32 @@ function CreateProfileForm() {
     goTo("tags");
   };
 
-  // 中途刷新/直接访问任意表单步骤时的草稿恢复提示（登录门与完成页除外，每次进入只提示一次）
+  // 登录页加载即预检档案状态（无需等用户交互）：已提交 → 引导面板；未提交且有草稿 → 直接提示恢复
+  useEffect(() => {
+    if (checking || !session || session.role !== "student") return;
+    if (step !== "login" || precheckedRef.current || enteredRef.current) return;
+    precheckedRef.current = true;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch("/api/shared/profile");
+        const data = await res.json();
+        if (cancelled || !res.ok) return;
+        if (data.submitted_at) {
+          setPrecheckedSubmitted(true);
+          return;
+        }
+        if (storedHasDraft()) setDraftPrompt("gate");
+      } catch {
+        // 预检失败不阻断：用户点「下一步」时 LoginGateStep 会再次查询并提示错误
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [checking, session, step, storedHasDraft]);
+
+  // 中途刷新/直接访问任意表单步骤时的草稿恢复提示（每次进入只提示一次）
   /* eslint-disable react-hooks/set-state-in-effect -- 挂载时一次性读取外部存储（草稿）并触发提示，属 effect 正当用法 */
   useEffect(() => {
     if (checking) return;
@@ -100,12 +128,14 @@ function CreateProfileForm() {
 
   const continueDraft = () => {
     const ctx = draftPrompt;
+    enteredRef.current = true;
     setDraftPrompt(null);
     if (ctx === "gate") goTo("tags");
   };
 
   const restartDraft = () => {
     draft.clearDraft();
+    enteredRef.current = true;
     setDraftPrompt(null);
     goTo("tags");
   };
@@ -132,7 +162,7 @@ function CreateProfileForm() {
 
       {step === "login" && (
         <main className="flex-1 flex flex-col items-center justify-center px-6 gap-8">
-          <LoginGateStep onEnter={handleEnter} />
+          <LoginGateStep precheckedSubmitted={precheckedSubmitted} onEnter={handleEnter} />
         </main>
       )}
       {step === "tags" && (
@@ -152,19 +182,13 @@ function CreateProfileForm() {
       {step === "avatar" && (
         <AvatarStep draft={draft} onBack={() => goTo("evaluation")} onNext={() => goTo("confirm")} />
       )}
-      {step === "confirm" && profile && (
+      {step === "confirm" && (
         <ConfirmStep
           draft={draft}
           studentName={studentName}
-          profile={profile}
           onBack={() => goTo("avatar")}
           onSubmitted={handleSubmitted}
         />
-      )}
-      {step === "confirm" && !profile && (
-        <main className="flex-1 flex items-center justify-center px-6">
-          <p className="text-sm text-gray-400 dark:text-gray-500">缺少档案信息，请从第一步开始</p>
-        </main>
       )}
       {step === "complete" && (
         <CompleteStep studentName={studentName} userCode={profile?.user_code ?? ""} tagCount={submittedTagCount} />

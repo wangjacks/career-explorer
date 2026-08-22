@@ -14,17 +14,21 @@ export interface ProfileInfo {
 }
 
 interface LoginGateStepProps {
+  /** 容器加载预检已确认该学生提交过档案（免再点一次「下一步」才看到引导） */
+  precheckedSubmitted?: boolean;
   /** 通过登录门：携带本人档案信息（未提交学生） */
   onEnter: (profile: ProfileInfo) => void;
 }
 
 /** 第一步 · 登录门：未登录提示登录；已提交学生引导去面板修改；未提交学生问候并进入流程 */
-export default function LoginGateStep({ onEnter }: LoginGateStepProps) {
+export default function LoginGateStep({ precheckedSubmitted = false, onEnter }: LoginGateStepProps) {
   const router = useRouter();
   const { session, checking } = useSession();
   const [verifying, setVerifying] = useState(false);
   const [alreadySubmitted, setAlreadySubmitted] = useState(false);
   const [error, setError] = useState("");
+
+  const submitted = alreadySubmitted || precheckedSubmitted;
 
   if (checking) {
     return <p className="text-center py-10 text-sm text-gray-400 dark:text-gray-500">加载中...</p>;
@@ -67,7 +71,7 @@ export default function LoginGateStep({ onEnter }: LoginGateStepProps) {
     );
   }
 
-  if (alreadySubmitted) {
+  if (submitted) {
     return (
       <div className="w-full max-w-sm sm:max-w-md mx-auto bg-card rounded-2xl shadow-xl p-8 space-y-4 text-center">
         <div className="w-14 h-14 rounded-2xl bg-brand flex items-center justify-center mx-auto">

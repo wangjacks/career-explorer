@@ -1,25 +1,61 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import Link from "next/link";
 import { toast } from "sonner";
 import { submitProfile } from "@/lib/profile-submit";
 import type { UseProfileDraftResult } from "@/hooks/useProfileDraft";
-import type { ProfileInfo } from "./LoginGateStep";
+
+interface ConfirmProfile {
+  user_code: string;
+  avatar_url: string;
+  evaluation_url: string;
+  submitted_at: string | null;
+}
 
 interface ConfirmStepProps {
   draft: UseProfileDraftResult;
   studentName: string;
-  profile: ProfileInfo;
   onBack: () => void;
   onSubmitted: () => void;
 }
 
-/** 第六步 · 最终确认：核验全部信息后才真正上传与保存 */
-export default function ConfirmStep({ draft, studentName, profile, onBack, onSubmitted }: ConfirmStepProps) {
+/**
+ * 第六步 · 最终确认：核验全部信息后才真正上传与保存。
+ * 档案信息挂载时从会话接口自行获取，不依赖容器内存态（中途刷新后直接进入本步也可用）。
+ */
+export default function ConfirmStep({ draft, studentName, onBack, onSubmitted }: ConfirmStepProps) {
+  const [profile, setProfile] = useState<ConfirmProfile | null>(null);
+  const [loadFailed, setLoadFailed] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [progress, setProgress] = useState("");
 
+  const loadProfile = async () => {
+    setLoadFailed(false);
+    try {
+      const res = await fetch("/api/shared/profile");
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error || "档案信息加载失败");
+      setProfile({
+        user_code: data.user_code,
+        avatar_url: data.avatar_url || "",
+        evaluation_url: data.evaluation_url || "",
+        submitted_at: data.submitted_at,
+      });
+    } catch (err) {
+      console.error("Confirm step profile load failed:", err);
+      setLoadFailed(true);
+    }
+  };
+
+  /* eslint-disable react-hooks/set-state-in-effect -- load session profile on step entry */
+  useEffect(() => {
+    loadProfile();
+  }, []);
+  /* eslint-enable react-hooks/set-state-in-effect */
+
   const handleSubmit = async () => {
+    if (!profile) return;
     setSubmitting(true);
     try {
       setProgress("正在上传评价词云与虚拟形象...");
@@ -58,37 +94,69 @@ export default function ConfirmStep({ draft, studentName, profile, onBack, onSub
           <p className="text-sm text-gray-500 dark:text-gray-400">请核验以下信息，提交后才会真正上传</p>
         </div>
 
-        <div className="bg-card rounded-xl p-4 shadow-sm border border-gray-100 dark:border-gray-700 space-y-3">
-          {summaryRow("姓名", studentName)}
-          {summaryRow("学号", profile.user_code)}
-          {summaryRow("标签数量", `${draft.tags.length} 个`)}
-          {summaryRow("评价词云", draft.evaluationFile ? "已选择（待上传）" : "未选择")}
-          {summaryRow("虚拟形象", draft.avatarFile ? "已选择（待上传）" : "未选择")}
-        </div>
+        {!profile && !loadFailed && (
+          <p className="text-center py-8 text-gray-400 dark:text-gray-500">档案信息加载中...</p>
+        )}
 
-        {(draft.evaluationPreview || draft.avatarPreview) && (
-          <div className="grid grid-cols-2 gap-4">
-            {draft.evaluationPreview && (
-              <div>
-                <p className="text-xs text-gray-500 dark:text-gray-400 text-center mb-2">评价词云预览</p>
-                <img
-                  src={draft.evaluationPreview}
-                  alt="评价词云预览"
-                  className="w-full rounded-xl border border-gray-100 dark:border-gray-700 object-contain max-h-48"
-                />
-              </div>
-            )}
-            {draft.avatarPreview && (
-              <div>
-                <p className="text-xs text-gray-500 dark:text-gray-400 text-center mb-2">虚拟形象预览</p>
-                <img
-                  src={draft.avatarPreview}
-                  alt="虚拟形象预览"
-                  className="w-full rounded-xl border border-gray-100 dark:border-gray-700 object-cover max-h-48"
-                />
-              </div>
-            )}
+        {loadFailed && (
+          <div className="text-center py-8 space-y-2">
+            <p className="text-sm text-red-500">档案信息加载失败</p>
+            <button
+              onClick={loadProfile}
+              className="px-4 py-1.5 bg-primary hover:bg-primary-strong text-white text-sm rounded-lg"
+            >
+              重试
+            </button>
           </div>
+        )}
+
+        {profile && profile.submitted_at && (
+          <div className="text-center py-8 space-y-3">
+            <p className="text-sm text-gray-600 dark:text-gray-300">你已提交过档案，如需修改请前往学生面板</p>
+            <Link
+              href="/dashboard/student"
+              className="inline-block px-6 py-3 bg-primary hover:bg-primary-strong text-white font-medium rounded-xl transition-colors"
+            >
+              前往学生面板
+            </Link>
+          </div>
+        )}
+
+        {profile && !profile.submitted_at && (
+          <>
+            <div className="bg-card rounded-xl p-4 shadow-sm border border-gray-100 dark:border-gray-700 space-y-3">
+              {summaryRow("姓名", studentName)}
+              {summaryRow("学号", profile.user_code)}
+              {summaryRow("标签数量", `${draft.tags.length} 个`)}
+              {summaryRow("评价词云", draft.evaluationFile ? "已选择（待上传）" : "未选择")}
+              {summaryRow("虚拟形象", draft.avatarFile ? "已选择（待上传）" : "未选择")}
+            </div>
+
+            {(draft.evaluationPreview || draft.avatarPreview) && (
+              <div className="grid grid-cols-2 gap-4">
+                {draft.evaluationPreview && (
+                  <div>
+                    <p className="text-xs text-gray-500 dark:text-gray-400 text-center mb-2">评价词云预览</p>
+                    <img
+                      src={draft.evaluationPreview}
+                      alt="评价词云预览"
+                      className="w-full rounded-xl border border-gray-100 dark:border-gray-700 object-contain max-h-48"
+                    />
+                  </div>
+                )}
+                {draft.avatarPreview && (
+                  <div>
+                    <p className="text-xs text-gray-500 dark:text-gray-400 text-center mb-2">虚拟形象预览</p>
+                    <img
+                      src={draft.avatarPreview}
+                      alt="虚拟形象预览"
+                      className="w-full rounded-xl border border-gray-100 dark:border-gray-700 object-cover max-h-48"
+                    />
+                  </div>
+                )}
+              </div>
+            )}
+          </>
         )}
       </main>
 
@@ -103,7 +171,7 @@ export default function ConfirmStep({ draft, studentName, profile, onBack, onSub
           </button>
           <button
             onClick={handleSubmit}
-            disabled={submitting}
+            disabled={submitting || !profile || !!profile.submitted_at || loadFailed}
             className="flex-[2] py-3 bg-primary hover:bg-primary-strong disabled:opacity-50 text-white font-medium rounded-xl transition-colors"
           >
             {submitting ? progress || "提交中..." : "确认提交"}
