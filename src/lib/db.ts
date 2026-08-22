@@ -196,7 +196,8 @@ export interface DbAdapter {
     category_order?: number;
     sort_order?: number;
   }): Promise<void> | void;
-  setTagActive(id: number, active: boolean): Promise<void> | void;
+  /** 物理删除标签；分类会级联删除其下标签（#94：停用机制下线） */
+  deleteTags(ids: number[]): Promise<void> | void;
   getClasses(): Promise<ClassRow[]> | ClassRow[];
   getClassByName(name: string): Promise<ClassRow | undefined> | ClassRow | undefined;
   getClassByInviteCode(code: string): Promise<ClassRow | undefined> | ClassRow | undefined;
@@ -374,9 +375,9 @@ export async function updateTag(id: number, fields: {
   return Promise.resolve(adapter.updateTag(id, fields));
 }
 
-export async function setTagActive(id: number, active: boolean): Promise<void> {
+export async function deleteTags(ids: number[]): Promise<void> {
   const adapter = await ensureInit();
-  return Promise.resolve(adapter.setTagActive(id, active));
+  return Promise.resolve(adapter.deleteTags(ids));
 }
 
 export async function getClasses(): Promise<ClassRow[]> {

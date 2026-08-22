@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getTags, insertTag, setTagActive, updateTag } from "@/lib/db";
+import { getTags, insertTag, updateTag, deleteTags } from "@/lib/db";
 import type { TagRow } from "@/lib/db";
 
 type TagType = "category" | "tag";
@@ -75,11 +75,6 @@ export async function PATCH(request: NextRequest) {
     const current = tags.find((tag) => tag.id === id);
     if (!current) return NextResponse.json({ error: "标签不存在" }, { status: 404 });
 
-    if (typeof body.active === "boolean") {
-      await setTagActive(id, body.active);
-      return NextResponse.json({ ok: true });
-    }
-
     const parentId = body.parent_id === undefined
       ? current.parent_id
       : validateParent(tags, current.type, body.parent_id);
@@ -103,17 +98,27 @@ export async function PATCH(request: NextRequest) {
   }
 }
 
+/** 物理删除（#94：停用机制下线）；支持单个 { id } 与批量 { ids }，分类级联删除其下标签 */
 export async function DELETE(request: NextRequest) {
   try {
-    const body = await request.json() as { id?: unknown };
-    const id = Number(body.id);
-    if (!Number.isInteger(id) || id <= 0) {
+    const body = await request.json() as { id?: unknown; ids?: unknown };
+    const ids: number[] = [];
+    if (Array.isArray(body.ids)) {
+      for (const raw of body.ids) {
+        const id = Number(raw);
+        if (Number.isInteger(id) && id > 0) ids.push(id);
+      }
+    } else {
+      const id = Number(body.id);
+      if (Number.isInteger(id) && id > 0) ids.push(id);
+    }
+    if (ids.length === 0) {
       return NextResponse.json({ error: "标签 ID 无效" }, { status: 400 });
     }
-    await setTagActive(id, false);
+    await deleteTags(ids);
     return NextResponse.json({ ok: true });
   } catch (err) {
     console.error("Admin tags DELETE error:", err);
-    return NextResponse.json({ error: "停用标签失败" }, { status: 500 });
+    return NextResponse.json({ error: "删除标签失败" }, { status: 500 });
   }
 }

@@ -31,7 +31,7 @@ describe("新安装 Schema", () => {
     rmSync(path.dirname(dbPath), { recursive: true, force: true });
   });
 
-  it("支持标签层级 CRUD 和停用，停用不删除历史标签", () => {
+  it("支持标签层级 CRUD 与物理删除（#94：停用机制下线，删除分类级联删除其下标签）", () => {
     const dbPath = makeTmpDb();
     const adapter = new SqliteAdapter(dbPath);
     adapter.init();
@@ -39,15 +39,24 @@ describe("新安装 Schema", () => {
     const categoryId = adapter.insertTag({ name: "能力", type: "category", category_order: 3 });
     const tagId = adapter.insertTag({ name: "分析", type: "tag", parent_id: categoryId, sort_order: 0 });
     adapter.updateTag(tagId, { name: "分析能力" });
-    adapter.setTagActive(categoryId, false);
+    expect(adapter.getTags().find((tag) => tag.id === tagId)?.name).toBe("分析能力");
 
-    const allTags = adapter.getTags();
-    expect(allTags.find((tag) => tag.id === tagId)?.name).toBe("分析能力");
-    expect(allTags.find((tag) => tag.id === tagId)?.active).toBe(0);
-    expect(adapter.getActiveTags().some((tag) => tag.id === tagId)).toBe(false);
+    // 删除分类：其下标签一并物理删除（含重复分类下的标签）
+    const otherTagId = adapter.insertTag({ name: "协作", type: "tag", parent_id: categoryId, sort_order: 1 });
+    adapter.deleteTags([categoryId]);
+    const afterDelete = adapter.getTags();
+    expect(afterDelete.some((tag) => tag.id === categoryId)).toBe(false);
+    expect(afterDelete.some((tag) => tag.id === tagId)).toBe(false);
+    expect(afterDelete.some((tag) => tag.id === otherTagId)).toBe(false);
 
-    adapter.setTagActive(categoryId, true);
-    expect(adapter.getActiveTags().some((tag) => tag.id === tagId)).toBe(true);
+    // 单个二级标签删除不影响分类本身；空数组无副作用；学生已提交数据（文本直存）不受影响——此处仅验证标签表行为
+    const keepCatId = adapter.insertTag({ name: "临时分类", type: "category", category_order: 4 });
+    const singleTagId = adapter.insertTag({ name: "临时标签", type: "tag", parent_id: keepCatId, sort_order: 0 });
+    adapter.deleteTags([singleTagId]);
+    expect(adapter.getTags().some((tag) => tag.id === singleTagId)).toBe(false);
+    expect(adapter.getTags().some((tag) => tag.id === keepCatId)).toBe(true);
+    adapter.deleteTags([]);
+    expect(adapter.getTags().some((tag) => tag.id === keepCatId)).toBe(true);
 
     adapter.close();
     rmSync(path.dirname(dbPath), { recursive: true, force: true });

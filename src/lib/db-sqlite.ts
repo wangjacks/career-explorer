@@ -553,16 +553,15 @@ export class SqliteAdapter implements DbAdapter {
     this.db.prepare(`UPDATE tags SET ${assignments.join(", ")} WHERE id = ?`).run(...values);
   }
 
-  setTagActive(id: number, active: boolean): void {
-    const update = this.db.transaction(() => {
-      const tag = this.db.prepare("SELECT type FROM tags WHERE id = ?").get(id) as { type: string } | undefined;
-      if (!tag) throw new Error("标签不存在");
-      this.db.prepare("UPDATE tags SET active = ? WHERE id = ?").run(active ? 1 : 0, id);
-      if (tag.type === "category") {
-        this.db.prepare("UPDATE tags SET active = ? WHERE parent_id = ?").run(active ? 1 : 0, id);
-      }
+  deleteTags(ids: number[]): void {
+    if (ids.length === 0) return;
+    const placeholders = ids.map(() => "?").join(", ");
+    const tx = this.db.transaction(() => {
+      // 分类级联：先删所选分类下的二级标签，再删目标行本身（含重复分类下的标签）
+      this.db.prepare(`DELETE FROM tags WHERE parent_id IN (${placeholders})`).run(...ids);
+      this.db.prepare(`DELETE FROM tags WHERE id IN (${placeholders})`).run(...ids);
     });
-    update();
+    tx();
   }
 
   getClasses(): ClassRow[] {

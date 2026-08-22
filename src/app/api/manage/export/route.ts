@@ -1,7 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getStudents, getAllSubmitted, getTags } from "@/lib/db";
-import type { TagRow } from "@/lib/db";
-import { tagIdsToNames } from "@/lib/tag-utils";
+import { getStudents, getAllSubmitted } from "@/lib/db";
 import ExcelJS from "exceljs";
 import { imageSize } from "image-size";
 
@@ -14,12 +12,12 @@ interface ExportRow {
   created_at: string;
 }
 
-/** 将 users 行的标签 ID JSON 转为 "名称;名称" 展示字符串 */
-function tagsToDisplay(tagsJson: string | null, allTags: TagRow[]): string {
+/** 将 users 行的标签 JSON（#94 起为名称文本数组）转为 "名称;名称" 展示字符串 */
+function tagsToDisplay(tagsJson: string | null): string {
   if (!tagsJson) return "";
   try {
-    const ids = JSON.parse(tagsJson) as number[];
-    return tagIdsToNames(ids, allTags).join(";");
+    const parsed = JSON.parse(tagsJson);
+    return Array.isArray(parsed) ? parsed.map((t) => String(t)).join(";") : "";
   } catch {
     return "";
   }
@@ -39,7 +37,6 @@ export async function GET(request: NextRequest) {
 
   // Build student list and submitted profiles
   const students = await getStudents();
-  const allTags = await getTags();
 
   let rows: ExportRow[];
 
@@ -58,7 +55,7 @@ export async function GET(request: NextRequest) {
     rows = submitted.map((r) => ({
       student_id: r.user_code,
       name: r.name,
-      tags: tagsToDisplay(r.tags, allTags),
+      tags: tagsToDisplay(r.tags),
       avatar_url: r.avatar_url,
       evaluation_url: r.evaluation_url,
       created_at: r.submitted_at || "",
@@ -199,7 +196,6 @@ export async function POST(request: NextRequest) {
   const { scope, ids, dateFrom, dateTo, columns: columnsParam } = body;
 
   const students = await getStudents();
-  const allTags = await getTags();
 
   let rows: ExportRow[];
 
@@ -217,7 +213,7 @@ export async function POST(request: NextRequest) {
     rows = submitted.map((r) => ({
       student_id: r.user_code,
       name: r.name,
-      tags: tagsToDisplay(r.tags, allTags),
+      tags: tagsToDisplay(r.tags),
       avatar_url: r.avatar_url,
       evaluation_url: r.evaluation_url,
       created_at: r.submitted_at || "",

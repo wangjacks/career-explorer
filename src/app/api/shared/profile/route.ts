@@ -1,7 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getActiveTags, getClasses, getTags, getUserById, upsertSubmission } from "@/lib/db";
-import { tagNamesToIds, tagIdsToNames } from "@/lib/tag-utils";
+import { getActiveTags, getClasses, getUserById, getMaxCustomTags, upsertSubmission } from "@/lib/db";
+import { normalizeTagNames, extractCustomTags } from "@/lib/tag-utils";
 import { verifyToken } from "@/lib/token";
+
+/** 单个标签名称长度上限（与标签管理端新增校验一致） */
+const MAX_TAG_NAME_LENGTH = 50;
 
 /** 会话查询：登录学生获取本人档案（含班级名与标签名） */
 export async function GET(request: NextRequest) {
@@ -29,12 +32,12 @@ export async function GET(request: NextRequest) {
         ? classes.find((c) => c.id === user.class_id)?.name ?? "未分班"
         : "未分班";
 
+    // #94：标签以原始文本直存，读取原样返回（容忍旧格式的 ID 数组，转为字符串数组）
     let tagNames: string[] = [];
     if (user.tags) {
       try {
-        const ids = JSON.parse(user.tags) as number[];
-        const allTags = await getTags();
-        tagNames = tagIdsToNames(ids, allTags);
+        const parsed = JSON.parse(user.tags);
+        tagNames = Array.isArray(parsed) ? parsed.map((t) => String(t)) : [];
       } catch (err) {
         console.error("Profile GET tags parse error:", err);
       }
@@ -85,13 +88,25 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "标签不能为空" }, { status: 400 });
     }
 
+    // #94：标签文本直存（预设 + 自定义），入库前规范化；自定义部分受配置上限约束（后端二次校验）
+    const names = normalizeTagNames(tags as unknown[]);
+    if (names.length === 0) {
+      return NextResponse.json({ error: "标签不能为空" }, { status: 400 });
+    }
+    if (names.some((n) => n.length > MAX_TAG_NAME_LENGTH)) {
+      return NextResponse.json({ error: `标签名称不能超过 ${MAX_TAG_NAME_LENGTH} 字` }, { status: 400 });
+    }
     const allTags = await getActiveTags();
-    const tagIds = tagNamesToIds(tags as string[], allTags);
-    if (tagIds.length === 0) {
-      return NextResponse.json({ error: "没有有效的标签" }, { status: 400 });
+    const customNames = extractCustomTags(names, allTags);
+    const maxCustomTags = await getMaxCustomTags();
+    if (customNames.length > maxCustomTags) {
+      return NextResponse.json(
+        { error: `自定义标签最多 ${maxCustomTags} 个，当前 ${customNames.length} 个` },
+        { status: 400 }
+      );
     }
 
-    await upsertSubmission(studentId, JSON.stringify(tagIds), avatarUrl || "", evaluationUrl || "");
+    await upsertSubmission(studentId, JSON.stringify(names), avatarUrl || "", evaluationUrl || "");
     return NextResponse.json({ message: "保存成功" });
   } catch (err) {
     console.error("Profile POST error:", err);

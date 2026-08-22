@@ -555,17 +555,15 @@ export class MysqlAdapter implements DbAdapter {
     await this.pool.execute(`UPDATE tags SET ${assignments.join(", ")} WHERE id = ?`, values);
   }
 
-  async setTagActive(id: number, active: boolean): Promise<void> {
+  async deleteTags(ids: number[]): Promise<void> {
+    if (ids.length === 0) return;
+    const placeholders = ids.map(() => "?").join(", ");
     const conn = await this.pool.getConnection();
     try {
       await conn.beginTransaction();
-      const [rows] = await conn.execute("SELECT type FROM tags WHERE id = ?", [id]);
-      const tag = (rows as { type: string }[])[0];
-      if (!tag) throw new Error("标签不存在");
-      await conn.execute("UPDATE tags SET active = ? WHERE id = ?", [active ? 1 : 0, id]);
-      if (tag.type === "category") {
-        await conn.execute("UPDATE tags SET active = ? WHERE parent_id = ?", [active ? 1 : 0, id]);
-      }
+      // 分类级联：先删所选分类下的二级标签，再删目标行本身（含重复分类下的标签）
+      await conn.execute(`DELETE FROM tags WHERE parent_id IN (${placeholders})`, ids);
+      await conn.execute(`DELETE FROM tags WHERE id IN (${placeholders})`, ids);
       await conn.commit();
     } catch (err) {
       await conn.rollback();

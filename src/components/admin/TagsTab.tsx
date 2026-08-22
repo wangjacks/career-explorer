@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { ChevronDown, ChevronUp } from "lucide-react";
+import ConfirmDialog from "@/components/admin/ConfirmDialog";
 
 interface TagItem {
   id: number;
@@ -30,6 +31,14 @@ export default function TagsTab() {
   const [editing, setEditing] = useState<EditingTag | null>(null);
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [selectedCatId, setSelectedCatId] = useState("");
+  // 删除确认（#94：物理删除，单个/批量均需二次确认）
+  const [deleting, setDeleting] = useState<TagItem | null>(null);
+  const [batchDeleteOpen, setBatchDeleteOpen] = useState(false);
+  // 批量导入：粘贴/文件 → 预览核对 → 确认导入
+  const [batchText, setBatchText] = useState("");
+  const [batchPreview, setBatchPreview] = useState<{ category: string; name: string }[] | null>(null);
+  const [importing, setImporting] = useState(false);
+  const batchFileRef = useRef<HTMLInputElement>(null);
   // 排序草稿：非 null 表示有未保存的本地排序变更（避免每次移动都调 API 导致闪烁）
   const [draftTags, setDraftTags] = useState<TagItem[] | null>(null);
   const [savingSort, setSavingSort] = useState(false);
@@ -52,14 +61,12 @@ export default function TagsTab() {
 
   const filteredAddCategories = useMemo(() => {
     const q = catSearch.trim().toLowerCase();
-    const list = categories.filter((c) => c.active);
-    return q ? list.filter((c) => c.name.toLowerCase().includes(q)) : list;
+    return q ? categories.filter((c) => c.name.toLowerCase().includes(q)) : categories;
   }, [categories, catSearch]);
 
   const filteredEditCategories = useMemo(() => {
     const q = editCatSearch.trim().toLowerCase();
-    const list = categories.filter((c) => c.active);
-    return q ? list.filter((c) => c.name.toLowerCase().includes(q)) : list;
+    return q ? categories.filter((c) => c.name.toLowerCase().includes(q)) : categories;
   }, [categories, editCatSearch]);
 
   // Close dropdowns on outside click
@@ -139,8 +146,34 @@ export default function TagsTab() {
     }
   };
 
-  const toggleActive = async (tag: TagItem) => {
-    await submit({ id: tag.id, active: !tag.active }, tag.active ? "已停用" : "已恢复");
+  /** 物理删除（单个/批量共用）；分类由服务端级联删除其下标签 */
+  const doDelete = async (ids: number[], successMessage: string) => {
+    try {
+      const res = await fetch("/api/manage/tags", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ids }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "删除失败");
+      toast.success(successMessage);
+      setSelected(new Set());
+      await refresh();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "删除失败");
+    }
+  };
+
+  const confirmDelete = async () => {
+    if (!deleting) return;
+    const target = deleting;
+    setDeleting(null);
+    await doDelete([target.id], `已删除「${target.name}」`);
+  };
+
+  const confirmBatchDelete = async () => {
+    setBatchDeleteOpen(false);
+    await doDelete(Array.from(selected), `已删除 ${selected.size} 项`);
   };
 
   const moveTag = (tag: TagItem, direction: -1 | 1) => {
@@ -203,21 +236,67 @@ export default function TagsTab() {
     });
   };
 
-  const batchSetActive = async (active: boolean) => {
-    if (selected.size === 0) return;
+  // ---- 批量导入（#94）----
+
+  /** 逐行解析「分类,标签名」（兼容中文逗号/制表符分隔），无效行丢弃 */
+  const parseBatchText = (text: string): { category: string; name: string }[] => {
+    return text
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .map((line) => {
+        const [category, name] = line.split(/[,，\t]/).map((s) => s.trim());
+        return { category: category || "", name: name || "" };
+      })
+      .filter((item) => item.category && item.name);
+  };
+
+  const handleBatchParse = () => {
+    const items = parseBatchText(batchText);
+    if (items.length === 0) {
+      toast.warning("未识别到有效数据，每行格式：分类,标签名");
+      return;
+    }
+    setBatchPreview(items);
+  };
+
+  const handleBatchFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
     try {
-      await Promise.all(
-        Array.from(selected).map((id) => fetch("/api/manage/tags", {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ id, active }),
-        }))
-      );
-      toast.success(active ? `已恢复 ${selected.size} 项` : `已停用 ${selected.size} 项`);
-      setSelected(new Set());
-      await refresh();
+      const text = await file.text();
+      setBatchText(text);
+      const items = parseBatchText(text);
+      if (items.length === 0) {
+        toast.warning("未识别到有效数据，每行格式：分类,标签名");
+        return;
+      }
+      setBatchPreview(items);
     } catch {
-      toast.error("批量操作失败");
+      toast.error("文件读取失败");
+    }
+  };
+
+  const handleBatchImport = async () => {
+    if (!batchPreview || batchPreview.length === 0) return;
+    setImporting(true);
+    try {
+      const res = await fetch("/api/manage/tags/batch", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ items: batchPreview }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "导入失败");
+      toast.success(`已导入 ${data.imported} 个，跳过重复 ${data.skipped} 个`);
+      setBatchText("");
+      setBatchPreview(null);
+      await refresh();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "导入失败");
+    } finally {
+      setImporting(false);
     }
   };
 
@@ -299,7 +378,7 @@ export default function TagsTab() {
     <div className="bg-card rounded-xl border border-gray-100 dark:border-gray-700 p-6 space-y-6">
       <div>
         <h2 className="font-semibold text-gray-800 dark:text-gray-100">标签管理</h2>
-        <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">停用不会删除历史标签数据。</p>
+        <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">删除为物理删除，不影响学生已提交的标签数据；删除分类会同时删除其下标签。</p>
       </div>
 
       {/* Add forms */}
@@ -325,12 +404,70 @@ export default function TagsTab() {
         </div>
       </div>
 
+      {/* Batch import (#94): paste/file → preview → confirm */}
+      <div className="border border-gray-100 dark:border-gray-700 rounded-lg p-4 space-y-3">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h3 className="text-sm font-medium text-gray-700 dark:text-gray-200">批量导入标签</h3>
+          <button
+            onClick={() => batchFileRef.current?.click()}
+            className="px-3 py-1.5 bg-gray-100 hover:bg-gray-200 dark:bg-gray-800 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-200 text-xs rounded-lg transition-colors"
+          >
+            从文件导入（CSV/TXT）
+          </button>
+          <input ref={batchFileRef} type="file" accept=".csv,.txt" onChange={handleBatchFile} className="hidden" />
+        </div>
+        <textarea
+          value={batchText}
+          onChange={(e) => setBatchText(e.target.value)}
+          rows={3}
+          placeholder={"每行一条：分类,标签名\n示例：\n兴趣,阅读\n兴趣,编程\n技能,绘画"}
+          className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 bg-card text-foreground rounded-lg text-sm font-mono focus:outline-none focus:ring-2 focus:ring-green-300"
+        />
+        {batchPreview === null ? (
+          <button
+            onClick={handleBatchParse}
+            disabled={!batchText.trim()}
+            className="px-4 py-1.5 bg-gray-100 hover:bg-gray-200 dark:bg-gray-800 dark:hover:bg-gray-700 disabled:opacity-50 text-gray-700 dark:text-gray-200 text-sm rounded-lg transition-colors"
+          >
+            预览核对
+          </button>
+        ) : (
+          <div className="space-y-2">
+            <p className="text-xs text-gray-500 dark:text-gray-400">
+              识别到 {batchPreview.length} 条（分类不存在时将自动创建；已存在的标签自动跳过）
+            </p>
+            <div className="max-h-40 overflow-y-auto border border-gray-100 dark:border-gray-700 rounded-lg divide-y divide-gray-50 dark:divide-gray-700/50">
+              {batchPreview.map((item, i) => (
+                <div key={i} className="px-3 py-1.5 text-sm flex gap-2">
+                  <span className="text-gray-400 dark:text-gray-500 flex-shrink-0">{item.category}</span>
+                  <span className="text-gray-700 dark:text-gray-200 truncate">{item.name}</span>
+                </div>
+              ))}
+            </div>
+            <div className="flex gap-2">
+              <button
+                onClick={handleBatchImport}
+                disabled={importing}
+                className="px-4 py-1.5 bg-primary hover:bg-primary-strong disabled:opacity-50 text-white text-sm rounded-lg transition-colors"
+              >
+                {importing ? "导入中..." : `确认导入（${batchPreview.length} 条）`}
+              </button>
+              <button
+                onClick={() => setBatchPreview(null)}
+                className="px-4 py-1.5 bg-gray-100 hover:bg-gray-200 dark:bg-gray-800 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-200 text-sm rounded-lg transition-colors"
+              >
+                重新编辑
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+
       {/* Batch actions */}
       {selected.size > 0 && (
         <div className="flex flex-wrap items-center gap-2 sm:gap-3 px-4 py-2.5 bg-green-50 dark:bg-green-900/20 rounded-lg border border-green-100 dark:border-green-900">
           <span className="text-sm text-green-700 dark:text-green-400 font-medium">已选 {selected.size} 项</span>
-          <button onClick={() => batchSetActive(true)} className="px-3 py-1 bg-green-500 hover:bg-green-600 text-white text-xs rounded-lg">恢复</button>
-          <button onClick={() => batchSetActive(false)} className="px-3 py-1 bg-red-500 hover:bg-red-600 text-white text-xs rounded-lg">停用</button>
+          <button onClick={() => setBatchDeleteOpen(true)} className="px-3 py-1 bg-red-500 hover:bg-red-600 text-white text-xs rounded-lg">批量删除</button>
           <button onClick={() => setSelected(new Set())} className="text-xs text-gray-500 hover:text-gray-700">取消选择</button>
         </div>
       )}
@@ -342,7 +479,7 @@ export default function TagsTab() {
             const children = displayTags.filter((tag) => tag.type === "tag" && tag.parent_id === category.id)
               .sort((a, b) => a.sort_order - b.sort_order || a.id - b.id);
             return (
-              <div key={category.id} className={`border rounded-lg ${category.active ? "border-gray-100 dark:border-gray-700" : "border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50"}`}>
+              <div key={category.id} className="border rounded-lg border-gray-100 dark:border-gray-700">
                 <div className="px-4 py-3 bg-gray-50 dark:bg-gray-800 rounded-t-lg">
                   {editing?.id === category.id ? (
                     <>
@@ -373,12 +510,12 @@ export default function TagsTab() {
                   ) : (
                     <div className="flex items-center gap-2">
                       <input type="checkbox" className="rounded border-gray-300 text-green-500 focus:ring-green-300 flex-shrink-0" checked={selected.has(category.id)} onChange={() => toggleSelect(category.id)} />
-                      <span className={`flex-1 min-w-0 text-sm font-medium truncate ${category.active ? "text-gray-800 dark:text-gray-100" : "text-gray-400 dark:text-gray-500 line-through"}`}>{category.name}</span>
+                      <span className="flex-1 min-w-0 text-sm font-medium truncate text-gray-800 dark:text-gray-100">{category.name}</span>
                       <span className="text-xs text-gray-400 dark:text-gray-500 flex-shrink-0 hidden sm:inline">一级分类 · {children.length} 个标签</span>
                       <SortBtn onClick={() => moveTag(category, -1)} dir="up" title="上移" />
                       <SortBtn onClick={() => moveTag(category, 1)} dir="down" title="下移" />
                       <button onClick={() => setEditing({ ...category })} className="text-xs text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 flex-shrink-0">编辑</button>
-                      <button onClick={() => toggleActive(category)} className="text-xs text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 flex-shrink-0">{category.active ? "停用" : "恢复"}</button>
+                      <button onClick={() => setDeleting(category)} className="text-xs text-red-500 hover:text-red-600 flex-shrink-0">删除</button>
                     </div>
                   )}
                 </div>
@@ -420,11 +557,11 @@ export default function TagsTab() {
                       ) : (
                         <div className="flex items-center gap-2">
                           <input type="checkbox" className="rounded border-gray-300 text-green-500 focus:ring-green-300 flex-shrink-0" checked={selected.has(tag.id)} onChange={() => toggleSelect(tag.id)} />
-                          <span className={`flex-1 min-w-0 text-sm ${tag.active ? "text-gray-700 dark:text-gray-200" : "text-gray-400 dark:text-gray-500 line-through"}`}>{tag.name}</span>
+                          <span className="flex-1 min-w-0 text-sm text-gray-700 dark:text-gray-200">{tag.name}</span>
                           <SortBtn onClick={() => moveTag(tag, -1)} dir="up" title="上移" />
                           <SortBtn onClick={() => moveTag(tag, 1)} dir="down" title="下移" />
                           <button onClick={() => setEditing({ ...tag })} className="text-xs text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 flex-shrink-0">编辑</button>
-                          <button onClick={() => toggleActive(tag)} className="text-xs text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 flex-shrink-0">{tag.active ? "停用" : "恢复"}</button>
+                          <button onClick={() => setDeleting(tag)} className="text-xs text-red-500 hover:text-red-600 flex-shrink-0">删除</button>
                         </div>
                       )}
                     </div>
@@ -457,6 +594,29 @@ export default function TagsTab() {
           </button>
         </div>
       )}
+      {/* 删除确认弹窗（单个 / 批量） */}
+      <ConfirmDialog
+        open={deleting !== null}
+        title="删除标签"
+        message={
+          deleting?.type === "category"
+            ? `确定删除分类「${deleting?.name}」？其下 ${displayTags.filter((t) => t.type === "tag" && t.parent_id === deleting?.id).length} 个标签将一并删除。不影响学生已提交的数据。`
+            : `确定删除标签「${deleting?.name}」？不影响学生已提交的数据。`
+        }
+        confirmText="删除"
+        variant="danger"
+        onConfirm={confirmDelete}
+        onCancel={() => setDeleting(null)}
+      />
+      <ConfirmDialog
+        open={batchDeleteOpen}
+        title="批量删除"
+        message={`确定删除已选的 ${selected.size} 项？删除分类会同时删除其下标签。不影响学生已提交的数据。`}
+        confirmText="删除"
+        variant="danger"
+        onConfirm={confirmBatchDelete}
+        onCancel={() => setBatchDeleteOpen(false)}
+      />
     </div>
   );
 }
