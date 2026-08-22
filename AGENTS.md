@@ -20,9 +20,9 @@ This version has breaking changes — APIs, conventions, and file structure may 
 | 目录 | 职责 |
 |---|---|
 | `src/app/` | Next.js App Router 页面 + API 路由 |
-| `src/app/dashboard/admin/` | 管理面板（三组两级导航：数据中心[概览/大屏/导出]、用户管理[学生/教师/班级/标签]、系统设置[数据源]） |
+| `src/app/dashboard/admin/` | 管理面板（三组两级导航：数据中心[概览/大屏/导出]、用户管理[学生/教师/班级/标签]、系统设置[数据源/功能设置]） |
 | `src/app/dashboard/student/` | 学生面板（个人信息通览 + 就地修改，步骤 9 实现） |
-| `src/app/dashboard/teacher/` | 教师面板（三组两级导航：主页、数据中心[概览/大屏/导出]、数据管理[数据列表/学生/班级/标签]） |
+| `src/app/dashboard/teacher/` | 教师面板（三组两级导航：主页、数据中心[概览/大屏/导出]、数据管理[数据列表/学生/班级/标签]、系统设置[功能设置]） |
 | `src/app/form/` | 学生档案创建表单：单路由 `/form/create-profile?step=`（登录门 → 标签 → 词云 → 评价 → 形象 → 确认 → 完成），登录优先 + 确认页延迟上传 + 草稿暂存 |
 | `src/app/login/` | 登录页（三角色统一登录） |
 | `src/app/activate/` | 学生账户激活页（学号 + 姓名 + 邀请码三要素核验） |
@@ -68,11 +68,11 @@ This version has breaking changes — APIs, conventions, and file structure may 
     - `user_code`：用户唯一编号（学生 12 位 / 教师 8 位 / 管理员 5 位从 10001 起），同时作为登录标识
     - `password_hash`：nullable（NULL = 未设置密码）
     - `role`：`admin` | `teacher` | `student`
-    - `name`、`class_id`（仅学生）、`tags`（JSON ID 数组如 `[1,5,12]`）、`avatar_url`、`evaluation_url`、`submitted_at`
+    - `name`、`class_id`（仅学生）、`tags`（#94 起为标签名称文本数组，如 `["阅读","自定义爱好"]`；预设 + 自定义直存，与标签表解耦）、`avatar_url`、`evaluation_url`、`submitted_at`
   - `classes` — 班级表（`name`、`invitation_code` 唯一）
   - `teacher_classes` — 教师-班级多对多关联
-  - `tags` — 全局共享标签表（`type=category` 一级分类、`type=tag` 二级标签，`parent_id` 建立层级，`class_id=0` = 全局）
-    - `active`：1 启用，0 停用；标签不物理删除，以保证历史提交可追溯
+  - `tags` — 预设标签表（`type=category` 一级分类、`type=tag` 二级标签，`parent_id` 建立层级，`class_id=0` = 全局）；#94 起降级为表单预设项，物理删除（分类级联删子标签），停用机制下线（`active` 列保留不再操作）
+  - `configs_profile` — 档案功能配置键值表（#94）：首个配置项 `max_custom_tags`（自定义标签数量上限，默认 6），纳入备份恢复
 - 初始化流程：首次访问 -> `/setup` 页面配置数据库 + 管理员密码 -> 写入 `db-config.json` + `users` 表
 - 安装状态检查：`isInstalled()` 函数 + `/api/setup/status` 端点
 
@@ -93,7 +93,7 @@ This version has breaking changes — APIs, conventions, and file structure may 
 - **三角色认证**：admin / teacher / student，统一 `users` 表
 - 认证流程：`/api/auth` POST 验证 `user_code` + 密码（bcrypt）-> 签发 JWT（jose HS256, 24h, 含 role/uid/name）-> HttpOnly Cookie (`auth_token`, secure, sameSite=lax)
 - 中间件：`proxy.ts` 拦截 `/dashboard/admin/:path*` 和 `/api/manage/:path*`，校验角色权限
-- 权限模型（步骤 11 重组）：`/api/manage/*` admin 全部放行；teacher 按 `TEACHER_ALLOWED` 声明式权限表放行（classes/students/tags/export 全方法、stats 仅 GET、profiles GET+DELETE，其余 403）；`/api/shared/*` 不进 matcher 由路由自鉴权；其余 `/api/*` 不在拦截范围
+- 权限模型（步骤 11 重组）：`/api/manage/*` admin 全部放行；teacher 按 `TEACHER_ALLOWED` 声明式权限表放行（classes/students/tags/export/profile-config 全方法、stats 仅 GET、profiles GET+DELETE，其余 403）；`/api/shared/*` 不进 matcher 由路由自鉴权；其余 `/api/*` 不在拦截范围
 - 路由设计原则（步骤 11 决策修订）：API 面向资源组织 + 业务域前缀（manage/shared），角色差异收敛于 proxy 权限表，权限演化不搬路径；否决了按角色拆分路由的原设计
 - 白名单：`/api/auth/*` 天然在 proxy matcher 范围外；非 API 路由放行（客户端处理登录态）
 - 会话检测：`GET /api/auth` 返回 `{ ok, role, uid, name }`（httpOnly cookie 前端不可读，须经 API 检测）
@@ -131,6 +131,7 @@ This version has breaking changes — APIs, conventions, and file structure may 
 - 品牌色系统：`globals.css` 语义 token（`--color-brand` 深绿 / `--color-accent` 琥珀 / `--color-background` / `--color-card` 等），品牌色在 `.dark` 下自动提亮；全站深绿顶栏 + 大字报 hero；TagSelector 标签三色（兴趣绿/技能蓝/性格琥珀）；详见 `docs/plan-v2.0.0-uiux.md` 与 `docs/ui-conventions.md`
 - 共享会话检测：`useSession` hook 供 UserMenu 与 NavigationBar 共用，按 pathname 变化重新检测
 - 表单登录优先：档案创建必须学生本人登录（快速提交通道已于 #92 移除）；未登录访问 `/form/create-profile` 显示登录门，登录页支持 `?next=` 回跳（仅站内相对路径）；已提交学生再进入被引导去学生面板修改
+- 标签体系（#94）：学生标签文本直存（预设 + 自定义，后端校验自定义数量上限）；预设标签管理支持物理删除与批量导入/删除（均二次确认）；自定义标签上限存 `configs_profile`，管理/教师面板「功能设置」页可配（`/api/manage/profile-config`），表单端经开放端点 `/api/tags` 读取
 - 班级邀请码：仅在 `/activate` 学生激活时要求填写，用于核验学号所属班级
 - 文件上传：`/api/upload` 处理上传 -> `uploads/` 目录 -> `/api/uploads/[...path]` 静态服务
 - 数据导出：ExcelJS (Excel) + JSZip (ZIP 打包)

@@ -55,7 +55,8 @@
 | `/api/manage/test-db` | 禁止 | 数据库连接测试 |
 | `/api/manage/classes`（含 `/[id]`、`/[id]/reset-code`） | 全方法 | 班级 CRUD + 邀请码 |
 | `/api/manage/students`（含 `/batch-password`） | 全方法 | 学生管理 + 批量改密 |
-| `/api/manage/tags` | 全方法 | 标签管理（CRUD / 停用 / 排序） |
+| `/api/manage/tags`（含 `/batch`） | 全方法 | 预设标签管理（CRUD / 物理删除 / 批量导入 / 排序） |
+| `/api/manage/profile-config` | 全方法 | 档案功能配置（自定义标签上限等，#94） |
 | `/api/manage/export` | 全方法 | Excel/CSV 导出 |
 | `/api/manage/export-images` | 全方法 | 图片打包导出 |
 | `/api/manage/stats`（含 `compare`/`distribution`/`trends`） | 仅 GET | 统计数据 |
@@ -71,7 +72,7 @@
 
 | 路由 | 方法 | 说明 |
 |---|---|---|
-| `/api/tags` | GET | 启用中标签加载（表单流程 + 学生面板） |
+| `/api/tags` | GET | 预设标签 + 自定义标签上限加载（表单流程 + 学生面板，#94） |
 | `/api/upload` | POST | 文件上传（头像 / 评价词云图） |
 | `/api/uploads/[...path]` | GET | 静态文件服务（含路径穿越防护） |
 
@@ -79,20 +80,21 @@
 
 四表设计（SQLite / MySQL 双适配器，`src/lib/db.ts` 定义 `DbAdapter` 接口）：
 
-- `users` — 统一用户表：`user_code`（学生 12 位 / 教师 8 位 / 管理员 5 位）、`password_hash`、`role`、`name`、`class_id`、学生数据字段（`tags` JSON ID 数组、`avatar_url`、`evaluation_url`、`submitted_at`）
+- `users` — 统一用户表：`user_code`（学生 12 位 / 教师 8 位 / 管理员 5 位）、`password_hash`、`role`、`name`、`class_id`、学生数据字段（`tags` #94 起为标签名称文本数组、`avatar_url`、`evaluation_url`、`submitted_at`）
 - `classes` — 班级表（`name`、`invitation_code` 唯一）
 - `teacher_classes` — 教师-班级多对多关联
-- `tags` — 全局共享二级标签（`type` category/tag、`parent_id` 层级、`active` 停用不删除）
+- `tags` — 预设二级标签（`type` category/tag、`parent_id` 层级）；#94 起降级为表单预设项，物理删除，停用机制下线（`active` 列保留）
+- `configs_profile` — 档案功能配置键值表（#94，首项 `max_custom_tags`）
 
-完整 Schema 见 `docs/plan-v2.0.0.md`。备份格式 `BackupData`（version 3）：`users` + `classes` + `teacher_classes` + `tags`，含 `password_hash`，不含上传文件。
+完整 Schema 见 `docs/plan-v2.0.0.md`。备份格式 `BackupData`（version 3）：`users` + `classes` + `teacher_classes` + `tags` + `configs_profile`（#94 起），含 `password_hash`，不含上传文件。
 
 ## 数据流
 
 ```
-学生端（档案创建）：登录门 → 标签选择 → 词云展示 → 评价词云 → 虚拟形象 → 最终确认（延迟上传）→ 提交完成；已提交学生再进入被引导去面板修改；草稿暂存支持中途刷新后继续/重新开始
+学生端（档案创建）：登录门 → 标签选择（预设 + 自定义，自定义受后台配置上限）→ 词云展示 → 评价词云 → 虚拟形象 → 最终确认（延迟上传）→ 提交完成；已提交学生再进入被引导去面板修改；草稿暂存支持中途刷新后继续/重新开始
 学生端（登录态）：登录 → 学生面板通览 → 就地修改（二次确认）
 教师端：登录 → 主页（问候+统计）→ 数据中心（概览/大屏/导出）→ 数据管理（列表/学生/班级/标签）
-管理端：登录 → 数据中心 → 用户管理（学生/教师/班级/标签）→ 系统设置（数据源/备份）
+管理端：登录 → 数据中心 → 用户管理（学生/教师/班级/标签）→ 系统设置（数据源/功能设置）
 ```
 
 ## 守护进程
