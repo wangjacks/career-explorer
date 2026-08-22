@@ -23,21 +23,20 @@ This version has breaking changes — APIs, conventions, and file structure may 
 | `src/app/dashboard/admin/` | 管理面板（三组两级导航：数据中心[概览/大屏/导出]、用户管理[学生/教师/班级/标签]、系统设置[数据源]） |
 | `src/app/dashboard/student/` | 学生面板（个人信息通览 + 就地修改，步骤 9 实现） |
 | `src/app/dashboard/teacher/` | 教师面板（三组两级导航：主页、数据中心[概览/大屏/导出]、数据管理[数据列表/学生/班级/标签]） |
-| `src/app/form/` | 学生表单流程（student → tags → wordcloud → evaluation → avatar → complete） |
+| `src/app/form/` | 学生档案创建表单：单路由 `/form/create-profile?step=`（登录门 → 标签 → 词云 → 评价 → 形象 → 确认 → 完成），登录优先 + 确认页延迟上传 + 草稿暂存 |
 | `src/app/login/` | 登录页（三角色统一登录） |
 | `src/app/activate/` | 学生账户激活页（学号 + 姓名 + 邀请码三要素核验） |
 | `src/app/setup/` | 安装引导（首次配置数据库 + 管理员密码） |
 | `src/app/api/auth/` | 统一认证端点（POST 登录 / GET 会话 / DELETE 登出） |
 | `src/app/api/auth/activate/` | 学生账户激活端点 |
 | `src/app/api/manage/` | 管理域 API（stats、students、classes、teachers、profiles、settings、export、backup、test-db）；`students/batch-password` 子路由：批量重置学生密码（每人生成不同随机密码）；admin + teacher 共用，角色差异由 proxy 声明式权限表控制 |
-| `src/app/api/shared/profile/` | 学生档案（路由自鉴权）：POST 快速提交/登录态保存（未传学号默认本人）+ GET 会话查询本人档案 |
+| `src/app/api/shared/profile/` | 学生档案（路由自鉴权）：POST 仅学生本人会话保存（拒绝显式指定学号）+ GET 会话查询本人档案 |
 | `src/app/api/upload/` | 文件上传 |
-| `src/app/api/validate-student/` | 学号验证（快速提交模式） |
 | `src/app/api/setup/` | 安装引导 API（含 status/test 子路由） |
 | `src/app/api/uploads/[...path]/` | 静态文件服务（含路径穿越防护） |
 | `src/components/admin/` | Admin/Teacher 面板子组件（DashboardTab、ExportTab、OverviewTab、SettingsTab、StudentsTab、TagsTab、ClassesTab、TeachersTab、ProfilesTab 数据列表、ClassOverviewTable 班级概览、TeacherHomeTab 教师主页） |
-| `src/components/` | 公共组件（ErrorBoundary、NavigationBar、UserMenu、SiteFooter、QuickModeBanner、TagSelector、ImageUploadBox、WordCloudCanvas/Client） |
-| `src/hooks/` | 自定义 React hooks（useAdminAuth、useSession、useTheme） |
+| `src/components/` | 公共组件（ErrorBoundary、NavigationBar、UserMenu、SiteFooter、TagSelector、ImageUploadBox、FormSteps、WordCloudCanvas/Client） |
+| `src/hooks/` | 自定义 React hooks（useAdminAuth、useSession、useTheme、useProfileDraft 表单草稿） |
 | `src/lib/` | 数据层和工具库 |
 | `src/lib/db.ts` | 数据库抽象层（DbAdapter 接口 + 工厂函数） |
 | `src/lib/db-mysql.ts` | MySQL 适配器 |
@@ -49,6 +48,8 @@ This version has breaking changes — APIs, conventions, and file structure may 
 | `src/lib/sanitize.ts` | URL 安全校验（XSS 防护） |
 | `src/lib/tagData.ts` | 标签初始化种子（步骤 7 后不参与运行时展示） |
 | `src/lib/tag-utils.ts` | 标签工具函数 |
+| `src/lib/profile-draft.ts` | 表单草稿纯逻辑（键定义/存在性判定/标签切换） |
+| `src/lib/profile-submit.ts` | 档案提交共享工具（图片上传 + 保存，确认页与学生面板共用） |
 | `src/types/` | TypeScript 类型定义 |
 | `src/proxy.ts` | 角色权限中间件（替代已删除的 middleware.ts）；内置 TEACHER_ALLOWED 声明式权限表（前缀 + 方法） |
 | `src/__tests__/` | 单元测试（auth、proxy、sanitize、token、db-schema） |
@@ -129,9 +130,8 @@ This version has breaking changes — APIs, conventions, and file structure may 
 - 主题系统：`useTheme` hook 三态切换（浅色/深色/跟随系统），持久化 localStorage `theme`；`layout.tsx` 内联脚本在 hydration 前预设 `.dark` class 防闪烁，`<html>` 加 `suppressHydrationWarning`；class-based dark（`@custom-variant dark`）
 - 品牌色系统：`globals.css` 语义 token（`--color-brand` 深绿 / `--color-accent` 琥珀 / `--color-background` / `--color-card` 等），品牌色在 `.dark` 下自动提亮；全站深绿顶栏 + 大字报 hero；TagSelector 标签三色（兴趣绿/技能蓝/性格琥珀）；详见 `docs/plan-v2.0.0-uiux.md` 与 `docs/ui-conventions.md`
 - 共享会话检测：`useSession` hook 供 UserMenu 与 NavigationBar 共用，按 pathname 变化重新检测
-- 快速提交模式：未登录访问 `/form/*` 时，NavigationBar 下方显示 `QuickModeBanner` 横幅（登录后消失）
-- 学生双模式：快速通道（已有账户记录，无需登录，走 `/form/*`）+ 登录后（`/dashboard/student` 查看个人信息）
-- 班级邀请码：仅在 `/activate` 学生激活时要求填写，用于核验学号所属班级；快速提交模式不涉及邀请码
+- 表单登录优先：档案创建必须学生本人登录（快速提交通道已于 #92 移除）；未登录访问 `/form/create-profile` 显示登录门，登录页支持 `?next=` 回跳（仅站内相对路径）；已提交学生再进入被引导去学生面板修改
+- 班级邀请码：仅在 `/activate` 学生激活时要求填写，用于核验学号所属班级
 - 文件上传：`/api/upload` 处理上传 -> `uploads/` 目录 -> `/api/uploads/[...path]` 静态服务
 - 数据导出：ExcelJS (Excel) + JSZip (ZIP 打包)
 - 词云渲染：`WordCloudCanvas` + `WordCloudClient` 客户端组件

@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Image as ImageIcon } from "lucide-react";
 import { toast } from "sonner";
 import { safeImageUrl } from "@/lib/sanitize";
@@ -29,6 +29,16 @@ export default function ImageUploadBox({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [preview, setPreview] = useState<string | null>(() => safeImageUrl(initialUrl));
   const [pending, setPending] = useState(false);
+
+  // 外部恢复预览（如表单草稿从 IndexedDB 异步还原）：
+  // blob: 为浏览器本地生成的对象 URL，天然安全直接采用；其他协议仍走校验。
+  // 用户刚选图（pending）时不覆盖。
+  /* eslint-disable react-hooks/set-state-in-effect -- 同步外部传入的初始图到内部预览，属 effect 正当用法 */
+  useEffect(() => {
+    if (pending) return;
+    setPreview(initialUrl?.startsWith("blob:") ? initialUrl : safeImageUrl(initialUrl));
+  }, [initialUrl, pending]);
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
