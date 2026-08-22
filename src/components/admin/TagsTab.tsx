@@ -23,6 +23,9 @@ interface EditingTag {
   sort_order: number;
 }
 
+/** 表头关键词（对齐学生名单导入的识别思路）：首行单元格命中任一关键词即判定为表头行并跳过 */
+const TAG_HEADER_KEYWORDS = ["分类", "标签名", "标签", "category", "tag", "name"];
+
 export default function TagsTab() {
   const [tags, setTags] = useState<TagItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -37,10 +40,11 @@ export default function TagsTab() {
   // 恢复默认预设（#94 补充：二次确认后清空重插）
   const [restoreOpen, setRestoreOpen] = useState(false);
   const [restoring, setRestoring] = useState(false);
-  // 批量导入：粘贴/文件 → 预览核对 → 确认导入
+  // 批量导入：粘贴/文件/拖拽 → 预览核对 → 确认导入
   const [batchText, setBatchText] = useState("");
   const [batchPreview, setBatchPreview] = useState<{ category: string; name: string }[] | null>(null);
   const [importing, setImporting] = useState(false);
+  const [dragActive, setDragActive] = useState(false);
   const batchFileRef = useRef<HTMLInputElement>(null);
   // 排序草稿：非 null 表示有未保存的本地排序变更（避免每次移动都调 API 导致闪烁）
   const [draftTags, setDraftTags] = useState<TagItem[] | null>(null);
@@ -258,21 +262,46 @@ export default function TagsTab() {
 
   // ---- 批量导入（#94）----
 
-  /** 逐行解析「分类,标签名」（兼容中文逗号/制表符分隔），跳过表头行，无效行丢弃 */
+  /** 逐行解析「分类,标签名」（兼容中文逗号/制表符分隔/UTF-8 BOM）；表头行按关键词识别跳过，无效行丢弃 */
   const parseBatchText = (text: string): { category: string; name: string }[] => {
     const lines = text
+      .replace(/^\uFEFF/, "") // 去除 BOM（Excel 另存 csv 时会添加，不去除会导致表头识别失效）
       .split(/\r?\n/)
       .map((line) => line.trim())
       .filter(Boolean);
-    // 跳过表头行（如 CSV 首行「分类,标签名」），避免误导入
-    const start = lines.length > 0 && /^分类[,，\t]/.test(lines[0]) ? 1 : 0;
+    if (lines.length === 0) return [];
+    // 表头识别：首行任一单元格命中关键词即判定为表头（与学生名单导入的关键词识别思路一致）
+    const firstCells = lines[0].split(/[,，\t]/).map((s) => s.trim().toLowerCase());
+    const hasHeader = firstCells.some((c) => TAG_HEADER_KEYWORDS.includes(c));
     return lines
-      .slice(start)
+      .slice(hasHeader ? 1 : 0)
       .map((line) => {
         const [category, name] = line.split(/[,，\t]/).map((s) => s.trim());
         return { category: category || "", name: name || "" };
       })
       .filter((item) => item.category && item.name);
+  };
+
+  /** 读取文件内容为文本（csv/txt 直接读；xlsx 用 exceljs 解析，对齐学生名单导入体验） */
+  const readFileToText = async (file: File): Promise<string> => {
+    if (/\.(csv|txt)$/i.test(file.name)) {
+      return await file.text();
+    }
+    const mod = await import("exceljs");
+    const ExcelJS = (mod as unknown as { default?: typeof mod }).default ?? mod;
+    const workbook = new ExcelJS.Workbook();
+    await workbook.xlsx.load(await file.arrayBuffer());
+    const sheet = workbook.worksheets[0];
+    if (!sheet) throw new Error("文件没有工作表");
+    const lines: string[] = [];
+    sheet.eachRow((row) => {
+      const cells: string[] = [];
+      row.eachCell({ includeEmpty: true }, (cell) => {
+        cells.push(cell.value == null ? "" : String(cell.value).trim());
+      });
+      if (cells.some((c) => c)) lines.push(cells.join(","));
+    });
+    return lines.join("\n");
   };
 
   const handleBatchParse = () => {
@@ -284,12 +313,10 @@ export default function TagsTab() {
     setBatchPreview(items);
   };
 
-  const handleBatchFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    e.target.value = "";
-    if (!file) return;
+  /** 文件导入（按钮选择与拖拽共用） */
+  const importFile = async (file: File) => {
     try {
-      const text = await file.text();
+      const text = await readFileToText(file);
       setBatchText(text);
       const items = parseBatchText(text);
       if (items.length === 0) {
@@ -297,9 +324,17 @@ export default function TagsTab() {
         return;
       }
       setBatchPreview(items);
-    } catch {
-      toast.error("文件读取失败");
+    } catch (err) {
+      console.error("Tag file import parse error:", err);
+      toast.error(err instanceof Error ? err.message : "文件解析失败");
     }
+  };
+
+  const handleBatchFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    await importFile(file);
   };
 
   const handleBatchImport = async () => {
@@ -437,17 +472,36 @@ export default function TagsTab() {
         </div>
       </div>
 
-      {/* Batch import (#94): paste/file → preview → confirm */}
-      <div className="border border-gray-100 dark:border-gray-700 rounded-lg p-4 space-y-3">
+      {/* Batch import (#94): paste/file/drag → preview → confirm */}
+      <div
+        onDragOver={(e) => {
+          e.preventDefault();
+          setDragActive(true);
+        }}
+        onDragLeave={() => setDragActive(false)}
+        onDrop={(e) => {
+          e.preventDefault();
+          setDragActive(false);
+          const file = e.dataTransfer.files?.[0];
+          if (file) importFile(file);
+        }}
+        className={`border rounded-lg p-4 space-y-3 transition-colors ${
+          dragActive
+            ? "border-green-400 bg-green-50 dark:bg-green-900/20"
+            : "border-gray-100 dark:border-gray-700"
+        }`}
+      >
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <h3 className="text-sm font-medium text-gray-700 dark:text-gray-200">批量导入标签</h3>
+          <h3 className="text-sm font-medium text-gray-700 dark:text-gray-200">
+            批量导入标签{dragActive && <span className="ml-2 text-green-600 dark:text-green-400">松开导入文件</span>}
+          </h3>
           <button
             onClick={() => batchFileRef.current?.click()}
             className="px-3 py-1.5 bg-gray-100 hover:bg-gray-200 dark:bg-gray-800 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-200 text-xs rounded-lg transition-colors"
           >
-            从文件导入（CSV/TXT）
+            从文件导入（CSV/TXT/XLSX，或直接拖入）
           </button>
-          <input ref={batchFileRef} type="file" accept=".csv,.txt" onChange={handleBatchFile} className="hidden" />
+          <input ref={batchFileRef} type="file" accept=".csv,.txt,.xlsx" onChange={handleBatchFile} className="hidden" />
         </div>
         <textarea
           value={batchText}
