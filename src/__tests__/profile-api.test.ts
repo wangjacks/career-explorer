@@ -89,8 +89,8 @@ describe("POST /api/shared/profile — 快速提交下线后的安全收紧（#9
     const token = await signToken({ role: "student", uid: 7, name: "测试学生" });
     vi.mocked(getUserById).mockResolvedValue(STUDENT_USER);
     vi.mocked(getActiveTags).mockResolvedValue([
-      { id: 1, name: "兴趣", type: "category", parent_id: null, class_id: 0, category_order: 0, sort_order: 0 },
-      { id: 2, name: "阅读", type: "tag", parent_id: 1, class_id: 0, category_order: 0, sort_order: 0 },
+      { id: 1, name: "兴趣", type: "category", parent_id: null, class_id: 0, category_order: 0, sort_order: 0, active: 1 },
+      { id: 2, name: "阅读", type: "tag", parent_id: 1, class_id: 0, category_order: 0, sort_order: 0, active: 1 },
     ]);
     const res = await POST(createPostRequest({ tags: ["阅读"] }, { auth_token: token }));
     expect(res.status).toBe(200);
