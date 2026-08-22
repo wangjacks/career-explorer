@@ -45,12 +45,14 @@ function CreateProfileForm() {
 
   const [profile, setProfile] = useState<ProfileInfo | null>(null);
   const [submittedTagCount, setSubmittedTagCount] = useState(0);
-  // 草稿恢复提示上下文：gate = 登录页加载时预检发现；midflow = 中途刷新/直接访问表单步骤时；每次进入只提示一次
+  // 草稿恢复提示上下文：gate = 登录页加载时预检发现；midflow = 中途刷新/直接访问表单步骤时
   const [draftPrompt, setDraftPrompt] = useState<"gate" | "midflow" | null>(null);
   const enteredRef = useRef(false);
   // 登录页加载即预检：已提交引导去面板 / 存在草稿直接提示，不等用户点「下一步」
   const [precheckedSubmitted, setPrecheckedSubmitted] = useState(false);
   const precheckedRef = useRef(false);
+  // 草稿检查每次页面加载（刷新/直接访问）只执行一次；步骤间跳转（router.push）不会重复触发
+  const mountCheckedRef = useRef(false);
 
   const goTo = (next: Step) => {
     router.push(`/form/create-profile?step=${next}`);
@@ -112,19 +114,19 @@ function CreateProfileForm() {
     };
   }, [checking, session, step, storedHasDraft]);
 
-  // 中途刷新/直接访问任意表单步骤时的草稿恢复提示（每次进入只提示一次）
-  /* eslint-disable react-hooks/set-state-in-effect -- 挂载时一次性读取外部存储（草稿）并触发提示，属 effect 正当用法 */
+  // 中途刷新/直接访问表单步骤的草稿恢复提示：
+  // 每次页面加载只检查一次（mountCheckedRef），仅刷新/直接访问会触发；
+  // 步骤间跳转（同一次页面加载内）绝不重复提示。
   useEffect(() => {
-    if (checking) return;
+    if (checking || mountCheckedRef.current) return;
     if (!session || session.role !== "student") return;
-    if (step === "login" || step === "complete") return;
-    if (enteredRef.current) return;
-    if (storedHasDraft()) {
+    if (step === "login" || step === "complete") return; // 登录页由加载预检处理，完成页无草稿概念
+    mountCheckedRef.current = true;
+    if (!enteredRef.current && storedHasDraft()) {
       enteredRef.current = true;
       setDraftPrompt("midflow");
     }
   }, [checking, session, step, storedHasDraft]);
-  /* eslint-enable react-hooks/set-state-in-effect */
 
   const continueDraft = () => {
     const ctx = draftPrompt;
