@@ -26,7 +26,8 @@ export default function EvaluationStep({ draft, onBack, onNext }: EvaluationStep
         <p className="text-sm text-gray-500 dark:text-gray-400 text-center">
           上传同学们对你的评价词云图片（选择后暂存本地，最终确认时才上传）
         </p>
-        <div className="w-full max-w-xs sm:max-w-sm mx-auto">
+        {/* 包裹层与上传框同宽（均为 max-w-xs），保证各断点下真正居中 */}
+        <div className="w-full max-w-xs mx-auto">
           <ImageUploadBox
             initialUrl={draft.evaluationPreview ?? undefined}
             aspect="wide"
