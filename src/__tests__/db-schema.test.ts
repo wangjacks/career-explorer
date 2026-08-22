@@ -12,20 +12,20 @@ function makeTmpDb(): string {
 }
 
 describe("新安装 Schema", () => {
-  it("创建 4 张表并预填充 3 个分类和 36 个标签（仅安装时种子一次）", () => {
+  it("创建 4 张表并预填充 5 个分类和 56 个标签（仅安装时种子一次）", () => {
     const dbPath = makeTmpDb();
     const adapter = new SqliteAdapter(dbPath);
     adapter.init();
 
     const tags = adapter.getTags();
-    expect(tags.filter((tag) => tag.type === "category").length).toBe(3);
-    expect(tags.filter((tag) => tag.type === "tag").length).toBe(36);
-    expect(tags.filter((tag) => tag.parent_id === null).length).toBe(3);
-    expect(adapter.getActiveTags().length).toBe(39);
+    expect(tags.filter((tag) => tag.type === "category").length).toBe(5);
+    expect(tags.filter((tag) => tag.type === "tag").length).toBe(56);
+    expect(tags.filter((tag) => tag.parent_id === null).length).toBe(5);
+    expect(adapter.getActiveTags().length).toBe(61);
 
     // 重复 init 不会重复填充（种子标记已写入）
     adapter.init();
-    expect(adapter.getTags().length).toBe(39);
+    expect(adapter.getTags().length).toBe(61);
 
     adapter.close();
     rmSync(path.dirname(dbPath), { recursive: true, force: true });
@@ -35,7 +35,7 @@ describe("新安装 Schema", () => {
     const dbPath = makeTmpDb();
     const adapter = new SqliteAdapter(dbPath);
     adapter.init();
-    expect(adapter.getTags().length).toBe(39);
+    expect(adapter.getTags().length).toBe(61);
 
     // 模拟运营手动清空标签（如重新导入前的准备）
     adapter.deleteTags(adapter.getTags().map((t) => t.id));
@@ -54,12 +54,12 @@ describe("新安装 Schema", () => {
     const adapter = new SqliteAdapter(dbPath);
     adapter.init();
 
-    // 自定义改动后重置：应回到 3 分类 + 36 标签
+    // 自定义改动后重置：应回到 5 分类 + 56 标签
     adapter.insertTag({ name: "自定义分类", type: "category", category_order: 9 });
     adapter.resetTagsToDefaults();
     const tags = adapter.getTags();
-    expect(tags.filter((tag) => tag.type === "category").length).toBe(3);
-    expect(tags.filter((tag) => tag.type === "tag").length).toBe(36);
+    expect(tags.filter((tag) => tag.type === "category").length).toBe(5);
+    expect(tags.filter((tag) => tag.type === "tag").length).toBe(56);
     expect(tags.some((tag) => tag.name === "自定义分类")).toBe(false);
 
     adapter.close();
