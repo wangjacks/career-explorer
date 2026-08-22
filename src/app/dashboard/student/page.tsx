@@ -11,6 +11,7 @@ import TagSelector, { type TagCategory, TAG_CHIP_COLORS } from "@/components/Tag
 import ImageUploadBox from "@/components/ImageUploadBox";
 import { useSession } from "@/hooks/useSession";
 import { safeImageUrl } from "@/lib/sanitize";
+import { submitProfile } from "@/lib/profile-submit";
 
 interface MyProfile {
   name: string;
@@ -158,10 +159,7 @@ export default function StudentDashboardPage() {
   const hasSubmitted = !!profile?.submitted_at;
 
   const goSubmit = () => {
-    if (!profile) return;
-    // 预填学号，form/student 页首读该 key，免手输
-    localStorage.setItem("career_demo_student_id", profile.user_code);
-    router.push("/form/student");
+    router.push("/form/create-profile");
   };
 
   const startEdit = async () => {
@@ -201,36 +199,15 @@ export default function StudentDashboardPage() {
     setConfirming(false);
     setSaving(true);
     try {
-      // 确认保存后才上传图片（取消编辑不产生任何服务端变更）
-      const uploadImage = async (file: File, prefix: "avatar" | "evaluation"): Promise<string> => {
-        const formData = new FormData();
-        formData.append("file", file);
-        formData.append("prefix", prefix);
-        formData.append("studentId", profile!.user_code);
-        const res = await fetch("/api/upload", { method: "POST", body: formData });
-        if (!res.ok) throw new Error("图片上传失败");
-        const { url } = await res.json();
-        return `${url}?t=${Date.now()}`;
-      };
-
-      const avatarUrl = avatarFile
-        ? await uploadImage(avatarFile, "avatar")
-        : profile!.avatar_url;
-      const evaluationUrl = evaluationFile
-        ? await uploadImage(evaluationFile, "evaluation")
-        : profile!.evaluation_url;
-
-      const res = await fetch("/api/shared/profile", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          tags: editTags,
-          avatarUrl,
-          evaluationUrl,
-        }),
+      // 确认保存后才上传图片（取消编辑不产生任何服务端变更）；与档案创建确认页共用提交工具
+      await submitProfile({
+        studentId: profile!.user_code,
+        tags: editTags,
+        avatarFile,
+        evaluationFile,
+        existingAvatarUrl: profile!.avatar_url,
+        existingEvaluationUrl: profile!.evaluation_url,
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "保存失败");
       toast.success("修改已保存");
       setEditing(false);
       setAvatarFile(null);

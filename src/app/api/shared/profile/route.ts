@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getActiveTags, getClasses, getStudentByCode, getTags, getUserById, upsertSubmission } from "@/lib/db";
+import { getActiveTags, getClasses, getTags, getUserById, upsertSubmission } from "@/lib/db";
 import { tagNamesToIds, tagIdsToNames } from "@/lib/tag-utils";
 import { verifyToken } from "@/lib/token";
 
@@ -57,33 +57,32 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
+    // 已移除快速提交通道（#92）：保存必须学生本人登录，身份只取自会话，拒绝显式指定学号，杜绝覆盖他人数据
+    const token = request.cookies.get("auth_token")?.value;
+    if (!token) {
+      return NextResponse.json({ error: "请先登录" }, { status: 401 });
+    }
+    const result = await verifyToken(token);
+    if (!result.valid) {
+      return NextResponse.json({ error: "登录已过期，请重新登录" }, { status: 401 });
+    }
+    if (result.role !== "student" || result.uid == null) {
+      return NextResponse.json({ error: "仅学生本人可提交档案" }, { status: 403 });
+    }
+    const currentUser = await getUserById(result.uid);
+    if (!currentUser) {
+      return NextResponse.json({ error: "用户不存在" }, { status: 401 });
+    }
+
     const body = await request.json();
-    let { studentId } = body;
+    if (body.studentId !== undefined) {
+      return NextResponse.json({ error: "不支持指定学号，档案保存仅限本人操作" }, { status: 400 });
+    }
     const { tags, avatarUrl, evaluationUrl } = body;
-
-    // 登录态扩展：学生会话未传 studentId 时默认本人编号；快速提交模式不受影响
-    if (!studentId) {
-      const token = request.cookies.get("auth_token")?.value;
-      if (token) {
-        const result = await verifyToken(token);
-        if (result.valid && result.role === "student" && result.uid != null) {
-          const user = await getUserById(result.uid);
-          if (user) studentId = user.user_code;
-        }
-      }
-    }
-
-    if (!studentId || !/^\d{12}$/.test(studentId)) {
-      return NextResponse.json({ error: "学号必须为12位数字" }, { status: 400 });
-    }
+    const studentId = currentUser.user_code;
 
     if (!Array.isArray(tags) || tags.length === 0) {
       return NextResponse.json({ error: "标签不能为空" }, { status: 400 });
-    }
-
-    const student = await getStudentByCode(studentId);
-    if (!student) {
-      return NextResponse.json({ error: "学号不存在" }, { status: 404 });
     }
 
     const allTags = await getActiveTags();

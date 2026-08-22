@@ -24,7 +24,7 @@ export default function IndexPage() {
               通过兴趣、技能与性格标签，探索真实的自己，生成一份专属的职业探索档案。
             </p>
             <Link
-              href="/form/student"
+              href="/form/create-profile"
               className="inline-block mt-2 px-8 py-3.5 bg-accent text-stone-900 text-base font-semibold rounded-xl hover:brightness-105 transition-all shadow-lg animate-[hero-slide-in_0.7s_cubic-bezier(0.33,1,0.68,1)_1.7s_both]"
             >
               开始探索
