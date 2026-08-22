@@ -10,6 +10,7 @@ import {
   Home,
   MonitorPlay,
   School,
+  SlidersHorizontal,
   Table,
   Tags,
   Users,
@@ -24,10 +25,11 @@ import ProfilesTab from "@/components/admin/ProfilesTab";
 import DashboardTab from "@/components/admin/DashboardTab";
 import ExportTab from "@/components/admin/ExportTab";
 import TagsTab from "@/components/admin/TagsTab";
+import ProfileConfigTab from "@/components/admin/ProfileConfigTab";
 import { useSession } from "@/hooks/useSession";
 import type { Student, Stats, PagedData } from "@/hooks/useAdminAuth";
 
-type Tab = "home" | "overview" | "dashboard" | "export" | "profiles" | "students" | "classes" | "tags";
+type Tab = "home" | "overview" | "dashboard" | "export" | "profiles" | "students" | "classes" | "tags" | "profile-config";
 
 /** 教师面板：分组侧边栏导航（主页 + 数据中心 + 数据管理） */
 export default function TeacherDashboardPage() {
@@ -128,6 +130,10 @@ export default function TeacherDashboardPage() {
         { key: "tags", label: "标签管理", icon: Tags },
       ],
     },
+    {
+      label: "系统设置",
+      items: [{ key: "profile-config", label: "功能设置", icon: SlidersHorizontal }],
+    },
   ];
 
   return (
@@ -179,6 +185,8 @@ export default function TeacherDashboardPage() {
             {activeTab === "classes" && <ClassesTab mode="teacher" teacherUid={session.uid} />}
 
             {activeTab === "tags" && <TagsTab />}
+
+            {activeTab === "profile-config" && <ProfileConfigTab />}
           </div>
         </main>
       </div>

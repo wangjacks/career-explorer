@@ -3,7 +3,7 @@ import { mkdirSync, readFileSync, existsSync } from "fs";
 import { tmpdir } from "os";
 import path from "path";
 import { tagCategories } from "./tagData";
-import { normalizeBackupTags } from "./db";
+import { normalizeBackupTags, DEFAULT_MAX_CUSTOM_TAGS } from "./db";
 import type {
   UserRow,
   TagRow,
@@ -14,6 +14,7 @@ import type {
   BackupData,
   NewUser,
   UserUpdateFields,
+  ConfigRow,
 } from "./db";
 
 function getNow(): string {
@@ -116,6 +117,18 @@ export class SqliteAdapter implements DbAdapter {
         active INTEGER NOT NULL DEFAULT 1
       )
     `);
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS configs_profile (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        key TEXT NOT NULL UNIQUE,
+        value TEXT NOT NULL,
+        updated_at TEXT DEFAULT (datetime('now', 'localtime'))
+      )
+    `);
+    // 默认配置幂等写入（已存在则不覆盖）
+    this.db
+      .prepare("INSERT OR IGNORE INTO configs_profile (key, value, updated_at) VALUES (?, ?, ?)")
+      .run("max_custom_tags", String(DEFAULT_MAX_CUSTOM_TAGS), getNow());
     this.migrateTagSchema();
     this.seedTags();
     this.migrateLegacy();
@@ -618,6 +631,19 @@ export class SqliteAdapter implements DbAdapter {
     tx(id);
   }
 
+  getProfileConfigs(): ConfigRow[] {
+    return this.db.prepare("SELECT key, value FROM configs_profile ORDER BY id").all() as ConfigRow[];
+  }
+
+  setProfileConfig(key: string, value: string): void {
+    this.db
+      .prepare(
+        `INSERT INTO configs_profile (key, value, updated_at) VALUES (?, ?, ?)
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`
+      )
+      .run(key, value, getNow());
+  }
+
   backup(): BackupData {
     const users = this.db.prepare("SELECT * FROM users ORDER BY id").all() as UserRow[];
     const classes = this.db.prepare("SELECT * FROM classes ORDER BY id").all() as ClassRow[];
@@ -628,6 +654,9 @@ export class SqliteAdapter implements DbAdapter {
          FROM tags ORDER BY id`
       )
       .all() as TagRow[];
+    const configs = this.db
+      .prepare("SELECT key, value FROM configs_profile ORDER BY id")
+      .all() as { key: string; value: string }[];
     return {
       version: 3,
       sourceType: "sqlite",
@@ -636,6 +665,7 @@ export class SqliteAdapter implements DbAdapter {
       classes,
       teacher_classes: teacherClasses,
       tags,
+      configs_profile: configs,
     };
   }
 
@@ -696,6 +726,14 @@ export class SqliteAdapter implements DbAdapter {
           "INSERT INTO teacher_classes (id, teacher_id, class_id, created_at) VALUES (?, ?, ?, ?)"
         );
         for (const tc of d.teacher_classes) stmt.run(tc.id, tc.teacher_id, tc.class_id, tc.created_at);
+      }
+      // 配置恢复（旧备份无此字段时保留当前配置不动）
+      if (Array.isArray(d.configs_profile)) {
+        this.db.exec("DELETE FROM configs_profile");
+        const stmt = this.db.prepare(
+          "INSERT INTO configs_profile (key, value, updated_at) VALUES (?, ?, ?)"
+        );
+        for (const c of d.configs_profile) stmt.run(c.key, c.value, getNow());
       }
     });
     restoreTx(data);

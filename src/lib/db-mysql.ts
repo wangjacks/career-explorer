@@ -2,7 +2,7 @@ import mysql from "mysql2/promise";
 import { readFileSync, existsSync } from "fs";
 import path from "path";
 import { tagCategories } from "./tagData";
-import { normalizeBackupTags } from "./db";
+import { normalizeBackupTags, DEFAULT_MAX_CUSTOM_TAGS } from "./db";
 import type {
   UserRow,
   TagRow,
@@ -13,6 +13,7 @@ import type {
   BackupData,
   NewUser,
   UserUpdateFields,
+  ConfigRow,
 } from "./db";
 
 function getNow(): string {
@@ -117,6 +118,20 @@ export class MysqlAdapter implements DbAdapter {
         INDEX idx_tags_order (category_order, sort_order)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
     `);
+    await this.pool.execute(`
+      CREATE TABLE IF NOT EXISTS configs_profile (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        \`key\` VARCHAR(50) NOT NULL UNIQUE,
+        value TEXT NOT NULL,
+        updated_at TEXT,
+        INDEX idx_configs_profile_key (\`key\`)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    `);
+    // 默认配置幂等写入（已存在则不覆盖）
+    await this.pool.execute(
+      "INSERT IGNORE INTO configs_profile (`key`, value, updated_at) VALUES (?, ?, ?)",
+      ["max_custom_tags", String(DEFAULT_MAX_CUSTOM_TAGS), getNow()]
+    );
     await this.migrateTagSchema();
     await this.seedTags();
     await this.migrateLegacy();
@@ -647,12 +662,30 @@ export class MysqlAdapter implements DbAdapter {
     }
   }
 
+  getProfileConfigs(): Promise<ConfigRow[]> {
+    return (async () => {
+      const [rows] = await this.pool.execute("SELECT `key` as `key`, value FROM configs_profile ORDER BY id");
+      return rows as ConfigRow[];
+    })();
+  }
+
+  async setProfileConfig(key: string, value: string): Promise<void> {
+    await this.pool.execute(
+      `INSERT INTO configs_profile (\`key\`, value, updated_at) VALUES (?, ?, ?)
+       ON DUPLICATE KEY UPDATE value = VALUES(value), updated_at = VALUES(updated_at)`,
+      [key, value, getNow()]
+    );
+  }
+
   async backup(): Promise<BackupData> {
     const [users] = await this.pool.execute("SELECT * FROM users ORDER BY id");
     const [classes] = await this.pool.execute("SELECT * FROM classes ORDER BY id");
     const [teacherClasses] = await this.pool.execute("SELECT * FROM teacher_classes ORDER BY id");
     const [tags] = await this.pool.execute(
       "SELECT id, name, type, parent_id, class_id, category_order, sort_order, active FROM tags ORDER BY id"
+    );
+    const [configs] = await this.pool.execute(
+      "SELECT `key` as `key`, value FROM configs_profile ORDER BY id"
     );
     return {
       version: 3,
@@ -662,6 +695,7 @@ export class MysqlAdapter implements DbAdapter {
       classes: classes as ClassRow[],
       teacher_classes: teacherClasses as BackupData["teacher_classes"],
       tags: tags as TagRow[],
+      configs_profile: configs as { key: string; value: string }[],
     };
   }
 
@@ -723,6 +757,17 @@ export class MysqlAdapter implements DbAdapter {
           "INSERT INTO teacher_classes (id, teacher_id, class_id, created_at) VALUES ?",
           [values]
         );
+      }
+      // 配置恢复（旧备份无此字段时保留当前配置不动）
+      if (Array.isArray(data.configs_profile)) {
+        await conn.execute("DELETE FROM configs_profile");
+        if (data.configs_profile.length > 0) {
+          const values = data.configs_profile.map((c) => [c.key, c.value, getNow()]);
+          await conn.query(
+            "INSERT INTO configs_profile (`key`, value, updated_at) VALUES ?",
+            [values]
+          );
+        }
       }
       await conn.commit();
     } catch (err) {

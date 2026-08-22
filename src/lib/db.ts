@@ -125,7 +125,18 @@ export interface BackupData {
   classes: ClassRow[];
   teacher_classes: TeacherClassRow[];
   tags: BackupTagRow[];
+  /** 档案功能配置（configs_profile 键值对；旧备份可能缺失，读取方容忍 undefined） */
+  configs_profile?: { key: string; value: string }[];
 }
+
+/** configs_profile 表行 */
+export interface ConfigRow {
+  key: string;
+  value: string;
+}
+
+/** 档案功能配置项：自定义标签数量上限默认值 */
+export const DEFAULT_MAX_CUSTOM_TAGS = 6;
 
 export interface NewUser {
   user_code: string;
@@ -198,6 +209,10 @@ export interface DbAdapter {
   // teachers
   getTeachers(): Promise<UserRow[]> | UserRow[];
   deleteTeacher(id: number): Promise<void> | void;
+
+  // configs_profile（档案功能配置，键值式）
+  getProfileConfigs(): Promise<ConfigRow[]> | ConfigRow[];
+  setProfileConfig(key: string, value: string): Promise<void> | void;
 
   backup(): Promise<BackupData> | BackupData;
   restore(data: BackupData): Promise<void> | void;
@@ -412,6 +427,24 @@ export async function getTeachers(): Promise<UserRow[]> {
 export async function deleteTeacher(id: number): Promise<void> {
   const adapter = await ensureInit();
   return Promise.resolve(adapter.deleteTeacher(id));
+}
+
+export async function getProfileConfigs(): Promise<ConfigRow[]> {
+  const adapter = await ensureInit();
+  return Promise.resolve(adapter.getProfileConfigs());
+}
+
+export async function setProfileConfig(key: string, value: string): Promise<void> {
+  const adapter = await ensureInit();
+  return Promise.resolve(adapter.setProfileConfig(key, value));
+}
+
+/** 读取自定义标签数量上限；配置缺失或非法时回退默认值 */
+export async function getMaxCustomTags(): Promise<number> {
+  const configs = await getProfileConfigs();
+  const raw = configs.find((c) => c.key === "max_custom_tags")?.value;
+  const parsed = raw === undefined ? NaN : Number(raw);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : DEFAULT_MAX_CUSTOM_TAGS;
 }
 
 export async function backup(): Promise<BackupData> {
