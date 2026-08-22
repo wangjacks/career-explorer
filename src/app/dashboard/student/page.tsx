@@ -96,6 +96,7 @@ export default function StudentDashboardPage() {
   // 编辑模式状态
   const [editing, setEditing] = useState(false);
   const [categories, setCategories] = useState<TagCategory[]>([]);
+  const [maxCustomTags, setMaxCustomTags] = useState<number | undefined>(undefined);
   const [editTags, setEditTags] = useState<string[]>([]);
   // 延迟上传：选图只暂存 File，确认保存时才真正上传
   const [avatarFile, setAvatarFile] = useState<File | null>(null);
@@ -136,12 +137,15 @@ export default function StudentDashboardPage() {
     }
   }, []);
 
-  // 加载标签分类（展示态「我的标签」三色分组 + 编辑态复用）
+  // 加载标签分类（展示态「我的标签」三色分组 + 编辑态复用）+ 自定义标签上限（#94）
   const loadCategories = useCallback(async () => {
     try {
       const res = await fetch("/api/tags");
       const data = await res.json();
-      if (res.ok) setCategories(data.categories || []);
+      if (res.ok) {
+        setCategories(data.categories || []);
+        setMaxCustomTags(typeof data.maxCustomTags === "number" ? data.maxCustomTags : undefined);
+      }
     } catch (err) {
       console.error("Failed to load tags:", err);
     }
@@ -403,6 +407,7 @@ export default function StudentDashboardPage() {
                       selectedTags={editTags}
                       onToggle={toggleTag}
                       onRemove={removeTag}
+                      maxCustomTags={maxCustomTags}
                     />
                   )}
                 </section>

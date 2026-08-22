@@ -15,6 +15,7 @@ interface TagsStepProps {
 /** 第二步 · 标签选择（实时写入草稿） */
 export default function TagsStep({ draft, studentName, onBack, onNext }: TagsStepProps) {
   const [categories, setCategories] = useState<TagCategory[]>([]);
+  const [maxCustomTags, setMaxCustomTags] = useState<number | undefined>(undefined);
   const [loading, setLoading] = useState(true);
   const [failed, setFailed] = useState(false);
 
@@ -25,6 +26,7 @@ export default function TagsStep({ draft, studentName, onBack, onNext }: TagsSte
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "获取标签失败");
       setCategories(data.categories || []);
+      setMaxCustomTags(typeof data.maxCustomTags === "number" ? data.maxCustomTags : undefined);
       setFailed(false);
     } catch (err) {
       console.error("Failed to load tags:", err);
@@ -74,6 +76,7 @@ export default function TagsStep({ draft, studentName, onBack, onNext }: TagsSte
             selectedTags={draft.tags}
             onToggle={draft.toggleTag}
             onRemove={draft.toggleTag}
+            maxCustomTags={maxCustomTags}
           />
         )}
       </main>

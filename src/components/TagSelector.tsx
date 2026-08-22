@@ -1,5 +1,7 @@
 "use client";
 
+import { useState } from "react";
+
 export interface TagCategory {
   id: number;
   name: string;
@@ -12,6 +14,8 @@ interface TagSelectorProps {
   selectedTags: string[];
   onToggle: (tag: string) => void;
   onRemove: (tag: string) => void;
+  /** 自定义标签数量上限（#94）；缺省时不渲染自定义区（向后兼容） */
+  maxCustomTags?: number;
 }
 
 /**
@@ -52,13 +56,40 @@ const TAG_COLORS = [
   },
 ];
 
-/** 标签选择器：分类多选网格 + 已选标签 chips（form 流程与学生面板共用） */
-export default function TagSelector({ categories, selectedTags, onToggle, onRemove }: TagSelectorProps) {
+/** 标签选择器：分类多选网格 + 自定义标签（#94，可选）+ 已选标签 chips（form 流程与学生面板共用） */
+export default function TagSelector({ categories, selectedTags, onToggle, onRemove, maxCustomTags }: TagSelectorProps) {
+  const [customInput, setCustomInput] = useState("");
+  const [customHint, setCustomHint] = useState("");
+
   // 标签名 → 所属分类序号（用于已选 chips 取对应色）
   const tagCategoryIndex = new Map<string, number>();
   categories.forEach((category, idx) => {
     category.tags.forEach((tag) => tagCategoryIndex.set(tag.name, idx));
   });
+
+  const presetNames = new Set(categories.flatMap((c) => c.tags.map((t) => t.name)));
+  const customSelected = selectedTags.filter((t) => !presetNames.has(t));
+  const customFull = maxCustomTags !== undefined && customSelected.length >= maxCustomTags;
+
+  const addCustomTag = () => {
+    const name = customInput.trim();
+    if (!name) return;
+    if (name.length > 50) {
+      setCustomHint("标签名称不能超过 50 字");
+      return;
+    }
+    if (selectedTags.includes(name)) {
+      setCustomHint("该标签已选择");
+      return;
+    }
+    if (customFull) {
+      setCustomHint(`自定义标签最多 ${maxCustomTags} 个`);
+      return;
+    }
+    setCustomHint("");
+    setCustomInput("");
+    onToggle(name);
+  };
 
   return (
     <>
@@ -86,6 +117,35 @@ export default function TagSelector({ categories, selectedTags, onToggle, onRemo
           </section>
         );
       })}
+
+      {maxCustomTags !== undefined && (
+        <section className="space-y-2">
+          <h2 className="text-sm font-semibold text-gray-500 dark:text-gray-400">
+            自定义标签（{customSelected.length}/{maxCustomTags}）
+          </h2>
+          <div className="flex gap-2">
+            <input
+              value={customInput}
+              onChange={(e) => {
+                setCustomInput(e.target.value);
+                setCustomHint("");
+              }}
+              onKeyDown={(e) => e.key === "Enter" && addCustomTag()}
+              placeholder={customFull ? "已达自定义标签上限" : "输入自定义标签..."}
+              disabled={customFull}
+              className="flex-1 px-4 py-2 border border-gray-200 dark:border-gray-700 bg-card text-foreground rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-green-300 disabled:bg-gray-50 dark:disabled:bg-gray-800"
+            />
+            <button
+              onClick={addCustomTag}
+              disabled={customFull || !customInput.trim()}
+              className="px-4 py-2 bg-gray-100 hover:bg-gray-200 dark:bg-gray-800 dark:hover:bg-gray-700 disabled:opacity-50 text-gray-700 dark:text-gray-200 rounded-xl text-sm font-medium transition-colors"
+            >
+              添加
+            </button>
+          </div>
+          {customHint && <p className="text-xs text-red-500">{customHint}</p>}
+        </section>
+      )}
 
       {selectedTags.length > 0 && (
         <section className="space-y-2">
