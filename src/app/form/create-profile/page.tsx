@@ -48,8 +48,10 @@ function CreateProfileForm() {
   // 草稿恢复提示上下文：gate = 登录页加载时预检发现；midflow = 中途刷新/直接访问表单步骤时
   const [draftPrompt, setDraftPrompt] = useState<"gate" | "midflow" | null>(null);
   const enteredRef = useRef(false);
-  // 登录页加载即预检：已提交引导去面板 / 存在草稿直接提示，不等用户点「下一步」
+  // 登录页加载即预检：已提交引导去面板 / 已截止拦截（#96）/ 存在草稿直接提示，不等用户点「下一步」
   const [precheckedSubmitted, setPrecheckedSubmitted] = useState(false);
+  const [precheckedClosed, setPrecheckedClosed] = useState(false);
+  const [precheckedDeadline, setPrecheckedDeadline] = useState<string | null>(null);
   const precheckedRef = useRef(false);
   // 草稿检查每次页面加载（刷新/直接访问）只执行一次；步骤间跳转（router.push）不会重复触发
   const mountCheckedRef = useRef(false);
@@ -100,6 +102,12 @@ function CreateProfileForm() {
         const res = await fetch("/api/shared/profile");
         const data = await res.json();
         if (cancelled || !res.ok) return;
+        // 提交时限（#96）：截止优先于其他分支，任何学生均不可进入流程
+        if (data.submissionClosed) {
+          setPrecheckedDeadline(typeof data.submissionDeadline === "string" ? data.submissionDeadline : null);
+          setPrecheckedClosed(true);
+          return;
+        }
         if (data.submitted_at) {
           setPrecheckedSubmitted(true);
           return;
@@ -164,7 +172,12 @@ function CreateProfileForm() {
 
       {step === "login" && (
         <main className="flex-1 flex flex-col items-center justify-center px-6 gap-8">
-          <LoginGateStep precheckedSubmitted={precheckedSubmitted} onEnter={handleEnter} />
+          <LoginGateStep
+            precheckedSubmitted={precheckedSubmitted}
+            precheckedClosed={precheckedClosed}
+            precheckedDeadline={precheckedDeadline}
+            onEnter={handleEnter}
+          />
         </main>
       )}
       {step === "tags" && (

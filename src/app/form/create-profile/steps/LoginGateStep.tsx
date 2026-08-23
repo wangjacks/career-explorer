@@ -16,19 +16,32 @@ export interface ProfileInfo {
 interface LoginGateStepProps {
   /** 容器加载预检已确认该学生提交过档案（免再点一次「下一步」才看到引导） */
   precheckedSubmitted?: boolean;
+  /** 容器加载预检已确认档案提交已截止（#96） */
+  precheckedClosed?: boolean;
+  /** 截止时间（仅用于展示，服务端下发） */
+  precheckedDeadline?: string | null;
   /** 通过登录门：携带本人档案信息（未提交学生） */
   onEnter: (profile: ProfileInfo) => void;
 }
 
-/** 第一步 · 登录门：未登录提示登录；已提交学生引导去面板修改；未提交学生问候并进入流程 */
-export default function LoginGateStep({ precheckedSubmitted = false, onEnter }: LoginGateStepProps) {
+/** 第一步 · 登录门：未登录提示登录；已截止拦截；已提交学生引导去面板修改；未提交学生问候并进入流程 */
+export default function LoginGateStep({
+  precheckedSubmitted = false,
+  precheckedClosed = false,
+  precheckedDeadline = null,
+  onEnter,
+}: LoginGateStepProps) {
   const router = useRouter();
   const { session, checking } = useSession();
   const [verifying, setVerifying] = useState(false);
   const [alreadySubmitted, setAlreadySubmitted] = useState(false);
+  const [closed, setClosed] = useState(false);
+  const [deadline, setDeadline] = useState<string | null>(null);
   const [error, setError] = useState("");
 
   const submitted = alreadySubmitted || precheckedSubmitted;
+  const isClosed = closed || precheckedClosed;
+  const deadlineText = deadline ?? precheckedDeadline;
 
   if (checking) {
     return <p className="text-center py-10 text-sm text-gray-400 dark:text-gray-500">加载中...</p>;
@@ -71,6 +84,27 @@ export default function LoginGateStep({ precheckedSubmitted = false, onEnter }: 
     );
   }
 
+  // 提交时限拦截（#96）优先于已提交引导：截止后任何学生均不可进入流程
+  if (isClosed) {
+    return (
+      <div className="w-full max-w-sm sm:max-w-md mx-auto bg-card rounded-2xl shadow-xl p-8 space-y-4 text-center">
+        <div className="w-14 h-14 rounded-2xl bg-brand flex items-center justify-center mx-auto">
+          <UserRound size={26} className="text-accent" aria-hidden />
+        </div>
+        <h1 className="text-lg font-bold text-gray-900 dark:text-gray-100">档案提交已截止</h1>
+        <p className="text-sm text-gray-500 dark:text-gray-400">
+          {deadlineText ? `截止时间：${deadlineText}，` : ""}无法再创建或修改档案，如有疑问请联系老师
+        </p>
+        <Link
+          href="/dashboard/student"
+          className="block w-full py-3 bg-primary hover:bg-primary-strong text-white font-medium rounded-xl transition-colors"
+        >
+          前往学生面板
+        </Link>
+      </div>
+    );
+  }
+
   if (submitted) {
     return (
       <div className="w-full max-w-sm sm:max-w-md mx-auto bg-card rounded-2xl shadow-xl p-8 space-y-4 text-center">
@@ -96,6 +130,11 @@ export default function LoginGateStep({ precheckedSubmitted = false, onEnter }: 
       const res = await fetch("/api/shared/profile");
       const data = await res.json();
       if (!res.ok) throw new Error(data?.error || "档案状态查询失败");
+      if (data.submissionClosed) {
+        setDeadline(typeof data.submissionDeadline === "string" ? data.submissionDeadline : null);
+        setClosed(true);
+        return;
+      }
       if (data.submitted_at) {
         setAlreadySubmitted(true);
         return;

@@ -72,7 +72,7 @@ This version has breaking changes — APIs, conventions, and file structure may 
   - `classes` — 班级表（`name`、`invitation_code` 唯一）
   - `teacher_classes` — 教师-班级多对多关联
   - `tags` — 预设标签表（`type=category` 一级分类、`type=tag` 二级标签，`parent_id` 建立层级，`class_id=0` = 全局）；#94 起降级为表单预设项，物理删除（分类级联删子标签），停用机制下线（`active` 列保留不再操作）
-  - `configs_profile` — 档案功能配置键值表（#94）：首个配置项 `max_custom_tags`（自定义标签数量上限，默认 6），纳入备份恢复
+  - `configs_profile` — 档案功能配置键值表（#94/#96）：配置项 `max_custom_tags`（自定义标签数量上限，默认 6）与 `submission_deadline`（档案提交截止时间 `YYYY-MM-DD HH:mm`，空 = 不限制），纳入备份恢复
 - 初始化流程：首次访问 -> `/setup` 页面配置数据库 + 管理员密码 -> 写入 `db-config.json` + `users` 表
 - 安装状态检查：`isInstalled()` 函数 + `/api/setup/status` 端点
 
@@ -132,6 +132,7 @@ This version has breaking changes — APIs, conventions, and file structure may 
 - 共享会话检测：`useSession` hook 供 UserMenu 与 NavigationBar 共用，按 pathname 变化重新检测
 - 表单登录优先：档案创建必须学生本人登录（快速提交通道已于 #92 移除）；未登录访问 `/form/create-profile` 显示登录门，登录页支持 `?next=` 回跳（仅站内相对路径）；已提交学生再进入被引导去学生面板修改
 - 标签体系（#94）：学生标签文本直存（预设 + 自定义，后端校验自定义数量上限）；预设标签管理支持物理删除与批量导入/删除（均二次确认）；自定义标签上限存 `configs_profile`，管理/教师面板「功能设置」页可配（`/api/manage/profile-config`），表单端经开放端点 `/api/tags` 读取
+- 提交时限（#96）：`configs_profile.submission_deadline` 存最晚提交时间（未设置 = 不限制）；超时后 `POST /api/shared/profile` 强制 403，学生面板修改/提交入口禁用，表单登录门与确认页展示已截止；截止状态由服务端按 Asia/Shanghai 计算，经 `/api/tags` 与 `/api/shared/profile` 下发
 - 班级邀请码：仅在 `/activate` 学生激活时要求填写，用于核验学号所属班级
 - 文件上传：`/api/upload` 处理上传 -> `uploads/` 目录 -> `/api/uploads/[...path]` 静态服务
 - 数据导出：ExcelJS (Excel) + JSZip (ZIP 打包)

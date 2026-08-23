@@ -97,6 +97,9 @@ export default function StudentDashboardPage() {
   const [editing, setEditing] = useState(false);
   const [categories, setCategories] = useState<TagCategory[]>([]);
   const [maxCustomTags, setMaxCustomTags] = useState<number | undefined>(undefined);
+  // 提交时限（#96）：截止后禁用修改/提交入口，服务端状态为准（经 /api/tags 下发）
+  const [submissionClosed, setSubmissionClosed] = useState(false);
+  const [submissionDeadline, setSubmissionDeadline] = useState<string | null>(null);
   const [editTags, setEditTags] = useState<string[]>([]);
   // 延迟上传：选图只暂存 File，确认保存时才真正上传
   const [avatarFile, setAvatarFile] = useState<File | null>(null);
@@ -137,7 +140,7 @@ export default function StudentDashboardPage() {
     }
   }, []);
 
-  // 加载标签分类（展示态「我的标签」三色分组 + 编辑态复用）+ 自定义标签上限（#94）
+  // 加载标签分类（展示态「我的标签」三色分组 + 编辑态复用）+ 自定义标签上限（#94）+ 提交截止状态（#96）
   const loadCategories = useCallback(async () => {
     try {
       const res = await fetch("/api/tags");
@@ -145,6 +148,8 @@ export default function StudentDashboardPage() {
       if (res.ok) {
         setCategories(data.categories || []);
         setMaxCustomTags(typeof data.maxCustomTags === "number" ? data.maxCustomTags : undefined);
+        setSubmissionClosed(data.submissionClosed === true);
+        setSubmissionDeadline(typeof data.submissionDeadline === "string" ? data.submissionDeadline : null);
       }
     } catch (err) {
       console.error("Failed to load tags:", err);
@@ -371,10 +376,16 @@ export default function StudentDashboardPage() {
 
                   <button
                     onClick={startEdit}
-                    className="w-full py-3 bg-primary hover:bg-primary-strong text-white font-medium rounded-xl transition-colors"
+                    disabled={submissionClosed}
+                    className="w-full py-3 bg-primary hover:bg-primary-strong disabled:opacity-50 text-white font-medium rounded-xl transition-colors"
                   >
                     修改数据
                   </button>
+                  {submissionClosed && (
+                    <p className="text-xs text-amber-600 dark:text-amber-400 text-center">
+                      档案提交已于 {submissionDeadline} 截止，无法再修改
+                    </p>
+                  )}
                 </>
               ) : (
                 /* 从未提交：引导卡 */
@@ -388,10 +399,16 @@ export default function StudentDashboardPage() {
                   </div>
                   <button
                     onClick={goSubmit}
-                    className="px-6 py-2.5 bg-primary hover:bg-primary-strong text-white text-sm font-medium rounded-xl transition-colors"
+                    disabled={submissionClosed}
+                    className="px-6 py-2.5 bg-primary hover:bg-primary-strong disabled:opacity-50 text-white text-sm font-medium rounded-xl transition-colors"
                   >
                     去提交
                   </button>
+                  {submissionClosed && (
+                    <p className="text-xs text-amber-600 dark:text-amber-400">
+                      档案提交已于 {submissionDeadline} 截止
+                    </p>
+                  )}
                 </div>
               )
             ) : (
