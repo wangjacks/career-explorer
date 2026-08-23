@@ -1,5 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getActiveTags, getClasses, getUserById, getMaxCustomTags, upsertSubmission } from "@/lib/db";
+import {
+  getActiveTags,
+  getClasses,
+  getSubmissionDeadline,
+  getUserById,
+  getMaxCustomTags,
+  isSubmissionClosed,
+  upsertSubmission,
+} from "@/lib/db";
 import { normalizeTagNames, extractCustomTags } from "@/lib/tag-utils";
 import { verifyToken } from "@/lib/token";
 
@@ -51,6 +59,9 @@ export async function GET(request: NextRequest) {
       avatar_url: user.avatar_url || "",
       evaluation_url: user.evaluation_url || "",
       submitted_at: user.submitted_at,
+      // 提交时限（#96）：服务端计算截止状态，不信任客户端时钟
+      submissionDeadline: await getSubmissionDeadline(),
+      submissionClosed: await isSubmissionClosed(),
     });
   } catch (err) {
     console.error("Profile GET error:", err);
@@ -75,6 +86,11 @@ export async function POST(request: NextRequest) {
     const currentUser = await getUserById(result.uid);
     if (!currentUser) {
       return NextResponse.json({ error: "用户不存在" }, { status: 401 });
+    }
+
+    // 提交时限强制拦截（#96）：超过截止时间一律拒绝保存（含已提交学生的修改），前端禁用仅为体验，服务端是最终防线
+    if (await isSubmissionClosed()) {
+      return NextResponse.json({ error: "档案提交已截止，无法保存" }, { status: 403 });
     }
 
     const body = await request.json();

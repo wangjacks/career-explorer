@@ -11,6 +11,9 @@ interface ConfirmProfile {
   avatar_url: string;
   evaluation_url: string;
   submitted_at: string | null;
+  /** 提交时限（#96）：服务端下发的截止状态与截止时间 */
+  submissionClosed: boolean;
+  submissionDeadline: string | null;
 }
 
 interface ConfirmStepProps {
@@ -41,6 +44,8 @@ export default function ConfirmStep({ draft, studentName, onBack, onSubmitted }:
         avatar_url: data.avatar_url || "",
         evaluation_url: data.evaluation_url || "",
         submitted_at: data.submitted_at,
+        submissionClosed: data.submissionClosed === true,
+        submissionDeadline: typeof data.submissionDeadline === "string" ? data.submissionDeadline : null,
       });
     } catch (err) {
       console.error("Confirm step profile load failed:", err);
@@ -110,7 +115,21 @@ export default function ConfirmStep({ draft, studentName, onBack, onSubmitted }:
           </div>
         )}
 
-        {profile && profile.submitted_at && (
+        {profile && profile.submissionClosed && (
+          <div className="text-center py-8 space-y-3">
+            <p className="text-sm text-gray-600 dark:text-gray-300">
+              档案提交已于 {profile.submissionDeadline} 截止，无法再提交或修改
+            </p>
+            <Link
+              href="/dashboard/student"
+              className="inline-block px-6 py-3 bg-primary hover:bg-primary-strong text-white font-medium rounded-xl transition-colors"
+            >
+              前往学生面板
+            </Link>
+          </div>
+        )}
+
+        {profile && !profile.submissionClosed && profile.submitted_at && (
           <div className="text-center py-8 space-y-3">
             <p className="text-sm text-gray-600 dark:text-gray-300">你已提交过档案，如需修改请前往学生面板</p>
             <Link
@@ -122,7 +141,7 @@ export default function ConfirmStep({ draft, studentName, onBack, onSubmitted }:
           </div>
         )}
 
-        {profile && !profile.submitted_at && (
+        {profile && !profile.submissionClosed && !profile.submitted_at && (
           <>
             <div className="bg-card rounded-xl p-4 shadow-sm border border-gray-100 dark:border-gray-700 space-y-3">
               {summaryRow("姓名", studentName)}
@@ -171,7 +190,7 @@ export default function ConfirmStep({ draft, studentName, onBack, onSubmitted }:
           </button>
           <button
             onClick={handleSubmit}
-            disabled={submitting || !profile || !!profile.submitted_at || loadFailed}
+            disabled={submitting || !profile || !!profile.submitted_at || profile.submissionClosed || loadFailed}
             className="flex-1 py-3 bg-primary hover:bg-primary-strong disabled:opacity-50 text-white font-medium rounded-xl transition-colors"
           >
             {submitting ? progress || "提交中..." : "确认提交"}
