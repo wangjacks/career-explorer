@@ -4,11 +4,13 @@ import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
 /**
- * 档案功能设置（#94）：当前承载「自定义标签数量上限」，
- * 后续提交时限等档案相关配置（#96）也将放入本页。
+ * 档案功能设置（#94/#96）：承载「自定义标签数量上限」与「档案提交截止时间」，
+ * 保存后即时生效。
  */
 export default function ProfileConfigTab() {
   const [maxCustomTags, setMaxCustomTags] = useState(6);
+  /** datetime-local 输入值（`YYYY-MM-DDTHH:mm`）；空串 = 不限制 */
+  const [deadline, setDeadline] = useState("");
   const [loaded, setLoaded] = useState(false);
   const [loadFailed, setLoadFailed] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -20,6 +22,10 @@ export default function ProfileConfigTab() {
       const data = await res.json();
       if (!res.ok) throw new Error(data?.error || "获取配置失败");
       setMaxCustomTags(data.maxCustomTags);
+      // 存储格式 `YYYY-MM-DD HH:mm` → datetime-local 值（空格换 T）；null/空 = 不限制
+      setDeadline(typeof data.submissionDeadline === "string" && data.submissionDeadline
+        ? data.submissionDeadline.slice(0, 16).replace(" ", "T")
+        : "");
       setLoaded(true);
     } catch (err) {
       console.error("Profile config load failed:", err);
@@ -33,7 +39,7 @@ export default function ProfileConfigTab() {
   }, []);
   /* eslint-enable react-hooks/set-state-in-effect */
 
-  const handleSave = async () => {
+  const handleSave = async (deadlineOverride?: string) => {
     if (!Number.isInteger(maxCustomTags) || maxCustomTags < 1 || maxCustomTags > 20) {
       toast.warning("上限须为 1-20 的整数");
       return;
@@ -43,10 +49,12 @@ export default function ProfileConfigTab() {
       const res = await fetch("/api/manage/profile-config", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ maxCustomTags }),
+        // 一次提交两项；空串由后端解释为清除截止限制（#96）
+        body: JSON.stringify({ maxCustomTags, submissionDeadline: deadlineOverride ?? deadline }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data?.error || "保存失败");
+      if (deadlineOverride !== undefined) setDeadline(deadlineOverride);
       toast.success("已保存");
     } catch (err) {
       console.error("Profile config save failed:", err);
@@ -92,18 +100,43 @@ export default function ProfileConfigTab() {
             />
             <span className="text-xs text-gray-400 dark:text-gray-500">1-20，预设标签不受此限制</span>
           </div>
+
+          {/* 档案提交截止时间（#96）：超过该时间后学生无法提交或修改档案 */}
+          <div className="flex flex-wrap items-center gap-3">
+            <label className="text-sm text-gray-600 dark:text-gray-300" htmlFor="submission-deadline">
+              档案提交截止时间
+            </label>
+            <input
+              id="submission-deadline"
+              type="datetime-local"
+              value={deadline}
+              disabled={!loaded}
+              onChange={(e) => setDeadline(e.target.value)}
+              className="px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg text-sm bg-card text-foreground focus:outline-none focus:ring-2 focus:ring-green-300"
+            />
+            {deadline && (
+              <button
+                onClick={() => handleSave("")}
+                disabled={saving || !loaded}
+                className="px-3 py-1.5 bg-gray-100 hover:bg-gray-200 dark:bg-gray-800 dark:hover:bg-gray-700 disabled:opacity-50 text-gray-600 dark:text-gray-300 text-xs rounded-lg transition-colors"
+              >
+                清除限制
+              </button>
+            )}
+            <span className="text-xs text-gray-400 dark:text-gray-500">
+              超过该时间后学生无法提交或修改档案；留空表示不限制
+            </span>
+          </div>
+
           <div>
             <button
-              onClick={handleSave}
+              onClick={() => handleSave()}
               disabled={saving || !loaded}
               className="px-6 py-2 bg-primary hover:bg-primary-strong disabled:opacity-50 text-white text-sm font-medium rounded-lg transition-colors"
             >
               {saving ? "保存中..." : "保存"}
             </button>
           </div>
-          <p className="text-xs text-gray-400 dark:text-gray-500">
-            后续将在此页增加提交时限等档案配置。
-          </p>
         </div>
       )}
     </div>

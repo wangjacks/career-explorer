@@ -455,6 +455,25 @@ export async function getMaxCustomTags(): Promise<number> {
   return Number.isInteger(parsed) && parsed > 0 ? parsed : DEFAULT_MAX_CUSTOM_TAGS;
 }
 
+/** 提交时限配置键（#96）：存储格式 `YYYY-MM-DD HH:mm`（Asia/Shanghai），空串表示不限制 */
+export const SUBMISSION_DEADLINE_KEY = "submission_deadline";
+
+/** 读取档案提交截止时间；未设置（缺失或空串）返回 null（不限制） */
+export async function getSubmissionDeadline(): Promise<string | null> {
+  const configs = await getProfileConfigs();
+  const raw = configs.find((c) => c.key === SUBMISSION_DEADLINE_KEY)?.value;
+  return raw && raw.trim().length > 0 ? raw.trim() : null;
+}
+
+/** 判断当前时刻（Asia/Shanghai，与 getNow 同源）是否已超过提交截止时间；未设置返回 false */
+export async function isSubmissionClosed(): Promise<boolean> {
+  const deadline = await getSubmissionDeadline();
+  if (!deadline) return false;
+  // 定宽格式 `YYYY-MM-DD HH:mm` 字典序即时间序，服务端统一按 Asia/Shanghai 计算，不依赖客户端时钟
+  const now = new Date().toLocaleString("sv-SE", { timeZone: "Asia/Shanghai" }).slice(0, 16);
+  return now >= deadline.slice(0, 16);
+}
+
 export async function backup(): Promise<BackupData> {
   const adapter = await ensureInit();
   return Promise.resolve(adapter.backup());
