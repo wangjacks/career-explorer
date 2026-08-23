@@ -15,7 +15,7 @@ vi.mock("@/lib/db", () => ({
 }));
 
 import { POST, GET } from "@/app/api/shared/profile/route";
-import { getUserById, getActiveTags, upsertSubmission, getMaxCustomTags } from "@/lib/db";
+import { getUserById, getActiveTags, upsertSubmission, getMaxCustomTags, getClasses, getSubmissionDeadline, isSubmissionClosed } from "@/lib/db";
 
 function createPostRequest(body: unknown, cookies?: Record<string, string>): NextRequest {
   const url = new URL("/api/shared/profile", "http://localhost:3000");
@@ -119,6 +119,51 @@ describe("POST /api/shared/profile — 快速提交下线后的安全收紧（#9
   });
 });
 
+describe("POST /api/shared/profile — 提交时限强制拦截（#96）", () => {
+  const mockSaveable = async () => {
+    const token = await signToken({ role: "student", uid: 7, name: "测试学生" });
+    vi.mocked(getUserById).mockResolvedValue(STUDENT_USER);
+    vi.mocked(getActiveTags).mockResolvedValue([
+      { id: 2, name: "阅读", type: "tag", parent_id: 1, class_id: 0, category_order: 0, sort_order: 0, active: 1 },
+    ]);
+    vi.mocked(getMaxCustomTags).mockResolvedValue(6);
+    return token;
+  };
+
+  it("已超过截止时间 → 403 拒绝，数据库未写入", async () => {
+    const token = await mockSaveable();
+    vi.mocked(isSubmissionClosed).mockResolvedValue(true);
+    const res = await POST(createPostRequest({ tags: ["阅读"] }, { auth_token: token }));
+    expect(res.status).toBe(403);
+    const body = await res.json();
+    expect(body.error).toBe("档案提交已截止，无法保存");
+    expect(upsertSubmission).not.toHaveBeenCalled();
+  });
+
+  it("已设置截止时间但未过期 → 正常保存", async () => {
+    const token = await mockSaveable();
+    vi.mocked(isSubmissionClosed).mockResolvedValue(false);
+    const res = await POST(createPostRequest({ tags: ["阅读"] }, { auth_token: token }));
+    expect(res.status).toBe(200);
+    expect(upsertSubmission).toHaveBeenCalled();
+  });
+
+  it("未设置截止时间（默认不限制）→ 正常保存", async () => {
+    const token = await mockSaveable();
+    // 默认 mock 返回 undefined（未设置），等同不限制；显式断言未拦截
+    const res = await POST(createPostRequest({ tags: ["阅读"] }, { auth_token: token }));
+    expect(res.status).toBe(200);
+    expect(upsertSubmission).toHaveBeenCalled();
+  });
+
+  it("截止时间已清除 → 正常保存", async () => {
+    const token = await mockSaveable();
+    vi.mocked(isSubmissionClosed).mockResolvedValue(false);
+    const res = await POST(createPostRequest({ tags: ["阅读"] }, { auth_token: token }));
+    expect(res.status).toBe(200);
+  });
+});
+
 describe("GET /api/shared/profile — 会话查询", () => {
   it("未登录 → 401", async () => {
     const url = new URL("/api/shared/profile", "http://localhost:3000");
@@ -133,5 +178,21 @@ describe("GET /api/shared/profile — 会话查询", () => {
       new NextRequest(url, { method: "GET", headers: { cookie: `auth_token=${token}` } })
     );
     expect(res.status).toBe(403);
+  });
+
+  it("学生本人查询 → 响应含提交时限字段（#96）", async () => {
+    const token = await signToken({ role: "student", uid: 7, name: "测试学生" });
+    vi.mocked(getUserById).mockResolvedValue(STUDENT_USER);
+    vi.mocked(getClasses).mockResolvedValue([]);
+    vi.mocked(getSubmissionDeadline).mockResolvedValue(null);
+    vi.mocked(isSubmissionClosed).mockResolvedValue(false);
+    const url = new URL("/api/shared/profile", "http://localhost:3000");
+    const res = await GET(
+      new NextRequest(url, { method: "GET", headers: { cookie: `auth_token=${token}` } })
+    );
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect("submissionDeadline" in body).toBe(true);
+    expect("submissionClosed" in body).toBe(true);
   });
 });

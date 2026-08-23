@@ -465,13 +465,18 @@ export async function getSubmissionDeadline(): Promise<string | null> {
   return raw && raw.trim().length > 0 ? raw.trim() : null;
 }
 
+/** 纯函数：定宽格式 `YYYY-MM-DD HH:mm` 字典序即时间序，便于单测 */
+export function isAfterDeadline(nowMinute: string, deadline: string): boolean {
+  return nowMinute >= deadline.slice(0, 16);
+}
+
 /** 判断当前时刻（Asia/Shanghai，与 getNow 同源）是否已超过提交截止时间；未设置返回 false */
 export async function isSubmissionClosed(): Promise<boolean> {
   const deadline = await getSubmissionDeadline();
   if (!deadline) return false;
-  // 定宽格式 `YYYY-MM-DD HH:mm` 字典序即时间序，服务端统一按 Asia/Shanghai 计算，不依赖客户端时钟
+  // 服务端统一按 Asia/Shanghai 计算，不依赖客户端时钟
   const now = new Date().toLocaleString("sv-SE", { timeZone: "Asia/Shanghai" }).slice(0, 16);
-  return now >= deadline.slice(0, 16);
+  return isAfterDeadline(now, deadline);
 }
 
 export async function backup(): Promise<BackupData> {

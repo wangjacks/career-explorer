@@ -56,7 +56,7 @@
 | `/api/manage/classes`（含 `/[id]`、`/[id]/reset-code`） | 全方法 | 班级 CRUD + 邀请码 |
 | `/api/manage/students`（含 `/batch-password`） | 全方法 | 学生管理 + 批量改密 |
 | `/api/manage/tags`（含 `/batch`） | 全方法 | 预设标签管理（CRUD / 物理删除 / 批量导入 / 排序） |
-| `/api/manage/profile-config` | 全方法 | 档案功能配置（自定义标签上限等，#94） |
+| `/api/manage/profile-config` | 全方法 | 档案功能配置（自定义标签上限 #94、提交截止时间 #96） |
 | `/api/manage/export` | 全方法 | Excel/CSV 导出 |
 | `/api/manage/export-images` | 全方法 | 图片打包导出 |
 | `/api/manage/stats`（含 `compare`/`distribution`/`trends`） | 仅 GET | 统计数据 |
@@ -66,13 +66,13 @@
 
 | 路由 | 方法 | 说明 |
 |---|---|---|
-| `/api/shared/profile` | GET / POST | GET 会话查询本人档案；POST 仅学生本人会话保存（拒绝显式指定学号） |
+| `/api/shared/profile` | GET / POST | GET 会话查询本人档案（含提交截止状态，#96）；POST 仅学生本人会话保存（拒绝显式指定学号；超过提交时限强制 403） |
 
 ### 其他开放端点（proxy 之外）
 
 | 路由 | 方法 | 说明 |
 |---|---|---|
-| `/api/tags` | GET | 预设标签 + 自定义标签上限加载（表单流程 + 学生面板，#94） |
+| `/api/tags` | GET | 预设标签 + 自定义标签上限（#94）+ 提交截止状态（#96）加载（表单流程 + 学生面板） |
 | `/api/upload` | POST | 文件上传（头像 / 评价词云图） |
 | `/api/uploads/[...path]` | GET | 静态文件服务（含路径穿越防护） |
 
