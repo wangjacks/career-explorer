@@ -10,6 +10,7 @@ export default function ExportTab() {
   const [dateTo, setDateTo] = useState("");
   const [exportFormat, setExportFormat] = useState<"csv" | "xlsx">("csv");
   const [imagePlacement, setImagePlacement] = useState<"in-cell" | "floating">("in-cell");
+  const [rowHeight, setRowHeight] = useState(45);
   const [exportColumns, setExportColumns] = useState({
     studentId: true, name: true, tags: true,
     avatarUrl: true, evaluationUrl: true,
@@ -76,7 +77,10 @@ export default function ExportTab() {
     try {
       const params = getExportParams();
       params.set("format", exportFormat);
-      if (exportFormat === "xlsx") params.set("imagePlacement", imagePlacement);
+      if (exportFormat === "xlsx") {
+        params.set("imagePlacement", imagePlacement);
+        params.set("rowHeight", String(rowHeight));
+      }
       const res = await fetch(`/api/manage/export?${params}`);
       if (!res.ok) throw new Error("导出失败");
       const blob = await res.blob();
@@ -224,6 +228,29 @@ export default function ExportTab() {
             ))}
           </div>
         </fieldset>
+      )}
+
+      {exportFormat === "xlsx" && (
+        <div className="space-y-2">
+          <label className="text-sm font-medium text-gray-700 dark:text-gray-200" htmlFor="export-row-height">
+            数据行高度（像素）
+          </label>
+          <div className="flex items-center gap-2">
+            <input
+              id="export-row-height"
+              type="number"
+              min={10}
+              max={200}
+              value={rowHeight}
+              onChange={(e) => {
+                const value = Number(e.target.value);
+                setRowHeight(Number.isFinite(value) ? value : 45);
+              }}
+              className="w-28 px-3 py-2 border border-gray-200 dark:border-gray-700 bg-card text-foreground rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-300"
+            />
+            <span className="text-xs text-gray-500 dark:text-gray-400">适用于标题行下方的每一行数据，范围 10-200</span>
+          </div>
+        </div>
       )}
 
       {/* Columns */}

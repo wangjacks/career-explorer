@@ -46,12 +46,17 @@ export async function GET(request: NextRequest) {
   const dateTo = searchParams.get("dateTo") || "";
   const columnsParam = searchParams.get("columns") || "student_id,name,tags,avatar_url,evaluation_url,created_at";
   const imagePlacement = searchParams.get("imagePlacement") || "in-cell";
+  const rowHeightParam = searchParams.get("rowHeight");
+  const rowHeight = rowHeightParam === null ? 45 : Number(rowHeightParam);
 
   if (!(["in-cell", "floating"] as const).includes(imagePlacement as "in-cell" | "floating")) {
     return NextResponse.json({ error: "不支持的图片放置方式" }, { status: 400 });
   }
   if (format !== "xlsx" && searchParams.has("imagePlacement")) {
     return NextResponse.json({ error: "图片放置方式仅适用于 Excel 导出" }, { status: 400 });
+  }
+  if (!Number.isFinite(rowHeight) || rowHeight < 10 || rowHeight > 200) {
+    return NextResponse.json({ error: "数据行高度须为 10-200 的数值" }, { status: 400 });
   }
 
   const selectedColumns = columnsParam.split(",").filter(Boolean);
@@ -169,6 +174,11 @@ export async function GET(request: NextRequest) {
       sheet.addRow(formatted);
     }
 
+    // Apply configurable data row height (rows below header)
+    for (let i = 0; i < rows.length; i++) {
+      sheet.getRow(i + 2).height = rowHeight;
+    }
+
     const cellImages: CellImageEntry[] = [];
     const imageColumns = columns.filter((c) => c.key === "avatar_url" || c.key === "evaluation_url");
     if (imageColumns.length > 0) {
@@ -215,7 +225,6 @@ export async function GET(request: NextRequest) {
                 tl: { col: colIdx + 0.1, row: rowNum - 0.9 },
                 ext: { width: targetW, height: targetH },
               });
-              sheet.getRow(rowNum).height = targetH * 0.75 + 5;
             } catch (err) {
               console.warn("Failed to embed image in Excel:", url, err);
             }
