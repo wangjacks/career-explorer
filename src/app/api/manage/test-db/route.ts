@@ -4,8 +4,11 @@ import type { NextRequest } from "next/server";
 import { SqliteAdapter, sanitizeSqlitePath } from "@/lib/db-sqlite";
 import { mkdirSync, accessSync, constants } from "fs";
 import path from "path";
+import { getAuditActor, getRequestContext, recordAudit } from "@/lib/audit";
 
 export async function POST(request: NextRequest) {
+  const { ip, user_agent } = getRequestContext(request);
+  const actor = await getAuditActor(request);
   try {
     const body = await request.json();
     const dbType = body.type || "mysql";
@@ -18,6 +21,12 @@ export async function POST(request: NextRequest) {
       const adapter = new SqliteAdapter(dbPath);
       adapter.init();
       adapter.close();
+      void recordAudit({
+        ...actor, action: "test-db:run", method: "POST", path: "/api/manage/test-db",
+        resource_type: "db", resource_id: null,
+        status: "success", error_message: null, ip, user_agent,
+        metadata: { type: "sqlite" },
+      });
       return NextResponse.json({ ok: true, message: "SQLite 数据库可用" });
     }
 
@@ -34,9 +43,21 @@ export async function POST(request: NextRequest) {
     await conn.ping();
     await conn.end();
 
+    void recordAudit({
+      ...actor, action: "test-db:run", method: "POST", path: "/api/manage/test-db",
+      resource_type: "db", resource_id: null,
+      status: "success", error_message: null, ip, user_agent,
+      metadata: { type: "mysql" },
+    });
     return NextResponse.json({ ok: true, message: "连接成功" });
   } catch (err) {
     console.error("Test-db error:", err);
+    void recordAudit({
+      ...actor, action: "test-db:run", method: "POST", path: "/api/manage/test-db",
+      resource_type: "db", resource_id: null,
+      status: "failed", error_message: err instanceof Error ? err.message : "连接失败", ip, user_agent,
+      metadata: null,
+    });
     return NextResponse.json(
       {
         ok: false,

@@ -12,6 +12,7 @@ vi.mock("@/lib/db", () => ({
   getMaxCustomTags: vi.fn(),
   getSubmissionDeadline: vi.fn(),
   isSubmissionClosed: vi.fn(),
+  insertAuditLog: vi.fn(),
 }));
 
 import { POST, GET } from "@/app/api/shared/profile/route";

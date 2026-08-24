@@ -10,6 +10,7 @@ import {
 } from "@/lib/db";
 import { normalizeTagNames, extractCustomTags } from "@/lib/tag-utils";
 import { verifyToken } from "@/lib/token";
+import { getRequestContext, recordAudit } from "@/lib/audit";
 
 /** 单个标签名称长度上限（与标签管理端新增校验一致） */
 const MAX_TAG_NAME_LENGTH = 50;
@@ -70,6 +71,7 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
+  const { ip, user_agent } = getRequestContext(request);
   try {
     // 已移除快速提交通道（#92）：保存必须学生本人登录，身份只取自会话，拒绝显式指定学号，杜绝覆盖他人数据
     const token = request.cookies.get("auth_token")?.value;
@@ -90,6 +92,12 @@ export async function POST(request: NextRequest) {
 
     // 提交时限强制拦截（#96）：超过截止时间一律拒绝保存（含已提交学生的修改），前端禁用仅为体验，服务端是最终防线
     if (await isSubmissionClosed()) {
+      void recordAudit({
+        actor_id: currentUser.id, actor_user_code: currentUser.user_code, actor_name: currentUser.name, actor_role: currentUser.role,
+        action: "profile:submit", method: "POST", path: "/api/shared/profile",
+        resource_type: "profile", resource_id: currentUser.user_code,
+        status: "failed", error_message: "档案提交已截止，无法保存", ip, user_agent, metadata: null,
+      });
       return NextResponse.json({ error: "档案提交已截止，无法保存" }, { status: 403 });
     }
 
@@ -123,6 +131,14 @@ export async function POST(request: NextRequest) {
     }
 
     await upsertSubmission(studentId, JSON.stringify(names), avatarUrl || "", evaluationUrl || "");
+    // 档案提交/修改审计（#110）：仅记标签计数，不记标签内容（学生数据不重复入库）
+    void recordAudit({
+      actor_id: currentUser.id, actor_user_code: currentUser.user_code, actor_name: currentUser.name, actor_role: currentUser.role,
+      action: "profile:submit", method: "POST", path: "/api/shared/profile",
+      resource_type: "profile", resource_id: studentId,
+      status: "success", error_message: null, ip, user_agent,
+      metadata: { tagCount: names.length, hasAvatar: Boolean(avatarUrl), hasEvaluation: Boolean(evaluationUrl) },
+    });
     return NextResponse.json({ message: "保存成功" });
   } catch (err) {
     console.error("Profile POST error:", err);

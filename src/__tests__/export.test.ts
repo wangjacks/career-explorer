@@ -5,6 +5,7 @@ import JSZip from "jszip";
 vi.mock("@/lib/db", () => ({
   getStudents: vi.fn(),
   getAllSubmitted: vi.fn(),
+  insertAuditLog: vi.fn(),
 }));
 
 import { GET } from "@/app/api/manage/export/route";

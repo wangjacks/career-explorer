@@ -3,6 +3,7 @@ import { verifyPassword } from "@/lib/auth";
 import { signToken, verifyToken } from "@/lib/token";
 import type { Role } from "@/lib/token";
 import { getUserByCode, getUserById } from "@/lib/db";
+import { getAuditActor, getRequestContext, recordAudit } from "@/lib/audit";
 
 const COOKIE_OPTIONS = {
   httpOnly: true,
@@ -14,18 +15,40 @@ const COOKIE_OPTIONS = {
 
 /** 统一登录：user_code + 密码（admin/teacher/student 三角色） */
 export async function POST(request: NextRequest) {
+  const { ip, user_agent } = getRequestContext(request);
+  // 登录失败时尚无会话：操作者快照仅含尝试编号（#110）
+  const failedAudit = (attemptedCode: string, reason: string) =>
+    recordAudit({
+      actor_id: null,
+      actor_user_code: attemptedCode,
+      actor_name: null,
+      actor_role: null,
+      action: "auth:login-failed",
+      method: "POST",
+      path: "/api/auth",
+      resource_type: "session",
+      resource_id: null,
+      status: "failed",
+      error_message: "登录失败",
+      ip,
+      user_agent,
+      metadata: { reason },
+    });
   try {
     const { userCode, password } = await request.json();
     if (!userCode || !password) {
+      void failedAudit("", "参数缺失");
       return NextResponse.json({ ok: false, error: "请输入编号和密码" }, { status: 400 });
     }
 
     const user = await getUserByCode(String(userCode).trim());
     if (!user || !user.password_hash) {
-      // 区分「无此用户」与「未设密码」：前者与密码错误共用提示，避免泄露账号是否存在
+      // 区分「无此用户」与「未设密码」：前者与密码错误共用提示，避免泄露账号是否存在；审计区分原因便于安全分析（不对外暴露）
       if (!user) {
+        void failedAudit(String(userCode).trim(), "用户不存在");
         return NextResponse.json({ ok: false, error: "编号或密码错误" }, { status: 401 });
       }
+      void failedAudit(String(userCode).trim(), "账户未设密码");
       return NextResponse.json(
         { ok: false, error: "该账户尚未设置密码，请联系管理员" },
         { status: 401 }
@@ -34,6 +57,7 @@ export async function POST(request: NextRequest) {
 
     const valid = await verifyPassword(String(password), user.password_hash);
     if (!valid) {
+      void failedAudit(String(userCode).trim(), "密码错误");
       return NextResponse.json({ ok: false, error: "编号或密码错误" }, { status: 401 });
     }
 
@@ -41,6 +65,22 @@ export async function POST(request: NextRequest) {
       role: user.role as Role,
       uid: user.id,
       name: user.name,
+    });
+    void recordAudit({
+      actor_id: user.id,
+      actor_user_code: user.user_code,
+      actor_name: user.name,
+      actor_role: user.role,
+      action: "auth:login",
+      method: "POST",
+      path: "/api/auth",
+      resource_type: "session",
+      resource_id: null,
+      status: "success",
+      error_message: null,
+      ip,
+      user_agent,
+      metadata: null,
     });
     const response = NextResponse.json({
       ok: true,
@@ -97,8 +137,23 @@ export async function GET(request: NextRequest) {
   });
 }
 
-/** 登出：清除 auth_token */
-export async function DELETE() {
+/** 登出：清除 auth_token（#110：先记录审计再清 cookie，否则拿不到操作者） */
+export async function DELETE(request: NextRequest) {
+  const { ip, user_agent } = getRequestContext(request);
+  const actor = await getAuditActor(request);
+  void recordAudit({
+    ...actor,
+    action: "auth:logout",
+    method: "DELETE",
+    path: "/api/auth",
+    resource_type: "session",
+    resource_id: null,
+    status: "success",
+    error_message: null,
+    ip,
+    user_agent,
+    metadata: null,
+  });
   const response = NextResponse.json({ ok: true });
   response.cookies.set("auth_token", "", { ...COOKIE_OPTIONS, maxAge: 0 });
   return response;

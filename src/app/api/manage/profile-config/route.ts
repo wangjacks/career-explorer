@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getMaxCustomTags, getSubmissionDeadline, setProfileConfig, SUBMISSION_DEADLINE_KEY } from "@/lib/db";
+import { getAuditActor, getRequestContext, recordAudit } from "@/lib/audit";
 
 /** 档案功能设置（#94/#96）：管理/教师面板读写；表单端读取上限/截止状态走开放端点 /api/tags */
 
@@ -27,8 +28,13 @@ function parseDeadline(raw: unknown): string | null {
 }
 
 export async function PUT(request: NextRequest) {
+  const { ip, user_agent } = getRequestContext(request);
+  const actor = await getAuditActor(request);
   try {
     const body = (await request.json()) as Record<string, unknown>;
+    // 变更前快照（审计记 old/new，#110）
+    const oldMaxCustomTags = await getMaxCustomTags();
+    const oldDeadline = await getSubmissionDeadline();
 
     // 自定义标签上限（可选提交，提交时校验）
     if (body.maxCustomTags !== undefined) {
@@ -55,6 +61,15 @@ export async function PUT(request: NextRequest) {
 
     const maxCustomTags = await getMaxCustomTags();
     const submissionDeadline = await getSubmissionDeadline();
+    void recordAudit({
+      ...actor, action: "profile-config:update", method: "PUT", path: "/api/manage/profile-config",
+      resource_type: "profile-config", resource_id: null,
+      status: "success", error_message: null, ip, user_agent,
+      metadata: {
+        old: { maxCustomTags: oldMaxCustomTags, submissionDeadline: oldDeadline },
+        new: { maxCustomTags, submissionDeadline },
+      },
+    });
     return NextResponse.json({ ok: true, maxCustomTags, submissionDeadline });
   } catch (err) {
     console.error("Profile config PUT error:", err);
