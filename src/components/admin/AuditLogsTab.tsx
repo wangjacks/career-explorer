@@ -224,8 +224,8 @@ export default function AuditLogsTab({ mode }: AuditLogsTabProps) {
                     <span
                       className={`px-1.5 py-0.5 text-[10px] rounded-full font-medium ${
                         r.status === "success"
-                          ? "bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400"
-                          : "bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400"
+                          ? "bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-300"
+                          : "bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-300"
                       }`}
                     >
                       {r.status === "success" ? "成功" : "失败"}
