@@ -125,6 +125,8 @@ export interface BackupData {
   classes: ClassRow[];
   teacher_classes: TeacherClassRow[];
   tags: BackupTagRow[];
+  /** 审计日志（#110；旧备份可能缺失，读取方容忍 undefined） */
+  audit_logs?: AuditLogRow[];
   /** 档案功能配置（configs_profile 键值对；旧备份可能缺失，读取方容忍 undefined） */
   configs_profile?: { key: string; value: string }[];
 }
@@ -133,6 +135,43 @@ export interface BackupData {
 export interface ConfigRow {
   key: string;
   value: string;
+}
+
+/** audit_logs 表行（#110）：操作者字段为快照冗余，账号改名/删除后仍可追溯 */
+export interface AuditLogRow {
+  id: number;
+  created_at: string;
+  actor_id: number | null; // 登录失败时为 NULL
+  actor_user_code: string | null;
+  actor_name: string | null;
+  actor_role: string | null;
+  action: string; // 语义词汇表 `资源:动作`
+  method: string | null;
+  path: string | null;
+  resource_type: string | null;
+  resource_id: string | null;
+  status: "success" | "failed" | string;
+  error_message: string | null;
+  ip: string | null;
+  user_agent: string | null;
+  metadata: string | null; // JSON，已脱敏 + 截断
+}
+
+/** 审计日志写入参数（created_at 由适配器统一生成） */
+export type NewAuditLog = Omit<AuditLogRow, "id" | "created_at">;
+
+/** 审计日志查询筛选（教师场景由调用方强制注入 actorId，防越权） */
+export interface AuditLogFilters {
+  page: number;
+  pageSize: number;
+  from?: string;
+  to?: string;
+  actorId?: number;
+  actorRole?: string;
+  actorQuery?: string; // 姓名/编号模糊
+  action?: string;
+  resourceType?: string;
+  status?: string;
 }
 
 /** 档案功能配置项：自定义标签数量上限默认值 */
@@ -216,6 +255,12 @@ export interface DbAdapter {
   // configs_profile（档案功能配置，键值式）
   getProfileConfigs(): Promise<ConfigRow[]> | ConfigRow[];
   setProfileConfig(key: string, value: string): Promise<void> | void;
+
+  // audit_logs（操作审计，#110：只追加 + 查询，不提供修改/删除）
+  insertAuditLog(log: NewAuditLog): Promise<void> | void;
+  queryAuditLogs(
+    filters: AuditLogFilters
+  ): Promise<{ rows: AuditLogRow[]; total: number }> | { rows: AuditLogRow[]; total: number };
 
   backup(): Promise<BackupData> | BackupData;
   restore(data: BackupData): Promise<void> | void;
@@ -445,6 +490,18 @@ export async function getProfileConfigs(): Promise<ConfigRow[]> {
 export async function setProfileConfig(key: string, value: string): Promise<void> {
   const adapter = await ensureInit();
   return Promise.resolve(adapter.setProfileConfig(key, value));
+}
+
+export async function insertAuditLog(log: NewAuditLog): Promise<void> {
+  const adapter = await ensureInit();
+  return Promise.resolve(adapter.insertAuditLog(log));
+}
+
+export async function queryAuditLogs(
+  filters: AuditLogFilters
+): Promise<{ rows: AuditLogRow[]; total: number }> {
+  const adapter = await ensureInit();
+  return Promise.resolve(adapter.queryAuditLogs(filters));
 }
 
 /** 读取自定义标签数量上限；配置缺失或非法时回退默认值 */

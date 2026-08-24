@@ -15,6 +15,9 @@ import type {
   NewUser,
   UserUpdateFields,
   ConfigRow,
+  AuditLogRow,
+  NewAuditLog,
+  AuditLogFilters,
 } from "./db";
 
 function getNow(): string {
@@ -129,6 +132,32 @@ export class SqliteAdapter implements DbAdapter {
     this.db
       .prepare("INSERT OR IGNORE INTO configs_profile (key, value, updated_at) VALUES (?, ?, ?)")
       .run("max_custom_tags", String(DEFAULT_MAX_CUSTOM_TAGS), getNow());
+    // 操作审计日志（#110）：只追加 + 查询，操作者字段快照冗余，追溯不依赖外键（账号可被删改）
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS audit_logs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        created_at TEXT NOT NULL,
+        actor_id INTEGER,
+        actor_user_code TEXT,
+        actor_name TEXT,
+        actor_role TEXT,
+        action TEXT NOT NULL,
+        method TEXT,
+        path TEXT,
+        resource_type TEXT,
+        resource_id TEXT,
+        status TEXT NOT NULL,
+        error_message TEXT,
+        ip TEXT,
+        user_agent TEXT,
+        metadata TEXT
+      )
+    `);
+    this.db.exec(`CREATE INDEX IF NOT EXISTS idx_audit_created_at ON audit_logs(created_at)`);
+    this.db.exec(`CREATE INDEX IF NOT EXISTS idx_audit_actor_id ON audit_logs(actor_id)`);
+    this.db.exec(
+      `CREATE INDEX IF NOT EXISTS idx_audit_resource ON audit_logs(resource_type, resource_id)`
+    );
     this.migrateTagSchema();
     this.seedTags();
     this.migrateLegacy();
@@ -664,6 +693,82 @@ export class SqliteAdapter implements DbAdapter {
       .run(key, value, getNow());
   }
 
+  insertAuditLog(log: NewAuditLog): void {
+    this.db
+      .prepare(
+        `INSERT INTO audit_logs (
+          created_at, actor_id, actor_user_code, actor_name, actor_role,
+          action, method, path, resource_type, resource_id,
+          status, error_message, ip, user_agent, metadata
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      )
+      .run(
+        getNow(),
+        log.actor_id,
+        log.actor_user_code,
+        log.actor_name,
+        log.actor_role,
+        log.action,
+        log.method,
+        log.path,
+        log.resource_type,
+        log.resource_id,
+        log.status,
+        log.error_message,
+        log.ip,
+        log.user_agent,
+        log.metadata
+      );
+  }
+
+  /** 审计查询条件构建（参数化，无 SQL 拼接注入风险） */
+  private buildAuditWhere(filters: AuditLogFilters): { where: string; params: (string | number)[] } {
+    const clauses: string[] = [];
+    const params: (string | number)[] = [];
+    if (filters.from) {
+      clauses.push("created_at >= ?");
+      params.push(filters.from);
+    }
+    if (filters.to) {
+      clauses.push("created_at <= ?");
+      params.push(filters.to);
+    }
+    if (filters.actorId !== undefined) {
+      clauses.push("actor_id = ?");
+      params.push(filters.actorId);
+    }
+    if (filters.actorRole) {
+      clauses.push("actor_role = ?");
+      params.push(filters.actorRole);
+    }
+    if (filters.actorQuery) {
+      clauses.push("(actor_name LIKE ? OR actor_user_code LIKE ?)");
+      params.push(`%${filters.actorQuery}%`, `%${filters.actorQuery}%`);
+    }
+    if (filters.action) {
+      clauses.push("action = ?");
+      params.push(filters.action);
+    }
+    if (filters.resourceType) {
+      clauses.push("resource_type = ?");
+      params.push(filters.resourceType);
+    }
+    if (filters.status) {
+      clauses.push("status = ?");
+      params.push(filters.status);
+    }
+    return { where: clauses.length > 0 ? ` WHERE ${clauses.join(" AND ")}` : "", params };
+  }
+
+  queryAuditLogs(filters: AuditLogFilters): { rows: AuditLogRow[]; total: number } {
+    const { where, params } = this.buildAuditWhere(filters);
+    const total = (this.db.prepare(`SELECT COUNT(*) AS n FROM audit_logs${where}`).get(...params) as { n: number }).n;
+    const rows = this.db
+      .prepare(`SELECT * FROM audit_logs${where} ORDER BY id DESC LIMIT ? OFFSET ?`)
+      .all(...params, filters.pageSize, (filters.page - 1) * filters.pageSize) as AuditLogRow[];
+    return { rows, total };
+  }
+
   backup(): BackupData {
     const users = this.db.prepare("SELECT * FROM users ORDER BY id").all() as UserRow[];
     const classes = this.db.prepare("SELECT * FROM classes ORDER BY id").all() as ClassRow[];
@@ -677,6 +782,9 @@ export class SqliteAdapter implements DbAdapter {
     const configs = this.db
       .prepare("SELECT key, value FROM configs_profile ORDER BY id")
       .all() as { key: string; value: string }[];
+    const auditLogs = this.db
+      .prepare("SELECT * FROM audit_logs ORDER BY id")
+      .all() as AuditLogRow[];
     return {
       version: 3,
       sourceType: "sqlite",
@@ -685,6 +793,7 @@ export class SqliteAdapter implements DbAdapter {
       classes,
       teacher_classes: teacherClasses,
       tags,
+      audit_logs: auditLogs,
       configs_profile: configs,
     };
   }
@@ -754,6 +863,37 @@ export class SqliteAdapter implements DbAdapter {
           "INSERT INTO configs_profile (key, value, updated_at) VALUES (?, ?, ?)"
         );
         for (const c of d.configs_profile) stmt.run(c.key, c.value, getNow());
+      }
+      // 审计日志恢复（#110；旧备份无此字段时保留当前审计记录不动）
+      if (Array.isArray(d.audit_logs)) {
+        this.db.exec("DELETE FROM audit_logs");
+        const stmt = this.db.prepare(
+          `INSERT INTO audit_logs (
+            id, created_at, actor_id, actor_user_code, actor_name, actor_role,
+            action, method, path, resource_type, resource_id,
+            status, error_message, ip, user_agent, metadata
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        );
+        for (const a of d.audit_logs) {
+          stmt.run(
+            a.id,
+            a.created_at,
+            a.actor_id,
+            a.actor_user_code,
+            a.actor_name,
+            a.actor_role,
+            a.action,
+            a.method,
+            a.path,
+            a.resource_type,
+            a.resource_id,
+            a.status,
+            a.error_message,
+            a.ip,
+            a.user_agent,
+            a.metadata
+          );
+        }
       }
     });
     restoreTx(data);
