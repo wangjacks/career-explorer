@@ -380,3 +380,82 @@ describe("班级管理与教师账户", () => {
     rmSync(path.dirname(dbPath), { recursive: true, force: true });
   });
 });
+
+describe("审计日志（#110）", () => {
+  const sampleLog = (overrides: Partial<Parameters<SqliteAdapter["insertAuditLog"]>[0]> = {}) => ({
+    actor_id: 1,
+    actor_user_code: "10001",
+    actor_name: "管理员",
+    actor_role: "admin",
+    action: "student:create",
+    method: "POST",
+    path: "/api/manage/students",
+    resource_type: "student",
+    resource_id: "202505050101",
+    status: "success",
+    error_message: null,
+    ip: "127.0.0.1",
+    user_agent: "vitest",
+    metadata: JSON.stringify({ name: "张三" }),
+    ...overrides,
+  });
+
+  it("insertAuditLog + queryAuditLogs 分页与筛选", () => {
+    const dbPath = makeTmpDb();
+    const adapter = new SqliteAdapter(dbPath);
+    adapter.init();
+
+    adapter.insertAuditLog(sampleLog());
+    adapter.insertAuditLog(sampleLog({ actor_id: 2, actor_user_code: "10000001", actor_name: "王老师", actor_role: "teacher", action: "class:create", resource_type: "class", resource_id: "1" }));
+    adapter.insertAuditLog(sampleLog({ status: "failed", error_message: "学号不存在", action: "student:update" }));
+
+    // 全量：倒序返回（最新在前）
+    const all = adapter.queryAuditLogs({ page: 1, pageSize: 20 });
+    expect(all.total).toBe(3);
+    expect(all.rows[0].action).toBe("student:update");
+
+    // action 筛选
+    const byAction = adapter.queryAuditLogs({ page: 1, pageSize: 20, action: "student:create" });
+    expect(byAction.total).toBe(1);
+
+    // 操作者强制筛选（教师越权防护的数据层支撑）
+    const byActor = adapter.queryAuditLogs({ page: 1, pageSize: 20, actorId: 2 });
+    expect(byActor.total).toBe(1);
+    expect(byActor.rows[0].actor_name).toBe("王老师");
+
+    // 结果筛选 + 模糊搜索 + 分页
+    expect(adapter.queryAuditLogs({ page: 1, pageSize: 20, status: "failed" }).total).toBe(1);
+    expect(adapter.queryAuditLogs({ page: 1, pageSize: 20, actorQuery: "王" }).total).toBe(1);
+    expect(adapter.queryAuditLogs({ page: 1, pageSize: 2 }).rows).toHaveLength(2);
+    expect(adapter.queryAuditLogs({ page: 2, pageSize: 2 }).rows).toHaveLength(1);
+
+    adapter.close();
+    rmSync(path.dirname(dbPath), { recursive: true, force: true });
+  });
+
+  it("备份含 audit_logs 且恢复后保留；旧备份无此字段时保留当前记录", () => {
+    const dbPath = makeTmpDb();
+    const adapter = new SqliteAdapter(dbPath);
+    adapter.init();
+
+    adapter.insertAuditLog(sampleLog());
+    const data = adapter.backup();
+    expect(Array.isArray(data.audit_logs)).toBe(true);
+    expect(data.audit_logs).toHaveLength(1);
+
+    // 恢复后审计记录保留（新增一条验证替换而非累加）
+    adapter.insertAuditLog(sampleLog({ action: "audit:query" }));
+    expect(adapter.queryAuditLogs({ page: 1, pageSize: 20 }).total).toBe(2);
+    adapter.restore(data);
+    expect(adapter.queryAuditLogs({ page: 1, pageSize: 20 }).total).toBe(1);
+
+    // 旧备份无 audit_logs 字段 → 保留当前审计记录不动（兼容）
+    const legacy = { ...data, audit_logs: undefined };
+    adapter.insertAuditLog(sampleLog({ action: "auth:login" }));
+    adapter.restore(legacy);
+    expect(adapter.queryAuditLogs({ page: 1, pageSize: 20 }).total).toBe(2);
+
+    adapter.close();
+    rmSync(path.dirname(dbPath), { recursive: true, force: true });
+  });
+});
