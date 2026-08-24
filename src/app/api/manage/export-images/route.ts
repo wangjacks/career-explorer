@@ -1,13 +1,24 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAllSubmitted } from "@/lib/db";
 import JSZip from "jszip";
+import { getAuditActor, getRequestContext, recordAudit } from "@/lib/audit";
 
 export async function GET(request: NextRequest) {
+  const { ip, user_agent } = getRequestContext(request);
+  const actor = await getAuditActor(request);
   const { searchParams } = new URL(request.url);
   const scope = searchParams.get("scope") || "all";
   const idsParam = searchParams.get("ids") || "";
   const dateFrom = searchParams.get("dateFrom") || "";
   const dateTo = searchParams.get("dateTo") || "";
+
+  // 图片打包导出审计（#110）：仅记范围参数，不记文件明细（含学生隐私）
+  void recordAudit({
+    ...actor, action: "export:images", method: "GET", path: "/api/manage/export-images",
+    resource_type: "export", resource_id: null,
+    status: "success", error_message: null, ip, user_agent,
+    metadata: { scope },
+  });
 
   const profiles = await getAllSubmitted();
 

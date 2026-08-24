@@ -2,9 +2,12 @@ import { NextRequest, NextResponse } from "next/server";
 import { getUserByCode, updateUser } from "@/lib/db";
 import { hashPassword } from "@/lib/auth";
 import { generatePassword } from "@/lib/password";
+import { getAuditActor, getRequestContext, recordAudit } from "@/lib/audit";
 
 /** POST：为多名学生批量重置密码，每人生成不同的随机密码并哈希落库 */
 export async function POST(request: NextRequest) {
+  const { ip, user_agent } = getRequestContext(request);
+  const actor = await getAuditActor(request);
   try {
     const { studentIds } = await request.json();
     if (!Array.isArray(studentIds) || studentIds.length === 0) {
@@ -26,8 +29,22 @@ export async function POST(request: NextRequest) {
     }
 
     if (results.length === 0) {
+      void recordAudit({
+        ...actor, action: "student:batch-password", method: "POST", path: "/api/manage/students/batch-password",
+        resource_type: "student", resource_id: null,
+        status: "failed", error_message: "没有可重置的学生", ip, user_agent,
+        metadata: { requested: studentIds.length },
+      });
       return NextResponse.json({ error: "没有可重置的学生" }, { status: 400 });
     }
+
+    // 审计仅记人数，绝不记录生成的密码（#110）
+    void recordAudit({
+      ...actor, action: "student:batch-password", method: "POST", path: "/api/manage/students/batch-password",
+      resource_type: "student", resource_id: null,
+      status: "success", error_message: null, ip, user_agent,
+      metadata: { reset: results.length, invalid },
+    });
 
     const message =
       invalid > 0

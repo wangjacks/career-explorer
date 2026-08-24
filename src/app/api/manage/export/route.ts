@@ -3,6 +3,7 @@ import { getStudents, getAllSubmitted } from "@/lib/db";
 import ExcelJS from "exceljs";
 import { imageSize } from "image-size";
 import { embedImagesInCells, type CellImageEntry } from "@/lib/xlsx-cell-images";
+import { getAuditActor, getRequestContext, recordAudit } from "@/lib/audit";
 
 interface ExportRow {
   student_id: string;
@@ -38,6 +39,8 @@ function tagsToDisplay(tagsJson: string | null): string {
 }
 
 export async function GET(request: NextRequest) {
+  const { ip, user_agent } = getRequestContext(request);
+  const actor = await getAuditActor(request);
   const { searchParams } = new URL(request.url);
   const format = searchParams.get("format") || "csv";
   const scope = searchParams.get("scope") || "all";
@@ -60,6 +63,14 @@ export async function GET(request: NextRequest) {
   }
 
   const selectedColumns = columnsParam.split(",").filter(Boolean);
+
+  // 导出动作审计（#110）：记录范围参数；数据明细不入库（量大且含学生隐私）
+  void recordAudit({
+    ...actor, action: "export:excel", method: "GET", path: "/api/manage/export",
+    resource_type: "export", resource_id: null,
+    status: "success", error_message: null, ip, user_agent,
+    metadata: { format, scope, columns: selectedColumns.length, imagePlacement },
+  });
 
   // Build student list and submitted profiles
   const students = await getStudents();
@@ -249,8 +260,16 @@ export async function GET(request: NextRequest) {
 
 // Preview endpoint
 export async function POST(request: NextRequest) {
+  const { ip, user_agent } = getRequestContext(request);
+  const actor = await getAuditActor(request);
   const body = await request.json();
   const { scope, ids, dateFrom, dateTo, columns: columnsParam } = body;
+  void recordAudit({
+    ...actor, action: "export:excel", method: "POST", path: "/api/manage/export",
+    resource_type: "export", resource_id: null,
+    status: "success", error_message: null, ip, user_agent,
+    metadata: { preview: true, scope: scope ?? "all" },
+  });
 
   const students = await getStudents();
 

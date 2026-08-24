@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getConfig, setConfig, type DbConfig } from "@/lib/db-config";
 import { closeDb } from "@/lib/db";
+import { getAuditActor, getRequestContext, recordAudit } from "@/lib/audit";
 import type { NextRequest } from "next/server";
 
 export async function GET() {
@@ -8,6 +9,8 @@ export async function GET() {
 }
 
 export async function PUT(request: NextRequest) {
+  const { ip, user_agent } = getRequestContext(request);
+  const actor = await getAuditActor(request);
   try {
     const newConfig = (await request.json()) as DbConfig;
     const dbType = newConfig.type || "mysql";
@@ -27,6 +30,13 @@ export async function PUT(request: NextRequest) {
     const switched = (oldConfig.type || "mysql") !== dbType;
 
     setConfig({ ...newConfig, installed: true });
+    // 审计在 closeDb 前写入；仅记数据源类型变更，不记连接明细（敏感，#110）
+    void recordAudit({
+      ...actor, action: "settings:update", method: "PUT", path: "/api/manage/settings",
+      resource_type: "db-config", resource_id: null,
+      status: "success", error_message: null, ip, user_agent,
+      metadata: { old: { type: oldConfig.type || "mysql" }, new: { type: dbType }, switched },
+    });
     closeDb();
 
     return NextResponse.json({

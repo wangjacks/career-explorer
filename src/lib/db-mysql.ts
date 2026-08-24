@@ -14,6 +14,9 @@ import type {
   NewUser,
   UserUpdateFields,
   ConfigRow,
+  AuditLogRow,
+  NewAuditLog,
+  AuditLogFilters,
 } from "./db";
 
 function getNow(): string {
@@ -132,6 +135,30 @@ export class MysqlAdapter implements DbAdapter {
       "INSERT IGNORE INTO configs_profile (`key`, value, updated_at) VALUES (?, ?, ?)",
       ["max_custom_tags", String(DEFAULT_MAX_CUSTOM_TAGS), getNow()]
     );
+    // 操作审计日志（#110）：只追加 + 查询，操作者字段快照冗余，追溯不依赖外键（账号可被删改）
+    await this.pool.execute(`
+      CREATE TABLE IF NOT EXISTS audit_logs (
+        id BIGINT AUTO_INCREMENT PRIMARY KEY,
+        created_at TEXT NOT NULL,
+        actor_id INT,
+        actor_user_code TEXT,
+        actor_name TEXT,
+        actor_role TEXT,
+        action VARCHAR(100) NOT NULL,
+        method VARCHAR(10),
+        path TEXT,
+        resource_type VARCHAR(50),
+        resource_id VARCHAR(100),
+        status VARCHAR(20) NOT NULL,
+        error_message TEXT,
+        ip TEXT,
+        user_agent TEXT,
+        metadata TEXT,
+        INDEX idx_audit_created_at (created_at(19)),
+        INDEX idx_audit_actor_id (actor_id),
+        INDEX idx_audit_resource (resource_type, resource_id)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    `);
     await this.migrateTagSchema();
     await this.seedTags();
     await this.migrateLegacy();
@@ -698,6 +725,86 @@ export class MysqlAdapter implements DbAdapter {
     );
   }
 
+  async insertAuditLog(log: NewAuditLog): Promise<void> {
+    await this.pool.execute(
+      `INSERT INTO audit_logs (
+        created_at, actor_id, actor_user_code, actor_name, actor_role,
+        action, method, path, resource_type, resource_id,
+        status, error_message, ip, user_agent, metadata
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        getNow(),
+        log.actor_id,
+        log.actor_user_code,
+        log.actor_name,
+        log.actor_role,
+        log.action,
+        log.method,
+        log.path,
+        log.resource_type,
+        log.resource_id,
+        log.status,
+        log.error_message,
+        log.ip,
+        log.user_agent,
+        log.metadata,
+      ]
+    );
+  }
+
+  /** 审计查询条件构建（参数化，无 SQL 拼接注入风险） */
+  private buildAuditWhere(filters: AuditLogFilters): { where: string; params: (string | number)[] } {
+    const clauses: string[] = [];
+    const params: (string | number)[] = [];
+    if (filters.from) {
+      clauses.push("created_at >= ?");
+      params.push(filters.from);
+    }
+    if (filters.to) {
+      clauses.push("created_at <= ?");
+      params.push(filters.to);
+    }
+    if (filters.actorId !== undefined) {
+      clauses.push("actor_id = ?");
+      params.push(filters.actorId);
+    }
+    if (filters.actorRole) {
+      clauses.push("actor_role = ?");
+      params.push(filters.actorRole);
+    }
+    if (filters.actorQuery) {
+      clauses.push("(actor_name LIKE ? OR actor_user_code LIKE ?)");
+      params.push(`%${filters.actorQuery}%`, `%${filters.actorQuery}%`);
+    }
+    if (filters.action) {
+      clauses.push("action = ?");
+      params.push(filters.action);
+    }
+    if (filters.resourceType) {
+      clauses.push("resource_type = ?");
+      params.push(filters.resourceType);
+    }
+    if (filters.status) {
+      clauses.push("status = ?");
+      params.push(filters.status);
+    }
+    return { where: clauses.length > 0 ? ` WHERE ${clauses.join(" AND ")}` : "", params };
+  }
+
+  async queryAuditLogs(filters: AuditLogFilters): Promise<{ rows: AuditLogRow[]; total: number }> {
+    const { where, params } = this.buildAuditWhere(filters);
+    const [countRows] = await this.pool.execute(
+      `SELECT COUNT(*) AS n FROM audit_logs${where}`,
+      params
+    );
+    const total = Number((countRows as { n: number }[])[0]?.n ?? 0);
+    const [rows] = await this.pool.execute(
+      `SELECT * FROM audit_logs${where} ORDER BY id DESC LIMIT ? OFFSET ?`,
+      [...params, filters.pageSize, (filters.page - 1) * filters.pageSize]
+    );
+    return { rows: rows as AuditLogRow[], total };
+  }
+
   async backup(): Promise<BackupData> {
     const [users] = await this.pool.execute("SELECT * FROM users ORDER BY id");
     const [classes] = await this.pool.execute("SELECT * FROM classes ORDER BY id");
@@ -708,6 +815,7 @@ export class MysqlAdapter implements DbAdapter {
     const [configs] = await this.pool.execute(
       "SELECT `key` as `key`, value FROM configs_profile ORDER BY id"
     );
+    const [auditLogs] = await this.pool.execute("SELECT * FROM audit_logs ORDER BY id");
     return {
       version: 3,
       sourceType: "mysql",
@@ -716,6 +824,7 @@ export class MysqlAdapter implements DbAdapter {
       classes: classes as ClassRow[],
       teacher_classes: teacherClasses as BackupData["teacher_classes"],
       tags: tags as TagRow[],
+      audit_logs: auditLogs as AuditLogRow[],
       configs_profile: configs as { key: string; value: string }[],
     };
   }
@@ -786,6 +895,38 @@ export class MysqlAdapter implements DbAdapter {
           const values = data.configs_profile.map((c) => [c.key, c.value, getNow()]);
           await conn.query(
             "INSERT INTO configs_profile (`key`, value, updated_at) VALUES ?",
+            [values]
+          );
+        }
+      }
+      // 审计日志恢复（#110；旧备份无此字段时保留当前审计记录不动）
+      if (Array.isArray(data.audit_logs)) {
+        await conn.execute("DELETE FROM audit_logs");
+        if (data.audit_logs.length > 0) {
+          const values = data.audit_logs.map((a) => [
+            a.id,
+            a.created_at,
+            a.actor_id,
+            a.actor_user_code,
+            a.actor_name,
+            a.actor_role,
+            a.action,
+            a.method,
+            a.path,
+            a.resource_type,
+            a.resource_id,
+            a.status,
+            a.error_message,
+            a.ip,
+            a.user_agent,
+            a.metadata,
+          ]);
+          await conn.query(
+            `INSERT INTO audit_logs (
+              id, created_at, actor_id, actor_user_code, actor_name, actor_role,
+              action, method, path, resource_type, resource_id,
+              status, error_message, ip, user_agent, metadata
+            ) VALUES ?`,
             [values]
           );
         }

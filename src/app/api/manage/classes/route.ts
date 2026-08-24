@@ -8,6 +8,7 @@ import {
   randomInviteCode,
 } from "@/lib/db";
 import { getSession } from "./helpers";
+import { getRequestContext, recordAudit } from "@/lib/audit";
 
 /** 生成不重复的邀请码（碰撞重试） */
 async function uniqueInviteCode(): Promise<string> {
@@ -30,6 +31,7 @@ export async function GET() {
 }
 
 export async function POST(request: NextRequest) {
+  const { ip, user_agent } = getRequestContext(request);
   try {
     const session = await getSession(request);
     if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -50,6 +52,14 @@ export async function POST(request: NextRequest) {
     if (session.role === "teacher" && session.uid != null) {
       await insertTeacherClass(session.uid, id);
     }
+    // 邀请码不写入审计（#110）
+    void recordAudit({
+      actor_id: session.uid ?? null, actor_user_code: null, actor_name: session.name ?? null, actor_role: session.role ?? null,
+      action: "class:create", method: "POST", path: "/api/manage/classes",
+      resource_type: "class", resource_id: String(id),
+      status: "success", error_message: null, ip, user_agent,
+      metadata: { name: className },
+    });
     return NextResponse.json({ ok: true, id });
   } catch (err) {
     console.error("Classes POST error:", err);

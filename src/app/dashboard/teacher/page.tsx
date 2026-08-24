@@ -10,6 +10,7 @@ import {
   Home,
   MonitorPlay,
   School,
+  ScrollText,
   SlidersHorizontal,
   Table,
   Tags,
@@ -26,10 +27,11 @@ import DashboardTab from "@/components/admin/DashboardTab";
 import ExportTab from "@/components/admin/ExportTab";
 import TagsTab from "@/components/admin/TagsTab";
 import ProfileConfigTab from "@/components/admin/ProfileConfigTab";
+import AuditLogsTab from "@/components/admin/AuditLogsTab";
 import { useSession } from "@/hooks/useSession";
 import type { Student, Stats, PagedData } from "@/hooks/useAdminAuth";
 
-type Tab = "home" | "overview" | "dashboard" | "export" | "profiles" | "students" | "classes" | "tags" | "profile-config";
+type Tab = "home" | "overview" | "dashboard" | "export" | "profiles" | "students" | "classes" | "tags" | "profile-config" | "audit-logs";
 
 /** 教师面板：分组侧边栏导航（主页 + 数据中心 + 数据管理） */
 export default function TeacherDashboardPage() {
@@ -132,7 +134,10 @@ export default function TeacherDashboardPage() {
     },
     {
       label: "系统设置",
-      items: [{ key: "profile-config", label: "功能设置", icon: SlidersHorizontal }],
+      items: [
+        { key: "profile-config", label: "功能设置", icon: SlidersHorizontal },
+        { key: "audit-logs", label: "操作审计", icon: ScrollText },
+      ],
     },
   ];
 
@@ -187,6 +192,8 @@ export default function TeacherDashboardPage() {
             {activeTab === "tags" && <TagsTab />}
 
             {activeTab === "profile-config" && <ProfileConfigTab />}
+
+            {activeTab === "audit-logs" && <AuditLogsTab mode="teacher" />}
           </div>
         </main>
       </div>

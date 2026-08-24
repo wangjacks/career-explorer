@@ -57,6 +57,7 @@
 | `/api/manage/students`（含 `/batch-password`） | 全方法 | 学生管理 + 批量改密 |
 | `/api/manage/tags`（含 `/batch`） | 全方法 | 预设标签管理（CRUD / 物理删除 / 批量导入 / 排序） |
 | `/api/manage/profile-config` | 全方法 | 档案功能配置（自定义标签上限 #94、提交截止时间 #96） |
+| `/api/manage/audit-logs` | 仅 GET | 操作审计只读查询（#110；教师强制限本人记录，查询自身被审计） |
 | `/api/manage/export` | 全方法 | Excel/CSV 导出（XLSX 支持原生单元格图片与浮动图片双模式，默认单元格图片） |
 | `/api/manage/export-images` | 全方法 | 图片打包导出 |
 | `/api/manage/stats`（含 `compare`/`distribution`/`trends`） | 仅 GET | 统计数据 |
@@ -84,9 +85,10 @@
 - `classes` — 班级表（`name`、`invitation_code` 唯一）
 - `teacher_classes` — 教师-班级多对多关联
 - `tags` — 预设二级标签（`type` category/tag、`parent_id` 层级）；#94 起降级为表单预设项，物理删除，停用机制下线（`active` 列保留）
-- `configs_profile` — 档案功能配置键值表（#94，首项 `max_custom_tags`）
+- `configs_profile` — 档案功能配置键值表（#94/#96：`max_custom_tags`、`submission_deadline`）
+- `audit_logs` — 操作审计表（#110）：只追加 + 查询；操作者快照冗余；索引 `created_at` / `actor_id` / `(resource_type, resource_id)`
 
-完整 Schema 见 `docs/plan-v2.0.0.md`。备份格式 `BackupData`（version 3）：`users` + `classes` + `teacher_classes` + `tags` + `configs_profile`（#94 起），含 `password_hash`，不含上传文件。
+完整 Schema 见 `docs/plan-v2.0.0.md`。备份格式 `BackupData`（version 3）：`users` + `classes` + `teacher_classes` + `tags` + `configs_profile`（#94 起）+ `audit_logs`（#110 起，旧备份缺失时保留当前记录），含 `password_hash`，不含上传文件。
 
 ## 数据流
 

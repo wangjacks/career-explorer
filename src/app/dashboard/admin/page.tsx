@@ -10,6 +10,7 @@ import {
   GraduationCap,
   MonitorPlay,
   School,
+  ScrollText,
   ShieldCheck,
   SlidersHorizontal,
   Tags,
@@ -29,8 +30,9 @@ import TagsTab from "@/components/admin/TagsTab";
 import ClassesTab from "@/components/admin/ClassesTab";
 import TeachersTab from "@/components/admin/TeachersTab";
 import ProfileConfigTab from "@/components/admin/ProfileConfigTab";
+import AuditLogsTab from "@/components/admin/AuditLogsTab";
 
-type Tab = "overview" | "dashboard" | "settings" | "students" | "classes" | "teachers" | "export" | "tags" | "profile-config";
+type Tab = "overview" | "dashboard" | "settings" | "students" | "classes" | "teachers" | "export" | "tags" | "profile-config" | "audit-logs";
 
 /** 管理面板：分组侧边栏导航（数据中心 + 用户管理 + 系统设置） */
 export default function AdminPage() {
@@ -148,6 +150,7 @@ export default function AdminPage() {
       items: [
         { key: "settings", label: "数据源设置", icon: Database },
         { key: "profile-config", label: "功能设置", icon: SlidersHorizontal },
+        { key: "audit-logs", label: "操作审计", icon: ScrollText },
       ],
     },
   ];
@@ -228,6 +231,10 @@ export default function AdminPage() {
 
             {activeTab === "profile-config" && (
               <ProfileConfigTab />
+            )}
+
+            {activeTab === "audit-logs" && (
+              <AuditLogsTab mode="admin" />
             )}
           </div>
         </main>

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getTags, insertTag } from "@/lib/db";
+import { getAuditActor, getRequestContext, recordAudit } from "@/lib/audit";
 
 const MAX_NAME_LENGTH = 50;
 
@@ -8,6 +9,8 @@ const MAX_NAME_LENGTH = 50;
  * 分类不存在时自动创建；「分类+标签名」已存在则跳过；返回导入/跳过计数。
  */
 export async function POST(request: NextRequest) {
+  const { ip, user_agent } = getRequestContext(request);
+  const actor = await getAuditActor(request);
   try {
     const body = (await request.json()) as { items?: unknown };
     if (!Array.isArray(body.items) || body.items.length === 0) {
@@ -84,6 +87,13 @@ export async function POST(request: NextRequest) {
       existingTagKeys.add(key);
       imported += 1;
     }
+
+    void recordAudit({
+      ...actor, action: "tag:batch-import", method: "POST", path: "/api/manage/tags/batch",
+      resource_type: "tag", resource_id: null,
+      status: "success", error_message: null, ip, user_agent,
+      metadata: { imported, skipped },
+    });
 
     return NextResponse.json({ ok: true, imported, skipped });
   } catch (err) {

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getTags, insertTag, updateTag, deleteTags } from "@/lib/db";
 import type { TagRow } from "@/lib/db";
+import { getAuditActor, getRequestContext, recordAudit } from "@/lib/audit";
 
 type TagType = "category" | "tag";
 
@@ -46,6 +47,8 @@ export async function GET() {
 }
 
 export async function POST(request: NextRequest) {
+  const { ip, user_agent } = getRequestContext(request);
+  const actor = await getAuditActor(request);
   try {
     const body = await request.json() as Record<string, unknown>;
     const name = String(body.name ?? "").trim();
@@ -59,6 +62,12 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "请选择有效的一级分类" }, { status: 400 });
     }
     if (type === "category" && findDuplicateCategory(tags, name)) {
+      void recordAudit({
+        ...actor, action: "tag:create", method: "POST", path: "/api/manage/tags",
+        resource_type: "tag", resource_id: null,
+        status: "failed", error_message: "分类名称已存在", ip, user_agent,
+        metadata: { name, type },
+      });
       return NextResponse.json({ error: "分类名称已存在" }, { status: 409 });
     }
     const categoryOrder = parseOrder(body.category_order);
@@ -67,6 +76,12 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "排序值无效" }, { status: 400 });
     }
     const id = await insertTag({ name, type, parent_id: parentId, category_order: categoryOrder, sort_order: sortOrder });
+    void recordAudit({
+      ...actor, action: "tag:create", method: "POST", path: "/api/manage/tags",
+      resource_type: "tag", resource_id: String(id),
+      status: "success", error_message: null, ip, user_agent,
+      metadata: { name, type },
+    });
     return NextResponse.json({ id }, { status: 201 });
   } catch (err) {
     console.error("Admin tags POST error:", err);
@@ -75,6 +90,8 @@ export async function POST(request: NextRequest) {
 }
 
 export async function PATCH(request: NextRequest) {
+  const { ip, user_agent } = getRequestContext(request);
+  const actor = await getAuditActor(request);
   try {
     const body = await request.json() as Record<string, unknown>;
     const id = Number(body.id);
@@ -104,6 +121,12 @@ export async function PATCH(request: NextRequest) {
       return NextResponse.json({ error: "排序值无效" }, { status: 400 });
     }
     await updateTag(id, { name, parent_id: parentId, category_order: categoryOrder, sort_order: sortOrder });
+    void recordAudit({
+      ...actor, action: "tag:update", method: "PATCH", path: "/api/manage/tags",
+      resource_type: "tag", resource_id: String(id),
+      status: "success", error_message: null, ip, user_agent,
+      metadata: { old: { name: current.name }, new: { name: name ?? current.name }, type: current.type },
+    });
     return NextResponse.json({ ok: true });
   } catch (err) {
     console.error("Admin tags PATCH error:", err);
@@ -113,6 +136,8 @@ export async function PATCH(request: NextRequest) {
 
 /** 物理删除（#94：停用机制下线）；支持单个 { id } 与批量 { ids }，分类级联删除其下标签 */
 export async function DELETE(request: NextRequest) {
+  const { ip, user_agent } = getRequestContext(request);
+  const actor = await getAuditActor(request);
   try {
     const body = await request.json() as { id?: unknown; ids?: unknown };
     const ids: number[] = [];
@@ -129,6 +154,12 @@ export async function DELETE(request: NextRequest) {
       return NextResponse.json({ error: "标签 ID 无效" }, { status: 400 });
     }
     await deleteTags(ids);
+    void recordAudit({
+      ...actor, action: "tag:delete", method: "DELETE", path: "/api/manage/tags",
+      resource_type: "tag", resource_id: ids.length === 1 ? String(ids[0]) : null,
+      status: "success", error_message: null, ip, user_agent,
+      metadata: { ids, count: ids.length },
+    });
     return NextResponse.json({ ok: true });
   } catch (err) {
     console.error("Admin tags DELETE error:", err);
