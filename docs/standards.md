@@ -91,9 +91,9 @@ Closes #15
 
 ## Issue 管理
 
-- **标题格式：** `[bug]` / `[feat]` / `[refactor]` 前缀 + 中文描述
-- **标签：** `bug`、`security`、`enhancement` 等
-- **Milestone：** 关联版本里程碑（如 `v2.0.0`）
+- Issue 标题保留可选的优先级前缀，例如 `[P1-A] 管理后台操作审计日志`；类型不写入标题
+- Issue 类型、优先级和业务领域通过现有 `type:*`、`priority:*`、`area:*` Label 表达
+- Issue 编写、脱敏、Milestone 和验收标准遵循 `docs/issue-standard.md`
 - **关闭时机：** PR 合并到 `dev` 后**手动关闭** Issue（因默认分支是 main，`Closes #xx` 不会自动触发）
 - **最终关闭：** dev 合并到 main 的 PR 中统一写 `Closes #xx` 作为备份
 

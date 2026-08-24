@@ -9,10 +9,11 @@ export default function ExportTab() {
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   const [exportFormat, setExportFormat] = useState<"csv" | "xlsx">("csv");
-  const [embedImages, setEmbedImages] = useState(false);
+  const [imagePlacement, setImagePlacement] = useState<"in-cell" | "floating">("in-cell");
   const [exportColumns, setExportColumns] = useState({
     studentId: true, name: true, tags: true,
-    avatarUrl: true, evaluationUrl: true, createdAt: true,
+    avatarUrl: true, evaluationUrl: true,
+    avatarLink: false, evaluationLink: false, createdAt: true,
   });
   const [previewData, setPreviewData] = useState<Record<string, string>[]>([]);
   const [previewTotal, setPreviewTotal] = useState(0);
@@ -26,6 +27,8 @@ export default function ExportTab() {
     if (exportColumns.tags) cols.push("tags");
     if (exportColumns.avatarUrl) cols.push("avatar_url");
     if (exportColumns.evaluationUrl) cols.push("evaluation_url");
+    if (exportColumns.avatarLink) cols.push("avatar_link");
+    if (exportColumns.evaluationLink) cols.push("evaluation_link");
     if (exportColumns.createdAt) cols.push("created_at");
     return cols.join(",");
   };
@@ -73,7 +76,7 @@ export default function ExportTab() {
     try {
       const params = getExportParams();
       params.set("format", exportFormat);
-      if (exportFormat === "xlsx") params.set("embedImages", String(embedImages));
+      if (exportFormat === "xlsx") params.set("imagePlacement", imagePlacement);
       const res = await fetch(`/api/manage/export?${params}`);
       if (!res.ok) throw new Error("导出失败");
       const blob = await res.blob();
@@ -192,20 +195,36 @@ export default function ExportTab() {
           >
             Excel (.xlsx)
           </button>
-          {exportFormat === "xlsx" && (
-            <button
-              onClick={() => setEmbedImages(!embedImages)}
-              className={`px-3.5 py-1.5 rounded-lg text-sm font-medium border transition-colors ${
-                embedImages
-                  ? "bg-primary-soft dark:bg-green-900/30 text-primary-strong dark:text-green-300 border-green-200 dark:border-green-800"
-                  : "bg-card text-gray-600 dark:text-gray-300 border-gray-200 dark:border-gray-700 hover:border-green-300"
-              }`}
-            >
-              {embedImages ? "✓ 图片嵌入表格" : "图片嵌入表格"}
-            </button>
-          )}
         </div>
       </div>
+
+      {exportFormat === "xlsx" && (exportColumns.avatarUrl || exportColumns.evaluationUrl) && (
+        <fieldset className="space-y-2">
+          <legend className="text-sm font-medium text-gray-700 dark:text-gray-200">图片放置方式</legend>
+          <div className="grid gap-2 sm:grid-cols-2" role="radiogroup" aria-label="图片放置方式">
+            {([
+              ["in-cell", "放置在单元格中", "图片随单元格参与排序和筛选（推荐）"],
+              ["floating", "浮动图片", "兼容性更广，图片位于工作表上方"],
+            ] as const).map(([value, label, description]) => (
+              <button
+                key={value}
+                type="button"
+                role="radio"
+                aria-checked={imagePlacement === value}
+                onClick={() => setImagePlacement(value)}
+                className={`rounded-lg border p-3 text-left transition-colors focus:outline-none focus:ring-2 focus:ring-green-300 ${
+                  imagePlacement === value
+                    ? "border-primary bg-primary-soft text-primary-strong dark:bg-green-900/30 dark:text-green-300"
+                    : "border-gray-200 bg-card text-gray-700 hover:border-green-300 dark:border-gray-700 dark:text-gray-200"
+                }`}
+              >
+                <span className="block text-sm font-medium">{label}</span>
+                <span className="mt-1 block text-xs text-gray-500 dark:text-gray-400">{description}</span>
+              </button>
+            ))}
+          </div>
+        </fieldset>
+      )}
 
       {/* Columns */}
       <div className="space-y-2">
@@ -215,8 +234,10 @@ export default function ExportTab() {
             ["studentId", "学号"],
             ["name", "姓名"],
             ["tags", "标签"],
-            ["avatarUrl", "虚拟形象URL"],
-            ["evaluationUrl", "评价词云URL"],
+            ["avatarUrl", "学生头像"],
+            ["evaluationUrl", "评价词云"],
+            ["avatarLink", "头像 URL"],
+            ["evaluationLink", "评价词云 URL"],
             ["createdAt", "提交时间"],
           ] as const).map(([key, label]) => (
             <button
