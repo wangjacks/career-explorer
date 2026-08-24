@@ -57,7 +57,7 @@
 | `/api/manage/students`（含 `/batch-password`） | 全方法 | 学生管理 + 批量改密 |
 | `/api/manage/tags`（含 `/batch`） | 全方法 | 预设标签管理（CRUD / 物理删除 / 批量导入 / 排序） |
 | `/api/manage/profile-config` | 全方法 | 档案功能配置（自定义标签上限 #94、提交截止时间 #96） |
-| `/api/manage/export` | 全方法 | Excel/CSV 导出 |
+| `/api/manage/export` | 全方法 | Excel/CSV 导出（XLSX 支持原生单元格图片与浮动图片双模式，默认单元格图片） |
 | `/api/manage/export-images` | 全方法 | 图片打包导出 |
 | `/api/manage/stats`（含 `compare`/`distribution`/`trends`） | 仅 GET | 统计数据 |
 | `/api/manage/profiles` | GET + DELETE | 档案列表 |
