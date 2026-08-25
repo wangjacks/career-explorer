@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { toast } from "sonner";
 import { Tag, ChevronDown } from "lucide-react";
 import ConfirmDialog from "./ConfirmDialog";
+import StorageImage from "@/components/StorageImage";
 import type { Stats, PagedData, Profile } from "@/hooks/useAdminAuth";
 
 interface Props {
@@ -330,14 +331,14 @@ export default function ProfilesTab({ loadProfiles, loadStats }: Props) {
                 <td className="px-5 py-3 text-gray-700 dark:text-gray-200">{p.studentName || "-"}</td>
                 <td className="px-5 py-3">
                   {p.avatarUrl ? (
-                    <img src={p.avatarUrl} alt="" className="w-8 h-8 rounded-full object-cover" />
+                    <StorageImage url={p.avatarUrl} storageId={p.storageId} alt="" className="w-8 h-8 rounded-full object-cover" />
                   ) : (
                     <span className="text-gray-400 text-xs">无</span>
                   )}
                 </td>
                 <td className="px-5 py-3">
                   {p.evaluationUrl ? (
-                    <img src={p.evaluationUrl} alt="" className="w-8 h-8 rounded object-cover" />
+                    <StorageImage url={p.evaluationUrl} storageId={p.storageId} alt="" className="w-8 h-8 rounded object-cover" />
                   ) : (
                     <span className="text-gray-400 text-xs">无</span>
                   )}
@@ -417,7 +418,7 @@ export default function ProfilesTab({ loadProfiles, loadStats }: Props) {
             {detail.avatarUrl && (
               <div>
                 <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">虚拟形象</p>
-                <img src={detail.avatarUrl} alt="" className="w-20 h-20 rounded-xl object-cover border border-gray-100" />
+                <StorageImage url={detail.avatarUrl} storageId={detail.storageId} alt="" className="w-20 h-20 rounded-xl object-cover border border-gray-100" />
               </div>
             )}
 
@@ -433,7 +434,7 @@ export default function ProfilesTab({ loadProfiles, loadStats }: Props) {
             {detail.evaluationUrl && (
               <div>
                 <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">评价词云</p>
-                <img src={detail.evaluationUrl} alt="" className="w-full rounded-xl border border-gray-100" />
+                <StorageImage url={detail.evaluationUrl} storageId={detail.storageId} alt="" className="w-full rounded-xl border border-gray-100" />
               </div>
             )}
 

@@ -61,6 +61,7 @@ export async function GET(request: NextRequest) {
       tags: tagNames,
       avatar_url: user.avatar_url || "",
       evaluation_url: user.evaluation_url || "",
+      storage_id: user.storage_id,
       submitted_at: user.submitted_at,
       // 提交时限（#96）：服务端计算截止状态，不信任客户端时钟
       submissionDeadline: await getSubmissionDeadline(),

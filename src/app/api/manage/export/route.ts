@@ -4,6 +4,7 @@ import ExcelJS from "exceljs";
 import { imageSize } from "image-size";
 import { embedImagesInCells, type CellImageEntry } from "@/lib/xlsx-cell-images";
 import { getAuditActor, getRequestContext, recordAudit } from "@/lib/audit";
+import { getStorage } from "@/lib/storage";
 
 interface ExportRow {
   student_id: string;
@@ -13,6 +14,8 @@ interface ExportRow {
   evaluation_url: string | null;
   avatar_link: string | null;
   evaluation_link: string | null;
+  /** 文件所在存储后端（#111）；本地代理路径与云对象 key 的解析依据 */
+  storage_id: number | null;
   created_at: string;
 }
 
@@ -36,6 +39,39 @@ function tagsToDisplay(tagsJson: string | null): string {
   } catch {
     return "";
   }
+}
+
+/** 导出 URL 列解析（#111）：本地代理路径原样保留；云后端签发限时签名 URL（30 分钟） */
+async function resolveExportLink(url: string | null, storageId: number | null): Promise<string | null> {
+  if (!url) return url;
+  if (url.startsWith("/api/uploads/") || !storageId) return url;
+  try {
+    const storage = await getStorage(storageId);
+    return await storage.getSignedUrl(url.split("?")[0]);
+  } catch (err) {
+    console.warn("Failed to sign export link:", url, err);
+    return url;
+  }
+}
+
+/** 服务端拉取图片内容（#111）：本地走内部代理；云走存储抽象（内网端点，省公网流量） */
+async function fetchImageBuffer(
+  url: string,
+  storageId: number | null,
+  baseUrl: string
+): Promise<{ buffer: Buffer; contentType: string } | null> {
+  if (url.startsWith("/api/uploads/")) {
+    const res = await fetch(new URL(url, baseUrl).toString());
+    if (!res.ok) return null;
+    return {
+      buffer: Buffer.from(await res.arrayBuffer()),
+      contentType: res.headers.get("content-type") ?? "image/jpeg",
+    };
+  }
+  if (!storageId) return null;
+  const storage = await getStorage(storageId);
+  const buffer = await storage.read(url.split("?")[0]);
+  return { buffer, contentType: "image/jpeg" };
 }
 
 export async function GET(request: NextRequest) {
@@ -87,6 +123,7 @@ export async function GET(request: NextRequest) {
       evaluation_url: null,
       avatar_link: null,
       evaluation_link: null,
+      storage_id: null,
       created_at: s.created_at,
     }));
   } else {
@@ -99,6 +136,7 @@ export async function GET(request: NextRequest) {
       evaluation_url: r.evaluation_url,
       avatar_link: r.avatar_url,
       evaluation_link: r.evaluation_url,
+      storage_id: r.storage_id ?? null,
       created_at: r.submitted_at || "",
     }));
 
@@ -117,6 +155,12 @@ export async function GET(request: NextRequest) {
         return true;
       });
     }
+  }
+
+  // 导出 URL 列：云后端转限时签名链接（#111；本地代理路径原样保留）
+  for (const r of rows) {
+    r.avatar_link = await resolveExportLink(r.avatar_link, r.storage_id);
+    r.evaluation_link = await resolveExportLink(r.evaluation_link, r.storage_id);
   }
 
   // Column config
@@ -199,12 +243,10 @@ export async function GET(request: NextRequest) {
             const url = rows[i][col.key as keyof ExportRow] as string | null;
             if (!url) continue;
             try {
-              const imgUrl = new URL(url, request.url).toString();
-              const imgRes = await fetch(imgUrl);
-              if (!imgRes.ok) continue;
-              const imgBuffer = await imgRes.arrayBuffer();
-              const imgBuf = Buffer.from(imgBuffer);
-              const contentType = imgRes.headers.get("content-type")?.split(";")[0].toLowerCase();
+              const img = await fetchImageBuffer(url, rows[i].storage_id, request.url);
+              if (!img) continue;
+              const imgBuf = img.buffer;
+              const contentType = img.contentType.split(";")[0].toLowerCase();
               const extension = contentType === "image/png" ? "png"
                 : contentType === "image/gif" ? "gif"
                   : contentType === "image/bmp" ? "bmp"
@@ -284,6 +326,7 @@ export async function POST(request: NextRequest) {
       evaluation_url: null,
       avatar_link: null,
       evaluation_link: null,
+      storage_id: null,
       created_at: s.created_at,
     }));
   } else {
@@ -296,6 +339,7 @@ export async function POST(request: NextRequest) {
       evaluation_url: r.evaluation_url,
       avatar_link: r.avatar_url,
       evaluation_link: r.evaluation_url,
+      storage_id: r.storage_id ?? null,
       created_at: r.submitted_at || "",
     }));
 

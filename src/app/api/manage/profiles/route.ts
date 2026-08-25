@@ -23,6 +23,7 @@ export async function GET(request: NextRequest) {
           tags,
           avatarUrl: r.avatar_url,
           evaluationUrl: r.evaluation_url,
+          storageId: r.storage_id,
           createdAt: r.submitted_at,
         };
       }),

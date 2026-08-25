@@ -9,6 +9,8 @@ export interface Profile {
   tags: string[];
   avatarUrl: string;
   evaluationUrl: string;
+  /** 文件所在存储后端（#111）；旧接口响应可能缺失，容忍 undefined */
+  storageId?: number;
   createdAt: string;
 }
 
