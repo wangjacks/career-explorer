@@ -168,6 +168,28 @@ describe("S3 凭据与适配器构造", () => {
     );
     expect(adapter.type).toBe("s3");
   });
+
+  it("虚拟主机风格端点（桶名在子域名）不重复拼桶名到路径（#111 修复）", async () => {
+    process.env.S3_99_ACCESS_KEY = "ak";
+    process.env.S3_99_SECRET_KEY = "sk";
+    const bucket = "blog233-usercontents-1301217517";
+    const adapter = new S3StorageAdapter(
+      makeBackend({
+        id: 99,
+        type: "s3",
+        endpoint: `https://${bucket}.cos.ap-guangzhou.myqcloud.com`,
+        region: "ap-guangzhou",
+        bucket,
+        path_prefix: "career-dev-local/2026",
+      })
+    );
+    const url = await adapter.getSignedUrl("avatar_202599990002.jpg", 60);
+    // 主机名为虚拟主机风格（桶在子域名）
+    expect(url).toContain(`${bucket}.cos.ap-guangzhou.myqcloud.com`);
+    // 路径不含重复桶名，且正确拼入根目录前缀 + 对象 key
+    expect(url).not.toContain(`/${bucket}/${bucket}/`);
+    expect(url).toContain(`/career-dev-local/2026/avatar_202599990002.jpg`);
+  });
 });
 
 describe("存储工厂路由", () => {

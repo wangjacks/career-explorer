@@ -53,11 +53,22 @@ export class S3StorageAdapter implements StorageAdapter {
     this.bucket = backend.bucket;
     this.prefix = (backend.path_prefix ?? "").replace(/^\/+|\/+$/g, "");
 
+    // 端点风格自动识别（#111 修复）：
+    // - 虚拟主机风格（桶名在子域名，如 {bucket}.cos.ap-guangzhou.myqcloud.com）→ 不强制路径风格，
+    //   否则 SDK 会把桶名拼进路径，桶里多一层与桶同名的目录
+    // - 服务级/自建端点（如 cos.ap-guangzhou.myqcloud.com、MinIO http://host:9000）→ 路径风格
+    let forcePathStyle = true;
+    try {
+      const hostname = new URL(backend.endpoint).hostname;
+      if (hostname.startsWith(`${backend.bucket}.`)) forcePathStyle = false;
+    } catch {
+      // 端点非标准 URL 时退回路径风格（保守默认）
+    }
+
     const base = {
       region: backend.region,
       credentials,
-      // path-style 兼容 MinIO 与各厂商端点形态
-      forcePathStyle: true,
+      forcePathStyle,
     };
     this.serverClient = new S3Client({
       ...base,
