@@ -92,6 +92,37 @@ npm run build
 
 构建成功后会生成 `.next/` 目录。管理员密码无需在此步配置，将在首次安装引导中设置（见「八、首次安装引导」）。
 
+### 可选：对象存储凭据（S3 兼容，#111）
+
+系统默认将学生头像 / 评价词云存入应用服务器本地 `uploads/` 目录，无需任何配置。若需接入云对象存储（腾讯云 COS / 阿里云 OSS / MinIO / AWS S3 等任意 S3 兼容服务），在管理面板「系统设置 → 存储管理」新增后端后，按返回的后端 ID 在 `.env.local` 中配置凭据并重启服务：
+
+```bash
+# 后端 ID 以存储管理页创建后返回为准（示例为 #2）；凭据不入库，只走环境变量
+cat >> .env.local << 'EOF'
+S3_2_ACCESS_KEY=你的AccessKeyId或SecretId
+S3_2_SECRET_KEY=你的AccessKeySecret或SecretKey
+EOF
+
+pm2 restart career-app
+```
+
+常见端点配置参考（在存储管理页填写）：
+
+| 提供商 | 公网端点（示例） | 内网端点（同云部署时可选） | region 示例 |
+|---|---|---|---|
+| 腾讯云 COS | `https://cos.ap-shanghai.myqcloud.com` | `https://cos-internal.ap-shanghai.myqcloud.com` | `ap-shanghai` |
+| 阿里云 OSS | `https://oss-cn-hangzhou.aliyuncs.com` | `https://oss-cn-hangzhou-internal.aliyuncs.com` | `oss-cn-hangzhou` |
+| MinIO（自建） | `http://你的服务器:9000` | 同左 | `us-east-1`（任意） |
+| AWS S3 | 不填自定义端点（标准区域即可） | — | `ap-northeast-1` |
+
+要求与行为说明：
+
+- 存储桶须预先创建且设为**私有读写**；应用通过服务端签发 30 分钟限时签名 URL 提供访问，不存在永久公开链接，且签名前按角色权限校验（学生仅本人、教师仅管辖班级）
+- 应用服务器与存储同云时配置内网端点，上传/迁移/导出读图走内网节省公网流量；签名 URL 始终基于公网端点签发，浏览器可达
+- 可配置根目录前缀（如 `career/2026`），便于多应用共用桶或按学年归档；对象实际路径 = `{桶}/{前缀}/{文件key}`
+- 切换默认后端只影响新上传，存量文件不受影响；「迁移本地文件」可把存量文件批量迁入云后端（幂等，可重复执行）
+- 备份文件包含存储后端配置（不含凭据），恢复后需在新环境重新配置凭据环境变量
+
 ## 五、用 PM2 进行进程管理
 
 ### 1. 安装 PM2
