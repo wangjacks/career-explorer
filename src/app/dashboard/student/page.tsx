@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Toaster, toast } from "sonner";
-import { Compass, SquarePen, X, History, ChevronDown, ChevronUp } from "lucide-react";
+import { Compass, SquarePen, X } from "lucide-react";
 import NavigationBar from "@/components/NavigationBar";
 import StudentSidebar from "@/components/student/StudentSidebar";
 import ConfirmDialog from "@/components/admin/ConfirmDialog";
@@ -192,8 +192,8 @@ export default function StudentDashboardPage() {
   // 通览态图片放大预览
   const [lightbox, setLightbox] = useState<string | null>(null);
 
-  // 历史提交版本（#95）：折叠区，展开时懒加载；恢复生成新版本不回写旧记录
-  const [historyOpen, setHistoryOpen] = useState(false);
+  // 历史提交版本（#95）：独立 Tab，首次切入时懒加载；恢复生成新版本不回写旧记录
+  const [activeView, setActiveView] = useState<"profile" | "history">("profile");
   const [historySubmissions, setHistorySubmissions] = useState<SubmissionHistoryItem[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [restoringId, setRestoringId] = useState<number | null>(null);
@@ -296,7 +296,7 @@ export default function StudentDashboardPage() {
     setConfirming(true);
   };
 
-  // 加载历史提交（#95）：首次展开时拉取
+  // 加载历史提交（#95）：首次切入历史 Tab 时拉取
   const loadHistory = useCallback(async () => {
     setHistoryLoading(true);
     try {
@@ -315,10 +315,11 @@ export default function StudentDashboardPage() {
     }
   }, []);
 
-  const toggleHistory = () => {
-    const next = !historyOpen;
-    setHistoryOpen(next);
-    if (next && historySubmissions.length === 0) void loadHistory();
+  const switchView = (view: "profile" | "history") => {
+    setActiveView(view);
+    if (view === "history" && historySubmissions.length === 0 && !historyLoading) {
+      void loadHistory();
+    }
   };
 
   // 恢复历史版本（#95）：以目标快照生成新版本（审计链完整），随后刷新档案与列表
@@ -463,103 +464,117 @@ export default function StudentDashboardPage() {
             {!editing ? (
               hasSubmitted ? (
                 <>
-                  {/* 我的标签（按 API 分类分组三色） */}
-                  <section className="bg-card rounded-xl border border-gray-100 dark:border-gray-700 p-5 space-y-4">
-                    <SectionHeader label="我的标签" done={profile.tags.length > 0} />
-                    {profile.tags.length === 0 ? (
-                      <p className="text-sm text-gray-400 dark:text-gray-500">暂无标签</p>
-                    ) : (
-                      <div className="space-y-3">
-                        {groupedTags
-                          .filter((g) => g.tags.length > 0)
-                          .map((g) => (
-                            <div key={g.name}>
-                              <p className="text-xs text-gray-400 dark:text-gray-500 mb-1.5">{g.name}</p>
+                  {/* Tab 导航：我的档案 / 历史提交（#95） */}
+                  <div className="flex gap-1 bg-gray-100 dark:bg-gray-800 rounded-xl p-1">
+                    <button
+                      onClick={() => switchView("profile")}
+                      className={`flex-1 py-2 rounded-lg text-sm font-medium transition-colors ${
+                        activeView === "profile"
+                          ? "bg-card text-gray-900 dark:text-gray-100 shadow-sm"
+                          : "text-gray-500 hover:text-gray-700 dark:hover:text-gray-300"
+                      }`}
+                    >
+                      我的档案
+                    </button>
+                    <button
+                      onClick={() => switchView("history")}
+                      className={`flex-1 py-2 rounded-lg text-sm font-medium transition-colors ${
+                        activeView === "history"
+                          ? "bg-card text-gray-900 dark:text-gray-100 shadow-sm"
+                          : "text-gray-500 hover:text-gray-700 dark:hover:text-gray-300"
+                      }`}
+                    >
+                      历史提交
+                    </button>
+                  </div>
+
+                  {activeView === "profile" ? (
+                    <>
+                      {/* 我的标签（按 API 分类分组三色） */}
+                      <section className="bg-card rounded-xl border border-gray-100 dark:border-gray-700 p-5 space-y-4">
+                        <SectionHeader label="我的标签" done={profile.tags.length > 0} />
+                        {profile.tags.length === 0 ? (
+                          <p className="text-sm text-gray-400 dark:text-gray-500">暂无标签</p>
+                        ) : (
+                          <div className="space-y-3">
+                            {groupedTags
+                              .filter((g) => g.tags.length > 0)
+                              .map((g) => (
+                                <div key={g.name}>
+                                  <p className="text-xs text-gray-400 dark:text-gray-500 mb-1.5">{g.name}</p>
+                                  <div className="flex flex-wrap gap-1.5">
+                                    {g.tags.map((tag) => (
+                                      <span key={tag} className={`px-2.5 py-1 rounded-full text-xs ${g.color}`}>
+                                        {tag}
+                                      </span>
+                                    ))}
+                                  </div>
+                                </div>
+                              ))}
+                            {ungrouped.length > 0 && (
                               <div className="flex flex-wrap gap-1.5">
-                                {g.tags.map((tag) => (
-                                  <span key={tag} className={`px-2.5 py-1 rounded-full text-xs ${g.color}`}>
+                                {ungrouped.map((tag) => (
+                                  <span key={tag} className={`px-2.5 py-1 rounded-full text-xs ${TAG_CHIP_COLORS[0]}`}>
                                     {tag}
                                   </span>
                                 ))}
                               </div>
-                            </div>
-                          ))}
-                        {ungrouped.length > 0 && (
-                          <div className="flex flex-wrap gap-1.5">
-                            {ungrouped.map((tag) => (
-                              <span key={tag} className={`px-2.5 py-1 rounded-full text-xs ${TAG_CHIP_COLORS[0]}`}>
-                                {tag}
-                              </span>
-                            ))}
+                            )}
                           </div>
                         )}
-                      </div>
-                    )}
-                  </section>
+                      </section>
 
-                  {/* 评价词云（预览可放大） */}
-                  <section className="bg-card rounded-xl border border-gray-100 dark:border-gray-700 p-5 space-y-4">
-                    <SectionHeader label="评价词云" done={!!profile.evaluation_url} />
-                    {evaluationPreview ? (
-                      <img
-                        src={evaluationPreview}
-                        alt="评价词云"
-                        onClick={() => setLightbox(evaluationPreview)}
-                        className="w-full max-w-sm rounded-lg border border-gray-100 dark:border-gray-700 cursor-zoom-in"
-                      />
-                    ) : (
-                      <p className="text-sm text-gray-400 dark:text-gray-500">暂无评价词云</p>
-                    )}
-                  </section>
-
-                  <button
-                    onClick={startEdit}
-                    disabled={submissionClosed}
-                    className="w-full py-3 bg-primary hover:bg-primary-strong disabled:opacity-50 text-white font-medium rounded-xl transition-colors"
-                  >
-                    修改数据
-                  </button>
-                  {submissionClosed && (
-                    <p className="text-xs text-amber-600 dark:text-amber-400 text-center">
-                      档案提交已于 {submissionDeadline} 截止，无法再修改
-                    </p>
-                  )}
-
-                  {/* 历史提交（#95）：折叠区，展开懒加载；恢复按钮截止后隐藏 */}
-                  <section className="bg-card rounded-xl border border-gray-100 dark:border-gray-700 p-5 space-y-3">
-                    <button
-                      onClick={toggleHistory}
-                      className="w-full flex items-center gap-2 text-left"
-                      aria-expanded={historyOpen}
-                    >
-                      <History size={16} className="text-gray-400 dark:text-gray-500" aria-hidden />
-                      <h2 className="text-sm font-semibold text-gray-800 dark:text-gray-100">历史提交</h2>
-                      <span className="ml-auto text-gray-400 dark:text-gray-500">
-                        {historyOpen ? <ChevronUp size={16} aria-hidden /> : <ChevronDown size={16} aria-hidden />}
-                      </span>
-                    </button>
-                    {historyOpen && (
-                      <div className="space-y-2">
-                        {historyLoading ? (
-                          <p className="text-sm text-gray-400 dark:text-gray-500">加载中...</p>
-                        ) : historySubmissions.length === 0 ? (
-                          <p className="text-sm text-gray-400 dark:text-gray-500">暂无历史提交</p>
+                      {/* 评价词云（预览可放大） */}
+                      <section className="bg-card rounded-xl border border-gray-100 dark:border-gray-700 p-5 space-y-4">
+                        <SectionHeader label="评价词云" done={!!profile.evaluation_url} />
+                        {evaluationPreview ? (
+                          <img
+                            src={evaluationPreview}
+                            alt="评价词云"
+                            onClick={() => setLightbox(evaluationPreview)}
+                            className="w-full max-w-sm rounded-lg border border-gray-100 dark:border-gray-700 cursor-zoom-in"
+                          />
                         ) : (
-                          <ul className="space-y-2">
-                            {historySubmissions.map((s) => (
-                              <HistoryItem
-                                key={s.id}
-                                submission={s}
-                                restoring={restoringId === s.id}
-                                closed={submissionClosed}
-                                onRestore={restoreVersion}
-                              />
-                            ))}
-                          </ul>
+                          <p className="text-sm text-gray-400 dark:text-gray-500">暂无评价词云</p>
                         )}
-                      </div>
-                    )}
-                  </section>
+                      </section>
+
+                      <button
+                        onClick={startEdit}
+                        disabled={submissionClosed}
+                        className="w-full py-3 bg-primary hover:bg-primary-strong disabled:opacity-50 text-white font-medium rounded-xl transition-colors"
+                      >
+                        修改数据
+                      </button>
+                      {submissionClosed && (
+                        <p className="text-xs text-amber-600 dark:text-amber-400 text-center">
+                          档案提交已于 {submissionDeadline} 截止，无法再修改
+                        </p>
+                      )}
+                    </>
+                  ) : (
+                    /* 历史提交（#95）：独立 Tab，恢复按钮截止后隐藏 */
+                    <section className="bg-card rounded-xl border border-gray-100 dark:border-gray-700 p-5 space-y-4">
+                      <SectionHeader label="历史提交" />
+                      {historyLoading ? (
+                        <p className="text-sm text-gray-400 dark:text-gray-500">加载中...</p>
+                      ) : historySubmissions.length === 0 ? (
+                        <p className="text-sm text-gray-400 dark:text-gray-500">暂无历史提交</p>
+                      ) : (
+                        <ul className="space-y-2">
+                          {historySubmissions.map((s) => (
+                            <HistoryItem
+                              key={s.id}
+                              submission={s}
+                              restoring={restoringId === s.id}
+                              closed={submissionClosed}
+                              onRestore={restoreVersion}
+                            />
+                          ))}
+                        </ul>
+                      )}
+                    </section>
+                  )}
                 </>
               ) : (
                 /* 从未提交：引导卡 */
