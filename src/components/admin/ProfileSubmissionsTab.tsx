@@ -52,6 +52,8 @@ export default function ProfileSubmissionsTab() {
   // 学生选择器：按钮 + 弹出面板（搜索 + 列表），样式与标签筛选下拉一致
   const [pickerOpen, setPickerOpen] = useState(false);
   const pickerRef = useRef<HTMLDivElement>(null);
+  // 历史列表请求序号（review 修复）：快速切换学生时丢弃过期响应
+  const loadSeqRef = useRef(0);
 
   // 学生选择器数据源：分页拉取全部已提交学生（pageSize=100 循环至 total），客户端搜索过滤
   const loadStudents = useCallback(async () => {
@@ -94,17 +96,21 @@ export default function ProfileSubmissionsTab() {
   }, []);
 
   const loadSubmissions = useCallback(async (userId: number) => {
+    // 请求序号：快速切换学生时旧响应不覆盖新数据（review 修复）
+    const seq = ++loadSeqRef.current;
     setSubLoading(true);
     try {
       const res = await fetch(`/api/manage/profiles/submissions?userId=${userId}`);
       const data = await res.json();
+      if (seq !== loadSeqRef.current) return;
       if (res.ok) setSubmissions(data.submissions || []);
       else toast.error(data.error || "历史记录加载失败");
     } catch (err) {
+      if (seq !== loadSeqRef.current) return;
       console.error("Failed to load submissions:", err);
       toast.error("历史记录加载失败");
     } finally {
-      setSubLoading(false);
+      if (seq === loadSeqRef.current) setSubLoading(false);
     }
   }, []);
 
