@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { Tag, ChevronDown } from "lucide-react";
 import ConfirmDialog from "./ConfirmDialog";
 import StorageImage from "@/components/StorageImage";
+import { useTagColorMap } from "@/hooks/useTagColorMap";
 import type { Stats, PagedData, Profile } from "@/hooks/useAdminAuth";
 
 interface Props {
@@ -38,6 +39,9 @@ function SortIcon({ active, dir }: { active: boolean; dir: SortDir }) {
 
 /** 已提交档案数据列表：分页、搜索、标签筛选、详情查看、单个/批量删除 */
 export default function ProfilesTab({ loadProfiles, loadStats }: Props) {
+  // 标签三色映射（#95）：详情弹窗版本历史标签按分类着色
+  const tagColorMap = useTagColorMap();
+
   const [stats, setStats] = useState<Stats | null>(null);
   const [paged, setPaged] = useState<PagedData | null>(null);
   const [page, setPage] = useState(1);
@@ -508,7 +512,7 @@ export default function ProfilesTab({ loadProfiles, loadStats }: Props) {
                             <span className="text-[10px] text-gray-400">暂无标签</span>
                           ) : (
                             h.tags.map((t) => (
-                              <span key={t} className="px-1.5 py-0.5 bg-green-50 dark:bg-green-900/30 text-green-700 dark:text-green-300 rounded text-[10px]">
+                              <span key={t} className={`px-1.5 py-0.5 rounded text-[10px] ${tagColorMap.get(t) ?? "bg-green-50 dark:bg-green-900/30 text-green-700 dark:text-green-300"}`}>
                                 {t}
                               </span>
                             ))

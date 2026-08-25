@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Toaster, toast } from "sonner";
 import { Compass, SquarePen, X } from "lucide-react";
@@ -97,11 +97,14 @@ function HistoryItem({
   submission,
   restoring,
   closed,
+  tagColorMap,
   onRestore,
 }: {
   submission: SubmissionHistoryItem;
   restoring: boolean;
   closed: boolean;
+  /** 标签三色映射（#95）：与「我的标签」展示态一致，未匹配分类的标签兜底第一种颜色 */
+  tagColorMap: Map<string, string>;
   onRestore: (id: number) => void;
 }) {
   // 历史文件 URL 解析（#111）：与主档案同规则，云后端换签名 URL
@@ -130,7 +133,7 @@ function HistoryItem({
           <span className="text-xs text-gray-400 dark:text-gray-500">暂无标签</span>
         ) : (
           submission.tags.map((tag) => (
-            <span key={tag} className={`px-2.5 py-1 rounded-full text-xs ${TAG_CHIP_COLORS[0]}`}>
+            <span key={tag} className={`px-2.5 py-1 rounded-full text-xs ${tagColorMap.get(tag) ?? TAG_CHIP_COLORS[0]}`}>
               {tag}
             </span>
           ))
@@ -197,6 +200,16 @@ export default function StudentDashboardPage() {
   const [historySubmissions, setHistorySubmissions] = useState<SubmissionHistoryItem[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [restoringId, setRestoringId] = useState<number | null>(null);
+
+  // 标签三色映射（#95）：历史版本标签按分类着色，与「我的标签」展示态一致；未匹配分类（如已删除标签）兜底第一种颜色
+  const tagColorMap = useMemo(() => {
+    const map = new Map<string, string>();
+    categories.forEach((cat, catIdx) => {
+      const color = TAG_CHIP_COLORS[catIdx % TAG_CHIP_COLORS.length];
+      cat.tags.forEach((t) => map.set(t.name, color));
+    });
+    return map;
+  }, [categories]);
 
   // 文件展示地址解析（#111）：本地代理路径原样使用，云后端自动换签名 URL
   const avatarResolved = useFileUrl(profile?.avatar_url, profile?.storage_id);
@@ -568,6 +581,7 @@ export default function StudentDashboardPage() {
                               submission={s}
                               restoring={restoringId === s.id}
                               closed={submissionClosed}
+                              tagColorMap={tagColorMap}
                               onRestore={restoreVersion}
                             />
                           ))}
