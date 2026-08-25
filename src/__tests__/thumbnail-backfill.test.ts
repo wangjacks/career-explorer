@@ -14,6 +14,8 @@ const fakeStorage = vi.hoisted(() => ({
 vi.mock("@/lib/db", () => ({
   getAllReferencedMedia: vi.fn(),
   insertAuditLog: vi.fn(),
+  // getAuditActor 内部经 getUserById 取操作者快照，补齐避免审计路径被静默吞掉（review 修复）
+  getUserById: vi.fn(async () => ({ user_code: "10001", name: "管理员", role: "admin" })),
 }));
 
 vi.mock("@/lib/storage", () => ({
@@ -22,7 +24,7 @@ vi.mock("@/lib/storage", () => ({
 
 import { POST } from "@/app/api/manage/media/generate-thumbnails/route";
 import { GET as STATUS_GET } from "@/app/api/manage/media/generate-thumbnails/status/route";
-import { getAllReferencedMedia } from "@/lib/db";
+import { getAllReferencedMedia, insertAuditLog } from "@/lib/db";
 import { getStorage } from "@/lib/storage";
 
 function createGetRequest(cookies?: Record<string, string>): NextRequest {
@@ -98,6 +100,8 @@ describe("缩略图存量补生成端点（#118）", () => {
       expect.any(Buffer),
       "image/jpeg"
     );
+    // 成功路径必须记录审计（review 修复：此前审计路径未被断言守护）
+    expect(insertAuditLog).toHaveBeenCalled();
   });
 
   it("缩略图已存在 → 跳过；单文件失败 → failed 计数且不中断", async () => {

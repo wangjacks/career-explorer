@@ -26,14 +26,15 @@ export default function ThumbnailTab() {
   const [running, setRunning] = useState(false);
   const [result, setResult] = useState<BackfillResult | null>(null);
 
-  const scan = useCallback(async () => {
+  const scan = useCallback(async (opts?: { clearResult?: boolean }) => {
     setLoading(true);
     try {
       const res = await fetch("/api/manage/media/generate-thumbnails/status");
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "检测失败");
       setStatus(data);
-      setResult(null);
+      // 默认清空上次结果；补生成后重新检测时保留统计展示（review 修复）
+      if (opts?.clearResult !== false) setResult(null);
     } catch (err) {
       console.error("Thumbnail status load failed:", err);
       toast.error(err instanceof Error ? err.message : "检测失败");
@@ -56,7 +57,7 @@ export default function ThumbnailTab() {
       if (!res.ok) throw new Error(data.error || "补生成失败");
       setResult(data);
       toast.success(`已生成 ${data.generated} 张缩略图`);
-      await scan();
+      await scan({ clearResult: false });
     } catch (err) {
       console.error("Thumbnail backfill failed:", err);
       toast.error(err instanceof Error ? err.message : "补生成失败");
@@ -72,7 +73,7 @@ export default function ThumbnailTab() {
           <ImageIcon size={16} className="text-gray-400 dark:text-gray-500" aria-hidden />
           <h2 className="font-semibold text-gray-800 dark:text-gray-100">缩略图维护</h2>
           <button
-            onClick={scan}
+            onClick={() => scan()}
             disabled={loading}
             className="ml-auto px-3 py-1.5 bg-gray-100 hover:bg-gray-200 dark:bg-gray-800 dark:hover:bg-gray-700 disabled:opacity-50 text-gray-600 dark:text-gray-300 text-xs font-medium rounded-lg transition-colors flex items-center gap-1"
           >
