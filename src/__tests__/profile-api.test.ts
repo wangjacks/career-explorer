@@ -6,7 +6,7 @@ import { signToken } from "@/lib/token";
 vi.mock("@/lib/db", () => ({
   getUserById: vi.fn(),
   getActiveTags: vi.fn(),
-  upsertSubmission: vi.fn(),
+  submitProfileWithVersion: vi.fn(async () => ({ version: 1 })),
   getClasses: vi.fn(),
   getTags: vi.fn(),
   getMaxCustomTags: vi.fn(),
@@ -18,7 +18,7 @@ vi.mock("@/lib/db", () => ({
 }));
 
 import { POST, GET } from "@/app/api/shared/profile/route";
-import { getUserById, getActiveTags, upsertSubmission, getMaxCustomTags, getClasses, getSubmissionDeadline, isSubmissionClosed, getDefaultStorageBackend } from "@/lib/db";
+import { getUserById, getActiveTags, submitProfileWithVersion, getMaxCustomTags, getClasses, getSubmissionDeadline, isSubmissionClosed, getDefaultStorageBackend } from "@/lib/db";
 import type { StorageBackendRow } from "@/lib/db";
 
 function createPostRequest(body: unknown, cookies?: Record<string, string>): NextRequest {
@@ -92,7 +92,7 @@ describe("POST /api/shared/profile — 快速提交下线后的安全收紧（#9
     expect(res.status).toBe(400);
     const body = await res.json();
     expect(body.error).toBe("不支持指定学号，档案保存仅限本人操作");
-    expect(upsertSubmission).not.toHaveBeenCalled();
+    expect(submitProfileWithVersion).not.toHaveBeenCalled();
   });
 
   it("学生本人会话 + 不传学号 → 标签文本直存，归属本人学号（#94）", async () => {
@@ -106,7 +106,7 @@ describe("POST /api/shared/profile — 快速提交下线后的安全收紧（#9
     const res = await POST(createPostRequest({ tags: ["阅读", "自定义爱好"] }, { auth_token: token }));
     expect(res.status).toBe(200);
     // 文本直存：预设 + 自定义均按名称存入（去空去重后的 JSON 数组）
-    expect(upsertSubmission).toHaveBeenCalledWith("202505050102", JSON.stringify(["阅读", "自定义爱好"]), "", "", 1);
+    expect(submitProfileWithVersion).toHaveBeenCalledWith("202505050102", JSON.stringify(["阅读", "自定义爱好"]), "", "", 1);
   });
 
   it("自定义标签超过配置上限 → 400 拒绝（#94）", async () => {
@@ -122,7 +122,7 @@ describe("POST /api/shared/profile — 快速提交下线后的安全收紧（#9
     expect(res.status).toBe(400);
     const body = await res.json();
     expect(body.error).toBe("自定义标签最多 1 个，当前 2 个");
-    expect(upsertSubmission).not.toHaveBeenCalled();
+    expect(submitProfileWithVersion).not.toHaveBeenCalled();
   });
 });
 
@@ -144,7 +144,7 @@ describe("POST /api/shared/profile — 提交时限强制拦截（#96）", () =>
     expect(res.status).toBe(403);
     const body = await res.json();
     expect(body.error).toBe("档案提交已截止，无法保存");
-    expect(upsertSubmission).not.toHaveBeenCalled();
+    expect(submitProfileWithVersion).not.toHaveBeenCalled();
   });
 
   it("已设置截止时间但未过期 → 正常保存", async () => {
@@ -152,7 +152,7 @@ describe("POST /api/shared/profile — 提交时限强制拦截（#96）", () =>
     vi.mocked(isSubmissionClosed).mockResolvedValue(false);
     const res = await POST(createPostRequest({ tags: ["阅读"] }, { auth_token: token }));
     expect(res.status).toBe(200);
-    expect(upsertSubmission).toHaveBeenCalled();
+    expect(submitProfileWithVersion).toHaveBeenCalled();
   });
 
   it("未设置截止时间（默认不限制）→ 正常保存", async () => {
@@ -160,7 +160,7 @@ describe("POST /api/shared/profile — 提交时限强制拦截（#96）", () =>
     // 默认 mock 返回 undefined（未设置），等同不限制；显式断言未拦截
     const res = await POST(createPostRequest({ tags: ["阅读"] }, { auth_token: token }));
     expect(res.status).toBe(200);
-    expect(upsertSubmission).toHaveBeenCalled();
+    expect(submitProfileWithVersion).toHaveBeenCalled();
   });
 
   it("截止时间已清除 → 正常保存", async () => {
