@@ -8,7 +8,7 @@ import {
   getUserById,
   getMaxCustomTags,
   isSubmissionClosed,
-  upsertSubmission,
+  submitProfileWithVersion,
 } from "@/lib/db";
 import { normalizeTagNames, extractCustomTags } from "@/lib/tag-utils";
 import { verifyToken } from "@/lib/token";
@@ -145,16 +145,23 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    await upsertSubmission(studentId, JSON.stringify(names), avatarUrl || "", evaluationUrl || "", storageId);
+    // #95：提交与版本快照一体化（事务内完成：UPDATE users + 生成新版本 + 超限清理）
+    const { version } = await submitProfileWithVersion(
+      studentId,
+      JSON.stringify(names),
+      avatarUrl || "",
+      evaluationUrl || "",
+      storageId
+    );
     // 档案提交/修改审计（#110）：仅记标签计数，不记标签内容（学生数据不重复入库）
     void recordAudit({
       actor_id: currentUser.id, actor_user_code: currentUser.user_code, actor_name: currentUser.name, actor_role: currentUser.role,
       action: "profile:submit", method: "POST", path: "/api/shared/profile",
       resource_type: "profile", resource_id: studentId,
       status: "success", error_message: null, ip, user_agent,
-      metadata: { tagCount: names.length, hasAvatar: Boolean(avatarUrl), hasEvaluation: Boolean(evaluationUrl) },
+      metadata: { tagCount: names.length, hasAvatar: Boolean(avatarUrl), hasEvaluation: Boolean(evaluationUrl), version },
     });
-    return NextResponse.json({ message: "保存成功" });
+    return NextResponse.json({ message: "保存成功", version });
   } catch (err) {
     console.error("Profile POST error:", err);
     return NextResponse.json({ error: "服务器错误" }, { status: 500 });
