@@ -66,7 +66,7 @@ chore: TypeScript 升级到 6.0.3
 ## PR 规范
 
 - **目标分支：** 始终 PR 到 `dev`，不直接 PR 到 `main`
-- **合并方式：** 使用 **Squash and Merge**，保持 dev 历史干净
+- **合并方式：** 使用 **Create a merge commit**。理由：PR 内 commit 按变更解耦原则原子化（独立可构建、单一主题、GPG 签名），merge commit 保留原子粒度与**签名验证状态**（Squash 压缩丢失粒度、Rebase 重放后签名失效）；代价是 dev 历史存在分叉，对本项目规模可接受。仅当 PR 内为草稿式提交（wip/多次修正）时改用 Squash and Merge 收敛
 - **PR body：** 包含修复内容、涉及文件、验收清单，末尾加 `Closes #xx` 关联 Issue
 - **PR 标题：** 与 commit 格式一致，如 `fix: 修复路径穿越漏洞 (#15)`
 
