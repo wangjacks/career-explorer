@@ -935,6 +935,10 @@ export class SqliteAdapter implements DbAdapter {
   }
 
   restore(data: BackupData): void {
+    // 恢复期间显式关闭外键约束（DELETE + INSERT 顺序在 FK 开启时可能违反 REFERENCES）
+    const fkWasOn = (this.db.pragma("foreign_keys", { simple: true }) as number) === 1;
+    if (fkWasOn) this.db.pragma("foreign_keys = OFF");
+    try {
     const restoreTx = this.db.transaction((d: BackupData) => {
       const tags = normalizeBackupTags(d.tags);
       this.db.exec("DELETE FROM teacher_classes");
@@ -1073,6 +1077,9 @@ export class SqliteAdapter implements DbAdapter {
       }
     });
     restoreTx(data);
+    } finally {
+      if (fkWasOn) this.db.pragma("foreign_keys = ON");
+    }
   }
 
   close(): void {

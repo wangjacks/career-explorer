@@ -983,6 +983,8 @@ export class MysqlAdapter implements DbAdapter {
     const conn = await this.pool.getConnection();
     try {
       await conn.beginTransaction();
+      // 恢复期间关闭外键约束（全量 DELETE + INSERT 顺序可能违反 REFERENCES）
+      await conn.execute("SET FOREIGN_KEY_CHECKS = 0");
       const tags = normalizeBackupTags(data.tags);
       await conn.execute("DELETE FROM teacher_classes");
       await conn.execute("DELETE FROM users");
@@ -1122,6 +1124,7 @@ export class MysqlAdapter implements DbAdapter {
           );
         }
       }
+      await conn.execute("SET FOREIGN_KEY_CHECKS = 1");
       await conn.commit();
     } catch (err) {
       await conn.rollback();
