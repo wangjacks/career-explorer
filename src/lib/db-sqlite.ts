@@ -3,7 +3,7 @@ import { mkdirSync, readFileSync, existsSync } from "fs";
 import { tmpdir } from "os";
 import path from "path";
 import { tagCategories } from "./tagData";
-import { normalizeBackupTags, DEFAULT_MAX_CUSTOM_TAGS } from "./db";
+import { normalizeBackupTags, DEFAULT_MAX_CUSTOM_TAGS, DEFAULT_MAX_PROFILE_SUBMISSIONS, MAX_PROFILE_SUBMISSIONS_KEY } from "./db";
 import type {
   UserRow,
   TagRow,
@@ -21,6 +21,8 @@ import type {
   StorageBackendRow,
   NewStorageBackend,
   StorageBackendUpdateFields,
+  ProfileSubmissionRow,
+  ProfileSubmissionData,
 } from "./db";
 
 function getNow(): string {
@@ -165,6 +167,7 @@ export class SqliteAdapter implements DbAdapter {
     this.migrateTagSchema();
     this.seedTags();
     this.migrateLegacy();
+    this.migrateProfileSubmissions();
   }
 
   /**
@@ -309,6 +312,40 @@ export class SqliteAdapter implements DbAdapter {
   resetTagsToDefaults(): void {
     this.db.exec("DELETE FROM tags");
     this.seedDefaultTags();
+  }
+
+  /**
+   * 档案提交历史版本（#95）：建表 + 索引 + 存量已提交学生生成初始版本 + 默认上限配置，幂等
+   * 1) CREATE TABLE IF NOT EXISTS
+   * 2) 存量已提交学生 INSERT（version=1, is_current=1），NOT IN 防重复
+   * 3) configs_profile 写入默认上限值（INSERT OR IGNORE 不覆盖配置）
+   */
+  private migrateProfileSubmissions(): void {
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS profile_submissions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL REFERENCES users(id),
+        version INTEGER NOT NULL,
+        tags TEXT,
+        avatar_url TEXT,
+        evaluation_url TEXT,
+        storage_id INTEGER NOT NULL DEFAULT 1,
+        submitted_at TEXT NOT NULL,
+        is_current INTEGER NOT NULL DEFAULT 0
+      )
+    `);
+    this.db.exec(`CREATE INDEX IF NOT EXISTS idx_ps_user_version ON profile_submissions(user_id, version)`);
+    this.db.exec(`CREATE INDEX IF NOT EXISTS idx_ps_user_current ON profile_submissions(user_id, is_current)`);
+    this.db.exec(`
+      INSERT OR IGNORE INTO profile_submissions (user_id, version, tags, avatar_url, evaluation_url, storage_id, submitted_at, is_current)
+      SELECT u.id, 1, u.tags, u.avatar_url, u.evaluation_url, u.storage_id, u.submitted_at, 1
+      FROM users u
+      WHERE u.role = 'student' AND u.submitted_at IS NOT NULL
+        AND u.id NOT IN (SELECT user_id FROM profile_submissions)
+    `);
+    this.db
+      .prepare("INSERT OR IGNORE INTO configs_profile (key, value, updated_at) VALUES (?, ?, ?)")
+      .run(MAX_PROFILE_SUBMISSIONS_KEY, String(DEFAULT_MAX_PROFILE_SUBMISSIONS), getNow());
   }
 
   /** 检测旧 students 表并迁移到 users 表 */
@@ -508,6 +545,122 @@ export class SqliteAdapter implements DbAdapter {
       )
       .run(...userCodes);
     return result.changes;
+  }
+
+  // profile_submissions（档案提交历史版本，#95）
+  insertProfileSubmission(userId: number, version: number, data: ProfileSubmissionData): number {
+    const result = this.db
+      .prepare(
+        `INSERT INTO profile_submissions (user_id, version, tags, avatar_url, evaluation_url, storage_id, submitted_at, is_current)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+      )
+      .run(
+        userId,
+        version,
+        data.tags,
+        data.avatar_url,
+        data.evaluation_url,
+        data.storage_id,
+        data.submitted_at,
+        data.is_current
+      );
+    return Number(result.lastInsertRowid);
+  }
+
+  getMaxProfileSubmissionVersion(userId: number): number {
+    const row = this.db
+      .prepare("SELECT MAX(version) as m FROM profile_submissions WHERE user_id = ?")
+      .get(userId) as { m: number | null } | undefined;
+    return row?.m ?? 0;
+  }
+
+  getProfileSubmissions(userId: number): ProfileSubmissionRow[] {
+    return this.db
+      .prepare("SELECT * FROM profile_submissions WHERE user_id = ? ORDER BY version DESC")
+      .all(userId) as ProfileSubmissionRow[];
+  }
+
+  getProfileSubmission(id: number): ProfileSubmissionRow | undefined {
+    return this.db
+      .prepare("SELECT * FROM profile_submissions WHERE id = ?")
+      .get(id) as ProfileSubmissionRow | undefined;
+  }
+
+  deleteOldestProfileSubmissions(userId: number, count: number): number {
+    if (count <= 0) return 0;
+    const result = this.db
+      .prepare(
+        `DELETE FROM profile_submissions WHERE id IN (
+           SELECT id FROM profile_submissions WHERE user_id = ? ORDER BY version ASC LIMIT ?
+         )`
+      )
+      .run(userId, count);
+    return result.changes;
+  }
+
+  setCurrentProfileSubmission(versionId: number, userId: number): void {
+    const tx = this.db.transaction(() => {
+      this.db.prepare("UPDATE profile_submissions SET is_current = 0 WHERE user_id = ?").run(userId);
+      this.db
+        .prepare("UPDATE profile_submissions SET is_current = 1 WHERE id = ? AND user_id = ?")
+        .run(versionId, userId);
+    });
+    tx();
+  }
+
+  getStudentsExceedingSubmissionLimit(maxVersions: number): { user_id: number; user_code: string; name: string; version_count: number }[] {
+    return this.db
+      .prepare(
+        `SELECT u.id as user_id, u.user_code, u.name, COUNT(ps.id) as version_count
+         FROM users u JOIN profile_submissions ps ON ps.user_id = u.id
+         WHERE u.role = 'student'
+         GROUP BY u.id, u.user_code, u.name
+         HAVING COUNT(ps.id) > ?
+         ORDER BY version_count DESC, u.user_code`
+      )
+      .all(maxVersions) as { user_id: number; user_code: string; name: string; version_count: number }[];
+  }
+
+  submitProfileWithVersion(userCode: string, tagsJson: string, avatarUrl: string, evaluationUrl: string, storageId: number): { version: number } {
+    const tx = this.db.transaction(() => {
+      const user = this.db
+        .prepare("SELECT id FROM users WHERE role = 'student' AND user_code = ?")
+        .get(userCode) as { id: number } | undefined;
+      if (!user) throw new Error("学生不存在：" + userCode);
+      // 1) UPDATE users（不变）
+      this.db
+        .prepare("UPDATE users SET tags = ?, avatar_url = ?, evaluation_url = ?, submitted_at = ?, storage_id = ? WHERE id = ?")
+        .run(tagsJson, avatarUrl, evaluationUrl, getNow(), storageId, user.id);
+      // 2) 旧 is_current → 0
+      this.db.prepare("UPDATE profile_submissions SET is_current = 0 WHERE user_id = ?").run(user.id);
+      // 3) 计算 nextVersion = MAX(version) + 1
+      const maxRow = this.db
+        .prepare("SELECT MAX(version) as m FROM profile_submissions WHERE user_id = ?")
+        .get(user.id) as { m: number | null } | undefined;
+      const nextVersion = (maxRow?.m ?? 0) + 1;
+      // 4) INSERT 新版本（is_current=1）
+      this.db
+        .prepare(
+          `INSERT INTO profile_submissions (user_id, version, tags, avatar_url, evaluation_url, storage_id, submitted_at, is_current)
+           VALUES (?, ?, ?, ?, ?, ?, ?, 1)`
+        )
+        .run(user.id, nextVersion, tagsJson, avatarUrl, evaluationUrl, storageId, getNow());
+      // 5) 超限检查 → 删除最旧版本（仅删 DB 记录，文件保留，#111 旧文件不自动删除）
+      const config = this.db
+        .prepare("SELECT value FROM configs_profile WHERE key = ?")
+        .get(MAX_PROFILE_SUBMISSIONS_KEY) as { value: string } | undefined;
+      const maxVersions = config ? Number(config.value) : DEFAULT_MAX_PROFILE_SUBMISSIONS;
+      if (Number.isInteger(maxVersions) && maxVersions > 0) {
+        const count = (
+          this.db.prepare("SELECT COUNT(*) as c FROM profile_submissions WHERE user_id = ?").get(user.id) as { c: number }
+        ).c;
+        if (count > maxVersions) {
+          this.deleteOldestProfileSubmissions(user.id, count - maxVersions);
+        }
+      }
+      return { version: nextVersion };
+    });
+    return tx();
   }
 
   // stats

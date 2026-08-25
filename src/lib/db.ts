@@ -29,6 +29,29 @@ export interface TagRow {
   active: number;
 }
 
+/** 档案提交历史版本行（#95）：每次提交的快照，users 表仅保留当前生效版本 */
+export interface ProfileSubmissionRow {
+  id: number;
+  user_id: number;
+  version: number;
+  tags: string | null;
+  avatar_url: string | null;
+  evaluation_url: string | null;
+  storage_id: number;
+  submitted_at: string;
+  is_current: number;
+}
+
+/** insertProfileSubmission 的可写字段（不含 id/user_id/version） */
+export interface ProfileSubmissionData {
+  tags: string | null;
+  avatar_url: string | null;
+  evaluation_url: string | null;
+  storage_id: number;
+  submitted_at: string;
+  is_current: number;
+}
+
 export interface BackupTagRow {
   id: number;
   name: string;
@@ -133,6 +156,8 @@ export interface BackupData {
   configs_profile?: { key: string; value: string }[];
   /** 存储后端注册表（#111；不含凭据；旧备份可能缺失，读取方容忍 undefined） */
   storage_backends?: StorageBackendRow[];
+  /** 档案提交历史版本（#95；旧备份可能缺失，读取方容忍 undefined） */
+  profile_submissions?: ProfileSubmissionRow[];
 }
 
 /** configs_profile 表行 */
@@ -186,6 +211,10 @@ export const MAX_AVATAR_SIZE_KEY = "max_avatar_size_mb";
 export const MAX_EVALUATION_SIZE_KEY = "max_evaluation_size_mb";
 export const DEFAULT_MAX_AVATAR_SIZE_MB = 5;
 export const DEFAULT_MAX_EVALUATION_SIZE_MB = 10;
+
+/** 档案提交历史版本上限配置（#95）：超出后仅删除 DB 记录，文件保留 */
+export const MAX_PROFILE_SUBMISSIONS_KEY = "max_profile_submissions";
+export const DEFAULT_MAX_PROFILE_SUBMISSIONS = 10;
 
 /** storage_backends 表行（#111）：凭据不入库，走 .env.local（S3_{id}_ACCESS_KEY / S3_{id}_SECRET_KEY） */
 export interface StorageBackendRow {
@@ -257,6 +286,26 @@ export interface DbAdapter {
   ): Promise<{ rows: UserRow[]; total: number }> | { rows: UserRow[]; total: number };
   getAllSubmitted(): Promise<UserRow[]> | UserRow[];
   clearSubmissions(userCodes: string[]): Promise<number> | number;
+
+  // profile_submissions（档案提交历史版本，#95）
+  insertProfileSubmission(userId: number, version: number, data: ProfileSubmissionData): Promise<number> | number;
+  getMaxProfileSubmissionVersion(userId: number): Promise<number> | number;
+  getProfileSubmissions(userId: number): Promise<ProfileSubmissionRow[]> | ProfileSubmissionRow[];
+  getProfileSubmission(id: number): Promise<ProfileSubmissionRow | undefined> | ProfileSubmissionRow | undefined;
+  deleteOldestProfileSubmissions(userId: number, count: number): Promise<number> | number;
+  setCurrentProfileSubmission(versionId: number, userId: number): Promise<void> | void;
+  getStudentsExceedingSubmissionLimit(
+    maxVersions: number
+  ): Promise<{ user_id: number; user_code: string; name: string; version_count: number }[]>
+    | { user_id: number; user_code: string; name: string; version_count: number }[];
+  /** 高层事务函数：提交档案 + 生成版本快照 + 超限清理，原子完成 */
+  submitProfileWithVersion(
+    userCode: string,
+    tagsJson: string,
+    avatarUrl: string,
+    evaluationUrl: string,
+    storageId: number
+  ): Promise<{ version: number }> | { version: number };
 
   // stats
   getStats(): Promise<Stats> | Stats;
@@ -434,6 +483,54 @@ export async function getAllSubmitted(): Promise<UserRow[]> {
 export async function clearSubmissions(userCodes: string[]): Promise<number> {
   const adapter = await ensureInit();
   return Promise.resolve(adapter.clearSubmissions(userCodes));
+}
+
+export async function insertProfileSubmission(userId: number, version: number, data: ProfileSubmissionData): Promise<number> {
+  const adapter = await ensureInit();
+  return Promise.resolve(adapter.insertProfileSubmission(userId, version, data));
+}
+
+export async function getMaxProfileSubmissionVersion(userId: number): Promise<number> {
+  const adapter = await ensureInit();
+  return Promise.resolve(adapter.getMaxProfileSubmissionVersion(userId));
+}
+
+export async function getProfileSubmissions(userId: number): Promise<ProfileSubmissionRow[]> {
+  const adapter = await ensureInit();
+  return Promise.resolve(adapter.getProfileSubmissions(userId));
+}
+
+export async function getProfileSubmission(id: number): Promise<ProfileSubmissionRow | undefined> {
+  const adapter = await ensureInit();
+  return Promise.resolve(adapter.getProfileSubmission(id));
+}
+
+export async function deleteOldestProfileSubmissions(userId: number, count: number): Promise<number> {
+  const adapter = await ensureInit();
+  return Promise.resolve(adapter.deleteOldestProfileSubmissions(userId, count));
+}
+
+export async function setCurrentProfileSubmission(versionId: number, userId: number): Promise<void> {
+  const adapter = await ensureInit();
+  return Promise.resolve(adapter.setCurrentProfileSubmission(versionId, userId));
+}
+
+export async function getStudentsExceedingSubmissionLimit(
+  maxVersions: number
+): Promise<{ user_id: number; user_code: string; name: string; version_count: number }[]> {
+  const adapter = await ensureInit();
+  return Promise.resolve(adapter.getStudentsExceedingSubmissionLimit(maxVersions));
+}
+
+export async function submitProfileWithVersion(
+  userCode: string,
+  tagsJson: string,
+  avatarUrl: string,
+  evaluationUrl: string,
+  storageId: number
+): Promise<{ version: number }> {
+  const adapter = await ensureInit();
+  return Promise.resolve(adapter.submitProfileWithVersion(userCode, tagsJson, avatarUrl, evaluationUrl, storageId));
 }
 
 export async function getStats(): Promise<Stats> {
@@ -641,6 +738,14 @@ export async function getMaxCustomTags(): Promise<number> {
   const raw = configs.find((c) => c.key === "max_custom_tags")?.value;
   const parsed = raw === undefined ? NaN : Number(raw);
   return Number.isInteger(parsed) && parsed > 0 ? parsed : DEFAULT_MAX_CUSTOM_TAGS;
+}
+
+/** 读取档案提交历史版本上限（#95）；配置缺失或非法时回退默认值，合法范围 1–100 由路由层写入时校验 */
+export async function getMaxProfileSubmissions(): Promise<number> {
+  const configs = await getProfileConfigs();
+  const raw = configs.find((c) => c.key === MAX_PROFILE_SUBMISSIONS_KEY)?.value;
+  const parsed = raw === undefined ? NaN : Number(raw);
+  return Number.isInteger(parsed) && parsed >= 1 && parsed <= 100 ? parsed : DEFAULT_MAX_PROFILE_SUBMISSIONS;
 }
 
 /** 提交时限配置键（#96）：存储格式 `YYYY-MM-DD HH:mm`（Asia/Shanghai），空串表示不限制 */
