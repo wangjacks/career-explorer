@@ -1,8 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
-import { History, TriangleAlert, Trash2 } from "lucide-react";
+import { ChevronDown, History, TriangleAlert, Trash2, Users, X } from "lucide-react";
 import ConfirmDialog from "./ConfirmDialog";
 import StorageImage from "@/components/StorageImage";
 
@@ -44,15 +44,29 @@ export default function ProfileSubmissionsTab() {
   const [maxVersions, setMaxVersions] = useState(10);
   const [confirmCleanup, setConfirmCleanup] = useState<ExceedRow | null>(null);
   const [cleaning, setCleaning] = useState(false);
+  // 学生选择器：按钮 + 弹出面板（搜索 + 列表），样式与标签筛选下拉一致
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const pickerRef = useRef<HTMLDivElement>(null);
 
-  // 学生选择器数据源：已提交档案列表（取第一页 100 条，客户端搜索过滤）
+  // 学生选择器数据源：分页拉取全部已提交学生（pageSize=100 循环至 total），客户端搜索过滤
   const loadStudents = useCallback(async () => {
     setStudentLoading(true);
     try {
-      const res = await fetch("/api/manage/profiles?page=1&pageSize=100");
-      const data = await res.json();
-      if (res.ok) setStudents(data.data || []);
-      else toast.error(data.error || "学生列表加载失败");
+      const all: ProfileSummary[] = [];
+      let page = 1;
+      let total = 0;
+      do {
+        const res = await fetch(`/api/manage/profiles?page=${page}&pageSize=100`);
+        const data = await res.json();
+        if (!res.ok) {
+          toast.error(data.error || "学生列表加载失败");
+          break;
+        }
+        all.push(...(data.data || []));
+        total = data.total || 0;
+        page += 1;
+      } while (all.length < total && page <= 50); // 防御性上限，避免异常死循环
+      setStudents(all);
     } catch (err) {
       console.error("Failed to load students:", err);
       toast.error("学生列表加载失败");
@@ -96,6 +110,17 @@ export default function ProfileSubmissionsTab() {
   }, [loadStudents, loadExceeding]);
   /* eslint-enable react-hooks/set-state-in-effect */
 
+  // 点击外部关闭学生选择器
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (pickerRef.current && !pickerRef.current.contains(e.target as Node)) {
+        setPickerOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
+
   const filteredStudents = useMemo(() => {
     const q = search.trim().toLowerCase();
     if (!q) return students;
@@ -110,7 +135,14 @@ export default function ProfileSubmissionsTab() {
     setSelectedUserId(userId);
     setSelectedName(name);
     setSubmissions([]);
+    setPickerOpen(false);
     void loadSubmissions(userId);
+  };
+
+  const handleClear = () => {
+    setSelectedUserId(null);
+    setSelectedName("");
+    setSubmissions([]);
   };
 
   const handleCleanup = async (row: ExceedRow) => {
@@ -143,30 +175,75 @@ export default function ProfileSubmissionsTab() {
           <h2 className="font-semibold text-gray-800 dark:text-gray-100">档案提交历史</h2>
         </div>
 
-        <div className="flex flex-wrap items-center gap-3">
-          <input
-            type="text"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="搜索学号/姓名..."
-            className="px-3 py-2 border border-gray-200 dark:border-gray-700 bg-card text-foreground rounded-lg text-sm w-48 focus:outline-none focus:ring-2 focus:ring-green-300"
-          />
-          <select
-            value={selectedUserId ?? ""}
-            onChange={(e) => {
-              const userId = Number(e.target.value);
-              const student = filteredStudents.find((s) => s.userId === userId);
-              if (userId > 0 && student) handleSelect(userId, student.studentName);
-            }}
-            className="px-3 py-2 border border-gray-200 dark:border-gray-700 bg-card text-foreground rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-300"
+        {/* 学生选择器：按钮 + 弹出面板（搜索 + 列表） */}
+        <div className="relative" ref={pickerRef}>
+          <button
+            onClick={() => setPickerOpen((v) => !v)}
+            className={`px-3 py-2 rounded-lg text-sm font-medium border transition-colors flex items-center gap-1.5 ${
+              selectedUserId !== null
+                ? "bg-green-50 dark:bg-green-900/30 text-green-700 dark:text-green-300 border-green-200 dark:border-green-800"
+                : "bg-card text-gray-600 dark:text-gray-300 border-gray-200 dark:border-gray-700 hover:border-gray-300"
+            }`}
           >
-            <option value="">{studentLoading ? "加载学生中..." : "选择已提交的学生..."}</option>
-            {filteredStudents.map((s) => (
-              <option key={s.userId} value={s.userId}>
-                {s.studentId} · {s.studentName}
-              </option>
-            ))}
-          </select>
+            <Users className="w-4 h-4" strokeWidth={1.5} />
+            <span className="max-w-56 truncate">
+              {selectedUserId !== null ? `${selectedName}（${students.find((s) => s.userId === selectedUserId)?.studentId ?? ""}）` : "选择已提交的学生..."}
+            </span>
+            {selectedUserId !== null ? (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleClear();
+                }}
+                className="ml-0.5 hover:text-green-900 dark:hover:text-green-100 leading-none"
+                aria-label="清除选择"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            ) : (
+              <ChevronDown className={`w-3 h-3 transition-transform ${pickerOpen ? "rotate-180" : ""}`} />
+            )}
+          </button>
+          {pickerOpen && (
+            <div className="absolute top-full left-0 mt-1 w-80 bg-card rounded-xl border border-gray-200 dark:border-gray-700 shadow-lg z-30">
+              <div className="p-2 border-b border-gray-100 dark:border-gray-700">
+                <input
+                  type="text"
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  placeholder="搜索学号/姓名..."
+                  className="w-full px-2.5 py-1.5 border border-gray-200 dark:border-gray-700 bg-card text-foreground rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-300"
+                  autoFocus
+                />
+              </div>
+              <div className="max-h-64 overflow-y-auto py-1">
+                {studentLoading && students.length === 0 ? (
+                  <div className="px-3 py-4 text-center text-sm text-gray-400">加载中...</div>
+                ) : filteredStudents.length === 0 ? (
+                  <div className="px-3 py-4 text-center text-sm text-gray-400">无匹配学生</div>
+                ) : (
+                  filteredStudents.map((s) => (
+                    <button
+                      key={s.userId}
+                      onClick={() => s.userId != null && handleSelect(s.userId, s.studentName)}
+                      className={`w-full text-left px-3 py-2 text-sm flex items-center gap-2 transition-colors ${
+                        selectedUserId === s.userId
+                          ? "bg-green-50 dark:bg-green-900/30 text-green-700 dark:text-green-300"
+                          : "hover:bg-gray-50 dark:hover:bg-gray-800 text-gray-700 dark:text-gray-200"
+                      }`}
+                    >
+                      <span className="font-mono text-xs">{s.studentId}</span>
+                      <span className="truncate">{s.studentName}</span>
+                      {selectedUserId === s.userId && <span className="ml-auto text-xs">✓</span>}
+                    </button>
+                  ))
+                )}
+              </div>
+              <div className="px-3 py-1.5 border-t border-gray-100 dark:border-gray-700 text-[10px] text-gray-400">
+                共 {students.length} 名已提交学生
+              </div>
+            </div>
+          )}
         </div>
 
         {selectedUserId !== null && (
