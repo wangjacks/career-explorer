@@ -145,17 +145,17 @@ describe("S3 凭据与适配器构造", () => {
       makeBackend({
         id: 99,
         type: "s3",
-        endpoint: "https://cos.example.com",
-        internal_endpoint: "https://cos-internal.example.com",
+        endpoint: "https://cos.ap-shanghai.myqcloud.com",
+        internal_endpoint: "https://cos-internal.ap-shanghai.myqcloud.com",
         region: "ap-shanghai",
         bucket: "my-bucket",
         path_prefix: "/career/2026/",
       })
     );
     const url = await adapter.getSignedUrl("avatar_x.jpg", 60);
-    expect(url).toContain("cos.example.com");
+    expect(url).toContain("cos.ap-shanghai.myqcloud.com");
     expect(url).not.toContain("cos-internal");
-    // 前缀规范化（去首尾斜杠）后拼入对象路径
+    // 服务级端点 → 路径风格，桶名在路径中
     expect(url).toContain("my-bucket/career/2026/avatar_x.jpg");
     expect(url).toMatch(/X-Amz-Expires=60/);
   });
@@ -188,6 +188,28 @@ describe("S3 凭据与适配器构造", () => {
     expect(url).toContain(`${bucket}.cos.ap-guangzhou.myqcloud.com`);
     // 路径不含重复桶名，且正确拼入根目录前缀 + 对象 key
     expect(url).not.toContain(`/${bucket}/${bucket}/`);
+    expect(url).toContain(`/career-dev-local/2026/avatar_202599990002.jpg`);
+  });
+
+  it("自定义域名（CNAME 到桶）自动识别为虚拟主机风格，不拼桶名到路径", async () => {
+    process.env.S3_98_ACCESS_KEY = "ak";
+    process.env.S3_98_SECRET_KEY = "sk";
+    const adapter = new S3StorageAdapter(
+      makeBackend({
+        id: 98,
+        type: "s3",
+        endpoint: "https://usercontents.blog233.com",
+        region: "ap-guangzhou",
+        bucket: "blog233-usercontents-1301217517",
+        path_prefix: "career-dev-local/2026",
+      })
+    );
+    const url = await adapter.getSignedUrl("avatar_202599990002.jpg", 60);
+    // 签名 URL 使用自定义域名
+    expect(url).toContain("usercontents.blog233.com");
+    // 路径不含桶名（自定义域名已隐含桶）
+    expect(url).not.toContain("/blog233-usercontents-1301217517/");
+    // 正确拼入根目录前缀 + 对象 key
     expect(url).toContain(`/career-dev-local/2026/avatar_202599990002.jpg`);
   });
 });

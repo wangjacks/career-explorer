@@ -123,6 +123,7 @@ pm2 restart career-app
 - 切换默认后端只影响新上传，存量文件不受影响；「迁移本地文件」可把存量文件批量迁入云后端（幂等，可重复执行）
 - 备份文件包含存储后端配置（不含凭据），恢复后需在新环境重新配置凭据环境变量
 - 端点支持两种风格，系统自动识别：虚拟主机风格（桶名在子域名，如 `https://{桶名}.cos.ap-guangzhou.myqcloud.com`）与服务级/路径风格（如 `https://cos.ap-guangzhou.myqcloud.com`、MinIO `http://host:9000`）；无需手动指定路径风格选项
+- 支持自定义域名（已 CNAME 到存储桶的域名，如 `https://usercontents.example.com`），系统自动识别为虚拟主机风格，签名 URL 直接走自定义域名
 
 ## 五、用 PM2 进行进程管理
 

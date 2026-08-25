@@ -53,29 +53,34 @@ export class S3StorageAdapter implements StorageAdapter {
     this.bucket = backend.bucket;
     this.prefix = (backend.path_prefix ?? "").replace(/^\/+|\/+$/g, "");
 
-    // 端点风格自动识别（#111 修复）：
-    // - 虚拟主机风格（桶名在子域名，如 {bucket}.cos.ap-guangzhou.myqcloud.com）→ 不强制路径风格，
-    //   否则 SDK 会把桶名拼进路径，桶里多一层与桶同名的目录
-    // - 服务级/自建端点（如 cos.ap-guangzhou.myqcloud.com、MinIO http://host:9000）→ 路径风格
-    let forcePathStyle = true;
-    try {
-      const hostname = new URL(backend.endpoint).hostname;
-      if (hostname.startsWith(`${backend.bucket}.`)) forcePathStyle = false;
-    } catch {
-      // 端点非标准 URL 时退回路径风格（保守默认）
-    }
-
-    const base = {
-      region: backend.region,
-      credentials,
-      forcePathStyle,
+    // 端点风格自动识别（#111）：按 hostname 判断 forcePathStyle
+    // - 虚拟主机风格（桶名在子域名，如 {bucket}.cos.{region}.myqcloud.com）→ false
+    // - 自定义域名（如 usercontents.example.com，已 CNAME 到桶）→ false（域名已隐含桶）
+    // - 服务级/自建端点（如 cos.{region}.myqcloud.com、MinIO http://host:9000）→ true
+    // 服务端与公网客户端可能使用不同端点，各自独立检测
+    const shouldForcePathStyle = (endpoint: string): boolean => {
+      try {
+        const hostname = new URL(endpoint).hostname;
+        // 桶名在子域名 → 虚拟主机风格
+        if (hostname.startsWith(`${backend.bucket}.`)) return false;
+        // 已知的云厂商服务级域名模式 → 路径风格
+        if (/\.(myqcloud\.com|amazonaws\.com|aliyuncs\.com)$/i.test(hostname)) return true;
+        // 其余视为自定义域名（已 CNAME 到桶）→ 虚拟主机风格
+        return false;
+      } catch {
+        return true; // 非标准 URL 保守默认路径风格
+      }
     };
+
+    const serverEndpoint = backend.internal_endpoint || backend.endpoint;
+    const common = { region: backend.region, credentials };
     this.serverClient = new S3Client({
-      ...base,
-      endpoint: backend.internal_endpoint || backend.endpoint,
+      ...common,
+      endpoint: serverEndpoint,
+      forcePathStyle: shouldForcePathStyle(serverEndpoint),
     });
     this.publicClient = backend.internal_endpoint
-      ? new S3Client({ ...base, endpoint: backend.endpoint })
+      ? new S3Client({ ...common, endpoint: backend.endpoint, forcePathStyle: shouldForcePathStyle(backend.endpoint) })
       : this.serverClient;
   }
 
