@@ -13,10 +13,13 @@ vi.mock("@/lib/db", () => ({
   getSubmissionDeadline: vi.fn(),
   isSubmissionClosed: vi.fn(),
   insertAuditLog: vi.fn(),
+  getStorageBackend: vi.fn(),
+  getDefaultStorageBackend: vi.fn(),
 }));
 
 import { POST, GET } from "@/app/api/shared/profile/route";
-import { getUserById, getActiveTags, upsertSubmission, getMaxCustomTags, getClasses, getSubmissionDeadline, isSubmissionClosed } from "@/lib/db";
+import { getUserById, getActiveTags, upsertSubmission, getMaxCustomTags, getClasses, getSubmissionDeadline, isSubmissionClosed, getDefaultStorageBackend } from "@/lib/db";
+import type { StorageBackendRow } from "@/lib/db";
 
 function createPostRequest(body: unknown, cookies?: Record<string, string>): NextRequest {
   const url = new URL("/api/shared/profile", "http://localhost:3000");
@@ -45,10 +48,13 @@ const STUDENT_USER = {
   evaluation_url: null,
   submitted_at: null,
   created_at: "",
+  storage_id: 1,
 };
 
 beforeEach(() => {
   vi.clearAllMocks();
+  // 默认存储后端：内置本地后端（id=1）
+  vi.mocked(getDefaultStorageBackend).mockResolvedValue({ id: 1 } as unknown as StorageBackendRow);
 });
 
 describe("POST /api/shared/profile — 快速提交下线后的安全收紧（#92）", () => {
@@ -100,7 +106,7 @@ describe("POST /api/shared/profile — 快速提交下线后的安全收紧（#9
     const res = await POST(createPostRequest({ tags: ["阅读", "自定义爱好"] }, { auth_token: token }));
     expect(res.status).toBe(200);
     // 文本直存：预设 + 自定义均按名称存入（去空去重后的 JSON 数组）
-    expect(upsertSubmission).toHaveBeenCalledWith("202505050102", JSON.stringify(["阅读", "自定义爱好"]), "", "");
+    expect(upsertSubmission).toHaveBeenCalledWith("202505050102", JSON.stringify(["阅读", "自定义爱好"]), "", "", 1);
   });
 
   it("自定义标签超过配置上限 → 400 拒绝（#94）", async () => {

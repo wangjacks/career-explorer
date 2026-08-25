@@ -17,6 +17,9 @@ import type {
   AuditLogRow,
   NewAuditLog,
   AuditLogFilters,
+  StorageBackendRow,
+  NewStorageBackend,
+  StorageBackendUpdateFields,
 } from "./db";
 
 function getNow(): string {
@@ -159,9 +162,50 @@ export class MysqlAdapter implements DbAdapter {
         INDEX idx_audit_resource (resource_type, resource_id)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
     `);
+    await this.migrateStorageSchema();
     await this.migrateTagSchema();
     await this.seedTags();
     await this.migrateLegacy();
+  }
+
+  /**
+   * 对象存储多后端注册表（#111）：
+   * 1) storage_backends 表 + 内置本地后端种子（幂等，不可删除）
+   * 2) users.storage_id 列（幂等守卫）+ 回填本地后端 id + 迁移扫描索引
+   */
+  private async migrateStorageSchema(): Promise<void> {
+    await this.pool.execute(`
+      CREATE TABLE IF NOT EXISTS storage_backends (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        name VARCHAR(100) NOT NULL UNIQUE,
+        type VARCHAR(10) NOT NULL,
+        endpoint VARCHAR(500) NOT NULL DEFAULT '',
+        internal_endpoint VARCHAR(500),
+        region VARCHAR(100),
+        bucket VARCHAR(200),
+        path_prefix VARCHAR(500),
+        is_default TINYINT NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    `);
+    await this.pool.execute(
+      `INSERT IGNORE INTO storage_backends (name, type, endpoint, is_default, created_at, updated_at)
+       VALUES ('本地存储', 'local', '', 1, ?, ?)`,
+      [getNow(), getNow()]
+    );
+
+    if (!(await this.columnExists("users", "storage_id"))) {
+      await this.pool.execute("ALTER TABLE users ADD COLUMN storage_id INT NOT NULL DEFAULT 1");
+    }
+    if (!(await this.indexExists("users", "idx_users_storage_id"))) {
+      await this.pool.execute("CREATE INDEX idx_users_storage_id ON users (storage_id)");
+    }
+    // 回填：存量行统一指向本地后端（防御后端 id 非 1 的场景）
+    await this.pool.execute(
+      `UPDATE users SET storage_id = (SELECT id FROM storage_backends WHERE type = 'local' LIMIT 1)
+       WHERE storage_id NOT IN (SELECT id FROM (SELECT id FROM storage_backends) t)`
+    );
   }
 
   private async tableExists(name: string): Promise<boolean> {
@@ -176,6 +220,14 @@ export class MysqlAdapter implements DbAdapter {
     const [rows] = await this.pool.execute(
       "SELECT 1 FROM information_schema.columns WHERE table_schema = ? AND table_name = ? AND column_name = ?",
       [this.database, table, column]
+    );
+    return (rows as unknown[]).length > 0;
+  }
+
+  private async indexExists(table: string, index: string): Promise<boolean> {
+    const [rows] = await this.pool.execute(
+      "SELECT 1 FROM information_schema.statistics WHERE table_schema = ? AND table_name = ? AND index_name = ?",
+      [this.database, table, index]
     );
     return (rows as unknown[]).length > 0;
   }
@@ -439,11 +491,11 @@ export class MysqlAdapter implements DbAdapter {
   }
 
   // submissions
-  async upsertSubmission(userCode: string, tagsJson: string, avatarUrl: string, evaluationUrl: string): Promise<void> {
+  async upsertSubmission(userCode: string, tagsJson: string, avatarUrl: string, evaluationUrl: string, storageId: number): Promise<void> {
     await this.pool.execute(
-      `UPDATE users SET tags = ?, avatar_url = ?, evaluation_url = ?, submitted_at = ?
+      `UPDATE users SET tags = ?, avatar_url = ?, evaluation_url = ?, submitted_at = ?, storage_id = ?
        WHERE role = 'student' AND user_code = ?`,
-      [tagsJson, avatarUrl, evaluationUrl, getNow(), userCode]
+      [tagsJson, avatarUrl, evaluationUrl, getNow(), storageId, userCode]
     );
   }
 
@@ -725,6 +777,95 @@ export class MysqlAdapter implements DbAdapter {
     );
   }
 
+  // storage_backends（#111）
+  async listStorageBackends(): Promise<StorageBackendRow[]> {
+    const [rows] = await this.pool.execute("SELECT * FROM storage_backends ORDER BY id");
+    return rows as StorageBackendRow[];
+  }
+
+  async getStorageBackend(id: number): Promise<StorageBackendRow | undefined> {
+    const [rows] = await this.pool.execute("SELECT * FROM storage_backends WHERE id = ?", [id]);
+    return (rows as StorageBackendRow[])[0];
+  }
+
+  async insertStorageBackend(backend: NewStorageBackend): Promise<number> {
+    const [result] = await this.pool.execute(
+      `INSERT INTO storage_backends (name, type, endpoint, internal_endpoint, region, bucket, path_prefix, is_default, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`,
+      [
+        backend.name,
+        backend.type,
+        backend.endpoint ?? "",
+        backend.internal_endpoint ?? null,
+        backend.region ?? null,
+        backend.bucket ?? null,
+        backend.path_prefix ?? null,
+        getNow(),
+        getNow(),
+      ]
+    );
+    return (result as mysql.ResultSetHeader).insertId;
+  }
+
+  async updateStorageBackend(id: number, fields: StorageBackendUpdateFields): Promise<void> {
+    const sets: string[] = [];
+    const values: (string | null)[] = [];
+    if (fields.name !== undefined) { sets.push("name = ?"); values.push(fields.name); }
+    if (fields.endpoint !== undefined) { sets.push("endpoint = ?"); values.push(fields.endpoint); }
+    if (fields.internal_endpoint !== undefined) { sets.push("internal_endpoint = ?"); values.push(fields.internal_endpoint); }
+    if (fields.region !== undefined) { sets.push("region = ?"); values.push(fields.region); }
+    if (fields.bucket !== undefined) { sets.push("bucket = ?"); values.push(fields.bucket); }
+    if (fields.path_prefix !== undefined) { sets.push("path_prefix = ?"); values.push(fields.path_prefix); }
+    if (sets.length === 0) return;
+    sets.push("updated_at = ?");
+    values.push(getNow());
+    await this.pool.execute(`UPDATE storage_backends SET ${sets.join(", ")} WHERE id = ?`, [...values, id]);
+  }
+
+  async deleteStorageBackend(id: number): Promise<void> {
+    await this.pool.execute("DELETE FROM storage_backends WHERE id = ?", [id]);
+  }
+
+  async setDefaultStorageBackend(id: number): Promise<void> {
+    const conn = await this.pool.getConnection();
+    try {
+      await conn.beginTransaction();
+      await conn.execute("UPDATE storage_backends SET is_default = 0");
+      await conn.execute(
+        "UPDATE storage_backends SET is_default = 1, updated_at = ? WHERE id = ?",
+        [getNow(), id]
+      );
+      await conn.commit();
+    } catch (err) {
+      await conn.rollback();
+      throw err;
+    } finally {
+      conn.release();
+    }
+  }
+
+  async getDefaultStorageBackend(): Promise<StorageBackendRow | undefined> {
+    const [rows] = await this.pool.execute("SELECT * FROM storage_backends WHERE is_default = 1 LIMIT 1");
+    return (rows as StorageBackendRow[])[0];
+  }
+
+  async countUsersByStorageId(storageId: number): Promise<number> {
+    const [rows] = await this.pool.execute("SELECT COUNT(*) AS c FROM users WHERE storage_id = ?", [storageId]);
+    return Number((rows as { c: number }[])[0].c);
+  }
+
+  async getUsersByStorageId(storageId: number): Promise<UserRow[]> {
+    const [rows] = await this.pool.execute(
+      "SELECT * FROM users WHERE storage_id = ? ORDER BY id",
+      [storageId]
+    );
+    return rows as UserRow[];
+  }
+
+  async updateUserStorageId(userId: number, storageId: number): Promise<void> {
+    await this.pool.execute("UPDATE users SET storage_id = ? WHERE id = ?", [storageId, userId]);
+  }
+
   async insertAuditLog(log: NewAuditLog): Promise<void> {
     await this.pool.execute(
       `INSERT INTO audit_logs (
@@ -816,6 +957,7 @@ export class MysqlAdapter implements DbAdapter {
       "SELECT `key` as `key`, value FROM configs_profile ORDER BY id"
     );
     const [auditLogs] = await this.pool.execute("SELECT * FROM audit_logs ORDER BY id");
+    const [storageBackends] = await this.pool.execute("SELECT * FROM storage_backends ORDER BY id");
     return {
       version: 3,
       sourceType: "mysql",
@@ -826,6 +968,7 @@ export class MysqlAdapter implements DbAdapter {
       tags: tags as TagRow[],
       audit_logs: auditLogs as AuditLogRow[],
       configs_profile: configs as { key: string; value: string }[],
+      storage_backends: storageBackends as StorageBackendRow[],
     };
   }
 
@@ -838,6 +981,45 @@ export class MysqlAdapter implements DbAdapter {
       await conn.execute("DELETE FROM users");
       await conn.execute("DELETE FROM classes");
       await conn.execute("DELETE FROM tags");
+      // 存储后端恢复（#111）：含此字段 → 整体替换；旧备份 → 保留当前后端表不动；
+      // 必须在 users 之前（同一备份内 storage_id 引用天然一致）；恢复后保证本地后端存在（内置不可删）
+      if (Array.isArray(data.storage_backends)) {
+        await conn.execute("DELETE FROM storage_backends");
+        if (data.storage_backends.length > 0) {
+          const values = data.storage_backends.map((b) => [
+            b.id,
+            b.name,
+            b.type,
+            b.endpoint ?? "",
+            b.internal_endpoint ?? null,
+            b.region ?? null,
+            b.bucket ?? null,
+            b.path_prefix ?? null,
+            b.is_default ?? 0,
+            b.created_at ?? getNow(),
+            b.updated_at ?? getNow(),
+          ]);
+          await conn.query(
+            `INSERT INTO storage_backends (id, name, type, endpoint, internal_endpoint, region, bucket, path_prefix, is_default, created_at, updated_at)
+             VALUES ?`,
+            [values]
+          );
+        }
+      }
+      const [localRows] = await conn.execute(
+        "SELECT id FROM storage_backends WHERE type = 'local' LIMIT 1"
+      );
+      if ((localRows as unknown[]).length === 0) {
+        await conn.execute(
+          `INSERT IGNORE INTO storage_backends (name, type, endpoint, is_default, created_at, updated_at)
+           VALUES ('本地存储', 'local', '', 0, ?, ?)`,
+          [getNow(), getNow()]
+        );
+      }
+      const [localIdRows] = await conn.execute(
+        "SELECT id FROM storage_backends WHERE type = 'local' LIMIT 1"
+      );
+      const localId = Number((localIdRows as { id: number }[])[0].id);
       if (tags.length > 0) {
         const values = tags.map((t) => [
           t.id,
@@ -874,9 +1056,11 @@ export class MysqlAdapter implements DbAdapter {
           u.evaluation_url,
           u.submitted_at,
           u.created_at,
+          // 旧备份无 storage_id → 回填本地后端（旧部署均为本地存储）
+          u.storage_id ?? localId,
         ]);
         await conn.query(
-          `INSERT INTO users (id, user_code, password_hash, role, name, class_id, tags, avatar_url, evaluation_url, submitted_at, created_at)
+          `INSERT INTO users (id, user_code, password_hash, role, name, class_id, tags, avatar_url, evaluation_url, submitted_at, created_at, storage_id)
            VALUES ?`,
           [values]
         );

@@ -39,6 +39,7 @@ beforeEach(() => {
     evaluation_url: null,
     submitted_at: null,
     created_at: "",
+    storage_id: 1,
   });
 });
 

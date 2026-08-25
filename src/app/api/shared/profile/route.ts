@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import {
   getActiveTags,
   getClasses,
+  getDefaultStorageBackend,
+  getStorageBackend,
   getSubmissionDeadline,
   getUserById,
   getMaxCustomTags,
@@ -108,6 +110,18 @@ export async function POST(request: NextRequest) {
     const { tags, avatarUrl, evaluationUrl } = body;
     const studentId = currentUser.user_code;
 
+    // 文件所在后端（#111）：以上传响应回传的 id 为准（验证存在）；未重选图片不传 → 保留当前记录值；非法值 → 默认后端
+    let storageId: number | null = null;
+    if (typeof body.storageId === "number" && Number.isInteger(body.storageId)) {
+      storageId = (await getStorageBackend(body.storageId))?.id ?? null;
+    }
+    if (storageId === null) {
+      storageId = currentUser.storage_id ?? (await getDefaultStorageBackend())?.id ?? null;
+    }
+    if (storageId === null) {
+      return NextResponse.json({ error: "存储后端未初始化" }, { status: 500 });
+    }
+
     if (!Array.isArray(tags) || tags.length === 0) {
       return NextResponse.json({ error: "标签不能为空" }, { status: 400 });
     }
@@ -130,7 +144,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    await upsertSubmission(studentId, JSON.stringify(names), avatarUrl || "", evaluationUrl || "");
+    await upsertSubmission(studentId, JSON.stringify(names), avatarUrl || "", evaluationUrl || "", storageId);
     // 档案提交/修改审计（#110）：仅记标签计数，不记标签内容（学生数据不重复入库）
     void recordAudit({
       actor_id: currentUser.id, actor_user_code: currentUser.user_code, actor_name: currentUser.name, actor_role: currentUser.role,

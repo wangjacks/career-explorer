@@ -4,15 +4,15 @@
  * 仅新选图片才上传，未重选沿用原 URL；档案保存走会话身份，不显式传学号。
  */
 
-async function uploadImage(file: File, prefix: "avatar" | "evaluation", studentId: string): Promise<string> {
+async function uploadImage(file: File, prefix: "avatar" | "evaluation", studentId: string): Promise<{ url: string; storageId: number | null }> {
   const formData = new FormData();
   formData.append("file", file);
   formData.append("prefix", prefix);
   formData.append("studentId", studentId);
   const res = await fetch("/api/upload", { method: "POST", body: formData });
   if (!res.ok) throw new Error("图片上传失败");
-  const { url } = await res.json();
-  return `${url}?t=${Date.now()}`;
+  const data = await res.json();
+  return { url: `${data.url}?t=${Date.now()}`, storageId: typeof data.storageId === "number" ? data.storageId : null };
 }
 
 export interface SubmitProfileInput {
@@ -32,17 +32,23 @@ export interface SubmitProfileResult {
 }
 
 export async function submitProfile(input: SubmitProfileInput): Promise<SubmitProfileResult> {
-  const evaluationUrl = input.evaluationFile
+  // 仅新选图片才上传；文件所在后端以本次上传返回为准，未重选不传（服务端保留原值）
+  const uploadedEvaluation = input.evaluationFile
     ? await uploadImage(input.evaluationFile, "evaluation", input.studentId)
-    : input.existingEvaluationUrl || "";
-  const avatarUrl = input.avatarFile
+    : null;
+  const uploadedAvatar = input.avatarFile
     ? await uploadImage(input.avatarFile, "avatar", input.studentId)
-    : input.existingAvatarUrl || "";
+    : null;
+  const evaluationUrl = uploadedEvaluation
+    ? uploadedEvaluation.url
+    : input.existingEvaluationUrl || "";
+  const avatarUrl = uploadedAvatar ? uploadedAvatar.url : input.existingAvatarUrl || "";
+  const storageId = uploadedEvaluation?.storageId ?? uploadedAvatar?.storageId ?? null;
 
   const res = await fetch("/api/shared/profile", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ tags: input.tags, avatarUrl, evaluationUrl }),
+    body: JSON.stringify({ tags: input.tags, avatarUrl, evaluationUrl, storageId }),
   });
   if (!res.ok) {
     let message = "保存失败";

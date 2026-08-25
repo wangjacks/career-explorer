@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { writeFile, mkdir } from "fs/promises";
 import path from "path";
 import sharp from "sharp";
+import { getDefaultStorageBackend } from "@/lib/db";
 
 export async function POST(request: NextRequest) {
   try {
@@ -35,7 +36,9 @@ export async function POST(request: NextRequest) {
 
     await writeFile(filepath, jpgBuffer);
 
-    return NextResponse.json({ url: `/api/uploads/${filename}` });
+    // 当前版本固定写入本地；响应携带后端 id 供档案保存记录文件路由（#111）
+    const backend = await getDefaultStorageBackend();
+    return NextResponse.json({ url: `/api/uploads/${filename}`, storageId: backend?.id ?? 1 });
   } catch (err) {
     console.error("Upload error:", err);
     return NextResponse.json({ error: "上传失败" }, { status: 500 });

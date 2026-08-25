@@ -18,6 +18,9 @@ import type {
   AuditLogRow,
   NewAuditLog,
   AuditLogFilters,
+  StorageBackendRow,
+  NewStorageBackend,
+  StorageBackendUpdateFields,
 } from "./db";
 
 function getNow(): string {
@@ -158,9 +161,50 @@ export class SqliteAdapter implements DbAdapter {
     this.db.exec(
       `CREATE INDEX IF NOT EXISTS idx_audit_resource ON audit_logs(resource_type, resource_id)`
     );
+    this.migrateStorageSchema();
     this.migrateTagSchema();
     this.seedTags();
     this.migrateLegacy();
+  }
+
+  /**
+   * 对象存储多后端注册表（#111）：
+   * 1) storage_backends 表 + 内置本地后端种子（幂等，不可删除）
+   * 2) users.storage_id 列（幂等守卫）+ 回填本地后端 id + 迁移扫描索引
+   */
+  private migrateStorageSchema(): void {
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS storage_backends (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL UNIQUE,
+        type TEXT NOT NULL,
+        endpoint TEXT NOT NULL DEFAULT '',
+        internal_endpoint TEXT,
+        region TEXT,
+        bucket TEXT,
+        path_prefix TEXT,
+        is_default INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      )
+    `);
+    this.db
+      .prepare(
+        `INSERT OR IGNORE INTO storage_backends (name, type, endpoint, is_default, created_at, updated_at)
+         VALUES ('本地存储', 'local', '', 1, ?, ?)`
+      )
+      .run(getNow(), getNow());
+
+    const columns = this.db.prepare("PRAGMA table_info(users)").all() as { name: string }[];
+    if (!columns.some((c) => c.name === "storage_id")) {
+      this.db.exec("ALTER TABLE users ADD COLUMN storage_id INTEGER NOT NULL DEFAULT 1");
+    }
+    this.db.exec(`CREATE INDEX IF NOT EXISTS idx_users_storage_id ON users(storage_id)`);
+    // 回填：存量行统一指向本地后端（防御后端 id 非 1 的场景）
+    this.db.exec(
+      `UPDATE users SET storage_id = (SELECT id FROM storage_backends WHERE type = 'local' LIMIT 1)
+       WHERE storage_id NOT IN (SELECT id FROM storage_backends)`
+    );
   }
 
   /** 将旧 category 文本迁移为分类记录和 parent_id 层级。 */
@@ -422,13 +466,13 @@ export class SqliteAdapter implements DbAdapter {
   }
 
   // submissions
-  upsertSubmission(userCode: string, tagsJson: string, avatarUrl: string, evaluationUrl: string): void {
+  upsertSubmission(userCode: string, tagsJson: string, avatarUrl: string, evaluationUrl: string, storageId: number): void {
     this.db
       .prepare(
-        `UPDATE users SET tags = ?, avatar_url = ?, evaluation_url = ?, submitted_at = ?
+        `UPDATE users SET tags = ?, avatar_url = ?, evaluation_url = ?, submitted_at = ?, storage_id = ?
          WHERE role = 'student' AND user_code = ?`
       )
-      .run(tagsJson, avatarUrl, evaluationUrl, getNow(), userCode);
+      .run(tagsJson, avatarUrl, evaluationUrl, getNow(), storageId, userCode);
   }
 
   getSubmittedProfiles(page: number = 1, pageSize: number = 20): { rows: UserRow[]; total: number } {
@@ -693,6 +737,88 @@ export class SqliteAdapter implements DbAdapter {
       .run(key, value, getNow());
   }
 
+  // storage_backends（#111）
+  listStorageBackends(): StorageBackendRow[] {
+    return this.db.prepare("SELECT * FROM storage_backends ORDER BY id").all() as StorageBackendRow[];
+  }
+
+  getStorageBackend(id: number): StorageBackendRow | undefined {
+    return this.db.prepare("SELECT * FROM storage_backends WHERE id = ?").get(id) as
+      | StorageBackendRow
+      | undefined;
+  }
+
+  insertStorageBackend(backend: NewStorageBackend): number {
+    const result = this.db
+      .prepare(
+        `INSERT INTO storage_backends (name, type, endpoint, internal_endpoint, region, bucket, path_prefix, is_default, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`
+      )
+      .run(
+        backend.name,
+        backend.type,
+        backend.endpoint ?? "",
+        backend.internal_endpoint ?? null,
+        backend.region ?? null,
+        backend.bucket ?? null,
+        backend.path_prefix ?? null,
+        getNow(),
+        getNow()
+      );
+    return Number(result.lastInsertRowid);
+  }
+
+  updateStorageBackend(id: number, fields: StorageBackendUpdateFields): void {
+    const sets: string[] = [];
+    const values: (string | null)[] = [];
+    if (fields.name !== undefined) { sets.push("name = ?"); values.push(fields.name); }
+    if (fields.endpoint !== undefined) { sets.push("endpoint = ?"); values.push(fields.endpoint); }
+    if (fields.internal_endpoint !== undefined) { sets.push("internal_endpoint = ?"); values.push(fields.internal_endpoint); }
+    if (fields.region !== undefined) { sets.push("region = ?"); values.push(fields.region); }
+    if (fields.bucket !== undefined) { sets.push("bucket = ?"); values.push(fields.bucket); }
+    if (fields.path_prefix !== undefined) { sets.push("path_prefix = ?"); values.push(fields.path_prefix); }
+    if (sets.length === 0) return;
+    sets.push("updated_at = ?");
+    values.push(getNow());
+    this.db.prepare(`UPDATE storage_backends SET ${sets.join(", ")} WHERE id = ?`).run(...values, id);
+  }
+
+  deleteStorageBackend(id: number): void {
+    this.db.prepare("DELETE FROM storage_backends WHERE id = ?").run(id);
+  }
+
+  setDefaultStorageBackend(id: number): void {
+    const tx = this.db.transaction((targetId: number) => {
+      this.db.prepare("UPDATE storage_backends SET is_default = 0").run();
+      this.db
+        .prepare("UPDATE storage_backends SET is_default = 1, updated_at = ? WHERE id = ?")
+        .run(getNow(), targetId);
+    });
+    tx(id);
+  }
+
+  getDefaultStorageBackend(): StorageBackendRow | undefined {
+    return this.db.prepare("SELECT * FROM storage_backends WHERE is_default = 1 LIMIT 1").get() as
+      | StorageBackendRow
+      | undefined;
+  }
+
+  countUsersByStorageId(storageId: number): number {
+    return (
+      this.db.prepare("SELECT COUNT(*) AS c FROM users WHERE storage_id = ?").get(storageId) as { c: number }
+    ).c;
+  }
+
+  getUsersByStorageId(storageId: number): UserRow[] {
+    return this.db
+      .prepare("SELECT * FROM users WHERE storage_id = ? ORDER BY id")
+      .all(storageId) as UserRow[];
+  }
+
+  updateUserStorageId(userId: number, storageId: number): void {
+    this.db.prepare("UPDATE users SET storage_id = ? WHERE id = ?").run(storageId, userId);
+  }
+
   insertAuditLog(log: NewAuditLog): void {
     this.db
       .prepare(
@@ -785,6 +911,9 @@ export class SqliteAdapter implements DbAdapter {
     const auditLogs = this.db
       .prepare("SELECT * FROM audit_logs ORDER BY id")
       .all() as AuditLogRow[];
+    const storageBackends = this.db
+      .prepare("SELECT * FROM storage_backends ORDER BY id")
+      .all() as StorageBackendRow[];
     return {
       version: 3,
       sourceType: "sqlite",
@@ -795,6 +924,7 @@ export class SqliteAdapter implements DbAdapter {
       tags,
       audit_logs: auditLogs,
       configs_profile: configs,
+      storage_backends: storageBackends,
     };
   }
 
@@ -805,6 +935,44 @@ export class SqliteAdapter implements DbAdapter {
       this.db.exec("DELETE FROM users");
       this.db.exec("DELETE FROM classes");
       this.db.exec("DELETE FROM tags");
+      // 存储后端恢复（#111）：含此字段 → 整体替换；旧备份 → 保留当前后端表不动；
+      // 必须在 users 之前（同一备份内 storage_id 引用天然一致）；恢复后保证本地后端存在（内置不可删）
+      if (Array.isArray(d.storage_backends)) {
+        this.db.exec("DELETE FROM storage_backends");
+        const stmt = this.db.prepare(
+          `INSERT INTO storage_backends (id, name, type, endpoint, internal_endpoint, region, bucket, path_prefix, is_default, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        );
+        for (const b of d.storage_backends) {
+          stmt.run(
+            b.id,
+            b.name,
+            b.type,
+            b.endpoint ?? "",
+            b.internal_endpoint ?? null,
+            b.region ?? null,
+            b.bucket ?? null,
+            b.path_prefix ?? null,
+            b.is_default ?? 0,
+            b.created_at ?? getNow(),
+            b.updated_at ?? getNow()
+          );
+        }
+      }
+      const hasLocal = this.db
+        .prepare("SELECT id FROM storage_backends WHERE type = 'local' LIMIT 1")
+        .get();
+      if (!hasLocal) {
+        this.db
+          .prepare(
+            `INSERT OR IGNORE INTO storage_backends (name, type, endpoint, is_default, created_at, updated_at)
+             VALUES ('本地存储', 'local', '', 0, ?, ?)`
+          )
+          .run(getNow(), getNow());
+      }
+      const localId = (
+        this.db.prepare("SELECT id FROM storage_backends WHERE type = 'local' LIMIT 1").get() as { id: number }
+      ).id;
       if (tags.length > 0) {
         const stmt = this.db.prepare(
           `INSERT INTO tags (id, name, type, parent_id, class_id, category_order, sort_order, active)
@@ -831,8 +999,8 @@ export class SqliteAdapter implements DbAdapter {
       }
       if (d.users.length > 0) {
         const stmt = this.db.prepare(
-          `INSERT INTO users (id, user_code, password_hash, role, name, class_id, tags, avatar_url, evaluation_url, submitted_at, created_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+          `INSERT INTO users (id, user_code, password_hash, role, name, class_id, tags, avatar_url, evaluation_url, submitted_at, created_at, storage_id)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
         );
         for (const u of d.users) {
           stmt.run(
@@ -846,7 +1014,9 @@ export class SqliteAdapter implements DbAdapter {
             u.avatar_url,
             u.evaluation_url,
             u.submitted_at,
-            u.created_at
+            u.created_at,
+            // 旧备份无 storage_id → 回填本地后端（旧部署均为本地存储）
+            u.storage_id ?? localId
           );
         }
       }
