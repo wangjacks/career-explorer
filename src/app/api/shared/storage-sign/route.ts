@@ -7,12 +7,14 @@ import {
 } from "@/lib/db";
 import { verifyToken } from "@/lib/token";
 import { createStorage } from "@/lib/storage";
+import { getSourceKey, isThumbnailKey } from "@/lib/thumbnail";
 
 /**
  * 文件访问地址签发（#111，私有读写模式）：
  * - 请求参数 `url` 为 DB 中存储的文件引用（本地代理路径或对象 key）
  * - 权限校验（防越权）：定位文件归属学生 → 学生仅限本人、教师仅限管辖班级、管理员全量，否则 403
  * - 归属定位：先查 users 当前档案；查不到再反查 profile_submissions 历史快照（#95：换头像/词云后旧文件只存在于快照表）
+ * - 缩略图 key（#118）：`*_thumb.jpg` 剥除后缀还原原 key 定位归属，签发对象仍为缩略图 key（DB 只引用原图，缩略图纯派生）
  * - 本地后端：原样回显代理路径（行为与现版本一致）
  * - 云后端：以文件归属记录的 `storage_id` 为准（忽略参数伪造）签发 30 分钟签名 URL
  *
@@ -33,16 +35,22 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "缺少文件引用" }, { status: 400 });
     }
 
+    // #118：缩略图 key（`*_thumb.jpg`）剥除后缀还原原 key 定位归属；查询参数保留参与原样比对（防遍历）
+    const [baseUrl, query] = url.split("?");
+    const sourceUrl = isThumbnailKey(baseUrl)
+      ? `${getSourceKey(baseUrl)}${query ? `?${query}` : ""}`
+      : url;
+
     // 定位文件归属：先查 users 当前档案（引用与库中存储值精确匹配，含查询参数原样比对）
     const owner = (await getAllSubmitted()).find(
-      (u) => u.avatar_url === url || u.evaluation_url === url
+      (u) => u.avatar_url === sourceUrl || u.evaluation_url === sourceUrl
     );
     let ownerId: number | null = owner?.id ?? null;
     let ownerClassId: number | null = owner?.class_id ?? null;
     let ownerStorageId: number | null = owner?.storage_id ?? null;
     if (!owner) {
       // #95：当前档案已更新的历史快照文件只存在于 profile_submissions，反查归属（含快照当时的后端）
-      const hist = await getProfileSubmissionOwnerByFileUrl(url);
+      const hist = await getProfileSubmissionOwnerByFileUrl(sourceUrl);
       if (hist) {
         ownerId = hist.user_id;
         ownerClassId = hist.class_id;
@@ -76,11 +84,12 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "存储后端不存在" }, { status: 500 });
     }
     if (backend.type === "local") {
+      // 回显原请求 url（缩略图请求回显缩略图路径，本地代理目录可直接访问）
       return NextResponse.json({ url });
     }
 
     const storage = createStorage(backend);
-    const key = url.split("?")[0];
+    const key = baseUrl;
     const signedUrl = await storage.getSignedUrl(key);
     return NextResponse.json({ url: signedUrl });
   } catch (err) {
