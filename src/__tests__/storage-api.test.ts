@@ -30,10 +30,12 @@ vi.mock("@/lib/db", () => ({
   getMaxCustomTags: vi.fn(),
   getMaxAvatarSizeMb: vi.fn(),
   getMaxEvaluationSizeMb: vi.fn(),
+  getMaxProfileSubmissions: vi.fn(),
   getSubmissionDeadline: vi.fn(),
   insertAuditLog: vi.fn(),
   MAX_AVATAR_SIZE_KEY: "max_avatar_size_mb",
   MAX_EVALUATION_SIZE_KEY: "max_evaluation_size_mb",
+  MAX_PROFILE_SUBMISSIONS_KEY: "max_profile_submissions",
   SUBMISSION_DEADLINE_KEY: "submission_deadline",
 }));
 
@@ -64,6 +66,7 @@ import {
   getMaxCustomTags,
   getMaxAvatarSizeMb,
   getMaxEvaluationSizeMb,
+  getMaxProfileSubmissions,
   getSubmissionDeadline,
   type StorageBackendRow,
 } from "@/lib/db";
@@ -446,6 +449,7 @@ describe("档案配置端点：上传大小上限（#111）", () => {
     vi.mocked(getSubmissionDeadline).mockResolvedValue(null);
     vi.mocked(getMaxAvatarSizeMb).mockResolvedValue(5);
     vi.mocked(getMaxEvaluationSizeMb).mockResolvedValue(10);
+    vi.mocked(getMaxProfileSubmissions).mockResolvedValue(10);
   });
 
   it("GET 返回大小上限默认值", async () => {

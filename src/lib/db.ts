@@ -52,6 +52,15 @@ export interface ProfileSubmissionData {
   is_current: number;
 }
 
+/** 超限学生行（#95）：含班级用于教师管辖过滤 */
+export interface ProfileSubmissionExceedRow {
+  user_id: number;
+  user_code: string;
+  name: string;
+  class_id: number | null;
+  version_count: number;
+}
+
 export interface BackupTagRow {
   id: number;
   name: string;
@@ -296,8 +305,7 @@ export interface DbAdapter {
   setCurrentProfileSubmission(versionId: number, userId: number): Promise<void> | void;
   getStudentsExceedingSubmissionLimit(
     maxVersions: number
-  ): Promise<{ user_id: number; user_code: string; name: string; version_count: number }[]>
-    | { user_id: number; user_code: string; name: string; version_count: number }[];
+  ): Promise<ProfileSubmissionExceedRow[]> | ProfileSubmissionExceedRow[];
   /** 高层事务函数：提交档案 + 生成版本快照 + 超限清理，原子完成 */
   submitProfileWithVersion(
     userCode: string,
@@ -517,7 +525,7 @@ export async function setCurrentProfileSubmission(versionId: number, userId: num
 
 export async function getStudentsExceedingSubmissionLimit(
   maxVersions: number
-): Promise<{ user_id: number; user_code: string; name: string; version_count: number }[]> {
+): Promise<ProfileSubmissionExceedRow[]> {
   const adapter = await ensureInit();
   return Promise.resolve(adapter.getStudentsExceedingSubmissionLimit(maxVersions));
 }

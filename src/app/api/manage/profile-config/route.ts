@@ -3,15 +3,17 @@ import {
   getMaxAvatarSizeMb,
   getMaxCustomTags,
   getMaxEvaluationSizeMb,
+  getMaxProfileSubmissions,
   getSubmissionDeadline,
   MAX_AVATAR_SIZE_KEY,
   MAX_EVALUATION_SIZE_KEY,
+  MAX_PROFILE_SUBMISSIONS_KEY,
   setProfileConfig,
   SUBMISSION_DEADLINE_KEY,
 } from "@/lib/db";
 import { getAuditActor, getRequestContext, recordAudit } from "@/lib/audit";
 
-/** 档案功能设置（#94/#96/#111）：管理/教师面板读写；表单端读取上限/截止状态走开放端点 /api/tags */
+/** 档案功能设置（#94/#96/#111/#95）：管理/教师面板读写；表单端读取上限/截止状态走开放端点 /api/tags */
 
 export async function GET() {
   try {
@@ -19,7 +21,8 @@ export async function GET() {
     const submissionDeadline = await getSubmissionDeadline();
     const maxAvatarSizeMb = await getMaxAvatarSizeMb();
     const maxEvaluationSizeMb = await getMaxEvaluationSizeMb();
-    return NextResponse.json({ maxCustomTags, submissionDeadline, maxAvatarSizeMb, maxEvaluationSizeMb });
+    const maxProfileSubmissions = await getMaxProfileSubmissions();
+    return NextResponse.json({ maxCustomTags, submissionDeadline, maxAvatarSizeMb, maxEvaluationSizeMb, maxProfileSubmissions });
   } catch (err) {
     console.error("Profile config GET error:", err);
     return NextResponse.json({ error: "获取配置失败" }, { status: 500 });
@@ -55,6 +58,7 @@ export async function PUT(request: NextRequest) {
     const oldDeadline = await getSubmissionDeadline();
     const oldMaxAvatarSizeMb = await getMaxAvatarSizeMb();
     const oldMaxEvaluationSizeMb = await getMaxEvaluationSizeMb();
+    const oldMaxProfileSubmissions = await getMaxProfileSubmissions();
 
     // 自定义标签上限（可选提交，提交时校验）
     if (body.maxCustomTags !== undefined) {
@@ -95,10 +99,20 @@ export async function PUT(request: NextRequest) {
       await setProfileConfig(MAX_EVALUATION_SIZE_KEY, String(value));
     }
 
+    // 历史版本上限（#95，可选提交）：整数 1–100
+    if (body.maxProfileSubmissions !== undefined) {
+      const value = Number(body.maxProfileSubmissions);
+      if (!Number.isInteger(value) || value < 1 || value > 100) {
+        return NextResponse.json({ error: "版本上限须为 1-100 的整数" }, { status: 400 });
+      }
+      await setProfileConfig(MAX_PROFILE_SUBMISSIONS_KEY, String(value));
+    }
+
     const maxCustomTags = await getMaxCustomTags();
     const submissionDeadline = await getSubmissionDeadline();
     const maxAvatarSizeMb = await getMaxAvatarSizeMb();
     const maxEvaluationSizeMb = await getMaxEvaluationSizeMb();
+    const maxProfileSubmissions = await getMaxProfileSubmissions();
     void recordAudit({
       ...actor, action: "profile-config:update", method: "PUT", path: "/api/manage/profile-config",
       resource_type: "profile-config", resource_id: null,
@@ -109,11 +123,12 @@ export async function PUT(request: NextRequest) {
           submissionDeadline: oldDeadline,
           maxAvatarSizeMb: oldMaxAvatarSizeMb,
           maxEvaluationSizeMb: oldMaxEvaluationSizeMb,
+          maxProfileSubmissions: oldMaxProfileSubmissions,
         },
-        new: { maxCustomTags, submissionDeadline, maxAvatarSizeMb, maxEvaluationSizeMb },
+        new: { maxCustomTags, submissionDeadline, maxAvatarSizeMb, maxEvaluationSizeMb, maxProfileSubmissions },
       },
     });
-    return NextResponse.json({ ok: true, maxCustomTags, submissionDeadline, maxAvatarSizeMb, maxEvaluationSizeMb });
+    return NextResponse.json({ ok: true, maxCustomTags, submissionDeadline, maxAvatarSizeMb, maxEvaluationSizeMb, maxProfileSubmissions });
   } catch (err) {
     console.error("Profile config PUT error:", err);
     return NextResponse.json({ error: "保存配置失败" }, { status: 500 });
