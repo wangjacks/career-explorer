@@ -24,6 +24,7 @@ vi.mock("@/lib/db", () => ({
   getUsersByStorageId: vi.fn(),
   updateUserStorageRef: vi.fn(),
   getAllSubmitted: vi.fn(),
+  getProfileSubmissionOwnerByFileUrl: vi.fn(),
   getTeacherClassPairs: vi.fn(),
   getProfileConfigs: vi.fn(),
   setProfileConfig: vi.fn(),
@@ -61,6 +62,7 @@ import {
   getUsersByStorageId,
   updateUserStorageRef,
   getAllSubmitted,
+  getProfileSubmissionOwnerByFileUrl,
   getTeacherClassPairs,
   setProfileConfig,
   getMaxCustomTags,
@@ -327,6 +329,34 @@ describe("签名端点越权防护（#111 私有读写）", () => {
     expect(body.url).toBe("https://signed.example.com/key");
     // 去查询参数后签发
     expect(fakeStorage.getSignedUrl).toHaveBeenCalledWith("avatar_me.jpg");
+  });
+
+  it("历史版本文件（仅存在于 profile_submissions）→ 学生本人可签发，他人 403（#95）", async () => {
+    const t = await tokens();
+    // users 表已更新（当前档案不含旧文件），快照表反查命中本人历史版本
+    vi.mocked(getAllSubmitted).mockResolvedValue([]);
+    vi.mocked(getProfileSubmissionOwnerByFileUrl).mockResolvedValue({
+      user_id: 7,
+      class_id: 1,
+      storage_id: 1,
+    });
+    vi.mocked(getStorageBackend).mockResolvedValue(backend({ id: 1 }));
+
+    // 他人（uid=8）请求 → 403
+    const other = { auth_token: await signToken({ role: "student", uid: 8, name: "他人" }) };
+    let res = await SIGN(
+      makeJsonRequest("/api/shared/storage-sign", "GET", undefined, other, { url: "old_avatar.jpg" })
+    );
+    expect(res.status).toBe(403);
+
+    // 本人（uid=7）→ 200 回显
+    res = await SIGN(
+      makeJsonRequest("/api/shared/storage-sign", "GET", undefined, t.student, { url: "old_avatar.jpg" })
+    );
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ url: "old_avatar.jpg" });
+    // 快照反查确已发生
+    expect(getProfileSubmissionOwnerByFileUrl).toHaveBeenCalledWith("old_avatar.jpg");
   });
 });
 

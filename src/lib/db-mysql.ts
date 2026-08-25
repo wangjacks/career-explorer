@@ -23,6 +23,7 @@ import type {
   ProfileSubmissionRow,
   ProfileSubmissionData,
   ProfileSubmissionExceedRow,
+  ProfileSubmissionFileOwner,
 } from "./db";
 
 function getNow(): string {
@@ -667,6 +668,17 @@ export class MysqlAdapter implements DbAdapter {
       ...r,
       version_count: Number(r.version_count),
     }));
+  }
+
+  async getProfileSubmissionOwnerByFileUrl(url: string): Promise<ProfileSubmissionFileOwner | undefined> {
+    const [rows] = await this.pool.execute(
+      `SELECT ps.user_id, u.class_id, ps.storage_id
+       FROM profile_submissions ps JOIN users u ON u.id = ps.user_id
+       WHERE ps.avatar_url = ? OR ps.evaluation_url = ?
+       ORDER BY ps.id DESC LIMIT 1`,
+      [url, url]
+    );
+    return (rows as ProfileSubmissionFileOwner[])[0];
   }
 
   async submitProfileWithVersion(

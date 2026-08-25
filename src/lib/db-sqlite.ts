@@ -24,6 +24,7 @@ import type {
   ProfileSubmissionRow,
   ProfileSubmissionData,
   ProfileSubmissionExceedRow,
+  ProfileSubmissionFileOwner,
 } from "./db";
 
 function getNow(): string {
@@ -620,6 +621,17 @@ export class SqliteAdapter implements DbAdapter {
          ORDER BY version_count DESC, u.user_code`
       )
       .all(maxVersions) as ProfileSubmissionExceedRow[];
+  }
+
+  getProfileSubmissionOwnerByFileUrl(url: string): ProfileSubmissionFileOwner | undefined {
+    return this.db
+      .prepare(
+        `SELECT ps.user_id, u.class_id, ps.storage_id
+         FROM profile_submissions ps JOIN users u ON u.id = ps.user_id
+         WHERE ps.avatar_url = ? OR ps.evaluation_url = ?
+         ORDER BY ps.id DESC LIMIT 1`
+      )
+      .get(url, url) as ProfileSubmissionFileOwner | undefined;
   }
 
   submitProfileWithVersion(userCode: string, tagsJson: string, avatarUrl: string, evaluationUrl: string, storageId: number): { version: number } {

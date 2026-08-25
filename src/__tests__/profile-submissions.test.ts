@@ -166,6 +166,30 @@ describe("profile_submissions CRUD（#95）", () => {
     adapter.close();
     cleanup(dbPath);
   });
+
+  it("getProfileSubmissionOwnerByFileUrl：按快照文件反查归属（含班级与快照当时的后端）", () => {
+    const dbPath = makeTmpDb();
+    const adapter = new SqliteAdapter(dbPath);
+    adapter.init();
+    const classId = adapter.insertClass("一班", "AAAA1111");
+    const studentId = adapter.insertUser({ user_code: "202505050101", role: "student", name: "张三", class_id: classId });
+    adapter.insertProfileSubmission(studentId, 1, {
+      tags: "[1]", avatar_url: "/old-a.png", evaluation_url: "/old-w.png", storage_id: 2,
+      submitted_at: "2026-08-01 10:00:00", is_current: 1,
+    });
+
+    expect(adapter.getProfileSubmissionOwnerByFileUrl("/old-a.png")).toMatchObject({
+      user_id: studentId,
+      class_id: classId,
+      storage_id: 2,
+    });
+    expect(adapter.getProfileSubmissionOwnerByFileUrl("/old-w.png")).toMatchObject({ user_id: studentId });
+    // 未命中返回 undefined
+    expect(adapter.getProfileSubmissionOwnerByFileUrl("/nope.png")).toBeUndefined();
+
+    adapter.close();
+    cleanup(dbPath);
+  });
 });
 
 describe("submitProfileWithVersion（#95）", () => {

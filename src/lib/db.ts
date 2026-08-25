@@ -61,6 +61,13 @@ export interface ProfileSubmissionExceedRow {
   version_count: number;
 }
 
+/** 历史版本文件归属（#95）：storage-sign 对快照文件做权限校验时反查用 */
+export interface ProfileSubmissionFileOwner {
+  user_id: number;
+  class_id: number | null;
+  storage_id: number;
+}
+
 export interface BackupTagRow {
   id: number;
   name: string;
@@ -306,6 +313,10 @@ export interface DbAdapter {
   getStudentsExceedingSubmissionLimit(
     maxVersions: number
   ): Promise<ProfileSubmissionExceedRow[]> | ProfileSubmissionExceedRow[];
+  /** 按文件引用反查历史版本归属（#95）：当前档案已更新的快照文件只能在 profile_submissions 中找到 */
+  getProfileSubmissionOwnerByFileUrl(
+    url: string
+  ): Promise<ProfileSubmissionFileOwner | undefined> | ProfileSubmissionFileOwner | undefined;
   /** 高层事务函数：提交档案 + 生成版本快照 + 超限清理，原子完成 */
   submitProfileWithVersion(
     userCode: string,
@@ -528,6 +539,13 @@ export async function getStudentsExceedingSubmissionLimit(
 ): Promise<ProfileSubmissionExceedRow[]> {
   const adapter = await ensureInit();
   return Promise.resolve(adapter.getStudentsExceedingSubmissionLimit(maxVersions));
+}
+
+export async function getProfileSubmissionOwnerByFileUrl(
+  url: string
+): Promise<ProfileSubmissionFileOwner | undefined> {
+  const adapter = await ensureInit();
+  return Promise.resolve(adapter.getProfileSubmissionOwnerByFileUrl(url));
 }
 
 export async function submitProfileWithVersion(
