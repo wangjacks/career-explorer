@@ -5,10 +5,10 @@ import {
   isThumbnailKey,
   getSourceKey,
   toThumbnailUrl,
-  createThumbnail,
   AVATAR_THUMB_SIZE,
   EVALUATION_THUMB_WIDTH,
-} from "../lib/thumbnail";
+} from "../lib/thumbnail-utils";
+import { createThumbnail } from "../lib/thumbnail";
 import { validateObjectKey } from "../lib/storage";
 
 /** 生成指定尺寸的测试用 JPEG buffer */

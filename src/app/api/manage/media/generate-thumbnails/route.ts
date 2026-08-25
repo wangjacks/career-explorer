@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { getAllReferencedMedia } from "@/lib/db";
 import { verifyToken } from "@/lib/token";
 import { getStorage } from "@/lib/storage";
-import { createThumbnail, getThumbnailKey } from "@/lib/thumbnail";
+import { createThumbnail } from "@/lib/thumbnail";
+import { getThumbnailKey } from "@/lib/thumbnail-utils";
 import { getAuditActor, getRequestContext, recordAudit } from "@/lib/audit";
 
 /** 从 DB 引用值提取对象 key：本地代理路径剥前缀，云值裸 key；去查询参数 */

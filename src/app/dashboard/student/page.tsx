@@ -13,7 +13,7 @@ import { useSession } from "@/hooks/useSession";
 import { useFileUrl } from "@/hooks/useFileUrl";
 import { safeImageUrl } from "@/lib/sanitize";
 import { submitProfile } from "@/lib/profile-submit";
-import { toThumbnailUrl } from "@/lib/thumbnail";
+import { toThumbnailUrl } from "@/lib/thumbnail-utils";
 
 interface MyProfile {
   name: string;

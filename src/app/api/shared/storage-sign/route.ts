@@ -7,7 +7,7 @@ import {
 } from "@/lib/db";
 import { verifyToken } from "@/lib/token";
 import { createStorage } from "@/lib/storage";
-import { getSourceKey, isThumbnailKey } from "@/lib/thumbnail";
+import { getSourceKey, isThumbnailKey } from "@/lib/thumbnail-utils";
 
 /**
  * 文件访问地址签发（#111，私有读写模式）：

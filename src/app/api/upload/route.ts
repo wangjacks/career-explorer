@@ -4,7 +4,8 @@ import path from "path";
 import sharp from "sharp";
 import { getDefaultStorageBackend, getMaxAvatarSizeMb, getMaxEvaluationSizeMb } from "@/lib/db";
 import { generateObjectKey, getStorage } from "@/lib/storage";
-import { createThumbnail, getThumbnailKey } from "@/lib/thumbnail";
+import { createThumbnail } from "@/lib/thumbnail";
+import { getThumbnailKey } from "@/lib/thumbnail-utils";
 
 /** 压缩尺寸上限（#111，保持宽高比，只缩小不放大）：头像 512×512、词云长边 1024 */
 const RESIZE_LIMITS: Record<string, { width: number; height: number }> = {

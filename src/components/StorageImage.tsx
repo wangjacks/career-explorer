@@ -1,7 +1,7 @@
 "use client";
 
 import { useFileUrl } from "@/hooks/useFileUrl";
-import { toThumbnailUrl } from "@/lib/thumbnail";
+import { toThumbnailUrl } from "@/lib/thumbnail-utils";
 
 /**
  * 存储感知图片（#111）：本地后端直接渲染代理路径；云后端自动换取签名 URL。
