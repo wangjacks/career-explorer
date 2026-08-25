@@ -1,7 +1,7 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  serverExternalPackages: ["mysql2"],
+  serverExternalPackages: ["mysql2", "@aws-sdk/client-s3", "@aws-sdk/s3-request-presigner"],
   allowedDevOrigins: process.env.ALLOWED_ORIGINS
     ? process.env.ALLOWED_ORIGINS.split(",")
     : [],

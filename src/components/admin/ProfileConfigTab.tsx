@@ -4,13 +4,16 @@ import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
 /**
- * 档案功能设置（#94/#96）：承载「自定义标签数量上限」与「档案提交截止时间」，
+ * 档案功能设置（#94/#96/#111）：承载「自定义标签数量上限」「档案提交截止时间」与「上传大小上限」，
  * 保存后即时生效。
  */
 export default function ProfileConfigTab() {
   const [maxCustomTags, setMaxCustomTags] = useState(6);
   /** datetime-local 输入值（`YYYY-MM-DDTHH:mm`）；空串 = 不限制 */
   const [deadline, setDeadline] = useState("");
+  /** 上传大小上限（#111，单位 MB，按资源类型分设） */
+  const [maxAvatarSizeMb, setMaxAvatarSizeMb] = useState(5);
+  const [maxEvaluationSizeMb, setMaxEvaluationSizeMb] = useState(10);
   const [loaded, setLoaded] = useState(false);
   const [loadFailed, setLoadFailed] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -22,6 +25,8 @@ export default function ProfileConfigTab() {
       const data = await res.json();
       if (!res.ok) throw new Error(data?.error || "获取配置失败");
       setMaxCustomTags(data.maxCustomTags);
+      setMaxAvatarSizeMb(typeof data.maxAvatarSizeMb === "number" ? data.maxAvatarSizeMb : 5);
+      setMaxEvaluationSizeMb(typeof data.maxEvaluationSizeMb === "number" ? data.maxEvaluationSizeMb : 10);
       // 存储格式 `YYYY-MM-DD HH:mm` → datetime-local 值（空格换 T）；null/空 = 不限制
       setDeadline(typeof data.submissionDeadline === "string" && data.submissionDeadline
         ? data.submissionDeadline.slice(0, 16).replace(" ", "T")
@@ -41,7 +46,12 @@ export default function ProfileConfigTab() {
 
   const handleSave = async (deadlineOverride?: string) => {
     if (!Number.isInteger(maxCustomTags) || maxCustomTags < 1 || maxCustomTags > 20) {
-      toast.warning("上限须为 1-20 的整数");
+      toast.warning("标签上限须为 1-20 的整数");
+      return;
+    }
+    const sizeValid = (v: number) => Number.isInteger(v) && v >= 1 && v <= 20;
+    if (!sizeValid(maxAvatarSizeMb) || !sizeValid(maxEvaluationSizeMb)) {
+      toast.warning("上传大小上限须为 1-20 的整数（MB）");
       return;
     }
     setSaving(true);
@@ -49,8 +59,13 @@ export default function ProfileConfigTab() {
       const res = await fetch("/api/manage/profile-config", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        // 一次提交两项；空串由后端解释为清除截止限制（#96）
-        body: JSON.stringify({ maxCustomTags, submissionDeadline: deadlineOverride ?? deadline }),
+        // 一次提交全部项；空串由后端解释为清除截止限制（#96）
+        body: JSON.stringify({
+          maxCustomTags,
+          submissionDeadline: deadlineOverride ?? deadline,
+          maxAvatarSizeMb,
+          maxEvaluationSizeMb,
+        }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data?.error || "保存失败");
@@ -126,6 +141,41 @@ export default function ProfileConfigTab() {
             <span className="text-xs text-gray-400 dark:text-gray-500">
               超过该时间后学生无法提交或修改档案；留空表示不限制
             </span>
+          </div>
+
+          {/* 上传大小上限（#111）：按资源类型分设，超限上传被拒绝 */}
+          <div className="flex flex-wrap items-center gap-3">
+            <label className="text-sm text-gray-600 dark:text-gray-300" htmlFor="max-avatar-size">
+              头像上传大小上限
+            </label>
+            <input
+              id="max-avatar-size"
+              type="number"
+              min={1}
+              max={20}
+              value={maxAvatarSizeMb}
+              disabled={!loaded}
+              onChange={(e) => setMaxAvatarSizeMb(Number(e.target.value))}
+              className="w-24 px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg text-sm bg-card text-foreground focus:outline-none focus:ring-2 focus:ring-green-300"
+            />
+            <span className="text-xs text-gray-400 dark:text-gray-500">1-20 MB</span>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-3">
+            <label className="text-sm text-gray-600 dark:text-gray-300" htmlFor="max-evaluation-size">
+              评价词云上传大小上限
+            </label>
+            <input
+              id="max-evaluation-size"
+              type="number"
+              min={1}
+              max={20}
+              value={maxEvaluationSizeMb}
+              disabled={!loaded}
+              onChange={(e) => setMaxEvaluationSizeMb(Number(e.target.value))}
+              className="w-24 px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg text-sm bg-card text-foreground focus:outline-none focus:ring-2 focus:ring-green-300"
+            />
+            <span className="text-xs text-gray-400 dark:text-gray-500">1-20 MB</span>
           </div>
 
           <div>

@@ -248,7 +248,8 @@ describe("提交流程", () => {
     adapter.insertUser({ user_code: "202505050101", role: "student", name: "张三" });
     const allTags = adapter.getTags();
     const ids = allTags.filter((t) => ["音乐", "设计"].includes(t.name)).map((t) => t.id);
-    adapter.upsertSubmission("202505050101", JSON.stringify(ids), "/a.png", "/w.png");
+    const localBackendId = adapter.getDefaultStorageBackend()!.id;
+    adapter.upsertSubmission("202505050101", JSON.stringify(ids), "/a.png", "/w.png", localBackendId);
 
     const { rows, total } = adapter.getSubmittedProfiles(1, 20);
     expect(total).toBe(1);
@@ -306,7 +307,7 @@ describe("班级管理与教师账户", () => {
 
     const classId = adapter.insertClass("一班", "BBBB2222");
     adapter.insertUser({ user_code: "202505050102", role: "student", name: "李四", class_id: classId });
-    adapter.upsertSubmission("202505050102", "[]", "/a.png", "/w.png");
+    adapter.upsertSubmission("202505050102", "[]", "/a.png", "/w.png", adapter.getDefaultStorageBackend()!.id);
     expect(adapter.getCompareBy("class")).toEqual([{ key: "一班", count: 1 }]);
 
     adapter.deleteClass(classId);

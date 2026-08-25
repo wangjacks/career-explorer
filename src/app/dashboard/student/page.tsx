@@ -10,6 +10,7 @@ import ConfirmDialog from "@/components/admin/ConfirmDialog";
 import TagSelector, { type TagCategory, TAG_CHIP_COLORS } from "@/components/TagSelector";
 import ImageUploadBox from "@/components/ImageUploadBox";
 import { useSession } from "@/hooks/useSession";
+import { useFileUrl } from "@/hooks/useFileUrl";
 import { safeImageUrl } from "@/lib/sanitize";
 import { submitProfile } from "@/lib/profile-submit";
 
@@ -20,6 +21,8 @@ interface MyProfile {
   tags: string[];
   avatar_url: string;
   evaluation_url: string;
+  /** 文件所在存储后端（#111） */
+  storage_id?: number;
   submitted_at: string | null;
 }
 
@@ -109,6 +112,10 @@ export default function StudentDashboardPage() {
 
   // 通览态图片放大预览
   const [lightbox, setLightbox] = useState<string | null>(null);
+
+  // 文件展示地址解析（#111）：本地代理路径原样使用，云后端自动换签名 URL
+  const avatarResolved = useFileUrl(profile?.avatar_url, profile?.storage_id);
+  const evaluationResolved = useFileUrl(profile?.evaluation_url, profile?.storage_id);
 
   useEffect(() => {
     if (!lightbox) return;
@@ -251,8 +258,8 @@ export default function StudentDashboardPage() {
     );
   }
 
-  const avatarPreview = safeImageUrl(profile.avatar_url);
-  const evaluationPreview = safeImageUrl(profile.evaluation_url);
+  const avatarPreview = safeImageUrl(avatarResolved);
+  const evaluationPreview = safeImageUrl(evaluationResolved);
 
   // 档案完成度：兴趣标签 / 头像 / 评价词云（进度环 x/3）
   const completion =
@@ -435,7 +442,7 @@ export default function StudentDashboardPage() {
                     <div className="space-y-2">
                       <p className="text-xs text-gray-400">头像</p>
                       <ImageUploadBox
-                        initialUrl={profile.avatar_url}
+                        initialUrl={avatarPreview ?? undefined}
                         aspect="square"
                         emptyHint="点击上传头像"
                         onFileSelected={setAvatarFile}
@@ -444,7 +451,7 @@ export default function StudentDashboardPage() {
                     <div className="space-y-2">
                       <p className="text-xs text-gray-400">评价词云</p>
                       <ImageUploadBox
-                        initialUrl={profile.evaluation_url}
+                        initialUrl={evaluationPreview ?? undefined}
                         aspect="wide"
                         emptyHint="点击上传评价词云"
                         onFileSelected={setEvaluationFile}

@@ -1,14 +1,25 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getMaxCustomTags, getSubmissionDeadline, setProfileConfig, SUBMISSION_DEADLINE_KEY } from "@/lib/db";
+import {
+  getMaxAvatarSizeMb,
+  getMaxCustomTags,
+  getMaxEvaluationSizeMb,
+  getSubmissionDeadline,
+  MAX_AVATAR_SIZE_KEY,
+  MAX_EVALUATION_SIZE_KEY,
+  setProfileConfig,
+  SUBMISSION_DEADLINE_KEY,
+} from "@/lib/db";
 import { getAuditActor, getRequestContext, recordAudit } from "@/lib/audit";
 
-/** 档案功能设置（#94/#96）：管理/教师面板读写；表单端读取上限/截止状态走开放端点 /api/tags */
+/** 档案功能设置（#94/#96/#111）：管理/教师面板读写；表单端读取上限/截止状态走开放端点 /api/tags */
 
 export async function GET() {
   try {
     const maxCustomTags = await getMaxCustomTags();
     const submissionDeadline = await getSubmissionDeadline();
-    return NextResponse.json({ maxCustomTags, submissionDeadline });
+    const maxAvatarSizeMb = await getMaxAvatarSizeMb();
+    const maxEvaluationSizeMb = await getMaxEvaluationSizeMb();
+    return NextResponse.json({ maxCustomTags, submissionDeadline, maxAvatarSizeMb, maxEvaluationSizeMb });
   } catch (err) {
     console.error("Profile config GET error:", err);
     return NextResponse.json({ error: "获取配置失败" }, { status: 500 });
@@ -17,6 +28,13 @@ export async function GET() {
 
 /** datetime-local 原生格式（容忍可选秒） */
 const DATETIME_LOCAL_PATTERN = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/;
+
+/** 上传大小上限校验：整数 1–20（#111） */
+function parseSizeLimitMb(raw: unknown): number | null {
+  const value = Number(raw);
+  if (!Number.isInteger(value) || value < 1 || value > 20) return null;
+  return value;
+}
 
 /** 校验并规范化截止时间：返回 `YYYY-MM-DD HH:mm`；非法返回 null（双重校验：格式 + 真实日期存在） */
 function parseDeadline(raw: unknown): string | null {
@@ -35,6 +53,8 @@ export async function PUT(request: NextRequest) {
     // 变更前快照（审计记 old/new，#110）
     const oldMaxCustomTags = await getMaxCustomTags();
     const oldDeadline = await getSubmissionDeadline();
+    const oldMaxAvatarSizeMb = await getMaxAvatarSizeMb();
+    const oldMaxEvaluationSizeMb = await getMaxEvaluationSizeMb();
 
     // 自定义标签上限（可选提交，提交时校验）
     if (body.maxCustomTags !== undefined) {
@@ -59,18 +79,41 @@ export async function PUT(request: NextRequest) {
       }
     }
 
+    // 上传大小上限（#111，可选提交）：整数 1–20，按资源类型分设
+    if (body.maxAvatarSizeMb !== undefined) {
+      const value = parseSizeLimitMb(body.maxAvatarSizeMb);
+      if (value === null) {
+        return NextResponse.json({ error: "头像大小上限须为 1-20 的整数（MB）" }, { status: 400 });
+      }
+      await setProfileConfig(MAX_AVATAR_SIZE_KEY, String(value));
+    }
+    if (body.maxEvaluationSizeMb !== undefined) {
+      const value = parseSizeLimitMb(body.maxEvaluationSizeMb);
+      if (value === null) {
+        return NextResponse.json({ error: "词云大小上限须为 1-20 的整数（MB）" }, { status: 400 });
+      }
+      await setProfileConfig(MAX_EVALUATION_SIZE_KEY, String(value));
+    }
+
     const maxCustomTags = await getMaxCustomTags();
     const submissionDeadline = await getSubmissionDeadline();
+    const maxAvatarSizeMb = await getMaxAvatarSizeMb();
+    const maxEvaluationSizeMb = await getMaxEvaluationSizeMb();
     void recordAudit({
       ...actor, action: "profile-config:update", method: "PUT", path: "/api/manage/profile-config",
       resource_type: "profile-config", resource_id: null,
       status: "success", error_message: null, ip, user_agent,
       metadata: {
-        old: { maxCustomTags: oldMaxCustomTags, submissionDeadline: oldDeadline },
-        new: { maxCustomTags, submissionDeadline },
+        old: {
+          maxCustomTags: oldMaxCustomTags,
+          submissionDeadline: oldDeadline,
+          maxAvatarSizeMb: oldMaxAvatarSizeMb,
+          maxEvaluationSizeMb: oldMaxEvaluationSizeMb,
+        },
+        new: { maxCustomTags, submissionDeadline, maxAvatarSizeMb, maxEvaluationSizeMb },
       },
     });
-    return NextResponse.json({ ok: true, maxCustomTags, submissionDeadline });
+    return NextResponse.json({ ok: true, maxCustomTags, submissionDeadline, maxAvatarSizeMb, maxEvaluationSizeMb });
   } catch (err) {
     console.error("Profile config PUT error:", err);
     return NextResponse.json({ error: "保存配置失败" }, { status: 500 });

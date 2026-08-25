@@ -14,6 +14,8 @@ export interface UserRow {
   evaluation_url: string | null;
   submitted_at: string | null;
   created_at: string;
+  /** 文件所在存储后端（#111；旧备份可能缺失，恢复时回填本地后端） */
+  storage_id: number;
 }
 
 export interface TagRow {
@@ -129,6 +131,8 @@ export interface BackupData {
   audit_logs?: AuditLogRow[];
   /** 档案功能配置（configs_profile 键值对；旧备份可能缺失，读取方容忍 undefined） */
   configs_profile?: { key: string; value: string }[];
+  /** 存储后端注册表（#111；不含凭据；旧备份可能缺失，读取方容忍 undefined） */
+  storage_backends?: StorageBackendRow[];
 }
 
 /** configs_profile 表行 */
@@ -177,6 +181,46 @@ export interface AuditLogFilters {
 /** 档案功能配置项：自定义标签数量上限默认值 */
 export const DEFAULT_MAX_CUSTOM_TAGS = 6;
 
+/** 上传大小上限配置（#111，单位 MB，按资源类型分设） */
+export const MAX_AVATAR_SIZE_KEY = "max_avatar_size_mb";
+export const MAX_EVALUATION_SIZE_KEY = "max_evaluation_size_mb";
+export const DEFAULT_MAX_AVATAR_SIZE_MB = 5;
+export const DEFAULT_MAX_EVALUATION_SIZE_MB = 10;
+
+/** storage_backends 表行（#111）：凭据不入库，走 .env.local（S3_{id}_ACCESS_KEY / S3_{id}_SECRET_KEY） */
+export interface StorageBackendRow {
+  id: number;
+  name: string;
+  type: "local" | "s3";
+  endpoint: string; // 公网端点（签名 URL 用）；local 后端为空
+  internal_endpoint: string | null; // 内网端点，可选（服务端读写优先）
+  region: string | null;
+  bucket: string | null;
+  path_prefix: string | null; // 对象根目录前缀，可选
+  is_default: number; // 0/1，唯一默认由事务保证
+  created_at: string;
+  updated_at: string;
+}
+
+export interface NewStorageBackend {
+  name: string;
+  type: "local" | "s3";
+  endpoint?: string;
+  internal_endpoint?: string | null;
+  region?: string | null;
+  bucket?: string | null;
+  path_prefix?: string | null;
+}
+
+export interface StorageBackendUpdateFields {
+  name?: string;
+  endpoint?: string;
+  internal_endpoint?: string | null;
+  region?: string | null;
+  bucket?: string | null;
+  path_prefix?: string | null;
+}
+
 export interface NewUser {
   user_code: string;
   password_hash?: string;
@@ -206,7 +250,7 @@ export interface DbAdapter {
   getStudentByCode(userCode: string): Promise<UserRow | undefined> | UserRow | undefined;
 
   // submissions
-  upsertSubmission(userCode: string, tagsJson: string, avatarUrl: string, evaluationUrl: string): Promise<void> | void;
+  upsertSubmission(userCode: string, tagsJson: string, avatarUrl: string, evaluationUrl: string, storageId: number): Promise<void> | void;
   getSubmittedProfiles(
     page: number,
     pageSize: number
@@ -255,6 +299,22 @@ export interface DbAdapter {
   // configs_profile（档案功能配置，键值式）
   getProfileConfigs(): Promise<ConfigRow[]> | ConfigRow[];
   setProfileConfig(key: string, value: string): Promise<void> | void;
+
+  // storage_backends（对象存储多后端注册表，#111）
+  listStorageBackends(): Promise<StorageBackendRow[]> | StorageBackendRow[];
+  getStorageBackend(id: number): Promise<StorageBackendRow | undefined> | StorageBackendRow | undefined;
+  insertStorageBackend(backend: NewStorageBackend): Promise<number> | number;
+  updateStorageBackend(id: number, fields: StorageBackendUpdateFields): Promise<void> | void;
+  /** 删除保护（本地/默认/被引用不可删）由路由层校验，本方法直接删除 */
+  deleteStorageBackend(id: number): Promise<void> | void;
+  /** 事务：全部置 0 → 目标置 1，保证唯一默认 */
+  setDefaultStorageBackend(id: number): Promise<void> | void;
+  getDefaultStorageBackend(): Promise<StorageBackendRow | undefined> | StorageBackendRow | undefined;
+  countUsersByStorageId(storageId: number): Promise<number> | number;
+  getUsersByStorageId(storageId: number): Promise<UserRow[]> | UserRow[];
+  updateUserStorageId(userId: number, storageId: number): Promise<void> | void;
+  /** 迁移时原子更新文件引用：后端归属 + 两个文件 URL（本地代理路径 → 对象 key） */
+  updateUserStorageRef(userId: number, storageId: number, avatarUrl: string | null, evaluationUrl: string | null): Promise<void> | void;
 
   // audit_logs（操作审计，#110：只追加 + 查询，不提供修改/删除）
   insertAuditLog(log: NewAuditLog): Promise<void> | void;
@@ -353,9 +413,9 @@ export async function getStudentByCode(userCode: string): Promise<UserRow | unde
   return Promise.resolve(adapter.getStudentByCode(userCode));
 }
 
-export async function upsertSubmission(userCode: string, tagsJson: string, avatarUrl: string, evaluationUrl: string): Promise<void> {
+export async function upsertSubmission(userCode: string, tagsJson: string, avatarUrl: string, evaluationUrl: string, storageId: number): Promise<void> {
   const adapter = await ensureInit();
-  return Promise.resolve(adapter.upsertSubmission(userCode, tagsJson, avatarUrl, evaluationUrl));
+  return Promise.resolve(adapter.upsertSubmission(userCode, tagsJson, avatarUrl, evaluationUrl, storageId));
 }
 
 export async function getSubmittedProfiles(
@@ -492,6 +552,61 @@ export async function setProfileConfig(key: string, value: string): Promise<void
   return Promise.resolve(adapter.setProfileConfig(key, value));
 }
 
+export async function listStorageBackends(): Promise<StorageBackendRow[]> {
+  const adapter = await ensureInit();
+  return Promise.resolve(adapter.listStorageBackends());
+}
+
+export async function getStorageBackend(id: number): Promise<StorageBackendRow | undefined> {
+  const adapter = await ensureInit();
+  return Promise.resolve(adapter.getStorageBackend(id));
+}
+
+export async function insertStorageBackend(backend: NewStorageBackend): Promise<number> {
+  const adapter = await ensureInit();
+  return Promise.resolve(adapter.insertStorageBackend(backend));
+}
+
+export async function updateStorageBackend(id: number, fields: StorageBackendUpdateFields): Promise<void> {
+  const adapter = await ensureInit();
+  return Promise.resolve(adapter.updateStorageBackend(id, fields));
+}
+
+export async function deleteStorageBackend(id: number): Promise<void> {
+  const adapter = await ensureInit();
+  return Promise.resolve(adapter.deleteStorageBackend(id));
+}
+
+export async function setDefaultStorageBackend(id: number): Promise<void> {
+  const adapter = await ensureInit();
+  return Promise.resolve(adapter.setDefaultStorageBackend(id));
+}
+
+export async function getDefaultStorageBackend(): Promise<StorageBackendRow | undefined> {
+  const adapter = await ensureInit();
+  return Promise.resolve(adapter.getDefaultStorageBackend());
+}
+
+export async function countUsersByStorageId(storageId: number): Promise<number> {
+  const adapter = await ensureInit();
+  return Promise.resolve(adapter.countUsersByStorageId(storageId));
+}
+
+export async function getUsersByStorageId(storageId: number): Promise<UserRow[]> {
+  const adapter = await ensureInit();
+  return Promise.resolve(adapter.getUsersByStorageId(storageId));
+}
+
+export async function updateUserStorageId(userId: number, storageId: number): Promise<void> {
+  const adapter = await ensureInit();
+  return Promise.resolve(adapter.updateUserStorageId(userId, storageId));
+}
+
+export async function updateUserStorageRef(userId: number, storageId: number, avatarUrl: string | null, evaluationUrl: string | null): Promise<void> {
+  const adapter = await ensureInit();
+  return Promise.resolve(adapter.updateUserStorageRef(userId, storageId, avatarUrl, evaluationUrl));
+}
+
 export async function insertAuditLog(log: NewAuditLog): Promise<void> {
   const adapter = await ensureInit();
   return Promise.resolve(adapter.insertAuditLog(log));
@@ -502,6 +617,22 @@ export async function queryAuditLogs(
 ): Promise<{ rows: AuditLogRow[]; total: number }> {
   const adapter = await ensureInit();
   return Promise.resolve(adapter.queryAuditLogs(filters));
+}
+
+/** 读取上传大小上限（#111）；配置缺失或非法时回退默认值，合法范围 1–20 由路由层写入时校验 */
+async function getSizeLimitMb(key: string, fallback: number): Promise<number> {
+  const configs = await getProfileConfigs();
+  const raw = configs.find((c) => c.key === key)?.value;
+  const parsed = raw === undefined ? NaN : Number(raw);
+  return Number.isInteger(parsed) && parsed >= 1 && parsed <= 20 ? parsed : fallback;
+}
+
+export async function getMaxAvatarSizeMb(): Promise<number> {
+  return getSizeLimitMb(MAX_AVATAR_SIZE_KEY, DEFAULT_MAX_AVATAR_SIZE_MB);
+}
+
+export async function getMaxEvaluationSizeMb(): Promise<number> {
+  return getSizeLimitMb(MAX_EVALUATION_SIZE_KEY, DEFAULT_MAX_EVALUATION_SIZE_MB);
 }
 
 /** 读取自定义标签数量上限；配置缺失或非法时回退默认值 */
