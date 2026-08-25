@@ -573,12 +573,29 @@ export class MysqlAdapter implements DbAdapter {
   async clearSubmissions(userCodes: string[]): Promise<number> {
     if (userCodes.length === 0) return 0;
     const placeholders = userCodes.map(() => "?").join(",");
-    const [result] = await this.pool.execute(
-      `UPDATE users SET tags = NULL, avatar_url = NULL, evaluation_url = NULL, submitted_at = NULL
-       WHERE role = 'student' AND user_code IN (${placeholders})`,
-      userCodes
-    );
-    return (result as mysql.ResultSetHeader).affectedRows;
+    const conn = await this.pool.getConnection();
+    try {
+      await conn.beginTransaction();
+      const [result] = await conn.execute(
+        `UPDATE users SET tags = NULL, avatar_url = NULL, evaluation_url = NULL, submitted_at = NULL
+         WHERE role = 'student' AND user_code IN (${placeholders})`,
+        userCodes
+      );
+      // #95 review 修复：同步清除历史版本快照，防止删除档案后学生仍可查看/恢复历史（绕过删除）
+      await conn.execute(
+        `DELETE FROM profile_submissions WHERE user_id IN (
+           SELECT id FROM users WHERE role = 'student' AND user_code IN (${placeholders})
+         )`,
+        userCodes
+      );
+      await conn.commit();
+      return (result as mysql.ResultSetHeader).affectedRows;
+    } catch (err) {
+      await conn.rollback();
+      throw err;
+    } finally {
+      conn.release();
+    }
   }
 
   // profile_submissions（档案提交历史版本，#95）
@@ -622,10 +639,12 @@ export class MysqlAdapter implements DbAdapter {
     return (rows as ProfileSubmissionRow[])[0];
   }
 
-  async deleteOldestProfileSubmissions(userId: number, count: number): Promise<number> {
+  async deleteOldestProfileSubmissions(userId: number, count: number, conn?: mysql.PoolConnection): Promise<number> {
     if (count <= 0) return 0;
     // MySQL 禁止 UPDATE/DELETE 直接引用目标表子查询，需派生表包装一层
-    const [result] = await this.pool.execute(
+    // conn 可选：事务内调用时传入当前连接，保证删除与主事务同连接（原子性，review 修复）
+    const db = conn ?? this.pool;
+    const [result] = await db.execute(
       `DELETE FROM profile_submissions WHERE id IN (
          SELECT t.id FROM (SELECT id FROM profile_submissions WHERE user_id = ? ORDER BY version ASC LIMIT ?) t
        )`,
@@ -692,7 +711,8 @@ export class MysqlAdapter implements DbAdapter {
     try {
       await conn.beginTransaction();
       const [userRows] = await conn.execute(
-        "SELECT id FROM users WHERE role = 'student' AND user_code = ?",
+        // FOR UPDATE：锁住学生行，串行化同一学生的提交，避免并发双标签页产生重复 version（review 修复）
+        "SELECT id FROM users WHERE role = 'student' AND user_code = ? FOR UPDATE",
         [userCode]
       );
       const user = (userRows as { id: number }[])[0];
@@ -731,7 +751,7 @@ export class MysqlAdapter implements DbAdapter {
         );
         const count = Number((countRows as { c: number }[])[0].c);
         if (count > maxVersions) {
-          await this.deleteOldestProfileSubmissions(user.id, count - maxVersions);
+          await this.deleteOldestProfileSubmissions(user.id, count - maxVersions, conn);
         }
       }
       await conn.commit();
