@@ -155,8 +155,9 @@ describe("S3 凭据与适配器构造", () => {
     const url = await adapter.getSignedUrl("avatar_x.jpg", 60);
     expect(url).toContain("cos.ap-shanghai.myqcloud.com");
     expect(url).not.toContain("cos-internal");
-    // 服务级端点 → 路径风格，桶名在路径中
-    expect(url).toContain("my-bucket/career/2026/avatar_x.jpg");
+    // 服务级端点 → 虚拟主机风格（SDK 拼桶到 hostname），桶名不在路径中
+    expect(url).toContain("my-bucket.cos.ap-shanghai.myqcloud.com");
+    expect(url).toContain("/career/2026/avatar_x.jpg");
     expect(url).toMatch(/X-Amz-Expires=60/);
   });
 
