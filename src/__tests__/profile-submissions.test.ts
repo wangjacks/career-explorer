@@ -190,6 +190,30 @@ describe("profile_submissions CRUD（#95）", () => {
     adapter.close();
     cleanup(dbPath);
   });
+
+  it("clearSubmissions 同步清除历史版本快照（管理端删除档案后不可再查看/恢复，review 修复）", () => {
+    const dbPath = makeTmpDb();
+    const adapter = new SqliteAdapter(dbPath);
+    adapter.init();
+    adapter.insertUser({ user_code: "202505050101", role: "student", name: "张三" });
+    adapter.insertUser({ user_code: "202505050102", role: "student", name: "李四" });
+    const storageId = adapter.getDefaultStorageBackend()!.id;
+    adapter.submitProfileWithVersion("202505050101", "[1]", "/a1.png", "/w1.png", storageId);
+    adapter.submitProfileWithVersion("202505050101", "[2]", "/a2.png", "/w2.png", storageId);
+    adapter.submitProfileWithVersion("202505050102", "[1]", "/b1.png", "/x1.png", storageId);
+
+    const deleted = adapter.clearSubmissions(["202505050101"]);
+    expect(deleted).toBe(1);
+    // 目标学生：users 置未提交 + 快照清空
+    expect(adapter.getStudentByCode("202505050101")?.submitted_at).toBeNull();
+    expect(adapter.getProfileSubmissions(adapter.getStudentByCode("202505050101")!.id)).toHaveLength(0);
+    // 其他学生不受影响
+    expect(adapter.getStudentByCode("202505050102")?.submitted_at).toBeTruthy();
+    expect(adapter.getProfileSubmissions(adapter.getStudentByCode("202505050102")!.id)).toHaveLength(1);
+
+    adapter.close();
+    cleanup(dbPath);
+  });
 });
 
 describe("submitProfileWithVersion（#95）", () => {

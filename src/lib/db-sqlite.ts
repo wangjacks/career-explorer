@@ -540,13 +540,24 @@ export class SqliteAdapter implements DbAdapter {
   clearSubmissions(userCodes: string[]): number {
     if (userCodes.length === 0) return 0;
     const placeholders = userCodes.map(() => "?").join(",");
-    const result = this.db
-      .prepare(
-        `UPDATE users SET tags = NULL, avatar_url = NULL, evaluation_url = NULL, submitted_at = NULL
-         WHERE role = 'student' AND user_code IN (${placeholders})`
-      )
-      .run(...userCodes);
-    return result.changes;
+    const tx = this.db.transaction(() => {
+      const result = this.db
+        .prepare(
+          `UPDATE users SET tags = NULL, avatar_url = NULL, evaluation_url = NULL, submitted_at = NULL
+           WHERE role = 'student' AND user_code IN (${placeholders})`
+        )
+        .run(...userCodes);
+      // #95 review 修复：同步清除历史版本快照，防止删除档案后学生仍可查看/恢复历史（绕过删除）
+      this.db
+        .prepare(
+          `DELETE FROM profile_submissions WHERE user_id IN (
+             SELECT id FROM users WHERE role = 'student' AND user_code IN (${placeholders})
+           )`
+        )
+        .run(...userCodes);
+      return result.changes;
+    });
+    return tx();
   }
 
   // profile_submissions（档案提交历史版本，#95）
