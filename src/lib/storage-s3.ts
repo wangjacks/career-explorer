@@ -43,6 +43,10 @@ export class S3StorageAdapter implements StorageAdapter {
   private readonly serverClient: S3Client;
   /** 签名 URL 客户端：强制公网端点（浏览器需公网可达） */
   private readonly publicClient: S3Client;
+  /** 自定义域名时，签名 URL 需将虚拟主机 hostname 替换为此域名 */
+  private readonly customDomain: string | null;
+  /** 自定义域名对应的虚拟主机 COS hostname（签名 URL 替换源） */
+  private readonly virtualHostedHostname: string | null;
 
   constructor(backend: StorageBackendRow) {
     if (!backend.endpoint) throw new Error(`存储后端 #${backend.id} 缺少公网端点`);
@@ -53,35 +57,55 @@ export class S3StorageAdapter implements StorageAdapter {
     this.bucket = backend.bucket;
     this.prefix = (backend.path_prefix ?? "").replace(/^\/+|\/+$/g, "");
 
-    // 端点风格自动识别（#111）：按 hostname 判断 forcePathStyle
-    // - 虚拟主机风格（桶名在子域名，如 {bucket}.cos.{region}.myqcloud.com）→ false
-    // - 自定义域名（如 usercontents.example.com，已 CNAME 到桶）→ false（域名已隐含桶）
-    // - 服务级/自建端点（如 cos.{region}.myqcloud.com、MinIO http://host:9000）→ true
-    // 服务端与公网客户端可能使用不同端点，各自独立检测
-    const shouldForcePathStyle = (endpoint: string): boolean => {
+    // 端点分类（#111）：
+    // 1. 虚拟主机风格（桶名在子域名）→ SDK 直接使用，forcePathStyle=false
+    // 2. 云厂商服务级端点 → forcePathStyle=true
+    // 3. 自定义域名（CNAME 到桶）→ SDK 内部改用虚拟主机 COS 端点（保证桶名正确路由），
+    //    签名 URL 生成后将 hostname 替换回自定义域名（S3 签名不绑定 Host，替换安全）
+    const classifyEndpoint = (ep: string): { forcePathStyle: boolean; isCustomDomain: boolean } => {
       try {
-        const hostname = new URL(endpoint).hostname;
-        // 桶名在子域名 → 虚拟主机风格
-        if (hostname.startsWith(`${backend.bucket}.`)) return false;
-        // 已知的云厂商服务级域名模式 → 路径风格
-        if (/\.(myqcloud\.com|amazonaws\.com|aliyuncs\.com)$/i.test(hostname)) return true;
-        // 其余视为自定义域名（已 CNAME 到桶）→ 虚拟主机风格
-        return false;
+        const hostname = new URL(ep).hostname;
+        if (hostname.startsWith(`${backend.bucket}.`)) return { forcePathStyle: false, isCustomDomain: false };
+        if (/\.(myqcloud\.com|amazonaws\.com|aliyuncs\.com)$/i.test(hostname)) return { forcePathStyle: true, isCustomDomain: false };
+        return { forcePathStyle: true, isCustomDomain: true }; // 自定义域名用路径风格走 SDK（内部会替换端点）
       } catch {
-        return true; // 非标准 URL 保守默认路径风格
+        return { forcePathStyle: true, isCustomDomain: false };
       }
     };
 
+    const publicClassification = classifyEndpoint(backend.endpoint);
+
+    // 自定义域名处理：SDK 客户端使用虚拟主机 COS 端点（桶名在子域名），签名 URL 再替换回自定义域名
+    const virtualHostedEndpoint = `https://${backend.bucket}.cos.${backend.region}.myqcloud.com`;
+    if (publicClassification.isCustomDomain) {
+      try {
+        this.customDomain = new URL(backend.endpoint).hostname;
+        this.virtualHostedHostname = new URL(virtualHostedEndpoint).hostname;
+      } catch {
+        this.customDomain = null;
+        this.virtualHostedHostname = null;
+      }
+    } else {
+      this.customDomain = null;
+      this.virtualHostedHostname = null;
+    }
+
     const serverEndpoint = backend.internal_endpoint || backend.endpoint;
+    const serverIsCustom = !backend.internal_endpoint && publicClassification.isCustomDomain;
     const common = { region: backend.region, credentials };
+
+    // 服务端客户端：如果公网是自定义域名且无内网端点，也用虚拟主机端点
     this.serverClient = new S3Client({
       ...common,
-      endpoint: serverEndpoint,
-      forcePathStyle: shouldForcePathStyle(serverEndpoint),
+      endpoint: serverIsCustom ? virtualHostedEndpoint : serverEndpoint,
+      forcePathStyle: serverIsCustom ? false : classifyEndpoint(serverEndpoint).forcePathStyle,
     });
+    // 公网客户端：自定义域名时用虚拟主机端点（签名 URL 生成后替换 hostname）
     this.publicClient = backend.internal_endpoint
-      ? new S3Client({ ...common, endpoint: backend.endpoint, forcePathStyle: shouldForcePathStyle(backend.endpoint) })
-      : this.serverClient;
+      ? new S3Client({ ...common, endpoint: backend.endpoint, forcePathStyle: publicClassification.forcePathStyle })
+      : serverIsCustom
+        ? new S3Client({ ...common, endpoint: virtualHostedEndpoint, forcePathStyle: false })
+        : this.serverClient;
   }
 
   /** 桶内完整对象路径：`{path_prefix}/{key}` */
@@ -130,10 +154,16 @@ export class S3StorageAdapter implements StorageAdapter {
 
   async getSignedUrl(key: string, expiresInSeconds = DEFAULT_SIGNED_URL_EXPIRES): Promise<string> {
     // 强制公网客户端：浏览器在公网访问，内网端点不可达
-    return presignUrl(
+    const url = await presignUrl(
       this.publicClient,
       new GetObjectCommand({ Bucket: this.bucket, Key: this.objectKey(key) }),
       { expiresIn: expiresInSeconds }
     );
+    // 自定义域名：将虚拟主机 COS hostname 替换为自定义域名
+    // S3 签名不绑定 Host 头（签名仅覆盖 method/path/query/特定 headers），替换安全
+    if (this.customDomain && this.virtualHostedHostname) {
+      return url.replace(this.virtualHostedHostname, this.customDomain);
+    }
+    return url;
   }
 }
