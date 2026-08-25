@@ -21,9 +21,20 @@ vi.mock("@/lib/storage", () => ({
 }));
 
 import { POST } from "@/app/api/manage/media/generate-thumbnails/route";
+import { GET as STATUS_GET } from "@/app/api/manage/media/generate-thumbnails/status/route";
 import { getAllReferencedMedia } from "@/lib/db";
 import { getStorage } from "@/lib/storage";
 
+function createGetRequest(cookies?: Record<string, string>): NextRequest {
+  const url = new URL("/api/manage/media/generate-thumbnails/status", "http://localhost:3000");
+  const cookieHeader = cookies
+    ? Object.entries(cookies).map(([k, v]) => `${k}=${v}`).join("; ")
+    : "";
+  return new NextRequest(url, {
+    method: "GET",
+    headers: { "Content-Type": "application/json", ...(cookieHeader ? { cookie: cookieHeader } : {}) },
+  });
+}
 function createPostRequest(cookies?: Record<string, string>): NextRequest {
   const url = new URL("/api/manage/media/generate-thumbnails", "http://localhost:3000");
   const cookieHeader = cookies
@@ -106,5 +117,26 @@ describe("缩略图存量补生成端点（#118）", () => {
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body).toMatchObject({ total: 3, generated: 1, skipped: 1, failed: 1 });
+  });
+
+  it("检测端点（GET status）：只读统计已有/缺失，非 admin 拒绝", async () => {
+    // 非 admin → 403
+    const studentToken = await signToken({ role: "student", uid: 7, name: "学生" });
+    let res = await STATUS_GET(createGetRequest({ auth_token: studentToken }));
+    expect(res.status).toBe(403);
+
+    // admin：2 个文件，1 个已有缩略图、1 个缺失
+    const token = await signToken({ role: "admin", uid: 1, name: "管理员" });
+    vi.mocked(getAllReferencedMedia).mockResolvedValue([
+      { url: "avatar_a.jpg", storageId: 1 },
+      { url: "evaluation_b.jpg", storageId: 1 },
+    ]);
+    fakeStorage.exists.mockResolvedValueOnce(true).mockResolvedValueOnce(false);
+    res = await STATUS_GET(createGetRequest({ auth_token: token }));
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body).toMatchObject({ ok: true, total: 2, existing: 1, missing: 1 });
+    // 只读：不触发 upload
+    expect(fakeStorage.upload).not.toHaveBeenCalled();
   });
 });
