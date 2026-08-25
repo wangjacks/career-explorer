@@ -210,8 +210,11 @@ describe("S3 凭据与适配器构造", () => {
     expect(url).toContain("usercontents.blog233.com");
     // 路径不含桶名（自定义域名已隐含桶）
     expect(url).not.toContain("/blog233-usercontents-1301217517/");
-    // 正确拼入根目录前缀 + 对象 key
+    // 正确嵌入根目录前缀 + 对象 key
     expect(url).toContain(`/career-dev-local/2026/avatar_202599990002.jpg`);
+    // 签名头不含 host（替换 hostname 后签名仍有效，否则 COS 返回 403）
+    const signedHeaders = url.match(/X-Amz-SignedHeaders=([^&]+)/)?.[1] ?? "";
+    expect(signedHeaders.toLowerCase()).not.toContain("host");
   });
 });
 

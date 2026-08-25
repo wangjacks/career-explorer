@@ -194,10 +194,14 @@ export class S3StorageAdapter implements StorageAdapter {
     const url = await presignUrl(
       this.publicClient,
       new GetObjectCommand({ Bucket: this.bucket, Key: this.objectKey(key) }),
-      { expiresIn: expiresInSeconds }
+      {
+        expiresIn: expiresInSeconds,
+        // 自定义域名场景：签名后需替换 hostname，必须把 host 从签名头中排除，
+        // 否则 SDK 签名覆盖了虚拟主机 hostname，替换后浏览器发送的 Host 头不匹配 → 403
+        unsignableHeaders: this.customDomain ? new Set(["host"]) : undefined,
+      }
     );
     // 自定义域名：将虚拟主机 COS hostname 替换为自定义域名
-    // S3 签名不绑定 Host 头（签名仅覆盖 method/path/query/特定 headers），替换安全
     if (this.customDomain && this.virtualHostedHostname) {
       return url.replace(this.virtualHostedHostname, this.customDomain);
     }
