@@ -377,14 +377,14 @@ export default function ProfilesTab({ loadProfiles, loadStats }: Props) {
                 <td className="px-5 py-3 text-gray-700 dark:text-gray-200">{p.studentName || "-"}</td>
                 <td className="px-5 py-3">
                   {p.avatarUrl ? (
-                    <StorageImage url={p.avatarUrl} storageId={p.storageId} alt="" className="w-8 h-8 rounded-full object-cover" />
+                    <StorageImage url={p.avatarUrl} storageId={p.storageId} alt="" thumbnail className="w-8 h-8 rounded-full object-cover" />
                   ) : (
                     <span className="text-gray-400 text-xs">无</span>
                   )}
                 </td>
                 <td className="px-5 py-3">
                   {p.evaluationUrl ? (
-                    <StorageImage url={p.evaluationUrl} storageId={p.storageId} alt="" className="w-8 h-8 rounded object-cover" />
+                    <StorageImage url={p.evaluationUrl} storageId={p.storageId} alt="" thumbnail className="w-8 h-8 rounded object-cover" />
                   ) : (
                     <span className="text-gray-400 text-xs">无</span>
                   )}

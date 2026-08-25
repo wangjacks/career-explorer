@@ -328,10 +328,10 @@ export default function ProfileSubmissionsTab() {
                     {(s.avatar_url || s.evaluation_url) && (
                       <div className="flex gap-2">
                         {s.avatar_url && (
-                          <StorageImage url={s.avatar_url} storageId={s.storage_id} alt={`版本 ${s.version} 头像`} className="w-12 h-12 rounded-lg object-cover border border-gray-100 dark:border-gray-700" />
+                          <StorageImage url={s.avatar_url} storageId={s.storage_id} alt={`版本 ${s.version} 头像`} thumbnail className="w-12 h-12 rounded-lg object-cover border border-gray-100 dark:border-gray-700" />
                         )}
                         {s.evaluation_url && (
-                          <StorageImage url={s.evaluation_url} storageId={s.storage_id} alt={`版本 ${s.version} 评价词云`} className="h-12 w-20 rounded-lg object-cover border border-gray-100 dark:border-gray-700" />
+                          <StorageImage url={s.evaluation_url} storageId={s.storage_id} alt={`版本 ${s.version} 评价词云`} thumbnail className="h-12 w-20 rounded-lg object-cover border border-gray-100 dark:border-gray-700" />
                         )}
                       </div>
                     )}

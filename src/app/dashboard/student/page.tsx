@@ -13,6 +13,7 @@ import { useSession } from "@/hooks/useSession";
 import { useFileUrl } from "@/hooks/useFileUrl";
 import { safeImageUrl } from "@/lib/sanitize";
 import { submitProfile } from "@/lib/profile-submit";
+import { toThumbnailUrl } from "@/lib/thumbnail";
 
 interface MyProfile {
   name: string;
@@ -107,9 +108,15 @@ function HistoryItem({
   tagColorMap: Map<string, string>;
   onRestore: (id: number) => void;
 }) {
-  // 历史文件 URL 解析（#111）：与主档案同规则，云后端换签名 URL
-  const avatarResolved = useFileUrl(submission.avatar_url || undefined, submission.storage_id);
-  const evaluationResolved = useFileUrl(submission.evaluation_url || undefined, submission.storage_id);
+  // 历史文件 URL 解析（#111）：与主档案同规则，云后端换签名 URL；小图场景走 _thumb 缩略图（#118）
+  const avatarResolved = useFileUrl(
+    submission.avatar_url ? toThumbnailUrl(submission.avatar_url) : undefined,
+    submission.storage_id
+  );
+  const evaluationResolved = useFileUrl(
+    submission.evaluation_url ? toThumbnailUrl(submission.evaluation_url) : undefined,
+    submission.storage_id
+  );
   const avatarPreview = safeImageUrl(avatarResolved);
   const evaluationPreview = safeImageUrl(evaluationResolved);
 
