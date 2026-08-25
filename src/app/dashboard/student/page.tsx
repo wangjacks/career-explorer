@@ -13,6 +13,7 @@ import { useSession } from "@/hooks/useSession";
 import { useFileUrl } from "@/hooks/useFileUrl";
 import { safeImageUrl } from "@/lib/sanitize";
 import { submitProfile } from "@/lib/profile-submit";
+import { toThumbnailUrl } from "@/lib/thumbnail-utils";
 
 interface MyProfile {
   name: string;
@@ -107,9 +108,20 @@ function HistoryItem({
   tagColorMap: Map<string, string>;
   onRestore: (id: number) => void;
 }) {
-  // 历史文件 URL 解析（#111）：与主档案同规则，云后端换签名 URL
-  const avatarResolved = useFileUrl(submission.avatar_url || undefined, submission.storage_id);
-  const evaluationResolved = useFileUrl(submission.evaluation_url || undefined, submission.storage_id);
+  // 历史文件 URL 解析（#111）：与主档案同规则，云后端换签名 URL；小图场景走 _thumb 缩略图（#118），
+  // 缩略图加载失败（存量未补生成）时回退原图（review 修复）
+  const [avatarThumbFailed, setAvatarThumbFailed] = useState(false);
+  const [evaluationThumbFailed, setEvaluationThumbFailed] = useState(false);
+  const avatarResolved = useFileUrl(
+    submission.avatar_url && !avatarThumbFailed ? toThumbnailUrl(submission.avatar_url) : submission.avatar_url || undefined,
+    submission.storage_id
+  );
+  const evaluationResolved = useFileUrl(
+    submission.evaluation_url && !evaluationThumbFailed
+      ? toThumbnailUrl(submission.evaluation_url)
+      : submission.evaluation_url || undefined,
+    submission.storage_id
+  );
   const avatarPreview = safeImageUrl(avatarResolved);
   const evaluationPreview = safeImageUrl(evaluationResolved);
 
@@ -142,10 +154,20 @@ function HistoryItem({
       {(avatarPreview || evaluationPreview) && (
         <div className="flex gap-2">
           {avatarPreview && (
-            <img src={avatarPreview} alt={`版本 ${submission.version} 头像`} className="w-12 h-12 rounded-lg object-cover border border-gray-100 dark:border-gray-700" />
+            <img
+              src={avatarPreview}
+              alt={`版本 ${submission.version} 头像`}
+              onError={() => setAvatarThumbFailed(true)}
+              className="w-12 h-12 rounded-lg object-cover border border-gray-100 dark:border-gray-700"
+            />
           )}
           {evaluationPreview && (
-            <img src={evaluationPreview} alt={`版本 ${submission.version} 评价词云`} className="h-12 w-20 rounded-lg object-cover border border-gray-100 dark:border-gray-700" />
+            <img
+              src={evaluationPreview}
+              alt={`版本 ${submission.version} 评价词云`}
+              onError={() => setEvaluationThumbFailed(true)}
+              className="h-12 w-20 rounded-lg object-cover border border-gray-100 dark:border-gray-700"
+            />
           )}
         </div>
       )}

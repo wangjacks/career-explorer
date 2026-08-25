@@ -358,6 +358,45 @@ describe("签名端点越权防护（#111 私有读写）", () => {
     // 快照反查确已发生
     expect(getProfileSubmissionOwnerByFileUrl).toHaveBeenCalledWith("old_avatar.jpg");
   });
+
+  it("缩略图 key（#118）：剥除 _thumb 还原原 key 定位归属，签发对象为缩略图 key", async () => {
+    const t = await tokens();
+    // 本用例不涉及历史快照，快照反查显式置空（clearAllMocks 不清 mockResolvedValue 实现）
+    vi.mocked(getProfileSubmissionOwnerByFileUrl).mockResolvedValue(undefined);
+    // users 表引用原图，请求的是派生缩略图 key
+    vi.mocked(getAllSubmitted).mockResolvedValue([{ ...OWNER, avatar_url: "avatar_me.jpg" } as never]);
+    vi.mocked(getStorageBackend).mockResolvedValue(backend({ id: 1 }));
+
+    // 本人请求缩略图 → 200 回显缩略图路径
+    let res = await SIGN(
+      makeJsonRequest("/api/shared/storage-sign", "GET", undefined, t.student, { url: "avatar_me_thumb.jpg" })
+    );
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ url: "avatar_me_thumb.jpg" });
+
+    // 他人 → 403
+    const other = { auth_token: await signToken({ role: "student", uid: 8, name: "他人" }) };
+    res = await SIGN(
+      makeJsonRequest("/api/shared/storage-sign", "GET", undefined, other, { url: "avatar_me_thumb.jpg" })
+    );
+    expect(res.status).toBe(403);
+
+    // 伪造缩略图 key（原 key 不在 DB）→ 404
+    res = await SIGN(
+      makeJsonRequest("/api/shared/storage-sign", "GET", undefined, t.student, { url: "nope_thumb.jpg" })
+    );
+    expect(res.status).toBe(404);
+
+    // 云后端：签发对象为缩略图 key
+    vi.mocked(getStorageBackend).mockResolvedValue(
+      backend({ id: 2, name: "云", type: "s3", endpoint: "https://e", region: "r", bucket: "b", is_default: 0 })
+    );
+    res = await SIGN(
+      makeJsonRequest("/api/shared/storage-sign", "GET", undefined, t.student, { url: "avatar_me_thumb.jpg" })
+    );
+    expect(res.status).toBe(200);
+    expect(fakeStorage.getSignedUrl).toHaveBeenCalledWith("avatar_me_thumb.jpg");
+  });
 });
 
 // ---------- 迁移 ----------

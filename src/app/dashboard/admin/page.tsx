@@ -10,6 +10,7 @@ import {
   GraduationCap,
   HardDrive,
   History,
+  ImageIcon,
   MonitorPlay,
   School,
   ScrollText,
@@ -35,8 +36,9 @@ import ProfileConfigTab from "@/components/admin/ProfileConfigTab";
 import AuditLogsTab from "@/components/admin/AuditLogsTab";
 import StorageTab from "@/components/admin/StorageTab";
 import ProfileSubmissionsTab from "@/components/admin/ProfileSubmissionsTab";
+import ThumbnailTab from "@/components/admin/ThumbnailTab";
 
-type Tab = "overview" | "dashboard" | "settings" | "students" | "classes" | "teachers" | "export" | "tags" | "profile-config" | "profile-submissions" | "audit-logs" | "storage";
+type Tab = "overview" | "dashboard" | "settings" | "students" | "classes" | "teachers" | "export" | "tags" | "profile-config" | "profile-submissions" | "audit-logs" | "storage" | "thumbnails";
 
 /** 管理面板：分组侧边栏导航（数据中心 + 用户管理 + 系统设置） */
 export default function AdminPage() {
@@ -156,6 +158,7 @@ export default function AdminPage() {
         { key: "settings", label: "数据源设置", icon: Database },
         { key: "profile-config", label: "功能设置", icon: SlidersHorizontal },
         { key: "storage", label: "存储管理", icon: HardDrive },
+        { key: "thumbnails", label: "缩略图维护", icon: ImageIcon },
         { key: "audit-logs", label: "操作审计", icon: ScrollText },
       ],
     },
@@ -249,6 +252,10 @@ export default function AdminPage() {
 
             {activeTab === "storage" && (
               <StorageTab />
+            )}
+
+            {activeTab === "thumbnails" && (
+              <ThumbnailTab />
             )}
           </div>
         </main>

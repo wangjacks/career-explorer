@@ -4,6 +4,8 @@ import path from "path";
 import sharp from "sharp";
 import { getDefaultStorageBackend, getMaxAvatarSizeMb, getMaxEvaluationSizeMb } from "@/lib/db";
 import { generateObjectKey, getStorage } from "@/lib/storage";
+import { createThumbnail } from "@/lib/thumbnail";
+import { getThumbnailKey } from "@/lib/thumbnail-utils";
 
 /** 压缩尺寸上限（#111，保持宽高比，只缩小不放大）：头像 512×512、词云长边 1024 */
 const RESIZE_LIMITS: Record<string, { width: number; height: number }> = {
@@ -60,6 +62,23 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "存储后端未初始化" }, { status: 500 });
     }
     const key = generateObjectKey(prefix, studentId);
+
+    // #118：同步生成并落盘缩略图（key 按 `_thumb` 后缀派生，DB 零字段）；失败不阻断原图上传
+    try {
+      const thumbBuffer = await createThumbnail(jpgBuffer, prefix as "avatar" | "evaluation");
+      const thumbKey = getThumbnailKey(key);
+      if (backend.type === "local") {
+        // 动态路径校验需运行时解析（防穿越），豁免 Turbopack 静态追踪
+        const uploadDir = path.resolve(/*turbopackIgnore: true*/ process.cwd(), "uploads");
+        await mkdir(uploadDir, { recursive: true });
+        await writeFile(path.join(uploadDir, thumbKey), thumbBuffer);
+      } else {
+        const storage = await getStorage(backend.id);
+        await storage.upload(thumbKey, thumbBuffer, "image/jpeg");
+      }
+    } catch (thumbErr) {
+      console.error("Thumbnail generation failed, original upload continues:", thumbErr);
+    }
 
     if (backend.type === "local") {
       // 动态路径校验需运行时解析（防穿越），豁免 Turbopack 静态追踪
