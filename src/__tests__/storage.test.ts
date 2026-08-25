@@ -127,13 +127,13 @@ describe("S3 凭据与适配器构造", () => {
       () => new S3StorageAdapter(makeBackend({ id: 99, type: "s3", endpoint: "", region: "ap-shanghai", bucket: "b" }))
     ).toThrow(/公网端点/);
     expect(
-      () => new S3StorageAdapter(makeBackend({ id: 99, type: "s3", endpoint: "https://cos.example.com", region: null, bucket: "b" }))
+      () => new S3StorageAdapter(makeBackend({ id: 99, type: "s3", endpoint: "https://cos.ap-shanghai.myqcloud.com", region: null, bucket: "b" }))
     ).toThrow(/region/);
     expect(
-      () => new S3StorageAdapter(makeBackend({ id: 99, type: "s3", endpoint: "https://cos.example.com", region: "ap-shanghai", bucket: null }))
+      () => new S3StorageAdapter(makeBackend({ id: 99, type: "s3", endpoint: "https://cos.ap-shanghai.myqcloud.com", region: "ap-shanghai", bucket: null }))
     ).toThrow(/bucket/);
     const adapter = new S3StorageAdapter(
-      makeBackend({ id: 99, type: "s3", endpoint: "https://cos.example.com", region: "ap-shanghai", bucket: "b" })
+      makeBackend({ id: 99, type: "s3", endpoint: "https://cos.ap-shanghai.myqcloud.com", region: "ap-shanghai", bucket: "b" })
     );
     expect(adapter.type).toBe("s3");
   });
@@ -145,18 +145,19 @@ describe("S3 凭据与适配器构造", () => {
       makeBackend({
         id: 99,
         type: "s3",
-        endpoint: "https://cos.example.com",
-        internal_endpoint: "https://cos-internal.example.com",
+        endpoint: "https://cos.ap-shanghai.myqcloud.com",
+        internal_endpoint: "https://cos.ap-guangzhou.myqcloud.com",
         region: "ap-shanghai",
         bucket: "my-bucket",
         path_prefix: "/career/2026/",
       })
     );
     const url = await adapter.getSignedUrl("avatar_x.jpg", 60);
-    expect(url).toContain("cos.example.com");
-    expect(url).not.toContain("cos-internal");
-    // 前缀规范化（去首尾斜杠）后拼入对象路径
-    expect(url).toContain("my-bucket/career/2026/avatar_x.jpg");
+    expect(url).toContain("cos.ap-shanghai.myqcloud.com");
+    expect(url).not.toContain("cos.ap-guangzhou");
+    // 服务级端点 → 虚拟主机风格（SDK 拼桶到 hostname），桶名不在路径中
+    expect(url).toContain("my-bucket.cos.ap-shanghai.myqcloud.com");
+    expect(url).toContain("/career/2026/avatar_x.jpg");
     expect(url).toMatch(/X-Amz-Expires=60/);
   });
 
@@ -164,9 +165,47 @@ describe("S3 凭据与适配器构造", () => {
     process.env.S3_99_ACCESS_KEY = "ak";
     process.env.S3_99_SECRET_KEY = "sk";
     const adapter = new S3StorageAdapter(
-      makeBackend({ id: 99, type: "s3", endpoint: "https://cos.example.com", region: "ap-shanghai", bucket: "b" })
+      makeBackend({ id: 99, type: "s3", endpoint: "https://cos.ap-shanghai.myqcloud.com", region: "ap-shanghai", bucket: "b" })
     );
     expect(adapter.type).toBe("s3");
+  });
+
+  it("虚拟主机端点自动剥除桶名，签名 URL 不重复拼桶", async () => {
+    process.env.S3_99_ACCESS_KEY = "ak";
+    process.env.S3_99_SECRET_KEY = "sk";
+    const adapter = new S3StorageAdapter(
+      makeBackend({
+        id: 99,
+        type: "s3",
+        endpoint: "https://my-bucket.cos.ap-guangzhou.myqcloud.com",
+        region: "ap-guangzhou",
+        bucket: "my-bucket",
+        path_prefix: "career/2026",
+      })
+    );
+    const url = await adapter.getSignedUrl("avatar_x.jpg", 60);
+    // 桶名只出现一次（在 hostname 中），不在路径中
+    expect(url).toContain("my-bucket.cos.ap-guangzhou.myqcloud.com");
+    expect(url).not.toContain("my-bucket.my-bucket");
+    expect(url).toContain("/career/2026/avatar_x.jpg");
+  });
+
+  it("自建 MinIO（localhost:9000）走路径风格，桶名在路径中", async () => {
+    process.env.S3_99_ACCESS_KEY = "ak";
+    process.env.S3_99_SECRET_KEY = "sk";
+    const adapter = new S3StorageAdapter(
+      makeBackend({
+        id: 99,
+        type: "s3",
+        endpoint: "http://localhost:9000",
+        region: "us-east-1",
+        bucket: "my-bucket",
+        path_prefix: "career",
+      })
+    );
+    const url = await adapter.getSignedUrl("avatar_x.jpg", 60);
+    expect(url).toContain("localhost:9000");
+    expect(url).toContain("/my-bucket/career/avatar_x.jpg");
   });
 });
 

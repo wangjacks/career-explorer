@@ -53,19 +53,63 @@ export class S3StorageAdapter implements StorageAdapter {
     this.bucket = backend.bucket;
     this.prefix = (backend.path_prefix ?? "").replace(/^\/+|\/+$/g, "");
 
-    const base = {
-      region: backend.region,
-      credentials,
-      // path-style 兼容 MinIO 与各厂商端点形态
-      forcePathStyle: true,
+    // 端点分类与规范化（#111）：
+    // S3 SDK 在 forcePathStyle=false 时「总是」把 {bucket}. 拼到 hostname 前面，
+    // 因此必须确保传给 SDK 的 endpoint 不含桶名（服务级），由 SDK 统一拼桶到 hostname。
+    //
+    // 三类端点处理策略：
+    // 1. 虚拟主机（{bucket}.cos.xxx）→ 剥除桶名还原服务级 → forcePathStyle=false
+    // 2. 云厂商服务级（cos.xxx / s3.xxx / oss-xxx）→ 直接使用 → forcePathStyle=false
+    // 3. 自建/MinIO（localhost / IP / 非标端口）→ 原样使用 → forcePathStyle=true
+    const CLOUD_DOMAIN_RE = /\.(myqcloud\.com|amazonaws\.com|aliyuncs\.com|tencentcos\.com|tencentcos\.cn)$/i;
+    const isIPAddress = (h: string): boolean => /^\d{1,3}(\.\d{1,3}){3}$/.test(h) || h.includes(":");
+
+    const stripBucketFromHostname = (ep: string): string => {
+      try {
+        const url = new URL(ep);
+        if (url.hostname.startsWith(`${backend.bucket}.`)) {
+          url.hostname = url.hostname.slice(`${backend.bucket}.`.length);
+        }
+        return url.toString().replace(/\/$/, "");
+      } catch {
+        return ep;
+      }
     };
-    this.serverClient = new S3Client({
-      ...base,
-      endpoint: backend.internal_endpoint || backend.endpoint,
-    });
-    this.publicClient = backend.internal_endpoint
-      ? new S3Client({ ...base, endpoint: backend.endpoint })
-      : this.serverClient;
+
+    const normalizeEndpoint = (ep: string): { endpoint: string; forcePathStyle: boolean } => {
+      try {
+        const url = new URL(ep);
+        const hostname = url.hostname;
+        // 桶名已在 hostname → 剥除还原服务级
+        if (hostname.startsWith(`${backend.bucket}.`)) {
+          return { endpoint: stripBucketFromHostname(ep), forcePathStyle: false };
+        }
+        // 云厂商服务级端点 → SDK 自动拼桶到 hostname
+        if (CLOUD_DOMAIN_RE.test(hostname)) {
+          return { endpoint: ep, forcePathStyle: false };
+        }
+        // 非标端口或 IP 地址 → 自建 MinIO，路径风格
+        if (url.port || isIPAddress(hostname)) {
+          return { endpoint: ep, forcePathStyle: true };
+        }
+      } catch {
+        // URL 解析失败，回退路径风格
+      }
+      return { endpoint: ep, forcePathStyle: true };
+    };
+
+    const common = { region: backend.region, credentials };
+
+    const serverRawEndpoint = backend.internal_endpoint || backend.endpoint;
+    const serverSdk = normalizeEndpoint(serverRawEndpoint);
+    this.serverClient = new S3Client({ ...common, endpoint: serverSdk.endpoint, forcePathStyle: serverSdk.forcePathStyle });
+
+    if (backend.internal_endpoint) {
+      const publicSdk = normalizeEndpoint(backend.endpoint);
+      this.publicClient = new S3Client({ ...common, endpoint: publicSdk.endpoint, forcePathStyle: publicSdk.forcePathStyle });
+    } else {
+      this.publicClient = this.serverClient;
+    }
   }
 
   /** 桶内完整对象路径：`{path_prefix}/{key}` */
