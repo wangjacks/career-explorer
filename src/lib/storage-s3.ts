@@ -57,12 +57,35 @@ export class S3StorageAdapter implements StorageAdapter {
     this.bucket = backend.bucket;
     this.prefix = (backend.path_prefix ?? "").replace(/^\/+|\/+$/g, "");
 
-    // 端点规范化（#111）：
+    // 端点分类与规范化（#111）：
     // S3 SDK 在 forcePathStyle=false 时「总是」把 {bucket}. 拼到 hostname 前面，
     // 因此必须确保传给 SDK 的 endpoint 不含桶名（服务级），由 SDK 统一拼桶到 hostname。
-    // - 虚拟主机端点（{bucket}.cos.xxx）→ 剥除桶名，还原为服务级端点
-    // - 服务级端点（cos.xxx）→ 直接使用
-    // - 自定义域名（CNAME 到桶）→ 改用服务级 COS 端点，签名 URL 再替换回自定义域名
+    //
+    // 四类端点处理策略：
+    // 1. 虚拟主机（{bucket}.cos.xxx）→ 剥除桶名还原服务级 → forcePathStyle=false
+    // 2. 云厂商服务级（cos.xxx / s3.xxx / oss-xxx）→ 直接使用 → forcePathStyle=false
+    // 3. 自建/MinIO（localhost / IP / 非标端口）→ 原样使用 → forcePathStyle=true
+    // 4. 自定义域名（CNAME 到桶）→ 改用服务级 COS 端点，签名 URL 替换回自定义域名
+    const CLOUD_DOMAIN_RE = /\.(myqcloud\.com|amazonaws\.com|aliyuncs\.com|tencentcos\.com|tencentcos\.cn)$/i;
+
+    const isIPAddress = (h: string): boolean => /^\d{1,3}(\.\d{1,3}){3}$/.test(h) || h.includes(":"); // IPv4 or IPv6
+
+    type EndpointKind = "virtual-hosted" | "cloud-service" | "self-hosted" | "custom-domain";
+    const classifyEndpoint = (ep: string): EndpointKind => {
+      try {
+        const url = new URL(ep);
+        const hostname = url.hostname;
+        if (hostname.startsWith(`${backend.bucket}.`)) return "virtual-hosted";
+        if (CLOUD_DOMAIN_RE.test(hostname)) return "cloud-service";
+        // 非标端口或 IP 地址 → 自建 MinIO 等
+        if (url.port || isIPAddress(hostname)) return "self-hosted";
+        // 其余：自定义域名（CNAME 到桶）
+        return "custom-domain";
+      } catch {
+        return "cloud-service"; // 保守默认
+      }
+    };
+
     const stripBucketFromHostname = (ep: string): string => {
       try {
         const url = new URL(ep);
@@ -75,22 +98,11 @@ export class S3StorageAdapter implements StorageAdapter {
       }
     };
 
-    const isCustomDomain = (ep: string): boolean => {
-      try {
-        const hostname = new URL(ep).hostname;
-        if (hostname.startsWith(`${backend.bucket}.`)) return false; // 虚拟主机，非自定义
-        if (/\.(myqcloud\.com|amazonaws\.com|aliyuncs\.com)$/i.test(hostname)) return false; // 服务级，非自定义
-        return true;
-      } catch {
-        return false;
-      }
-    };
-
-    const publicIsCustom = isCustomDomain(backend.endpoint);
-
-    // 自定义域名处理：SDK 使用服务级 COS 端点，签名 URL 生成后替换 hostname
+    const publicKind = classifyEndpoint(backend.endpoint);
     const regionServiceEndpoint = `https://cos.${backend.region}.myqcloud.com`;
-    if (publicIsCustom) {
+
+    // 自定义域名：记录替换信息
+    if (publicKind === "custom-domain") {
       try {
         this.customDomain = new URL(backend.endpoint).hostname;
         this.virtualHostedHostname = `${backend.bucket}.cos.${backend.region}.myqcloud.com`;
@@ -103,28 +115,34 @@ export class S3StorageAdapter implements StorageAdapter {
       this.virtualHostedHostname = null;
     }
 
-    // 规范化端点：剥除桶名（虚拟主机→服务级）、自定义域名→服务级 COS 端点
-    const normalizeEndpoint = (ep: string): string => {
-      return publicIsCustom && ep === backend.endpoint
-        ? regionServiceEndpoint
-        : stripBucketFromHostname(ep);
+    // 规范化端点：按类型处理
+    const normalizeForSdk = (ep: string, kind: EndpointKind): { endpoint: string; forcePathStyle: boolean } => {
+      switch (kind) {
+        case "virtual-hosted":
+          return { endpoint: stripBucketFromHostname(ep), forcePathStyle: false };
+        case "cloud-service":
+          return { endpoint: ep, forcePathStyle: false };
+        case "self-hosted":
+          return { endpoint: ep, forcePathStyle: true };
+        case "custom-domain":
+          return { endpoint: regionServiceEndpoint, forcePathStyle: false };
+      }
     };
 
     const serverRawEndpoint = backend.internal_endpoint || backend.endpoint;
-    const serverIsCustom = !backend.internal_endpoint && publicIsCustom;
+    // 内网端点的类型需独立检测（可能与公网端点不同类型）
+    const serverKind = backend.internal_endpoint ? classifyEndpoint(backend.internal_endpoint) : publicKind;
     const common = { region: backend.region, credentials };
 
-    // 所有客户端统一用服务级端点 + forcePathStyle=false（SDK 拼桶到 hostname）
-    this.serverClient = new S3Client({
-      ...common,
-      endpoint: normalizeEndpoint(serverRawEndpoint),
-      forcePathStyle: false,
-    });
-    this.publicClient = backend.internal_endpoint
-      ? new S3Client({ ...common, endpoint: normalizeEndpoint(backend.endpoint), forcePathStyle: false })
-      : serverIsCustom
-        ? new S3Client({ ...common, endpoint: regionServiceEndpoint, forcePathStyle: false })
-        : this.serverClient;
+    const serverSdk = normalizeForSdk(serverRawEndpoint, serverKind);
+    this.serverClient = new S3Client({ ...common, endpoint: serverSdk.endpoint, forcePathStyle: serverSdk.forcePathStyle });
+
+    if (backend.internal_endpoint) {
+      const publicSdk = normalizeForSdk(backend.endpoint, publicKind);
+      this.publicClient = new S3Client({ ...common, endpoint: publicSdk.endpoint, forcePathStyle: publicSdk.forcePathStyle });
+    } else {
+      this.publicClient = this.serverClient;
+    }
   }
 
   /** 桶内完整对象路径：`{path_prefix}/{key}` */
