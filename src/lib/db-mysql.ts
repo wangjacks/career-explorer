@@ -866,6 +866,13 @@ export class MysqlAdapter implements DbAdapter {
     await this.pool.execute("UPDATE users SET storage_id = ? WHERE id = ?", [storageId, userId]);
   }
 
+  async updateUserStorageRef(userId: number, storageId: number, avatarUrl: string | null, evaluationUrl: string | null): Promise<void> {
+    await this.pool.execute(
+      "UPDATE users SET storage_id = ?, avatar_url = ?, evaluation_url = ? WHERE id = ?",
+      [storageId, avatarUrl, evaluationUrl, userId]
+    );
+  }
+
   async insertAuditLog(log: NewAuditLog): Promise<void> {
     await this.pool.execute(
       `INSERT INTO audit_logs (

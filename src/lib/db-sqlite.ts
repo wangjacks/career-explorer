@@ -819,6 +819,12 @@ export class SqliteAdapter implements DbAdapter {
     this.db.prepare("UPDATE users SET storage_id = ? WHERE id = ?").run(storageId, userId);
   }
 
+  updateUserStorageRef(userId: number, storageId: number, avatarUrl: string | null, evaluationUrl: string | null): void {
+    this.db
+      .prepare("UPDATE users SET storage_id = ?, avatar_url = ?, evaluation_url = ? WHERE id = ?")
+      .run(storageId, avatarUrl, evaluationUrl, userId);
+  }
+
   insertAuditLog(log: NewAuditLog): void {
     this.db
       .prepare(

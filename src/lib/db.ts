@@ -313,6 +313,8 @@ export interface DbAdapter {
   countUsersByStorageId(storageId: number): Promise<number> | number;
   getUsersByStorageId(storageId: number): Promise<UserRow[]> | UserRow[];
   updateUserStorageId(userId: number, storageId: number): Promise<void> | void;
+  /** 迁移时原子更新文件引用：后端归属 + 两个文件 URL（本地代理路径 → 对象 key） */
+  updateUserStorageRef(userId: number, storageId: number, avatarUrl: string | null, evaluationUrl: string | null): Promise<void> | void;
 
   // audit_logs（操作审计，#110：只追加 + 查询，不提供修改/删除）
   insertAuditLog(log: NewAuditLog): Promise<void> | void;
@@ -598,6 +600,11 @@ export async function getUsersByStorageId(storageId: number): Promise<UserRow[]>
 export async function updateUserStorageId(userId: number, storageId: number): Promise<void> {
   const adapter = await ensureInit();
   return Promise.resolve(adapter.updateUserStorageId(userId, storageId));
+}
+
+export async function updateUserStorageRef(userId: number, storageId: number, avatarUrl: string | null, evaluationUrl: string | null): Promise<void> {
+  const adapter = await ensureInit();
+  return Promise.resolve(adapter.updateUserStorageRef(userId, storageId, avatarUrl, evaluationUrl));
 }
 
 export async function insertAuditLog(log: NewAuditLog): Promise<void> {
