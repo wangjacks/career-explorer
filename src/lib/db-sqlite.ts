@@ -1074,8 +1074,11 @@ export class SqliteAdapter implements DbAdapter {
     const storageBackends = this.db
       .prepare("SELECT * FROM storage_backends ORDER BY id")
       .all() as StorageBackendRow[];
+    const profileSubmissions = this.db
+      .prepare("SELECT * FROM profile_submissions ORDER BY id")
+      .all() as ProfileSubmissionRow[];
     return {
-      version: 3,
+      version: 4,
       sourceType: "sqlite",
       createdAt: new Date().toISOString(),
       users,
@@ -1085,6 +1088,7 @@ export class SqliteAdapter implements DbAdapter {
       audit_logs: auditLogs,
       configs_profile: configs,
       storage_backends: storageBackends,
+      profile_submissions: profileSubmissions,
     };
   }
 
@@ -1227,6 +1231,29 @@ export class SqliteAdapter implements DbAdapter {
             a.user_agent,
             a.metadata
           );
+        }
+      }
+      // 档案提交历史版本恢复（#95；旧备份无此字段时保留当前记录不动）
+      if (Array.isArray(d.profile_submissions)) {
+        this.db.exec("DELETE FROM profile_submissions");
+        if (d.profile_submissions.length > 0) {
+          const stmt = this.db.prepare(
+            `INSERT INTO profile_submissions (id, user_id, version, tags, avatar_url, evaluation_url, storage_id, submitted_at, is_current)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+          );
+          for (const p of d.profile_submissions) {
+            stmt.run(
+              p.id,
+              p.user_id,
+              p.version,
+              p.tags,
+              p.avatar_url,
+              p.evaluation_url,
+              p.storage_id ?? 1,
+              p.submitted_at,
+              p.is_current ?? 0
+            );
+          }
         }
       }
     });
