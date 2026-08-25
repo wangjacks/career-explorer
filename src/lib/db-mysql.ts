@@ -1162,8 +1162,9 @@ export class MysqlAdapter implements DbAdapter {
     );
     const [auditLogs] = await this.pool.execute("SELECT * FROM audit_logs ORDER BY id");
     const [storageBackends] = await this.pool.execute("SELECT * FROM storage_backends ORDER BY id");
+    const [profileSubmissions] = await this.pool.execute("SELECT * FROM profile_submissions ORDER BY id");
     return {
-      version: 3,
+      version: 4,
       sourceType: "mysql",
       createdAt: new Date().toISOString(),
       users: users as UserRow[],
@@ -1173,6 +1174,7 @@ export class MysqlAdapter implements DbAdapter {
       audit_logs: auditLogs as AuditLogRow[],
       configs_profile: configs as { key: string; value: string }[],
       storage_backends: storageBackends as StorageBackendRow[],
+      profile_submissions: profileSubmissions as ProfileSubmissionRow[],
     };
   }
 
@@ -1316,6 +1318,28 @@ export class MysqlAdapter implements DbAdapter {
               action, method, path, resource_type, resource_id,
               status, error_message, ip, user_agent, metadata
             ) VALUES ?`,
+            [values]
+          );
+        }
+      }
+      // 档案提交历史版本恢复（#95；旧备份无此字段时保留当前记录不动）
+      if (Array.isArray(data.profile_submissions)) {
+        await conn.execute("DELETE FROM profile_submissions");
+        if (data.profile_submissions.length > 0) {
+          const values = data.profile_submissions.map((p) => [
+            p.id,
+            p.user_id,
+            p.version,
+            p.tags,
+            p.avatar_url,
+            p.evaluation_url,
+            p.storage_id ?? 1,
+            p.submitted_at,
+            p.is_current ?? 0,
+          ]);
+          await conn.query(
+            `INSERT INTO profile_submissions (id, user_id, version, tags, avatar_url, evaluation_url, storage_id, submitted_at, is_current)
+             VALUES ?`,
             [values]
           );
         }

@@ -237,6 +237,41 @@ describe("submitProfileWithVersion（#95）", () => {
   });
 });
 
+describe("备份恢复集成（#95）", () => {
+  it("backup 导出版本记录，restore 后完整还原；旧备份无此字段时保留当前记录", () => {
+    const dbPath = makeTmpDb();
+    const adapter = new SqliteAdapter(dbPath);
+    adapter.init();
+    const studentId = adapter.insertUser({ user_code: "202505050101", role: "student", name: "张三" });
+    const storageId = adapter.getDefaultStorageBackend()!.id;
+    adapter.submitProfileWithVersion("202505050101", "[1]", "/a1.png", "/w1.png", storageId);
+    adapter.submitProfileWithVersion("202505050101", "[2]", "/a2.png", "/w2.png", storageId);
+
+    const data = adapter.backup();
+    expect(data.version).toBe(4);
+    expect(data.profile_submissions).toHaveLength(2);
+    expect(data.profile_submissions![0]).toMatchObject({ user_id: studentId, version: 1, is_current: 0 });
+    expect(data.profile_submissions![1]).toMatchObject({ user_id: studentId, version: 2, is_current: 1 });
+
+    // 恢复后版本记录完整还原（替换而非累加）
+    adapter.submitProfileWithVersion("202505050101", "[3]", "/a3.png", "/w3.png", storageId);
+    expect(adapter.getProfileSubmissions(studentId)).toHaveLength(3);
+    adapter.restore(data);
+    const restored = adapter.getProfileSubmissions(studentId);
+    expect(restored).toHaveLength(2);
+    expect(restored.map((r) => r.version)).toEqual([2, 1]);
+    expect(restored.find((r) => r.version === 2)?.is_current).toBe(1);
+
+    // 旧备份（无 profile_submissions 字段）→ 保留当前记录不动（兼容）
+    const legacy = { ...data, profile_submissions: undefined };
+    adapter.restore(legacy);
+    expect(adapter.getProfileSubmissions(studentId)).toHaveLength(2);
+
+    adapter.close();
+    cleanup(dbPath);
+  });
+});
+
 describe("getStudentsExceedingSubmissionLimit（#95）", () => {
   it("仅返回版本数超过上限的学生，含学号/姓名/版本数", () => {
     const dbPath = makeTmpDb();

@@ -269,7 +269,7 @@ describe("提交流程", () => {
 
     // 备份 / 恢复
     const data = adapter.backup();
-    expect(data.version).toBe(3);
+    expect(data.version).toBe(4);
     adapter.clearSubmissions(["202505050101"]);
     expect(adapter.getStats().total).toBe(0);
     adapter.restore(data);
