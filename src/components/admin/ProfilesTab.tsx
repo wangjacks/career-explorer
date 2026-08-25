@@ -59,6 +59,8 @@ export default function ProfilesTab({ loadProfiles, loadStats }: Props) {
   const [historyOpen, setHistoryOpen] = useState(false);
   const [historyRows, setHistoryRows] = useState<SubmissionHistoryRow[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
+  // 历史请求序号（review 修复）：快速切换学生时丢弃过期响应
+  const historySeqRef = useRef(0);
 
   // 保留最新传入的 load 函数引用，初始加载 effect 仅 mount 时执行
   const loadProfilesRef = useRef(loadProfiles);
@@ -212,17 +214,20 @@ export default function ProfilesTab({ loadProfiles, loadStats }: Props) {
     }
   };
 
-  // 加载版本历史（#95）：首次展开详情弹窗时拉取
+  // 加载版本历史（#95）：首次展开详情弹窗时拉取；序号 guard 防旧响应覆盖新选择
   const loadHistory = async (userId: number) => {
+    const seq = ++historySeqRef.current;
     setHistoryLoading(true);
     try {
       const res = await fetch(`/api/manage/profiles/submissions?userId=${userId}`);
       const data = await res.json();
+      if (seq !== historySeqRef.current) return;
       if (res.ok) setHistoryRows(data.submissions || []);
     } catch (err) {
+      if (seq !== historySeqRef.current) return;
       console.error("Failed to load submission history:", err);
     } finally {
-      setHistoryLoading(false);
+      if (seq === historySeqRef.current) setHistoryLoading(false);
     }
   };
 
