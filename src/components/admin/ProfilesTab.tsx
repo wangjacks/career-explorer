@@ -16,6 +16,18 @@ interface Props {
 type ProfilesSortKey = "studentId" | "studentName" | "createdAt";
 type SortDir = "asc" | "desc";
 
+/** 版本历史行（#95）：详情弹窗内展示 */
+interface SubmissionHistoryRow {
+  id: number;
+  version: number;
+  tags: string[];
+  avatar_url: string;
+  evaluation_url: string;
+  storage_id: number;
+  submitted_at: string;
+  is_current: number;
+}
+
 function SortIcon({ active, dir }: { active: boolean; dir: SortDir }) {
   return (
     <span className={`ml-1 inline-block w-3 text-xs ${active ? "text-green-600" : "text-gray-300"}`}>
@@ -39,6 +51,10 @@ export default function ProfilesTab({ loadProfiles, loadStats }: Props) {
   const [tagDropdownOpen, setTagDropdownOpen] = useState(false);
   const [tagSearch, setTagSearch] = useState("");
   const tagDropdownRef = useRef<HTMLDivElement>(null);
+  // 版本历史（#95）：详情弹窗内折叠展示
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [historyRows, setHistoryRows] = useState<SubmissionHistoryRow[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
 
   // 保留最新传入的 load 函数引用，初始加载 effect 仅 mount 时执行
   const loadProfilesRef = useRef(loadProfiles);
@@ -190,6 +206,27 @@ export default function ProfilesTab({ loadProfiles, loadStats }: Props) {
     } else {
       setSelected(new Set(paged.data.map((p) => p.studentId)));
     }
+  };
+
+  // 加载版本历史（#95）：首次展开详情弹窗时拉取
+  const loadHistory = async (userId: number) => {
+    setHistoryLoading(true);
+    try {
+      const res = await fetch(`/api/manage/profiles/submissions?userId=${userId}`);
+      const data = await res.json();
+      if (res.ok) setHistoryRows(data.submissions || []);
+    } catch (err) {
+      console.error("Failed to load submission history:", err);
+    } finally {
+      setHistoryLoading(false);
+    }
+  };
+
+  const openDetail = (p: Profile) => {
+    setDetail(p);
+    setHistoryOpen(false);
+    setHistoryRows([]);
+    if (p.userId != null) void loadHistory(p.userId);
   };
 
   return (
@@ -358,7 +395,7 @@ export default function ProfilesTab({ loadProfiles, loadStats }: Props) {
                 <td className="px-5 py-3 text-gray-500 text-xs">{p.createdAt}</td>
                 <td className="px-5 py-3">
                   <div className="flex items-center gap-2">
-                    <button onClick={() => setDetail(p)}
+                    <button onClick={() => openDetail(p)}
                       className="text-green-600 hover:text-green-700 text-xs font-medium">查看</button>
                     <button onClick={() => setConfirmDelete([p.studentId])}
                       className="text-red-500 hover:text-red-600 text-xs font-medium">删除</button>
@@ -437,6 +474,62 @@ export default function ProfilesTab({ loadProfiles, loadStats }: Props) {
                 <StorageImage url={detail.evaluationUrl} storageId={detail.storageId} alt="" className="w-full rounded-xl border border-gray-100" />
               </div>
             )}
+
+            {/* 版本历史（#95）：折叠展示，打开详情时已预取 */}
+            <div className="border-t border-gray-100 dark:border-gray-700 pt-3">
+              <button
+                onClick={() => setHistoryOpen((v) => !v)}
+                className="w-full flex items-center justify-between text-sm font-medium text-gray-700 dark:text-gray-200"
+                aria-expanded={historyOpen}
+              >
+                <span>版本历史（{historyRows.length}）</span>
+                <span className="text-gray-400">{historyOpen ? "收起" : "展开"}</span>
+              </button>
+              {historyOpen && (
+                <div className="mt-3 space-y-2">
+                  {historyLoading ? (
+                    <p className="text-sm text-gray-400">加载中...</p>
+                  ) : historyRows.length === 0 ? (
+                    <p className="text-sm text-gray-400">暂无版本记录</p>
+                  ) : (
+                    historyRows.map((h) => (
+                      <div key={h.id} className="border border-gray-100 dark:border-gray-700 rounded-lg p-2.5 space-y-1.5">
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs font-semibold text-gray-700 dark:text-gray-200">版本 {h.version}</span>
+                          {h.is_current === 1 ? (
+                            <span className="px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-green-50 text-green-600 dark:bg-green-900/30 dark:text-green-400">当前</span>
+                          ) : (
+                            <span className="px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-400">历史</span>
+                          )}
+                          <span className="ml-auto text-[10px] text-gray-400">{h.submitted_at}</span>
+                        </div>
+                        <div className="flex flex-wrap gap-1">
+                          {h.tags.length === 0 ? (
+                            <span className="text-[10px] text-gray-400">暂无标签</span>
+                          ) : (
+                            h.tags.map((t) => (
+                              <span key={t} className="px-1.5 py-0.5 bg-green-50 dark:bg-green-900/30 text-green-700 dark:text-green-300 rounded text-[10px]">
+                                {t}
+                              </span>
+                            ))
+                          )}
+                        </div>
+                        {(h.avatar_url || h.evaluation_url) && (
+                          <div className="flex gap-1.5">
+                            {h.avatar_url && (
+                              <StorageImage url={h.avatar_url} storageId={h.storage_id} alt="" className="w-8 h-8 rounded object-cover border border-gray-100 dark:border-gray-700" />
+                            )}
+                            {h.evaluation_url && (
+                              <StorageImage url={h.evaluation_url} storageId={h.storage_id} alt="" className="h-8 w-14 rounded object-cover border border-gray-100 dark:border-gray-700" />
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    ))
+                  )}
+                </div>
+              )}
+            </div>
 
             <div className="flex gap-2 pt-2">
               <button onClick={() => setDetail(null)}

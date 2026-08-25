@@ -4,6 +4,8 @@ import { useState, useCallback, useEffect } from "react";
 import { toast } from "sonner";
 
 export interface Profile {
+  /** 数字用户 id（#95）：版本历史等关联查询使用；旧接口响应可能缺失，容忍 undefined */
+  userId?: number;
   studentId: string;
   studentName: string;
   tags: string[];

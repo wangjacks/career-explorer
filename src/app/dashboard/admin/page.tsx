@@ -9,6 +9,7 @@ import {
   Download,
   GraduationCap,
   HardDrive,
+  History,
   MonitorPlay,
   School,
   ScrollText,
@@ -33,8 +34,9 @@ import TeachersTab from "@/components/admin/TeachersTab";
 import ProfileConfigTab from "@/components/admin/ProfileConfigTab";
 import AuditLogsTab from "@/components/admin/AuditLogsTab";
 import StorageTab from "@/components/admin/StorageTab";
+import ProfileSubmissionsTab from "@/components/admin/ProfileSubmissionsTab";
 
-type Tab = "overview" | "dashboard" | "settings" | "students" | "classes" | "teachers" | "export" | "tags" | "profile-config" | "audit-logs" | "storage";
+type Tab = "overview" | "dashboard" | "settings" | "students" | "classes" | "teachers" | "export" | "tags" | "profile-config" | "profile-submissions" | "audit-logs" | "storage";
 
 /** 管理面板：分组侧边栏导航（数据中心 + 用户管理 + 系统设置） */
 export default function AdminPage() {
@@ -131,6 +133,7 @@ export default function AdminPage() {
         { key: "overview", label: "数据概览", icon: BarChart3 },
         { key: "dashboard", label: "数据大屏", icon: MonitorPlay },
         { key: "export", label: "数据导出", icon: Download },
+        { key: "profile-submissions", label: "提交历史", icon: History },
       ],
     },
     {
@@ -226,6 +229,10 @@ export default function AdminPage() {
 
             {activeTab === "export" && (
               <ExportTab />
+            )}
+
+            {activeTab === "profile-submissions" && (
+              <ProfileSubmissionsTab />
             )}
 
             {activeTab === "tags" && (
