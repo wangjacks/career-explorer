@@ -30,6 +30,12 @@ function getToday(): string {
   return new Date().toLocaleDateString("sv-SE", { timeZone: "Asia/Shanghai" });
 }
 
+/** SQLite 弱类型：可空整数列可能导出空字符串，MySQL 严格模式需转为 null */
+function nullableInt(v: unknown): number | null {
+  if (v === null || v === undefined || v === "") return null;
+  return Number(v);
+}
+
 const ADMIN_HASH_PATH = path.join(process.cwd(), "admin-hash.txt");
 
 interface MySqlConfig {
@@ -1034,7 +1040,7 @@ export class MysqlAdapter implements DbAdapter {
           t.id,
           t.name,
           t.type ?? "tag",
-          t.parent_id ?? null,
+          nullableInt(t.parent_id),
           t.class_id ?? 0,
           t.category_order ?? 0,
           t.sort_order ?? 0,
@@ -1059,14 +1065,13 @@ export class MysqlAdapter implements DbAdapter {
           u.password_hash,
           u.role,
           u.name,
-          u.class_id,
+          nullableInt(u.class_id),
           u.tags,
           u.avatar_url,
           u.evaluation_url,
           u.submitted_at,
           u.created_at,
-          // 旧备份无 storage_id → 回填本地后端（旧部署均为本地存储）
-          u.storage_id ?? localId,
+          nullableInt(u.storage_id) ?? localId,
         ]);
         await conn.query(
           `INSERT INTO users (id, user_code, password_hash, role, name, class_id, tags, avatar_url, evaluation_url, submitted_at, created_at, storage_id)
