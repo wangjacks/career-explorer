@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Toaster, toast } from "sonner";
-import { Compass, SquarePen, X } from "lucide-react";
+import { Compass, SquarePen, X, History, ChevronDown, ChevronUp } from "lucide-react";
 import NavigationBar from "@/components/NavigationBar";
 import StudentSidebar from "@/components/student/StudentSidebar";
 import ConfirmDialog from "@/components/admin/ConfirmDialog";
@@ -24,6 +24,18 @@ interface MyProfile {
   /** 文件所在存储后端（#111） */
   storage_id?: number;
   submitted_at: string | null;
+}
+
+/** 历史提交版本项（#95）：快照元数据来自 /api/shared/profile/submissions */
+interface SubmissionHistoryItem {
+  id: number;
+  version: number;
+  tags: string[];
+  avatar_url: string;
+  evaluation_url: string;
+  storage_id: number;
+  submitted_at: string;
+  is_current: number;
 }
 
 /** 罗盘进度环（signature）：档案完成度 x/3，琥珀弧线随完成度填充 */
@@ -80,6 +92,73 @@ function SectionHeader({ label, done }: { label: string; done?: boolean }) {
   );
 }
 
+/** 历史版本条目（#95）：版本号 + 时间 + 当前标记 + 快照详情（标签/头像/词云）+ 恢复按钮 */
+function HistoryItem({
+  submission,
+  restoring,
+  closed,
+  onRestore,
+}: {
+  submission: SubmissionHistoryItem;
+  restoring: boolean;
+  closed: boolean;
+  onRestore: (id: number) => void;
+}) {
+  // 历史文件 URL 解析（#111）：与主档案同规则，云后端换签名 URL
+  const avatarResolved = useFileUrl(submission.avatar_url || undefined, submission.storage_id);
+  const evaluationResolved = useFileUrl(submission.evaluation_url || undefined, submission.storage_id);
+  const avatarPreview = safeImageUrl(avatarResolved);
+  const evaluationPreview = safeImageUrl(evaluationResolved);
+
+  return (
+    <li className="border border-gray-100 dark:border-gray-700 rounded-lg p-3 space-y-2">
+      <div className="flex items-center gap-2 flex-wrap">
+        <span className="text-sm font-semibold text-gray-800 dark:text-gray-100">版本 {submission.version}</span>
+        {submission.is_current === 1 ? (
+          <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-green-50 text-green-600 dark:bg-green-900/30 dark:text-green-400">
+            当前版本
+          </span>
+        ) : (
+          <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-400">
+            历史版本
+          </span>
+        )}
+        <span className="ml-auto text-xs text-gray-400 dark:text-gray-500">{submission.submitted_at}</span>
+      </div>
+      <div className="flex flex-wrap gap-1.5">
+        {submission.tags.length === 0 ? (
+          <span className="text-xs text-gray-400 dark:text-gray-500">暂无标签</span>
+        ) : (
+          submission.tags.map((tag) => (
+            <span key={tag} className={`px-2.5 py-1 rounded-full text-xs ${TAG_CHIP_COLORS[0]}`}>
+              {tag}
+            </span>
+          ))
+        )}
+      </div>
+      {(avatarPreview || evaluationPreview) && (
+        <div className="flex gap-2">
+          {avatarPreview && (
+            <img src={avatarPreview} alt={`版本 ${submission.version} 头像`} className="w-12 h-12 rounded-lg object-cover border border-gray-100 dark:border-gray-700" />
+          )}
+          {evaluationPreview && (
+            <img src={evaluationPreview} alt={`版本 ${submission.version} 评价词云`} className="h-12 w-20 rounded-lg object-cover border border-gray-100 dark:border-gray-700" />
+          )}
+        </div>
+      )}
+      {!closed && submission.is_current === 0 && (
+        <button
+          onClick={() => onRestore(submission.id)}
+          disabled={restoring}
+          className="px-3 py-1.5 bg-primary hover:bg-primary-strong disabled:opacity-50 text-white text-xs font-medium rounded-lg transition-colors"
+        >
+          {restoring ? "恢复中..." : "恢复此版本"}
+        </button>
+      )}
+    </li>
+  );
+}
+
 /** 学生面板：探索档案 · 罗盘进度——信息通览 + 就地修改 + 预留侧边栏 */
 export default function StudentDashboardPage() {
   const router = useRouter();
@@ -112,6 +191,12 @@ export default function StudentDashboardPage() {
 
   // 通览态图片放大预览
   const [lightbox, setLightbox] = useState<string | null>(null);
+
+  // 历史提交版本（#95）：折叠区，展开时懒加载；恢复生成新版本不回写旧记录
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [historySubmissions, setHistorySubmissions] = useState<SubmissionHistoryItem[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [restoringId, setRestoringId] = useState<number | null>(null);
 
   // 文件展示地址解析（#111）：本地代理路径原样使用，云后端自动换签名 URL
   const avatarResolved = useFileUrl(profile?.avatar_url, profile?.storage_id);
@@ -209,6 +294,52 @@ export default function StudentDashboardPage() {
       return;
     }
     setConfirming(true);
+  };
+
+  // 加载历史提交（#95）：首次展开时拉取
+  const loadHistory = useCallback(async () => {
+    setHistoryLoading(true);
+    try {
+      const res = await fetch("/api/shared/profile/submissions");
+      const data = await res.json();
+      if (res.ok) {
+        setHistorySubmissions(data.submissions || []);
+      } else {
+        toast.error(data.error || "历史记录加载失败");
+      }
+    } catch (err) {
+      console.error("Failed to load history:", err);
+      toast.error("历史记录加载失败");
+    } finally {
+      setHistoryLoading(false);
+    }
+  }, []);
+
+  const toggleHistory = () => {
+    const next = !historyOpen;
+    setHistoryOpen(next);
+    if (next && historySubmissions.length === 0) void loadHistory();
+  };
+
+  // 恢复历史版本（#95）：以目标快照生成新版本（审计链完整），随后刷新档案与列表
+  const restoreVersion = async (submissionId: number) => {
+    setRestoringId(submissionId);
+    try {
+      const res = await fetch("/api/shared/profile/submissions/restore", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ submissionId }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "恢复失败");
+      toast.success(data.message || "恢复成功");
+      await loadProfile();
+      await loadHistory();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "恢复失败");
+    } finally {
+      setRestoringId(null);
+    }
   };
 
   const confirmSave = async () => {
@@ -393,6 +524,42 @@ export default function StudentDashboardPage() {
                       档案提交已于 {submissionDeadline} 截止，无法再修改
                     </p>
                   )}
+
+                  {/* 历史提交（#95）：折叠区，展开懒加载；恢复按钮截止后隐藏 */}
+                  <section className="bg-card rounded-xl border border-gray-100 dark:border-gray-700 p-5 space-y-3">
+                    <button
+                      onClick={toggleHistory}
+                      className="w-full flex items-center gap-2 text-left"
+                      aria-expanded={historyOpen}
+                    >
+                      <History size={16} className="text-gray-400 dark:text-gray-500" aria-hidden />
+                      <h2 className="text-sm font-semibold text-gray-800 dark:text-gray-100">历史提交</h2>
+                      <span className="ml-auto text-gray-400 dark:text-gray-500">
+                        {historyOpen ? <ChevronUp size={16} aria-hidden /> : <ChevronDown size={16} aria-hidden />}
+                      </span>
+                    </button>
+                    {historyOpen && (
+                      <div className="space-y-2">
+                        {historyLoading ? (
+                          <p className="text-sm text-gray-400 dark:text-gray-500">加载中...</p>
+                        ) : historySubmissions.length === 0 ? (
+                          <p className="text-sm text-gray-400 dark:text-gray-500">暂无历史提交</p>
+                        ) : (
+                          <ul className="space-y-2">
+                            {historySubmissions.map((s) => (
+                              <HistoryItem
+                                key={s.id}
+                                submission={s}
+                                restoring={restoringId === s.id}
+                                closed={submissionClosed}
+                                onRestore={restoreVersion}
+                              />
+                            ))}
+                          </ul>
+                        )}
+                      </div>
+                    )}
+                  </section>
                 </>
               ) : (
                 /* 从未提交：引导卡 */

@@ -18,6 +18,8 @@ export async function GET(request: NextRequest) {
           tags = Array.isArray(parsed) ? parsed.map((t) => String(t)) : [];
         } catch {}
         return {
+          // #95：补充数字 userId，供版本历史等关联查询使用
+          userId: r.id,
           studentId: r.user_code,
           studentName: r.name,
           tags,
