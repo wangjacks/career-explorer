@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { ChevronDown, History, TriangleAlert, Trash2, Users, X } from "lucide-react";
 import ConfirmDialog from "./ConfirmDialog";
 import StorageImage from "@/components/StorageImage";
+import { useTagColorMap } from "@/hooks/useTagColorMap";
 
 interface ProfileSummary {
   userId?: number;
@@ -33,6 +34,9 @@ interface ExceedRow {
 
 /** 档案提交历史管理（#95）：学生选择器 + 版本列表 + 超限学生子面板（仅 admin 可清理） */
 export default function ProfileSubmissionsTab() {
+  // 标签三色映射（#95）：历史版本标签按分类着色，与「我的标签」展示态一致
+  const tagColorMap = useTagColorMap();
+
   const [students, setStudents] = useState<ProfileSummary[]>([]);
   const [studentLoading, setStudentLoading] = useState(false);
   const [search, setSearch] = useState("");
@@ -309,7 +313,7 @@ export default function ProfileSubmissionsTab() {
                         <span className="text-xs text-gray-400 dark:text-gray-500">暂无标签</span>
                       ) : (
                         s.tags.map((tag) => (
-                          <span key={tag} className="px-2.5 py-1 rounded-full text-xs bg-green-50 dark:bg-green-900/30 text-green-700 dark:text-green-300">
+                          <span key={tag} className={`px-2.5 py-1 rounded-full text-xs ${tagColorMap.get(tag) ?? "bg-green-50 dark:bg-green-900/30 text-green-700 dark:text-green-300"}`}>
                             {tag}
                           </span>
                         ))
