@@ -229,7 +229,8 @@ export default function ProfileSubmissionsTab() {
                 ) : filteredStudents.length === 0 ? (
                   <div className="px-3 py-4 text-center text-sm text-gray-400">无匹配学生</div>
                 ) : (
-                  filteredStudents.map((s) => (
+                  /* 只渲染前 10 个（大名单时避免卡顿），底部提示剩余数量 */
+                  filteredStudents.slice(0, 10).map((s) => (
                     <button
                       key={s.userId}
                       onClick={() => s.userId != null && handleSelect(s.userId, s.studentName)}
@@ -248,6 +249,7 @@ export default function ProfileSubmissionsTab() {
               </div>
               <div className="px-3 py-1.5 border-t border-gray-100 dark:border-gray-700 text-[10px] text-gray-400">
                 共 {students.length} 名已提交学生
+                {filteredStudents.length > 10 && `，匹配 ${filteredStudents.length} 名，仅显示前 10 个，可输入学号/姓名精确查找`}
               </div>
             </div>
           )}
