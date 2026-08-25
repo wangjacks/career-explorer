@@ -25,6 +25,7 @@ import type {
   ProfileSubmissionData,
   ProfileSubmissionExceedRow,
   ProfileSubmissionFileOwner,
+  MediaFileRef,
 } from "./db";
 
 function getNow(): string {
@@ -643,6 +644,24 @@ export class SqliteAdapter implements DbAdapter {
          ORDER BY ps.id DESC LIMIT 1`
       )
       .get(url, url) as ProfileSubmissionFileOwner | undefined;
+  }
+
+  getAllReferencedMedia(): MediaFileRef[] {
+    return this.db
+      .prepare(
+        `SELECT avatar_url AS url, storage_id AS storageId FROM users
+         WHERE role = 'student' AND submitted_at IS NOT NULL AND avatar_url IS NOT NULL AND avatar_url != ''
+         UNION ALL
+         SELECT evaluation_url AS url, storage_id AS storageId FROM users
+         WHERE role = 'student' AND submitted_at IS NOT NULL AND evaluation_url IS NOT NULL AND evaluation_url != ''
+         UNION ALL
+         SELECT avatar_url AS url, storage_id AS storageId FROM profile_submissions
+         WHERE avatar_url IS NOT NULL AND avatar_url != ''
+         UNION ALL
+         SELECT evaluation_url AS url, storage_id AS storageId FROM profile_submissions
+         WHERE evaluation_url IS NOT NULL AND evaluation_url != ''`
+      )
+      .all() as MediaFileRef[];
   }
 
   submitProfileWithVersion(userCode: string, tagsJson: string, avatarUrl: string, evaluationUrl: string, storageId: number): { version: number } {

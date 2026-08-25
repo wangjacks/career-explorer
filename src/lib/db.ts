@@ -61,6 +61,12 @@ export interface ProfileSubmissionExceedRow {
   version_count: number;
 }
 
+/** 被引用的媒体文件（#118）：存量缩略图补生成枚举用，携带后端归属 */
+export interface MediaFileRef {
+  url: string;
+  storageId: number;
+}
+
 /** 历史版本文件归属（#95）：storage-sign 对快照文件做权限校验时反查用 */
 export interface ProfileSubmissionFileOwner {
   user_id: number;
@@ -317,6 +323,8 @@ export interface DbAdapter {
   getProfileSubmissionOwnerByFileUrl(
     url: string
   ): Promise<ProfileSubmissionFileOwner | undefined> | ProfileSubmissionFileOwner | undefined;
+  /** 枚举全部被引用媒体文件（#118）：users 当前档案 + profile_submissions 历史快照，携带后端归属 */
+  getAllReferencedMedia(): Promise<MediaFileRef[]> | MediaFileRef[];
   /** 高层事务函数：提交档案 + 生成版本快照 + 超限清理，原子完成 */
   submitProfileWithVersion(
     userCode: string,
@@ -546,6 +554,11 @@ export async function getProfileSubmissionOwnerByFileUrl(
 ): Promise<ProfileSubmissionFileOwner | undefined> {
   const adapter = await ensureInit();
   return Promise.resolve(adapter.getProfileSubmissionOwnerByFileUrl(url));
+}
+
+export async function getAllReferencedMedia(): Promise<MediaFileRef[]> {
+  const adapter = await ensureInit();
+  return Promise.resolve(adapter.getAllReferencedMedia());
 }
 
 export async function submitProfileWithVersion(
