@@ -23,6 +23,7 @@ import type {
   StorageBackendUpdateFields,
   ProfileSubmissionRow,
   ProfileSubmissionData,
+  ProfileSubmissionExceedRow,
 } from "./db";
 
 function getNow(): string {
@@ -608,17 +609,17 @@ export class SqliteAdapter implements DbAdapter {
     tx();
   }
 
-  getStudentsExceedingSubmissionLimit(maxVersions: number): { user_id: number; user_code: string; name: string; version_count: number }[] {
+  getStudentsExceedingSubmissionLimit(maxVersions: number): ProfileSubmissionExceedRow[] {
     return this.db
       .prepare(
-        `SELECT u.id as user_id, u.user_code, u.name, COUNT(ps.id) as version_count
+        `SELECT u.id as user_id, u.user_code, u.name, u.class_id, COUNT(ps.id) as version_count
          FROM users u JOIN profile_submissions ps ON ps.user_id = u.id
          WHERE u.role = 'student'
-         GROUP BY u.id, u.user_code, u.name
+         GROUP BY u.id, u.user_code, u.name, u.class_id
          HAVING COUNT(ps.id) > ?
          ORDER BY version_count DESC, u.user_code`
       )
-      .all(maxVersions) as { user_id: number; user_code: string; name: string; version_count: number }[];
+      .all(maxVersions) as ProfileSubmissionExceedRow[];
   }
 
   submitProfileWithVersion(userCode: string, tagsJson: string, avatarUrl: string, evaluationUrl: string, storageId: number): { version: number } {
