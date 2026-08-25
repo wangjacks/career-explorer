@@ -43,6 +43,7 @@ export default function ProfileSubmissionsTab() {
   const [exceeding, setExceeding] = useState<ExceedRow[]>([]);
   const [maxVersions, setMaxVersions] = useState(10);
   const [confirmCleanup, setConfirmCleanup] = useState<ExceedRow | null>(null);
+  const [confirmCleanupAll, setConfirmCleanupAll] = useState(false);
   const [cleaning, setCleaning] = useState(false);
   // 学生选择器：按钮 + 弹出面板（搜索 + 列表），样式与标签筛选下拉一致
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -163,6 +164,28 @@ export default function ProfileSubmissionsTab() {
     } finally {
       setCleaning(false);
       setConfirmCleanup(null);
+    }
+  };
+
+  // 一键清理全部超限学生（spec：清理所有学生的超限版本）
+  const handleCleanupAll = async () => {
+    setCleaning(true);
+    try {
+      const res = await fetch("/api/manage/profiles/submissions/cleanup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "清理失败");
+      toast.success(`已清理 ${data.studentsAffected} 名学生的 ${data.deleted} 条最旧版本`);
+      if (selectedUserId !== null) void loadSubmissions(selectedUserId);
+      void loadExceeding();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "清理失败");
+    } finally {
+      setCleaning(false);
+      setConfirmCleanupAll(false);
     }
   };
 
@@ -310,13 +333,27 @@ export default function ProfileSubmissionsTab() {
         )}
       </div>
 
-      {/* 超限学生子面板（#95）：展示超限名单，admin 可手动清理最旧版本 */}
+      {/* 超限学生子面板（#95）：展示超限名单，admin 可手动清理最旧版本
+          每次提交会自动清理超限；仅在调低版本上限后，存量学生可能超限并在此浮现 */}
       <div className="bg-card rounded-xl border border-gray-100 dark:border-gray-700 p-5 space-y-4">
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           <TriangleAlert size={16} className="text-amber-500" aria-hidden />
           <h2 className="font-semibold text-gray-800 dark:text-gray-100">超限学生</h2>
           <span className="text-xs text-gray-400 dark:text-gray-500">版本上限 {maxVersions} 条，超出部分仅删除记录（文件保留）</span>
+          {exceeding.length > 0 && (
+            <button
+              onClick={() => setConfirmCleanupAll(true)}
+              disabled={cleaning}
+              className="ml-auto px-3 py-1.5 bg-amber-500 hover:bg-amber-600 disabled:opacity-50 text-white text-xs font-medium rounded-lg transition-colors flex items-center gap-1"
+            >
+              <Trash2 className="w-3.5 h-3.5" aria-hidden />
+              一键清理全部（{exceeding.length} 名）
+            </button>
+          )}
         </div>
+        <p className="text-xs text-gray-400 dark:text-gray-500">
+          每次提交时会自动清理超限版本，正常情况下此处为空；仅当调低「功能设置」中的版本上限后，存量学生可能超限并在此列出，可单个或一键清理。
+        </p>
         {exceeding.length === 0 ? (
           <p className="text-sm text-gray-400 dark:text-gray-500">暂无超限学生</p>
         ) : (
@@ -355,6 +392,16 @@ export default function ProfileSubmissionsTab() {
         }
         onConfirm={() => confirmCleanup && handleCleanup(confirmCleanup)}
         onCancel={() => setConfirmCleanup(null)}
+      />
+
+      <ConfirmDialog
+        open={confirmCleanupAll}
+        title="确认一键清理"
+        variant="warning"
+        confirmText="确认清理"
+        message={`将删除全部 ${exceeding.length} 名超限学生的超限版本记录（仅删除记录，图片文件保留）。确定继续吗？`}
+        onConfirm={handleCleanupAll}
+        onCancel={() => setConfirmCleanupAll(false)}
       />
     </div>
   );
