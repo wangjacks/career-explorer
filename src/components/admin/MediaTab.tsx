@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
-import { ChevronDown, FolderOpen, HardDrive, ImageIcon, RefreshCw, Search, Trash2 } from "lucide-react";
+import { ChevronDown, FolderOpen, HardDrive, ImageIcon, RefreshCw, Search, Trash2, X } from "lucide-react";
 import ConfirmDialog from "./ConfirmDialog";
 import ThumbnailTab from "./ThumbnailTab";
 
@@ -19,6 +19,8 @@ interface MediaStatus {
 interface MediaFileItem {
   key: string;
   storageId: number;
+  /** 存储后端名称 */
+  backendName: string;
   size: number;
   lastModified: string;
   type: "avatar" | "evaluation" | "thumbnail" | "other";
@@ -121,6 +123,11 @@ export default function MediaTab() {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  // 一键删除全部可删孤儿（#117）：列表预览 + 两段确认
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const [previewList, setPreviewList] = useState<MediaFileItem[]>([]);
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [confirmAll, setConfirmAll] = useState(false);
 
   const loadStatus = useCallback(async () => {
     setStatusLoading(true);
@@ -208,6 +215,69 @@ export default function MediaTab() {
   const selectedItems = items.filter((i) => selected.has(`${i.storageId}:${i.key}`));
   const selectedSize = selectedItems.reduce((sum, i) => sum + i.size, 0);
 
+  // 拉取全部可删孤儿（files 端点循环分页，服务端实时扫描）供预览
+  const loadAllDeletable = async (): Promise<{ list: MediaFileItem[]; totalSize: number }> => {
+    const list: MediaFileItem[] = [];
+    let page = 1;
+    for (;;) {
+      const res = await fetch(`/api/manage/media/files?page=${page}&pageSize=100&status=orphan`);
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "孤儿列表加载失败");
+      const deletable = (data.items as MediaFileItem[]).filter((i) => i.deletable);
+      list.push(...deletable);
+      if (page * 100 >= data.total) break;
+      page += 1;
+    }
+    return { list, totalSize: list.reduce((s, i) => s + i.size, 0) };
+  };
+
+  // 第一步：加载列表并打开预览弹窗
+  const openDeleteAllPreview = async () => {
+    setPreviewOpen(true);
+    setPreviewLoading(true);
+    setPreviewList([]);
+    try {
+      const { list } = await loadAllDeletable();
+      setPreviewList(list);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "孤儿列表加载失败");
+      setPreviewOpen(false);
+    } finally {
+      setPreviewLoading(false);
+    }
+  };
+
+  // 第二步：预览确认后弹出最终确认
+  const requestFinalConfirm = () => {
+    setPreviewOpen(false);
+    setConfirmAll(true);
+  };
+
+  // 第三步：执行删除全部可删孤儿
+  const handleDeleteAll = async () => {
+    setDeleting(true);
+    try {
+      const res = await fetch("/api/manage/media/orphans/cleanup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mode: "all" }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "清理失败");
+      toast.success(`已删除全部 ${data.deleted} 个可删孤儿文件（${formatBytes(data.deletedSizeBytes)}）`);
+      setConfirmAll(false);
+      setPreviewList([]);
+      await loadStatus();
+      await loadFiles(1);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "清理失败");
+    } finally {
+      setDeleting(false);
+    }
+  };
+
+  const previewSize = previewList.reduce((sum, i) => sum + i.size, 0);
+
   const handleDelete = async () => {
     setDeleting(true);
     try {
@@ -274,6 +344,16 @@ export default function MediaTab() {
                 </p>
                 <p className="text-xs text-gray-400 mt-0.5">{formatBytes(status.deletableSize)}</p>
               </div>
+              {status.deletableCount > 0 && (
+                <button
+                  onClick={openDeleteAllPreview}
+                  disabled={previewLoading}
+                  className="self-start sm:self-center px-4 py-2 bg-red-500 hover:bg-red-600 disabled:opacity-50 text-white text-sm font-medium rounded-lg transition-colors flex items-center gap-1.5"
+                >
+                  <Trash2 className="w-4 h-4" aria-hidden />
+                  一键删除全部可删孤儿（{status.deletableCount} 个）
+                </button>
+              )}
               <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-4">
                 <p className="text-xs text-gray-500 dark:text-gray-400">孤儿保留期</p>
                 <div className="flex items-center gap-1.5 mt-1">
@@ -414,6 +494,7 @@ export default function MediaTab() {
                       <th className="px-3 py-2.5 font-medium w-10"></th>
                       <th className="px-3 py-2.5 font-medium">文件名</th>
                       <th className="px-3 py-2.5 font-medium">类型</th>
+                      <th className="px-3 py-2.5 font-medium">存储后端</th>
                       <th className="px-3 py-2.5 font-medium">大小</th>
                       <th className="px-3 py-2.5 font-medium">更新时间</th>
                       <th className="px-3 py-2.5 font-medium">状态</th>
@@ -440,6 +521,7 @@ export default function MediaTab() {
                               {TYPE_LABEL[item.type]}
                             </span>
                           </td>
+                          <td className="px-3 py-2.5 text-gray-500 text-xs">{item.backendName}</td>
                           <td className="px-3 py-2.5 text-gray-500 text-xs">{formatBytes(item.size)}</td>
                           <td className="px-3 py-2.5 text-gray-500 text-xs">{item.lastModified.slice(0, 19).replace("T", " ")}</td>
                           <td className="px-3 py-2.5 text-xs">
@@ -490,6 +572,87 @@ export default function MediaTab() {
           </div>
         )}
       </div>
+
+      {/* 一键删除全部：第一步列表预览（展示待删文件，二次确认） */}
+      {previewOpen && (
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 px-4" onClick={() => setPreviewOpen(false)}>
+          <div
+            className="bg-card rounded-2xl shadow-xl max-w-2xl w-full p-6 space-y-4 max-h-[85vh] flex flex-col"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between">
+              <h3 className="font-semibold text-gray-800 dark:text-gray-100 text-lg">
+                待删除的孤儿文件
+              </h3>
+              <button onClick={() => setPreviewOpen(false)} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors" aria-label="关闭预览">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <p className="text-xs text-gray-400 dark:text-gray-500">
+              以下文件当前未被任何档案或历史版本引用，且已超过保留期（{status?.retentionDays ?? 7} 天）。删除不可恢复，请核对清单。
+            </p>
+            {previewLoading ? (
+              <p className="text-sm text-gray-400 dark:text-gray-500">加载中...</p>
+            ) : previewList.length === 0 ? (
+              <p className="text-sm text-gray-400 dark:text-gray-500">没有可删除的孤儿文件</p>
+            ) : (
+              <>
+                <div className="overflow-y-auto rounded-lg border border-gray-100 dark:border-gray-700 flex-1 min-h-0">
+                  <table className="w-full text-sm">
+                    <thead className="sticky top-0 bg-gray-50 dark:bg-gray-800">
+                      <tr className="text-left text-gray-500 dark:text-gray-400 text-xs">
+                        <th className="px-3 py-2 font-medium">文件名</th>
+                        <th className="px-3 py-2 font-medium">类型</th>
+                        <th className="px-3 py-2 font-medium">后端</th>
+                        <th className="px-3 py-2 font-medium">大小</th>
+                        <th className="px-3 py-2 font-medium">孤 N 天</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-50 dark:divide-gray-700/50">
+                      {previewList.map((item) => (
+                        <tr key={`${item.storageId}:${item.key}`}>
+                          <td className="px-3 py-1.5 font-mono text-xs text-gray-600 dark:text-gray-300 break-all">{item.key}</td>
+                          <td className="px-3 py-1.5">
+                            <span className="px-1.5 py-0.5 rounded-full text-[10px] bg-green-50 dark:bg-green-900/30 text-green-700 dark:text-green-300">
+                              {TYPE_LABEL[item.type]}
+                            </span>
+                          </td>
+                          <td className="px-3 py-1.5 text-gray-500 text-xs">{item.backendName}</td>
+                          <td className="px-3 py-1.5 text-gray-500 text-xs">{formatBytes(item.size)}</td>
+                          <td className="px-3 py-1.5 text-gray-500 text-xs">{item.orphanDays} 天</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                <div className="flex items-center gap-3 flex-wrap">
+                  <span className="text-sm text-gray-500 dark:text-gray-400">
+                    共 {previewList.length} 个文件 · {formatBytes(previewSize)}
+                  </span>
+                  <button
+                    onClick={requestFinalConfirm}
+                    className="ml-auto px-4 py-2 bg-red-500 hover:bg-red-600 text-white text-sm font-medium rounded-lg transition-colors flex items-center gap-1.5"
+                  >
+                    <Trash2 className="w-4 h-4" aria-hidden />
+                    确认删除
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* 一键删除全部：第二步最终确认 */}
+      <ConfirmDialog
+        open={confirmAll}
+        title="最终确认：删除全部可删孤儿"
+        variant="danger"
+        confirmText={deleting ? "删除中..." : "确认删除"}
+        message={`将删除 ${previewList.length} 个孤儿文件（${formatBytes(previewSize)}），源图删除时连带其缩略图。此操作不可恢复，确定继续吗？`}
+        onConfirm={handleDeleteAll}
+        onCancel={() => setConfirmAll(false)}
+      />
 
       <ConfirmDialog
         open={confirmDelete}

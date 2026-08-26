@@ -58,8 +58,8 @@ describe("scanMedia（#117）", () => {
     expect(status).toMatchObject({ total: 6, totalSize: 174, orphanCount: 4, orphanSize: 154 });
     // 全量文件列表：引用状态与关联学生（#117 全量管理）
     const fileByKey = new Map(files.map((f) => [f.key, f]));
-    expect(fileByKey.get("avatar_used_1.jpg")).toMatchObject({ referenced: true, userCode: "202505050101", userName: "张三" });
-    expect(fileByKey.get("evaluation_used_2.jpg")).toMatchObject({ referenced: true, userCode: "202505050102", userName: "李四" });
+    expect(fileByKey.get("avatar_used_1.jpg")).toMatchObject({ referenced: true, userCode: "202505050101", userName: "张三", backendName: "本地" });
+    expect(fileByKey.get("evaluation_used_2.jpg")).toMatchObject({ referenced: true, userCode: "202505050102", userName: "李四", backendName: "云" });
     expect(fileByKey.get("avatar_orphan_3.jpg")).toMatchObject({ referenced: false, userCode: null, userName: null });
     expect(files).toHaveLength(6);
     // 缩略图：参与列表，状态跟随源图（源孤儿 → 缩略图孤儿），sourceKey 指向源

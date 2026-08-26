@@ -159,7 +159,7 @@ describe("媒体管理端点（#117）", () => {
     let body = await res.json();
     expect(body.total).toBe(3);
     const used = body.items.find((i: { key: string }) => i.key === "avatar_used.jpg");
-    expect(used).toMatchObject({ referenced: true, userCode: "202505050101", userName: "张三", deletable: false });
+    expect(used).toMatchObject({ referenced: true, userCode: "202505050101", userName: "张三", deletable: false, backendName: "本地" });
 
     // 类型筛选
     res = await FILES_GET(makeRequest("GET", "/api/manage/media/files?type=evaluation", { auth_token: token }));
@@ -182,6 +182,29 @@ describe("媒体管理端点（#117）", () => {
     // 非法分页参数
     res = await FILES_GET(makeRequest("GET", "/api/manage/media/files?page=0", { auth_token: token }));
     expect(res.status).toBe(400);
+  });
+
+  it("cleanup POST：mode=all 删除全部可删孤儿（含缩略图），审计记模式", async () => {
+    const token = await signToken({ role: "admin", uid: 1, name: "管理员" });
+    mockScanData();
+    fakeStorage.delete.mockResolvedValue(undefined);
+
+    const res = await CLEANUP_POST(
+      makeRequest("POST", "/api/manage/media/orphans/cleanup", { auth_token: token }, { mode: "all" })
+    );
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    // orphan_a（30 天）+ 其缩略图（30 天）可删；new_b 未到期、used 被引用 → 不删
+    expect(body).toMatchObject({ ok: true, deleted: 2, skipped: 0, deletedSizeBytes: 110 });
+    expect(fakeStorage.delete).toHaveBeenCalledWith("avatar_orphan_a.jpg");
+    expect(fakeStorage.delete).toHaveBeenCalledWith("avatar_orphan_a_thumb.jpg");
+    expect(fakeStorage.delete).not.toHaveBeenCalledWith("avatar_new_b.jpg");
+    expect(fakeStorage.delete).not.toHaveBeenCalledWith("avatar_used.jpg");
+    // 审计：mode=all + 明细
+    const auditCall = vi.mocked(insertAuditLog).mock.calls.at(-1)![0];
+    const auditMeta = JSON.parse(auditCall.metadata!);
+    expect(auditMeta).toMatchObject({ mode: "all", deleted: 2, skipped: 0 });
+    expect(auditMeta.deletedKeys.sort()).toEqual(["avatar_orphan_a.jpg", "avatar_orphan_a_thumb.jpg"]);
   });
 
   it("cleanup POST：items 校验、仅删可删孤儿、源图连带缩略图、审计", async () => {

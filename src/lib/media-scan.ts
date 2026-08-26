@@ -26,6 +26,8 @@ export interface MediaScanResult {
 export interface MediaFileItem {
   key: string;
   storageId: number;
+  /** 存储后端名称（#117 列表展示用） */
+  backendName: string;
   size: number;
   lastModified: string;
   type: "avatar" | "evaluation" | "thumbnail" | "other";
@@ -123,6 +125,7 @@ export async function scanMedia(): Promise<{
       files.push({
         key: obj.key,
         storageId: backend.id,
+        backendName: backend.name,
         size: obj.size,
         lastModified: obj.lastModified,
         type: typeOf(obj.key),
