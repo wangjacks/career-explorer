@@ -2,7 +2,7 @@ import mysql from "mysql2/promise";
 import { readFileSync, existsSync } from "fs";
 import path from "path";
 import { tagCategories } from "./tagData";
-import { normalizeBackupTags, DEFAULT_MAX_CUSTOM_TAGS, DEFAULT_MAX_PROFILE_SUBMISSIONS, MAX_PROFILE_SUBMISSIONS_KEY } from "./db";
+import { normalizeBackupTags, DEFAULT_MAX_CUSTOM_TAGS, DEFAULT_MAX_PROFILE_SUBMISSIONS, MAX_PROFILE_SUBMISSIONS_KEY, DEFAULT_MEDIA_ORPHAN_RETENTION_DAYS, MEDIA_ORPHAN_RETENTION_KEY } from "./db";
 import type {
   UserRow,
   TagRow,
@@ -371,6 +371,11 @@ export class MysqlAdapter implements DbAdapter {
       "INSERT IGNORE INTO configs_profile (`key`, value, updated_at) VALUES (?, ?, ?)",
       [MAX_PROFILE_SUBMISSIONS_KEY, String(DEFAULT_MAX_PROFILE_SUBMISSIONS), getNow()]
     );
+    // 孤儿文件保留期默认值（#117，INSERT IGNORE 不覆盖配置）
+    await this.pool.execute(
+      "INSERT IGNORE INTO configs_profile (`key`, value, updated_at) VALUES (?, ?, ?)",
+      [MEDIA_ORPHAN_RETENTION_KEY, String(DEFAULT_MEDIA_ORPHAN_RETENTION_DAYS), getNow()]
+    );
   }
 
   /** 检测旧 students 表并迁移到 users 表 */
@@ -703,17 +708,19 @@ export class MysqlAdapter implements DbAdapter {
 
   async getAllReferencedMedia(): Promise<MediaFileRef[]> {
     const [rows] = await this.pool.execute(
-      `SELECT avatar_url AS url, storage_id AS storageId FROM users
+      `SELECT avatar_url AS url, storage_id AS storageId, user_code AS userCode, name AS userName FROM users
        WHERE role = 'student' AND submitted_at IS NOT NULL AND avatar_url IS NOT NULL AND avatar_url != ''
        UNION ALL
-       SELECT evaluation_url AS url, storage_id AS storageId FROM users
+       SELECT evaluation_url AS url, storage_id AS storageId, user_code AS userCode, name AS userName FROM users
        WHERE role = 'student' AND submitted_at IS NOT NULL AND evaluation_url IS NOT NULL AND evaluation_url != ''
        UNION ALL
-       SELECT avatar_url AS url, storage_id AS storageId FROM profile_submissions
-       WHERE avatar_url IS NOT NULL AND avatar_url != ''
+       SELECT ps.avatar_url AS url, ps.storage_id AS storageId, u.user_code AS userCode, u.name AS userName
+       FROM profile_submissions ps JOIN users u ON u.id = ps.user_id
+       WHERE ps.avatar_url IS NOT NULL AND ps.avatar_url != ''
        UNION ALL
-       SELECT evaluation_url AS url, storage_id AS storageId FROM profile_submissions
-       WHERE evaluation_url IS NOT NULL AND evaluation_url != ''`
+       SELECT ps.evaluation_url AS url, ps.storage_id AS storageId, u.user_code AS userCode, u.name AS userName
+       FROM profile_submissions ps JOIN users u ON u.id = ps.user_id
+       WHERE ps.evaluation_url IS NOT NULL AND ps.evaluation_url != ''`
     );
     return rows as MediaFileRef[];
   }
@@ -1168,8 +1175,9 @@ export class MysqlAdapter implements DbAdapter {
       params.push(filters.actorRole);
     }
     if (filters.actorQuery) {
-      clauses.push("(actor_name LIKE ? OR actor_user_code LIKE ?)");
-      params.push(`%${filters.actorQuery}%`, `%${filters.actorQuery}%`);
+      // 同时匹配操作者与对象编号（#117 补强）：输入学号可搜到「关于该学生」的记录（操作者或资源）
+      clauses.push("(actor_name LIKE ? OR actor_user_code LIKE ? OR resource_id LIKE ?)");
+      params.push(`%${filters.actorQuery}%`, `%${filters.actorQuery}%`, `%${filters.actorQuery}%`);
     }
     if (filters.action) {
       clauses.push("action = ?");

@@ -20,12 +20,21 @@ export interface StorageAdapter {
   /** 删除对象（对象不存在时静默成功） */
   delete(key: string): Promise<void>;
   exists(key: string): Promise<boolean>;
+  /** 全量枚举对象（#117）：媒体治理扫描用；S3 内部循环分页 */
+  listObjects(): Promise<StoredObject[]>;
   /**
    * 解析访问地址（私有读写模式）：
    * - 本地：返回应用代理路径 `/api/uploads/{key}`（免签名，行为与现版本一致）
    * - S3：返回限时签名 URL（默认 30 分钟），不暴露长期公开下载地址
    */
   getSignedUrl(key: string, expiresInSeconds?: number): Promise<string>;
+}
+
+/** 存储对象元数据（#117）：媒体枚举/孤儿扫描用 */
+export interface StoredObject {
+  key: string;          // 逻辑 key（与 DB 引用一致：本地无前缀、S3 剥离 path_prefix）
+  size: number;
+  lastModified: string; // ISO 8601
 }
 
 /** 签名 URL 默认有效期：30 分钟 */

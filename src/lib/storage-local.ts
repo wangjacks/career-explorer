@@ -3,9 +3,9 @@
  * - 私有读写在本地模式下的等价物：应用代理路径 `/api/uploads/{key}`（免签名，行为与现版本完全一致）
  * - 保留路径穿越防护（与 `GET /api/uploads/[...path]` 同策略）
  */
-import { mkdir, readFile, stat, unlink, writeFile } from "fs/promises";
+import { mkdir, readFile, readdir, stat, unlink, writeFile } from "fs/promises";
 import path from "path";
-import { validateObjectKey, type StorageAdapter } from "./storage";
+import { validateObjectKey, type StorageAdapter, type StoredObject } from "./storage";
 
 export class LocalStorageAdapter implements StorageAdapter {
   readonly type = "local" as const;
@@ -49,6 +49,29 @@ export class LocalStorageAdapter implements StorageAdapter {
     } catch {
       return false;
     }
+  }
+
+  /** 全量枚举（#117）：扁平目录扫描；跳过点文件（.gitkeep/.DS_Store 保护）与子目录 */
+  async listObjects(): Promise<StoredObject[]> {
+    const uploadsDir = path.resolve(/*turbopackIgnore: true*/ process.cwd(), "uploads");
+    let entries: string[];
+    try {
+      entries = await readdir(uploadsDir);
+    } catch {
+      return []; // 目录不存在视为空
+    }
+    const objects: StoredObject[] = [];
+    for (const name of entries) {
+      if (name.startsWith(".")) continue; // .gitkeep / .DS_Store 等保护
+      try {
+        const info = await stat(path.join(uploadsDir, name));
+        if (!info.isFile()) continue;
+        objects.push({ key: name, size: info.size, lastModified: info.mtime.toISOString() });
+      } catch {
+        // 单文件 stat 失败跳过（并发删除竞态）
+      }
+    }
+    return objects;
   }
 
   async getSignedUrl(key: string): Promise<string> {

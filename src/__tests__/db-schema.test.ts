@@ -427,6 +427,8 @@ describe("审计日志（#110）", () => {
     // 结果筛选 + 模糊搜索 + 分页
     expect(adapter.queryAuditLogs({ page: 1, pageSize: 20, status: "failed" }).total).toBe(1);
     expect(adapter.queryAuditLogs({ page: 1, pageSize: 20, actorQuery: "王" }).total).toBe(1);
+    // 按对象编号搜索（#117 补强）：resource_id 命中「关于该学生」的记录（样例 1、3 的 resource_id 均为该学号）
+    expect(adapter.queryAuditLogs({ page: 1, pageSize: 20, actorQuery: "202505050101" }).total).toBe(2);
     expect(adapter.queryAuditLogs({ page: 1, pageSize: 2 }).rows).toHaveLength(2);
     expect(adapter.queryAuditLogs({ page: 2, pageSize: 2 }).rows).toHaveLength(1);
 

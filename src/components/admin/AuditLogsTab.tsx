@@ -30,7 +30,7 @@ interface AuditLogsTabProps {
 
 const PAGE_SIZE = 20;
 
-/** 动作词汇表（与埋点一致，#110） */
+/** 动作词汇表（与埋点一致，#110；#95/#118/#117 新增动作同步维护） */
 const ACTIONS = [
   "auth:login", "auth:login-failed", "auth:logout", "auth:activate", "auth:activate-verify",
   "student:create", "student:batch-import", "student:update", "student:delete",
@@ -41,12 +41,15 @@ const ACTIONS = [
   "settings:update", "profile-config:update",
   "export:excel", "export:images",
   "backup:create", "backup:restore",
-  "test-db:run", "profile:submit", "audit:query",
+  "test-db:run", "profile:submit", "profile:restore", "profile-submission:cleanup",
+  "media:query", "media:config-update", "media:cleanup", "media:thumbnail-backfill",
+  "audit:query",
 ];
 
 const RESOURCE_TYPES = [
   "session", "student", "teacher", "class", "tag",
-  "db-config", "profile-config", "export", "backup", "db", "profile", "audit-log",
+  "db-config", "profile-config", "profile", "profile-submission", "media",
+  "export", "backup", "db", "audit-log",
 ];
 
 const ROLE_LABELS: Record<string, string> = {
@@ -158,7 +161,7 @@ export default function AuditLogsTab({ mode }: AuditLogsTabProps) {
               type="text"
               value={actorQuery}
               onChange={(e) => setActorQuery(e.target.value)}
-              placeholder="操作者姓名/编号"
+              placeholder="操作者/对象编号"
               className={`${inputClass} w-36`}
               aria-label="操作者搜索"
             />

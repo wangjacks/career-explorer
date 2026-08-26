@@ -61,10 +61,13 @@ export interface ProfileSubmissionExceedRow {
   version_count: number;
 }
 
-/** 被引用的媒体文件（#118）：存量缩略图补生成枚举用，携带后端归属 */
+/** 被引用的媒体文件（#118/#117）：存量缩略图补生成与媒体全量列表共用，携带后端归属与关联学生 */
 export interface MediaFileRef {
   url: string;
   storageId: number;
+  /** 关联学生（#117 全量列表展示用）；同一文件可能被多行引用，取其一 */
+  userCode?: string;
+  userName?: string;
 }
 
 /** 历史版本文件归属（#95）：storage-sign 对快照文件做权限校验时反查用 */
@@ -237,6 +240,10 @@ export const DEFAULT_MAX_EVALUATION_SIZE_MB = 10;
 /** 档案提交历史版本上限配置（#95）：超出后仅删除 DB 记录，文件保留 */
 export const MAX_PROFILE_SUBMISSIONS_KEY = "max_profile_submissions";
 export const DEFAULT_MAX_PROFILE_SUBMISSIONS = 10;
+
+/** 孤儿文件保留期配置（#117，单位天）：孤儿超过保留期才允许清理（覆盖上传→保存宽限期） */
+export const MEDIA_ORPHAN_RETENTION_KEY = "media_orphan_retention_days";
+export const DEFAULT_MEDIA_ORPHAN_RETENTION_DAYS = 7;
 
 /** storage_backends 表行（#111）：凭据不入库，走 .env.local（S3_{id}_ACCESS_KEY / S3_{id}_SECRET_KEY） */
 export interface StorageBackendRow {
@@ -785,6 +792,14 @@ export async function getMaxProfileSubmissions(): Promise<number> {
   const raw = configs.find((c) => c.key === MAX_PROFILE_SUBMISSIONS_KEY)?.value;
   const parsed = raw === undefined ? NaN : Number(raw);
   return Number.isInteger(parsed) && parsed >= 1 && parsed <= 100 ? parsed : DEFAULT_MAX_PROFILE_SUBMISSIONS;
+}
+
+/** 读取孤儿文件保留期（#117）；配置缺失或非法时回退默认值，合法范围 1–365 由路由层写入时校验 */
+export async function getMediaOrphanRetentionDays(): Promise<number> {
+  const configs = await getProfileConfigs();
+  const raw = configs.find((c) => c.key === MEDIA_ORPHAN_RETENTION_KEY)?.value;
+  const parsed = raw === undefined ? NaN : Number(raw);
+  return Number.isInteger(parsed) && parsed >= 1 && parsed <= 365 ? parsed : DEFAULT_MEDIA_ORPHAN_RETENTION_DAYS;
 }
 
 /** 提交时限配置键（#96）：存储格式 `YYYY-MM-DD HH:mm`（Asia/Shanghai），空串表示不限制 */

@@ -43,11 +43,11 @@ export default function ThumbnailTab() {
     }
   }, []);
 
-  /* eslint-disable react-hooks/set-state-in-effect -- initial scan on mount */
+   
   useEffect(() => {
-    scan();
-  }, [scan]);
-  /* eslint-enable react-hooks/set-state-in-effect */
+    // 初始不自动扫描：由「检测」按钮显式触发（每次扫描需枚举全部文件）
+  }, []);
+   
 
   const runBackfill = async () => {
     setRunning(true);
@@ -78,7 +78,7 @@ export default function ThumbnailTab() {
             className="ml-auto px-3 py-1.5 bg-gray-100 hover:bg-gray-200 dark:bg-gray-800 dark:hover:bg-gray-700 disabled:opacity-50 text-gray-600 dark:text-gray-300 text-xs font-medium rounded-lg transition-colors flex items-center gap-1"
           >
             <RefreshCw className={`w-3.5 h-3.5 ${loading ? "animate-spin" : ""}`} aria-hidden />
-            重新检测
+            {status === null ? "检测" : "重新检测"}
           </button>
         </div>
         <p className="text-xs text-gray-400 dark:text-gray-500">
@@ -86,7 +86,7 @@ export default function ThumbnailTab() {
         </p>
 
         {status === null ? (
-          <p className="text-sm text-gray-400 dark:text-gray-500">{loading ? "检测中..." : "检测失败，请重试"}</p>
+          <p className="text-sm text-gray-400 dark:text-gray-500">点击上方「检测」按钮扫描缩略图覆盖情况</p>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-4">
