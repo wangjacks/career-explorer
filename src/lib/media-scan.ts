@@ -70,17 +70,18 @@ export async function scanMedia(): Promise<{
   files: MediaFileItem[];
   orphans: OrphanItem[];
 }> {
-  // 1. 引用集合（反向检测）：storageId:key 规范化后去重，携带关联学生
+  // 1. 引用集合（反向检测）：纯 key 匹配（key 全局唯一：generateObjectKey 含学号+时间戳；
+  //    跨后端迁移（#111）只更新 users.storage_id，快照引用仍记旧后端——按 storageId:key 严格匹配会
+  //    把迁移后的历史文件误判为孤儿，故仅以 key 判定引用，携带关联学生）
   const refs = await getAllReferencedMedia();
   const referenced = new Set<string>();
-  const ownerById = new Map<string, { userCode: string; userName: string }>();
+  const ownerByKey = new Map<string, { userCode: string; userName: string }>();
   for (const ref of refs) {
     const key = extractKey(ref.url);
     if (!key) continue;
-    const id = `${ref.storageId}:${key}`;
-    referenced.add(id);
-    if (!ownerById.has(id) && (ref.userCode || ref.userName)) {
-      ownerById.set(id, { userCode: ref.userCode ?? "", userName: ref.userName ?? "" });
+    referenced.add(key);
+    if (!ownerByKey.has(key) && (ref.userCode || ref.userName)) {
+      ownerByKey.set(key, { userCode: ref.userCode ?? "", userName: ref.userName ?? "" });
     }
   }
 
@@ -100,11 +101,10 @@ export async function scanMedia(): Promise<{
     const storage = await getStorage(backend.id);
     const objects = await storage.listObjects();
     for (const obj of objects) {
-      const id = `${backend.id}:${obj.key}`;
       // 缩略图状态跟随源图：引用判定用源 key（源图被引用 → 缩略图「使用中」）
-      const effectiveId = isThumbnailKey(obj.key) ? `${backend.id}:${getSourceKey(obj.key)}` : id;
-      const isReferenced = referenced.has(effectiveId);
-      const owner = ownerById.get(effectiveId);
+      const effectiveKey = isThumbnailKey(obj.key) ? getSourceKey(obj.key)! : obj.key;
+      const isReferenced = referenced.has(effectiveKey);
+      const owner = ownerByKey.get(effectiveKey);
       total += 1;
       totalSize += obj.size;
 

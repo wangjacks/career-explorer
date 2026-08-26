@@ -97,10 +97,10 @@ describe("scanMedia（#117）", () => {
     expect(orphans.find((o) => o.key === "avatar_old_2_thumb.jpg")).toMatchObject({ orphanDays: 8, deletable: true, type: "thumbnail" });
   });
 
-  it("多后端隔离：同一 key 在后端 2 未被引用仍判孤儿", async () => {
+  it("快照引用跨后端迁移后仍识别（纯 key 匹配）：迁移后文件不判孤儿", async () => {
     vi.mocked(getMediaOrphanRetentionDays).mockResolvedValue(7);
-    // 引用只属于后端 1
-    vi.mocked(getAllReferencedMedia).mockResolvedValue([{ url: "avatar_same.jpg", storageId: 1 }]);
+    // 引用来自历史快照（#95），storage_id 为迁移前的旧后端
+    vi.mocked(getAllReferencedMedia).mockResolvedValue([{ url: "avatar_same.jpg", storageId: 1, userCode: "202505050101", userName: "张三" }]);
     vi.mocked(listStorageBackends).mockResolvedValue([
       { id: 1, type: "local", name: "本地", is_default: 1 } as never,
       { id: 2, type: "s3", name: "云", is_default: 0 } as never,
@@ -109,8 +109,26 @@ describe("scanMedia（#117）", () => {
       .mockResolvedValueOnce([{ key: "avatar_same.jpg", size: 10, lastModified: daysAgo(30) }])
       .mockResolvedValueOnce([{ key: "avatar_same.jpg", size: 10, lastModified: daysAgo(30) }]);
 
+    const { status, orphans, files } = await scanMedia();
+    // 迁移后文件实际在新后端（storageId=2），快照引用记旧后端（storageId=1）——纯 key 匹配仍识别为引用
+    expect(status.orphanCount).toBe(0);
+    expect(orphans).toHaveLength(0);
+    expect(files.every((f) => f.referenced && f.userCode === "202505050101")).toBe(true);
+  });
+
+  it("未引用文件判孤儿（跨后端各自枚举）", async () => {
+    vi.mocked(getMediaOrphanRetentionDays).mockResolvedValue(7);
+    vi.mocked(getAllReferencedMedia).mockResolvedValue([{ url: "avatar_used.jpg", storageId: 1 }]);
+    vi.mocked(listStorageBackends).mockResolvedValue([
+      { id: 1, type: "local", name: "本地", is_default: 1 } as never,
+      { id: 2, type: "s3", name: "云", is_default: 0 } as never,
+    ]);
+    fakeStorage.listObjects
+      .mockResolvedValueOnce([{ key: "avatar_used.jpg", size: 10, lastModified: daysAgo(30) }])
+      .mockResolvedValueOnce([{ key: "avatar_orphan_cloud.jpg", size: 10, lastModified: daysAgo(30) }]);
+
     const { status, orphans } = await scanMedia();
     expect(status.orphanCount).toBe(1);
-    expect(orphans[0]).toMatchObject({ key: "avatar_same.jpg", storageId: 2 });
+    expect(orphans[0]).toMatchObject({ key: "avatar_orphan_cloud.jpg", storageId: 2 });
   });
 });
