@@ -145,7 +145,8 @@ gh release create v2.0.0 --title "v2.0.0" --notes "变更内容..."
 
 1. `npm ci`
 2. `npm run lint`
-3. `npm run build`
+3. `npm test`
+4. `npm run build`
 
 CI workflow 遵循最小权限原则：`permissions: contents: read`。
 
