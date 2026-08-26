@@ -287,11 +287,11 @@ export default function MediaTab() {
           <ThumbnailTab />
         ) : (
           <div className="space-y-3">
-            {/* 筛选条 */}
+            {/* 筛选条：条件变更仅更新状态，点「查询」才发起请求（files 端点每次全量扫描，降频） */}
             <div className="flex flex-wrap items-center gap-2">
               <select
                 value={typeFilter}
-                onChange={(e) => { setTypeFilter(e.target.value); loadFiles(1); }}
+                onChange={(e) => setTypeFilter(e.target.value)}
                 className="px-2.5 py-1.5 border border-gray-200 dark:border-gray-700 bg-card text-foreground rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-300"
               >
                 <option value="all">全部类型</option>
@@ -302,7 +302,7 @@ export default function MediaTab() {
               </select>
               <select
                 value={statusFilter}
-                onChange={(e) => { setStatusFilter(e.target.value); loadFiles(1); }}
+                onChange={(e) => setStatusFilter(e.target.value)}
                 className="px-2.5 py-1.5 border border-gray-200 dark:border-gray-700 bg-card text-foreground rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-300"
               >
                 <option value="all">全部状态</option>
@@ -320,6 +320,14 @@ export default function MediaTab() {
                   className="pl-8 pr-3 py-1.5 border border-gray-200 dark:border-gray-700 bg-card text-foreground rounded-lg text-sm w-56 focus:outline-none focus:ring-2 focus:ring-green-300"
                 />
               </div>
+              <button
+                onClick={() => loadFiles(1)}
+                disabled={listLoading}
+                className="px-3 py-1.5 bg-primary hover:bg-primary-strong disabled:opacity-50 text-white text-xs font-medium rounded-lg transition-colors flex items-center gap-1"
+              >
+                <Search className="w-3.5 h-3.5" aria-hidden />
+                查询
+              </button>
               {(typeFilter !== "all" || statusFilter !== "all" || studentQuery.trim()) && (
                 <button
                   onClick={() => { setTypeFilter("all"); setStatusFilter("all"); setStudentQuery(""); loadFiles(1); }}
