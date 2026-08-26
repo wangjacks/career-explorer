@@ -54,19 +54,25 @@ describe("scanMedia（#117）", () => {
 
     const { status, files, orphans } = await scanMedia();
 
-    // total 为存储总览（含缩略图）；孤儿统计/列表不含缩略图（派生附属，#118）
-    expect(status).toMatchObject({ total: 6, totalSize: 174, orphanCount: 3, orphanSize: 149 });
-    // 全量文件列表：引用状态与关联学生（#117 全量管理），缩略图不出现
+    // total 为存储总览（含缩略图）；缩略图参与列表与孤儿统计，状态跟随源图
+    expect(status).toMatchObject({ total: 6, totalSize: 174, orphanCount: 4, orphanSize: 154 });
+    // 全量文件列表：引用状态与关联学生（#117 全量管理）
     const fileByKey = new Map(files.map((f) => [f.key, f]));
     expect(fileByKey.get("avatar_used_1.jpg")).toMatchObject({ referenced: true, userCode: "202505050101", userName: "张三" });
     expect(fileByKey.get("evaluation_used_2.jpg")).toMatchObject({ referenced: true, userCode: "202505050102", userName: "李四" });
     expect(fileByKey.get("avatar_orphan_3.jpg")).toMatchObject({ referenced: false, userCode: null, userName: null });
-    expect(fileByKey.has("avatar_orphan_3_thumb.jpg")).toBe(false);
-    expect(files).toHaveLength(5);
-    // 孤儿明细：类型判定；缩略图不作为独立孤儿
+    expect(files).toHaveLength(6);
+    // 缩略图：参与列表，状态跟随源图（源孤儿 → 缩略图孤儿），sourceKey 指向源
+    expect(fileByKey.get("avatar_orphan_3_thumb.jpg")).toMatchObject({
+      referenced: false,
+      deletable: true,
+      type: "thumbnail",
+      sourceKey: "avatar_orphan_3.jpg",
+    });
+    // 孤儿明细：类型判定；缩略图作为独立孤儿条目（删除走源图连坐）
     const byKey = new Map(orphans.map((o) => [o.key, o]));
     expect(byKey.get("avatar_orphan_3.jpg")).toMatchObject({ type: "avatar", sourceKey: null, storageId: 1 });
-    expect(byKey.has("avatar_orphan_3_thumb.jpg")).toBe(false);
+    expect(byKey.get("avatar_orphan_3_thumb.jpg")).toMatchObject({ type: "thumbnail", sourceKey: "avatar_orphan_3.jpg" });
     expect(byKey.get("legacy_1234.gif")).toMatchObject({ type: "other", storageId: 1 });
     expect(byKey.get("evaluation_orphan_4.jpg")).toMatchObject({ type: "evaluation", storageId: 2 });
     // 排序：orphanDays 降序
@@ -80,12 +86,15 @@ describe("scanMedia（#117）", () => {
     fakeStorage.listObjects.mockResolvedValueOnce([
       { key: "avatar_new_1.jpg", size: 10, lastModified: daysAgo(2) }, // 未到期
       { key: "avatar_old_2.jpg", size: 20, lastModified: daysAgo(8) }, // 已到期
+      { key: "avatar_old_2_thumb.jpg", size: 5, lastModified: daysAgo(8) }, // 缩略图跟随源图（已到期）
     ]);
 
     const { status, orphans } = await scanMedia();
-    expect(status).toMatchObject({ orphanCount: 2, deletableCount: 1, deletableSize: 20, retentionDays: 7 });
+    expect(status).toMatchObject({ orphanCount: 3, deletableCount: 2, deletableSize: 25, retentionDays: 7 });
     expect(orphans.find((o) => o.key === "avatar_new_1.jpg")).toMatchObject({ orphanDays: 2, deletable: false });
     expect(orphans.find((o) => o.key === "avatar_old_2.jpg")).toMatchObject({ orphanDays: 8, deletable: true });
+    // 缩略图状态跟随源图
+    expect(orphans.find((o) => o.key === "avatar_old_2_thumb.jpg")).toMatchObject({ orphanDays: 8, deletable: true, type: "thumbnail" });
   });
 
   it("多后端隔离：同一 key 在后端 2 未被引用仍判孤儿", async () => {

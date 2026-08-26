@@ -58,10 +58,10 @@ export async function POST(request: NextRequest) {
       await storage.delete(key);
       deleted += 1;
       deletedSizeBytes += orphan.size;
-      // 源图连带缩略图（缩略图孤儿判定与源一致；删除源图后其缩略图必成孤儿，一并清理）
+      // 源图连带缩略图：直接 delete（对不存在静默成功），保证源图删除时缩略图必被清理（无 exists 竞态窗口）
       if (orphan.type !== "thumbnail") {
         const thumbKey = getThumbnailKey(key);
-        if (thumbKey !== key && (await storage.exists(thumbKey))) {
+        if (thumbKey !== key) {
           await storage.delete(thumbKey);
         }
       }

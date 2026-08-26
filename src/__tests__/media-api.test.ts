@@ -84,8 +84,8 @@ describe("媒体管理端点（#117）", () => {
     expect(await res.json()).toMatchObject({
       ok: true,
       total: 4,
-      orphanCount: 2, // orphan_a + new_b（缩略图为派生附属不参与孤儿判定）
-      deletableCount: 1, // 仅 orphan_a
+      orphanCount: 3, // orphan_a + new_b + 缩略图（跟随源图）
+      deletableCount: 2, // orphan_a + 其缩略图
       retentionDays: 7,
     });
   });
@@ -114,14 +114,14 @@ describe("媒体管理端点（#117）", () => {
     res = await ORPHANS_GET(makeRequest("GET", "/api/manage/media/orphans?page=1&pageSize=2", { auth_token: token }));
     expect(res.status).toBe(200);
     const body = await res.json();
-    expect(body.total).toBe(2);
+    expect(body.total).toBe(3);
     expect(body.items).toHaveLength(2);
     expect(body.retentionDays).toBe(7);
-    // 排序：orphanDays 降序（30 天在前）；缩略图不作为独立孤儿
+    // 排序：orphanDays 降序（30 天在前）；缩略图作为独立孤儿（状态跟随源图）
     expect(body.items[0].key).toBe("avatar_orphan_a.jpg");
     expect(body.items[0]).toMatchObject({ deletable: true, type: "avatar" });
-    expect(body.items[1].key).toBe("avatar_new_b.jpg");
-    expect(body.items[1].deletable).toBe(false);
+    expect(body.items[1].key).toBe("avatar_orphan_a_thumb.jpg");
+    expect(body.items[1]).toMatchObject({ deletable: true, type: "thumbnail" });
   });
 
   it("files GET：全量列表含引用状态与关联学生，类型/状态/学生筛选与分页生效", async () => {
@@ -185,8 +185,7 @@ describe("媒体管理端点（#117）", () => {
     expect(res.status).toBe(400);
 
     mockScanData();
-    // 缩略图存在（连坐删除路径）
-    fakeStorage.exists.mockResolvedValue(true);
+    // 连坐：源图删除时直接连带删除缩略图（delete 幂等，无 exists 竞态窗口）
     fakeStorage.delete.mockResolvedValue(undefined);
     res = await CLEANUP_POST(
       makeRequest("POST", "/api/manage/media/orphans/cleanup", { auth_token: token }, {
@@ -201,10 +200,10 @@ describe("媒体管理端点（#117）", () => {
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body).toMatchObject({ ok: true, deleted: 1, skipped: 3, deletedSizeBytes: 100 });
-    // 连坐：源图删除 + 缩略图 exists 检查 + 缩略图删除
+    // 连坐：源图删除 + 缩略图直接删除（不再依赖 exists 前置检查）
     expect(fakeStorage.delete).toHaveBeenCalledWith("avatar_orphan_a.jpg");
-    expect(fakeStorage.exists).toHaveBeenCalledWith("avatar_orphan_a_thumb.jpg");
     expect(fakeStorage.delete).toHaveBeenCalledWith("avatar_orphan_a_thumb.jpg");
+    expect(fakeStorage.exists).not.toHaveBeenCalled();
     // 审计 media:cleanup
     expect(insertAuditLog).toHaveBeenCalled();
   });

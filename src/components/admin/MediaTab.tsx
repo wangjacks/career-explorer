@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
-import { FolderOpen, HardDrive, ImageIcon, RefreshCw, Search, Trash2 } from "lucide-react";
+import { ChevronDown, FolderOpen, HardDrive, ImageIcon, RefreshCw, Search, Trash2 } from "lucide-react";
 import ConfirmDialog from "./ConfirmDialog";
 import ThumbnailTab from "./ThumbnailTab";
 
@@ -286,26 +286,32 @@ export default function MediaTab() {
           <div className="space-y-3">
             {/* 筛选条：条件变更仅更新状态，点「查询」才发起请求（files 端点每次全量扫描，降频） */}
             <div className="flex flex-wrap items-center gap-2">
-              <select
-                value={typeFilter}
-                onChange={(e) => setTypeFilter(e.target.value)}
-                className="px-2.5 py-1.5 border border-gray-200 dark:border-gray-700 bg-card text-foreground rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-300"
-              >
-                <option value="all">全部类型</option>
-                <option value="avatar">头像</option>
-                <option value="evaluation">词云</option>
-                <option value="thumbnail">缩略图</option>
-                <option value="other">其他</option>
-              </select>
-              <select
-                value={statusFilter}
-                onChange={(e) => setStatusFilter(e.target.value)}
-                className="px-2.5 py-1.5 border border-gray-200 dark:border-gray-700 bg-card text-foreground rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-300"
-              >
-                <option value="all">全部状态</option>
-                <option value="referenced">使用中</option>
-                <option value="orphan">孤儿</option>
-              </select>
+              <div className="relative">
+                <select
+                  value={typeFilter}
+                  onChange={(e) => setTypeFilter(e.target.value)}
+                  className="appearance-none pl-2.5 pr-8 py-1.5 border border-gray-200 dark:border-gray-700 bg-card text-foreground rounded-lg text-sm cursor-pointer focus:outline-none focus:ring-2 focus:ring-green-300"
+                >
+                  <option value="all">全部类型</option>
+                  <option value="avatar">头像</option>
+                  <option value="evaluation">词云</option>
+                  <option value="thumbnail">缩略图</option>
+                  <option value="other">其他</option>
+                </select>
+                <ChevronDown className="w-3.5 h-3.5 text-gray-400 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" aria-hidden />
+              </div>
+              <div className="relative">
+                <select
+                  value={statusFilter}
+                  onChange={(e) => setStatusFilter(e.target.value)}
+                  className="appearance-none pl-2.5 pr-8 py-1.5 border border-gray-200 dark:border-gray-700 bg-card text-foreground rounded-lg text-sm cursor-pointer focus:outline-none focus:ring-2 focus:ring-green-300"
+                >
+                  <option value="all">全部状态</option>
+                  <option value="referenced">使用中</option>
+                  <option value="orphan">孤儿</option>
+                </select>
+                <ChevronDown className="w-3.5 h-3.5 text-gray-400 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" aria-hidden />
+              </div>
               <div className="relative">
                 <Search className="w-4 h-4 text-gray-400 absolute left-2.5 top-1/2 -translate-y-1/2" aria-hidden />
                 <input
@@ -373,7 +379,7 @@ export default function MediaTab() {
                             <input
                               type="checkbox"
                               checked={selected.has(id)}
-                              disabled={!item.deletable}
+                              disabled={!item.deletable || item.type === "thumbnail"}
                               onChange={() => toggleSelect(id, item.deletable)}
                               className="rounded border-gray-300"
                               aria-label={`选择 ${item.key}`}
@@ -398,6 +404,9 @@ export default function MediaTab() {
                               <span className="text-gray-400 dark:text-gray-500">
                                 孤儿 · 保留中（剩 {Math.max(0, (status?.retentionDays ?? 7) - item.orphanDays)} 天）
                               </span>
+                            )}
+                            {item.type === "thumbnail" && (
+                              <span className="text-gray-400 dark:text-gray-500">（随源图）</span>
                             )}
                           </td>
                         </tr>
