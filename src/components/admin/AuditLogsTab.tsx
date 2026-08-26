@@ -161,7 +161,7 @@ export default function AuditLogsTab({ mode }: AuditLogsTabProps) {
               type="text"
               value={actorQuery}
               onChange={(e) => setActorQuery(e.target.value)}
-              placeholder="操作者姓名/编号"
+              placeholder="操作者/对象编号"
               className={`${inputClass} w-36`}
               aria-label="操作者搜索"
             />

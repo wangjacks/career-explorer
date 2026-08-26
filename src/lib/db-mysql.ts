@@ -1175,8 +1175,9 @@ export class MysqlAdapter implements DbAdapter {
       params.push(filters.actorRole);
     }
     if (filters.actorQuery) {
-      clauses.push("(actor_name LIKE ? OR actor_user_code LIKE ?)");
-      params.push(`%${filters.actorQuery}%`, `%${filters.actorQuery}%`);
+      // 同时匹配操作者与对象编号（#117 补强）：输入学号可搜到「关于该学生」的记录（操作者或资源）
+      clauses.push("(actor_name LIKE ? OR actor_user_code LIKE ? OR resource_id LIKE ?)");
+      params.push(`%${filters.actorQuery}%`, `%${filters.actorQuery}%`, `%${filters.actorQuery}%`);
     }
     if (filters.action) {
       clauses.push("action = ?");
