@@ -1,0 +1,379 @@
+"use client";
+
+import { useCallback, useEffect, useState } from "react";
+import { toast } from "sonner";
+import { FolderOpen, HardDrive, ImageIcon, RefreshCw, Trash2, TriangleAlert } from "lucide-react";
+import ConfirmDialog from "./ConfirmDialog";
+import ThumbnailTab from "./ThumbnailTab";
+
+interface MediaStatus {
+  total: number;
+  totalSize: number;
+  orphanCount: number;
+  orphanSize: number;
+  deletableCount: number;
+  deletableSize: number;
+  retentionDays: number;
+}
+
+interface OrphanItem {
+  key: string;
+  storageId: number;
+  size: number;
+  lastModified: string;
+  type: "avatar" | "evaluation" | "thumbnail" | "other";
+  sourceKey: string | null;
+  orphanDays: number;
+  deletable: boolean;
+}
+
+const TYPE_LABEL: Record<OrphanItem["type"], string> = {
+  avatar: "头像",
+  evaluation: "词云",
+  thumbnail: "缩略图",
+  other: "其他",
+};
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+}
+
+/**
+ * 媒体管理面板（#117）：存储总览 + 孤儿文件检测/清理（可配置保留期）+ 缩略图维护（#118）。仅 admin。
+ */
+export default function MediaTab() {
+  const [status, setStatus] = useState<MediaStatus | null>(null);
+  const [statusLoading, setStatusLoading] = useState(false);
+  const [retentionInput, setRetentionInput] = useState("7");
+  const [savingRetention, setSavingRetention] = useState(false);
+  const [subTab, setSubTab] = useState<"orphans" | "thumbnails">("orphans");
+
+  // 孤儿列表
+  const [items, setItems] = useState<OrphanItem[]>([]);
+  const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(1);
+  const [pageSize] = useState(20);
+  const [listLoading, setListLoading] = useState(false);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+
+  const loadStatus = useCallback(async () => {
+    setStatusLoading(true);
+    try {
+      const res = await fetch("/api/manage/media/status");
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "检测失败");
+      setStatus(data);
+      setRetentionInput(String(data.retentionDays));
+    } catch (err) {
+      console.error("Media status load failed:", err);
+      toast.error(err instanceof Error ? err.message : "检测失败");
+    } finally {
+      setStatusLoading(false);
+    }
+  }, []);
+
+  const loadOrphans = useCallback(async (p: number) => {
+    setListLoading(true);
+    try {
+      const res = await fetch(`/api/manage/media/orphans?page=${p}&pageSize=20`);
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "孤儿列表加载失败");
+      setItems(data.items || []);
+      setTotal(data.total || 0);
+      setPage(data.page || 1);
+      setSelected(new Set());
+    } catch (err) {
+      console.error("Orphans load failed:", err);
+      toast.error(err instanceof Error ? err.message : "孤儿列表加载失败");
+    } finally {
+      setListLoading(false);
+    }
+  }, []);
+
+  /* eslint-disable react-hooks/set-state-in-effect -- initial load on mount */
+  useEffect(() => {
+    loadStatus();
+  }, [loadStatus]);
+  /* eslint-enable react-hooks/set-state-in-effect */
+
+  const saveRetention = async () => {
+    const value = Number(retentionInput);
+    if (!Number.isInteger(value) || value < 1 || value > 365) {
+      toast.warning("保留期须为 1-365 的整数（天）");
+      return;
+    }
+    setSavingRetention(true);
+    try {
+      const res = await fetch("/api/manage/media/status", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ retentionDays: value }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "保存失败");
+      toast.success(`保留期已更新为 ${data.retentionDays} 天`);
+      await loadStatus();
+      if (subTab === "orphans") await loadOrphans(1);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "保存失败");
+    } finally {
+      setSavingRetention(false);
+    }
+  };
+
+  const toggleSelect = (id: string, deletable: boolean) => {
+    if (!deletable) return;
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const selectedItems = items.filter((i) => selected.has(`${i.storageId}:${i.key}`));
+  const selectedSize = selectedItems.reduce((sum, i) => sum + i.size, 0);
+
+  const handleDelete = async () => {
+    setDeleting(true);
+    try {
+      const res = await fetch("/api/manage/media/orphans/cleanup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          items: selectedItems.map((i) => ({ key: i.key, storageId: i.storageId })),
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "清理失败");
+      toast.success(`已删除 ${data.deleted} 个孤儿文件${data.skipped > 0 ? `，跳过 ${data.skipped} 个` : ""}`);
+      setConfirmDelete(false);
+      await loadStatus();
+      await loadOrphans(1);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "清理失败");
+    } finally {
+      setDeleting(false);
+    }
+  };
+
+  return (
+    <div className="space-y-5">
+      {/* 存储总览与保留期配置 */}
+      <div className="bg-card rounded-xl border border-gray-100 dark:border-gray-700 p-5 space-y-4">
+        <div className="flex items-center gap-2">
+          <HardDrive size={16} className="text-gray-400 dark:text-gray-500" aria-hidden />
+          <h2 className="font-semibold text-gray-800 dark:text-gray-100">媒体管理</h2>
+          <button
+            onClick={() => { loadStatus(); if (subTab === "orphans") loadOrphans(1); }}
+            disabled={statusLoading}
+            className="ml-auto px-3 py-1.5 bg-gray-100 hover:bg-gray-200 dark:bg-gray-800 dark:hover:bg-gray-700 disabled:opacity-50 text-gray-600 dark:text-gray-300 text-xs font-medium rounded-lg transition-colors flex items-center gap-1"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${statusLoading ? "animate-spin" : ""}`} aria-hidden />
+            重新检测
+          </button>
+        </div>
+
+        {status === null ? (
+          <p className="text-sm text-gray-400 dark:text-gray-500">{statusLoading ? "检测中..." : "检测失败，请重试"}</p>
+        ) : (
+          <>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-4">
+                <p className="text-xs text-gray-500 dark:text-gray-400">文件总数</p>
+                <p className="text-2xl font-extrabold text-gray-900 dark:text-gray-100 mt-1">{status.total}</p>
+                <p className="text-xs text-gray-400 mt-0.5">{formatBytes(status.totalSize)}</p>
+              </div>
+              <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-4">
+                <p className="text-xs text-gray-500 dark:text-gray-400">孤儿文件</p>
+                <p className="text-2xl font-extrabold text-gray-900 dark:text-gray-100 mt-1">{status.orphanCount}</p>
+                <p className="text-xs text-gray-400 mt-0.5">{formatBytes(status.orphanSize)}</p>
+              </div>
+              <div className={`rounded-lg p-4 ${status.deletableCount > 0 ? "bg-amber-50 dark:bg-amber-900/20" : "bg-gray-50 dark:bg-gray-800"}`}>
+                <p className={`text-xs ${status.deletableCount > 0 ? "text-amber-600 dark:text-amber-400" : "text-gray-500 dark:text-gray-400"}`}>
+                  可清理（孤儿 ≥ {status.retentionDays} 天）
+                </p>
+                <p className={`text-2xl font-extrabold mt-1 ${status.deletableCount > 0 ? "text-amber-700 dark:text-amber-300" : "text-gray-900 dark:text-gray-100"}`}>
+                  {status.deletableCount}
+                </p>
+                <p className="text-xs text-gray-400 mt-0.5">{formatBytes(status.deletableSize)}</p>
+              </div>
+              <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-4">
+                <p className="text-xs text-gray-500 dark:text-gray-400">孤儿保留期</p>
+                <div className="flex items-center gap-1.5 mt-1">
+                  <input
+                    type="number"
+                    min={1}
+                    max={365}
+                    value={retentionInput}
+                    disabled={savingRetention}
+                    onChange={(e) => setRetentionInput(e.target.value)}
+                    className="w-16 px-2 py-1 border border-gray-200 dark:border-gray-700 rounded-lg text-sm bg-card text-foreground focus:outline-none focus:ring-2 focus:ring-green-300"
+                  />
+                  <span className="text-xs text-gray-400">天</span>
+                  <button
+                    onClick={saveRetention}
+                    disabled={savingRetention}
+                    className="px-2.5 py-1 bg-primary hover:bg-primary-strong disabled:opacity-50 text-white text-xs font-medium rounded-lg transition-colors"
+                  >
+                    {savingRetention ? "保存中" : "保存"}
+                  </button>
+                </div>
+              </div>
+            </div>
+            <p className="text-xs text-gray-400 dark:text-gray-500">
+              孤儿 = 未被任何档案或历史版本引用的文件（含上传未提交）；超过保留期才可清理，覆盖「上传→保存」宽限期。
+            </p>
+          </>
+        )}
+      </div>
+
+      {/* 子面板：孤儿文件 / 缩略图维护 */}
+      <div className="bg-card rounded-xl border border-gray-100 dark:border-gray-700 p-5 space-y-4">
+        <div className="flex gap-1 bg-gray-100 dark:bg-gray-800 rounded-xl p-1 w-fit">
+          <button
+            onClick={() => { setSubTab("orphans"); loadOrphans(1); }}
+            className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+              subTab === "orphans"
+                ? "bg-card text-gray-900 dark:text-gray-100 shadow-sm"
+                : "text-gray-500 hover:text-gray-700 dark:hover:text-gray-300"
+            }`}
+          >
+            <span className="inline-flex items-center gap-1.5">
+              <FolderOpen className="w-3.5 h-3.5" aria-hidden />
+              孤儿文件（{total}）
+            </span>
+          </button>
+          <button
+            onClick={() => setSubTab("thumbnails")}
+            className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+              subTab === "thumbnails"
+                ? "bg-card text-gray-900 dark:text-gray-100 shadow-sm"
+                : "text-gray-500 hover:text-gray-700 dark:hover:text-gray-300"
+            }`}
+          >
+            <span className="inline-flex items-center gap-1.5">
+              <ImageIcon className="w-3.5 h-3.5" aria-hidden />
+              缩略图维护
+            </span>
+          </button>
+        </div>
+
+        {subTab === "thumbnails" ? (
+          <ThumbnailTab />
+        ) : (
+          <div className="space-y-3">
+            {selected.size > 0 && (
+              <div className="flex items-center gap-3 flex-wrap">
+                <button
+                  onClick={() => setConfirmDelete(true)}
+                  disabled={deleting}
+                  className="px-4 py-2 bg-red-500 hover:bg-red-600 disabled:opacity-50 text-white text-sm font-medium rounded-lg transition-colors flex items-center gap-1.5"
+                >
+                  <Trash2 className="w-4 h-4" aria-hidden />
+                  删除选中（{selected.size} 个，{formatBytes(selectedSize)}）
+                </button>
+                <span className="text-xs text-gray-400 dark:text-gray-500">删除不可恢复；源图删除时连带其缩略图</span>
+              </div>
+            )}
+
+            {listLoading ? (
+              <p className="text-sm text-gray-400 dark:text-gray-500">加载中...</p>
+            ) : items.length === 0 ? (
+              <p className="text-sm text-gray-400 dark:text-gray-500 flex items-center gap-1.5">
+                <TriangleAlert className="w-4 h-4" aria-hidden />
+                {total === 0 ? "暂无孤儿文件" : "无匹配项"}
+              </p>
+            ) : (
+              <div className="overflow-x-auto rounded-lg border border-gray-100 dark:border-gray-700">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="bg-gray-50 dark:bg-gray-800 text-left text-gray-500 dark:text-gray-400 text-xs">
+                      <th className="px-3 py-2.5 font-medium w-10"></th>
+                      <th className="px-3 py-2.5 font-medium">文件名</th>
+                      <th className="px-3 py-2.5 font-medium">类型</th>
+                      <th className="px-3 py-2.5 font-medium">大小</th>
+                      <th className="px-3 py-2.5 font-medium">孤 N 天</th>
+                      <th className="px-3 py-2.5 font-medium">状态</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-50 dark:divide-gray-700/50">
+                    {items.map((item) => {
+                      const id = `${item.storageId}:${item.key}`;
+                      return (
+                        <tr key={id} className="hover:bg-gray-50/50 dark:hover:bg-gray-800/40">
+                          <td className="px-3 py-2.5">
+                            <input
+                              type="checkbox"
+                              checked={selected.has(id)}
+                              disabled={!item.deletable}
+                              onChange={() => toggleSelect(id, item.deletable)}
+                              className="rounded border-gray-300"
+                            />
+                          </td>
+                          <td className="px-3 py-2.5 font-mono text-xs text-gray-600 dark:text-gray-300 break-all">{item.key}</td>
+                          <td className="px-3 py-2.5">
+                            <span className="px-2 py-0.5 rounded-full text-xs bg-green-50 dark:bg-green-900/30 text-green-700 dark:text-green-300">
+                              {TYPE_LABEL[item.type]}
+                            </span>
+                          </td>
+                          <td className="px-3 py-2.5 text-gray-500 text-xs">{formatBytes(item.size)}</td>
+                          <td className="px-3 py-2.5 text-gray-500 text-xs">{item.orphanDays} 天</td>
+                          <td className="px-3 py-2.5 text-xs">
+                            {item.deletable ? (
+                              <span className="text-amber-600 dark:text-amber-400">可清理</span>
+                            ) : (
+                              <span className="text-gray-400 dark:text-gray-500">
+                                保留中（剩 {Math.max(0, (status?.retentionDays ?? 7) - item.orphanDays)} 天）
+                              </span>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            {total > pageSize && (
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-gray-500">第 {page}/{Math.ceil(total / pageSize)} 页（共 {total} 个孤儿）</span>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => loadOrphans(page - 1)}
+                    disabled={page <= 1 || listLoading}
+                    className="px-3 py-1 rounded-lg border border-gray-200 dark:border-gray-700 disabled:opacity-40 hover:bg-gray-50 dark:hover:bg-gray-800"
+                  >
+                    上一页
+                  </button>
+                  <button
+                    onClick={() => loadOrphans(page + 1)}
+                    disabled={page >= Math.ceil(total / pageSize) || listLoading}
+                    className="px-3 py-1 rounded-lg border border-gray-200 dark:border-gray-700 disabled:opacity-40 hover:bg-gray-50 dark:hover:bg-gray-800"
+                  >
+                    下一页
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      <ConfirmDialog
+        open={confirmDelete}
+        title="确认删除孤儿文件"
+        variant="danger"
+        confirmText={deleting ? "删除中..." : "确认删除"}
+        message={`将删除 ${selected.size} 个孤儿文件（${formatBytes(selectedSize)}），源图删除时连带其缩略图。此操作不可恢复，确定继续吗？`}
+        onConfirm={handleDelete}
+        onCancel={() => setConfirmDelete(false)}
+      />
+    </div>
+  );
+}
