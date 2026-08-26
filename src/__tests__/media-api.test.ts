@@ -84,8 +84,8 @@ describe("媒体管理端点（#117）", () => {
     expect(await res.json()).toMatchObject({
       ok: true,
       total: 4,
-      orphanCount: 3,
-      deletableCount: 2, // orphan_a + 其缩略图
+      orphanCount: 2, // orphan_a + new_b（缩略图为派生附属不参与孤儿判定）
+      deletableCount: 1, // 仅 orphan_a
       retentionDays: 7,
     });
   });
@@ -114,13 +114,14 @@ describe("媒体管理端点（#117）", () => {
     res = await ORPHANS_GET(makeRequest("GET", "/api/manage/media/orphans?page=1&pageSize=2", { auth_token: token }));
     expect(res.status).toBe(200);
     const body = await res.json();
-    expect(body.total).toBe(3);
+    expect(body.total).toBe(2);
     expect(body.items).toHaveLength(2);
     expect(body.retentionDays).toBe(7);
-    // 排序：orphanDays 降序（30 天在前）
+    // 排序：orphanDays 降序（30 天在前）；缩略图不作为独立孤儿
     expect(body.items[0].key).toBe("avatar_orphan_a.jpg");
     expect(body.items[0]).toMatchObject({ deletable: true, type: "avatar" });
-    expect(body.items[1].key).toBe("avatar_orphan_a_thumb.jpg");
+    expect(body.items[1].key).toBe("avatar_new_b.jpg");
+    expect(body.items[1].deletable).toBe(false);
   });
 
   it("files GET：全量列表含引用状态与关联学生，类型/状态/学生筛选与分页生效", async () => {

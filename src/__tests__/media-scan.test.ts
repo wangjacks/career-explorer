@@ -44,7 +44,7 @@ describe("scanMedia（#117）", () => {
       .mockResolvedValueOnce([
         { key: "avatar_used_1.jpg", size: 10, lastModified: daysAgo(1) }, // 被引用 → 不孤儿
         { key: "avatar_orphan_3.jpg", size: 20, lastModified: daysAgo(30) }, // 孤儿 avatar
-        { key: "avatar_orphan_3_thumb.jpg", size: 5, lastModified: daysAgo(30) }, // 孤儿缩略图
+        { key: "avatar_orphan_3_thumb.jpg", size: 5, lastModified: daysAgo(30) }, // 派生缩略图：不进入列表/孤儿
         { key: "legacy_1234.gif", size: 99, lastModified: daysAgo(60) }, // 旧格式 → other
       ])
       .mockResolvedValueOnce([
@@ -54,17 +54,19 @@ describe("scanMedia（#117）", () => {
 
     const { status, files, orphans } = await scanMedia();
 
-    expect(status).toMatchObject({ total: 6, totalSize: 174, orphanCount: 4, orphanSize: 154 });
-    // 全量文件列表：引用状态与关联学生（#117 全量管理）
+    // total 为存储总览（含缩略图）；孤儿统计/列表不含缩略图（派生附属，#118）
+    expect(status).toMatchObject({ total: 6, totalSize: 174, orphanCount: 3, orphanSize: 149 });
+    // 全量文件列表：引用状态与关联学生（#117 全量管理），缩略图不出现
     const fileByKey = new Map(files.map((f) => [f.key, f]));
     expect(fileByKey.get("avatar_used_1.jpg")).toMatchObject({ referenced: true, userCode: "202505050101", userName: "张三" });
     expect(fileByKey.get("evaluation_used_2.jpg")).toMatchObject({ referenced: true, userCode: "202505050102", userName: "李四" });
     expect(fileByKey.get("avatar_orphan_3.jpg")).toMatchObject({ referenced: false, userCode: null, userName: null });
-    expect(files).toHaveLength(6);
-    // 孤儿明细：类型与缩略图 sourceKey
+    expect(fileByKey.has("avatar_orphan_3_thumb.jpg")).toBe(false);
+    expect(files).toHaveLength(5);
+    // 孤儿明细：类型判定；缩略图不作为独立孤儿
     const byKey = new Map(orphans.map((o) => [o.key, o]));
     expect(byKey.get("avatar_orphan_3.jpg")).toMatchObject({ type: "avatar", sourceKey: null, storageId: 1 });
-    expect(byKey.get("avatar_orphan_3_thumb.jpg")).toMatchObject({ type: "thumbnail", sourceKey: "avatar_orphan_3.jpg", storageId: 1 });
+    expect(byKey.has("avatar_orphan_3_thumb.jpg")).toBe(false);
     expect(byKey.get("legacy_1234.gif")).toMatchObject({ type: "other", storageId: 1 });
     expect(byKey.get("evaluation_orphan_4.jpg")).toMatchObject({ type: "evaluation", storageId: 2 });
     // 排序：orphanDays 降序

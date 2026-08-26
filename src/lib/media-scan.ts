@@ -3,7 +3,8 @@
  * 反向检测法：先构建「被引用 key 集合」（getAllReferencedMedia，users 当前档案 + profile_submissions 快照，
  * 引用值经 extractKey 规范化），再按后端枚举存储文件（listObjects），不在集合中即为孤儿。
  * - 多后端分组：每个后端枚举自己的文件，引用集合按 storageId 过滤，互不串扰
- * - 缩略图派生：`*_thumb.jpg` 与源 key 同一判定（源孤儿 ⟺ 缩略图孤儿），sourceKey 供前端附属展示
+ * - 缩略图为派生附属（#118）：不参与孤儿判定与列表展示（由「缩略图维护」面板治理缺失/补生成；
+ *   源图删除时由 cleanup 连带删除其缩略图）
  * - 保留期：孤儿超过可配置保留期（天）才可删，覆盖「上传→保存」宽限期
  */
 import { getAllReferencedMedia, getMediaOrphanRetentionDays, listStorageBackends } from "./db";
@@ -100,11 +101,13 @@ export async function scanMedia(): Promise<{
     const objects = await storage.listObjects();
     for (const obj of objects) {
       const id = `${backend.id}:${obj.key}`;
-      const owner = ownerById.get(id);
       const isReferenced = referenced.has(id);
       total += 1;
       totalSize += obj.size;
+      // 缩略图为派生附属，不进入媒体列表与孤儿判定（源图删除时连带清理）
+      if (isThumbnailKey(obj.key)) continue;
 
+      const owner = ownerById.get(id);
       const orphanDays = isReferenced
         ? 0
         : Math.floor((now - new Date(obj.lastModified).getTime()) / DAY_MS);
@@ -126,7 +129,7 @@ export async function scanMedia(): Promise<{
         referenced: isReferenced,
         userCode: owner?.userCode ?? null,
         userName: owner?.userName ?? null,
-        sourceKey: isThumbnailKey(obj.key) ? getSourceKey(obj.key) : null,
+        sourceKey: null,
         orphanDays,
         deletable,
       });

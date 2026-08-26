@@ -112,11 +112,8 @@ export default function MediaTab() {
   useEffect(() => {
     loadStatus();
   }, [loadStatus]);
-
-  useEffect(() => {
-    loadFiles(1);
-  }, [loadFiles]);
   /* eslint-enable react-hooks/set-state-in-effect */
+  // 媒体列表不自动加载：初始置空，仅由「查询」/翻页/回车显式触发（files 端点每次全量扫描，降频）
 
   const saveRetention = async () => {
     const value = Number(retentionInput);
@@ -189,7 +186,7 @@ export default function MediaTab() {
           <HardDrive size={16} className="text-gray-400 dark:text-gray-500" aria-hidden />
           <h2 className="font-semibold text-gray-800 dark:text-gray-100">媒体管理</h2>
           <button
-            onClick={() => { loadStatus(); loadFiles(1); }}
+            onClick={() => { loadStatus(); }}
             disabled={statusLoading}
             className="ml-auto px-3 py-1.5 bg-gray-100 hover:bg-gray-200 dark:bg-gray-800 dark:hover:bg-gray-700 disabled:opacity-50 text-gray-600 dark:text-gray-300 text-xs font-medium rounded-lg transition-colors flex items-center gap-1"
           >
@@ -256,7 +253,7 @@ export default function MediaTab() {
       <div className="bg-card rounded-xl border border-gray-100 dark:border-gray-700 p-5 space-y-4">
         <div className="flex gap-1 bg-gray-100 dark:bg-gray-800 rounded-xl p-1 w-fit">
           <button
-            onClick={() => { setSubTab("files"); loadFiles(1); }}
+            onClick={() => setSubTab("files")}
             className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-colors ${
               subTab === "files"
                 ? "bg-card text-gray-900 dark:text-gray-100 shadow-sm"
@@ -330,7 +327,7 @@ export default function MediaTab() {
               </button>
               {(typeFilter !== "all" || statusFilter !== "all" || studentQuery.trim()) && (
                 <button
-                  onClick={() => { setTypeFilter("all"); setStatusFilter("all"); setStudentQuery(""); loadFiles(1); }}
+                  onClick={() => { setTypeFilter("all"); setStatusFilter("all"); setStudentQuery(""); }}
                   className="text-xs text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
                 >
                   清除筛选
@@ -350,8 +347,10 @@ export default function MediaTab() {
 
             {listLoading ? (
               <p className="text-sm text-gray-400 dark:text-gray-500">加载中...</p>
+            ) : items.length === 0 && total === 0 ? (
+              <p className="text-sm text-gray-400 dark:text-gray-500">点击上方「查询」按钮加载媒体资源</p>
             ) : items.length === 0 ? (
-              <p className="text-sm text-gray-400 dark:text-gray-500">{total === 0 ? "暂无媒体文件" : "无匹配项"}</p>
+              <p className="text-sm text-gray-400 dark:text-gray-500">无匹配项</p>
             ) : (
               <div className="overflow-x-auto rounded-lg border border-gray-100 dark:border-gray-700">
                 <table className="w-full text-sm">
