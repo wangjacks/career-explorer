@@ -31,10 +31,10 @@ describe("scanMedia（#117）", () => {
 
   it("被引用不孤儿；未引用孤儿；类型与缩略图 sourceKey 判定正确", async () => {
     vi.mocked(getMediaOrphanRetentionDays).mockResolvedValue(7);
-    // 引用：本地代理路径（剥前缀）+ 裸 key（云）+ 查询参数（规范化）
+    // 引用：本地代理路径（剥前缀）+ 裸 key（云）+ 查询参数（规范化）+ 关联学生
     vi.mocked(getAllReferencedMedia).mockResolvedValue([
-      { url: "/api/uploads/avatar_used_1.jpg", storageId: 1 },
-      { url: "evaluation_used_2.jpg?t=1", storageId: 2 },
+      { url: "/api/uploads/avatar_used_1.jpg", storageId: 1, userCode: "202505050101", userName: "张三" },
+      { url: "evaluation_used_2.jpg?t=1", storageId: 2, userCode: "202505050102", userName: "李四" },
     ]);
     vi.mocked(listStorageBackends).mockResolvedValue([
       { id: 1, type: "local", name: "本地", is_default: 1 } as never,
@@ -52,9 +52,15 @@ describe("scanMedia（#117）", () => {
         { key: "evaluation_orphan_4.jpg", size: 30, lastModified: daysAgo(40) }, // 孤儿 evaluation
       ]);
 
-    const { status, orphans } = await scanMedia();
+    const { status, files, orphans } = await scanMedia();
 
     expect(status).toMatchObject({ total: 6, totalSize: 174, orphanCount: 4, orphanSize: 154 });
+    // 全量文件列表：引用状态与关联学生（#117 全量管理）
+    const fileByKey = new Map(files.map((f) => [f.key, f]));
+    expect(fileByKey.get("avatar_used_1.jpg")).toMatchObject({ referenced: true, userCode: "202505050101", userName: "张三" });
+    expect(fileByKey.get("evaluation_used_2.jpg")).toMatchObject({ referenced: true, userCode: "202505050102", userName: "李四" });
+    expect(fileByKey.get("avatar_orphan_3.jpg")).toMatchObject({ referenced: false, userCode: null, userName: null });
+    expect(files).toHaveLength(6);
     // 孤儿明细：类型与缩略图 sourceKey
     const byKey = new Map(orphans.map((o) => [o.key, o]));
     expect(byKey.get("avatar_orphan_3.jpg")).toMatchObject({ type: "avatar", sourceKey: null, storageId: 1 });

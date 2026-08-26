@@ -25,6 +25,7 @@ vi.mock("@/lib/storage", () => ({
 
 import { GET as STATUS_GET, PUT as STATUS_PUT } from "@/app/api/manage/media/status/route";
 import { GET as ORPHANS_GET } from "@/app/api/manage/media/orphans/route";
+import { GET as FILES_GET } from "@/app/api/manage/media/files/route";
 import { POST as CLEANUP_POST } from "@/app/api/manage/media/orphans/cleanup/route";
 import { getAllReferencedMedia, listStorageBackends, getMediaOrphanRetentionDays, setProfileConfig, insertAuditLog } from "@/lib/db";
 
@@ -120,6 +121,56 @@ describe("媒体管理端点（#117）", () => {
     expect(body.items[0].key).toBe("avatar_orphan_a.jpg");
     expect(body.items[0]).toMatchObject({ deletable: true, type: "avatar" });
     expect(body.items[1].key).toBe("avatar_orphan_a_thumb.jpg");
+  });
+
+  it("files GET：全量列表含引用状态与关联学生，类型/状态/学生筛选与分页生效", async () => {
+    const token = await signToken({ role: "admin", uid: 1, name: "管理员" });
+    // 非 admin 拒绝
+    const studentToken = await signToken({ role: "student", uid: 7, name: "学生" });
+    let res = await FILES_GET(makeRequest("GET", "/api/manage/media/files", { auth_token: studentToken }));
+    expect(res.status).toBe(403);
+
+    vi.mocked(getMediaOrphanRetentionDays).mockResolvedValue(7);
+    vi.mocked(getAllReferencedMedia).mockResolvedValue([
+      { url: "avatar_used.jpg", storageId: 1, userCode: "202505050101", userName: "张三" },
+    ]);
+    vi.mocked(listStorageBackends).mockResolvedValue([{ id: 1, type: "local", name: "本地", is_default: 1 } as never]);
+    // 多次请求持续返回（files 端点每次请求都会扫描）
+    fakeStorage.listObjects.mockResolvedValue([
+      { key: "avatar_used.jpg", size: 80, lastModified: daysAgo(1) }, // 使用中·张三
+      { key: "avatar_orphan_a.jpg", size: 100, lastModified: daysAgo(30) }, // 孤儿可清理
+      { key: "evaluation_new.jpg", size: 50, lastModified: daysAgo(2) }, // 孤儿保留中
+    ]);
+
+    // 全量：含引用状态与关联学生
+    res = await FILES_GET(makeRequest("GET", "/api/manage/media/files?page=1&pageSize=20", { auth_token: token }));
+    expect(res.status).toBe(200);
+    let body = await res.json();
+    expect(body.total).toBe(3);
+    const used = body.items.find((i: { key: string }) => i.key === "avatar_used.jpg");
+    expect(used).toMatchObject({ referenced: true, userCode: "202505050101", userName: "张三", deletable: false });
+
+    // 类型筛选
+    res = await FILES_GET(makeRequest("GET", "/api/manage/media/files?type=evaluation", { auth_token: token }));
+    body = await res.json();
+    expect(body.total).toBe(1);
+    expect(body.items[0].key).toBe("evaluation_new.jpg");
+
+    // 状态筛选：孤儿
+    res = await FILES_GET(makeRequest("GET", "/api/manage/media/files?status=orphan", { auth_token: token }));
+    body = await res.json();
+    expect(body.total).toBe(2);
+    expect(body.items.every((i: { referenced: boolean }) => !i.referenced)).toBe(true);
+
+    // 学生搜索
+    res = await FILES_GET(makeRequest("GET", "/api/manage/media/files?student=%E5%BC%A0%E4%B8%89", { auth_token: token }));
+    body = await res.json();
+    expect(body.total).toBe(1);
+    expect(body.items[0].key).toBe("avatar_used.jpg");
+
+    // 非法分页参数
+    res = await FILES_GET(makeRequest("GET", "/api/manage/media/files?page=0", { auth_token: token }));
+    expect(res.status).toBe(400);
   });
 
   it("cleanup POST：items 校验、仅删可删孤儿、源图连带缩略图、审计", async () => {

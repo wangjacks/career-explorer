@@ -21,6 +21,25 @@ export interface MediaScanResult {
   retentionDays: number;
 }
 
+/** 媒体文件条目（#117 全量列表）：含引用状态与关联学生 */
+export interface MediaFileItem {
+  key: string;
+  storageId: number;
+  size: number;
+  lastModified: string;
+  type: "avatar" | "evaluation" | "thumbnail" | "other";
+  /** 是否被任何档案/历史版本引用 */
+  referenced: boolean;
+  /** 关联学生（被引用时；同一文件多行引用取其一） */
+  userCode: string | null;
+  userName: string | null;
+  /** 缩略图文件的源 key；非缩略图为 null */
+  sourceKey: string | null;
+  orphanDays: number;
+  /** orphanDays >= retentionDays 才允许清理（仅孤儿有意义） */
+  deletable: boolean;
+}
+
 export interface OrphanItem {
   key: string;
   storageId: number;
@@ -44,21 +63,31 @@ function typeOf(key: string): OrphanItem["type"] {
 
 const DAY_MS = 86400000;
 
-/** 全量扫描：统计 + 孤儿明细（孤儿按 orphanDays 降序） */
-export async function scanMedia(): Promise<{ status: MediaScanResult; orphans: OrphanItem[] }> {
-  // 1. 引用集合（反向检测）：storageId:key 规范化后去重
+/** 全量扫描：统计 + 全量文件列表（含引用状态/关联学生）+ 孤儿子集；文件按 lastModified 降序 */
+export async function scanMedia(): Promise<{
+  status: MediaScanResult;
+  files: MediaFileItem[];
+  orphans: OrphanItem[];
+}> {
+  // 1. 引用集合（反向检测）：storageId:key 规范化后去重，携带关联学生
   const refs = await getAllReferencedMedia();
   const referenced = new Set<string>();
+  const ownerById = new Map<string, { userCode: string; userName: string }>();
   for (const ref of refs) {
     const key = extractKey(ref.url);
-    if (key) referenced.add(`${ref.storageId}:${key}`);
+    if (!key) continue;
+    const id = `${ref.storageId}:${key}`;
+    referenced.add(id);
+    if (!ownerById.has(id) && (ref.userCode || ref.userName)) {
+      ownerById.set(id, { userCode: ref.userCode ?? "", userName: ref.userName ?? "" });
+    }
   }
 
   // 2. 按后端枚举文件
   const backends = await listStorageBackends();
   const retentionDays = await getMediaOrphanRetentionDays();
   const now = Date.now();
-  const orphans: OrphanItem[] = [];
+  const files: MediaFileItem[] = [];
   let total = 0;
   let totalSize = 0;
   let orphanCount = 0;
@@ -70,24 +99,33 @@ export async function scanMedia(): Promise<{ status: MediaScanResult; orphans: O
     const storage = await getStorage(backend.id);
     const objects = await storage.listObjects();
     for (const obj of objects) {
+      const id = `${backend.id}:${obj.key}`;
+      const owner = ownerById.get(id);
+      const isReferenced = referenced.has(id);
       total += 1;
       totalSize += obj.size;
-      if (referenced.has(`${backend.id}:${obj.key}`)) continue; // 被引用（含当前档案与历史快照）
 
-      const orphanDays = Math.floor((now - new Date(obj.lastModified).getTime()) / DAY_MS);
-      const deletable = orphanDays >= retentionDays;
-      orphanCount += 1;
-      orphanSize += obj.size;
-      if (deletable) {
-        deletableCount += 1;
-        deletableSize += obj.size;
+      const orphanDays = isReferenced
+        ? 0
+        : Math.floor((now - new Date(obj.lastModified).getTime()) / DAY_MS);
+      const deletable = !isReferenced && orphanDays >= retentionDays;
+      if (!isReferenced) {
+        orphanCount += 1;
+        orphanSize += obj.size;
+        if (deletable) {
+          deletableCount += 1;
+          deletableSize += obj.size;
+        }
       }
-      orphans.push({
+      files.push({
         key: obj.key,
         storageId: backend.id,
         size: obj.size,
         lastModified: obj.lastModified,
         type: typeOf(obj.key),
+        referenced: isReferenced,
+        userCode: owner?.userCode ?? null,
+        userName: owner?.userName ?? null,
         sourceKey: isThumbnailKey(obj.key) ? getSourceKey(obj.key) : null,
         orphanDays,
         deletable,
@@ -95,10 +133,18 @@ export async function scanMedia(): Promise<{ status: MediaScanResult; orphans: O
     }
   }
 
-  // 码点序比较（localeCompare 对标点排序不稳定，测试已暴露）
-  orphans.sort((a, b) => b.orphanDays - a.orphanDays || (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
+  // 文件按最近修改降序（管理视角：最新在前）；孤儿子集按孤儿时长降序（清理视角：最老优先）
+  files.sort(
+    (a, b) =>
+      b.lastModified.localeCompare(a.lastModified) ||
+      (a.key < b.key ? -1 : a.key > b.key ? 1 : 0)
+  );
+  const orphans = files
+    .filter((f) => !f.referenced)
+    .sort((a, b) => b.orphanDays - a.orphanDays || (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
   return {
     status: { total, totalSize, orphanCount, orphanSize, deletableCount, deletableSize, retentionDays },
+    files,
     orphans,
   };
 }

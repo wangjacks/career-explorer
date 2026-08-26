@@ -708,17 +708,19 @@ export class MysqlAdapter implements DbAdapter {
 
   async getAllReferencedMedia(): Promise<MediaFileRef[]> {
     const [rows] = await this.pool.execute(
-      `SELECT avatar_url AS url, storage_id AS storageId FROM users
+      `SELECT avatar_url AS url, storage_id AS storageId, user_code, name FROM users
        WHERE role = 'student' AND submitted_at IS NOT NULL AND avatar_url IS NOT NULL AND avatar_url != ''
        UNION ALL
-       SELECT evaluation_url AS url, storage_id AS storageId FROM users
+       SELECT evaluation_url AS url, storage_id AS storageId, user_code, name FROM users
        WHERE role = 'student' AND submitted_at IS NOT NULL AND evaluation_url IS NOT NULL AND evaluation_url != ''
        UNION ALL
-       SELECT avatar_url AS url, storage_id AS storageId FROM profile_submissions
-       WHERE avatar_url IS NOT NULL AND avatar_url != ''
+       SELECT ps.avatar_url AS url, ps.storage_id AS storageId, u.user_code, u.name
+       FROM profile_submissions ps JOIN users u ON u.id = ps.user_id
+       WHERE ps.avatar_url IS NOT NULL AND ps.avatar_url != ''
        UNION ALL
-       SELECT evaluation_url AS url, storage_id AS storageId FROM profile_submissions
-       WHERE evaluation_url IS NOT NULL AND evaluation_url != ''`
+       SELECT ps.evaluation_url AS url, ps.storage_id AS storageId, u.user_code, u.name
+       FROM profile_submissions ps JOIN users u ON u.id = ps.user_id
+       WHERE ps.evaluation_url IS NOT NULL AND ps.evaluation_url != ''`
     );
     return rows as MediaFileRef[];
   }

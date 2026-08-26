@@ -61,10 +61,13 @@ export interface ProfileSubmissionExceedRow {
   version_count: number;
 }
 
-/** 被引用的媒体文件（#118）：存量缩略图补生成枚举用，携带后端归属 */
+/** 被引用的媒体文件（#118/#117）：存量缩略图补生成与媒体全量列表共用，携带后端归属与关联学生 */
 export interface MediaFileRef {
   url: string;
   storageId: number;
+  /** 关联学生（#117 全量列表展示用）；同一文件可能被多行引用，取其一 */
+  userCode?: string;
+  userName?: string;
 }
 
 /** 历史版本文件归属（#95）：storage-sign 对快照文件做权限校验时反查用 */

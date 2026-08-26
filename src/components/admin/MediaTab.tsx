@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
-import { FolderOpen, HardDrive, ImageIcon, RefreshCw, Trash2, TriangleAlert } from "lucide-react";
+import { FolderOpen, HardDrive, ImageIcon, RefreshCw, Search, Trash2 } from "lucide-react";
 import ConfirmDialog from "./ConfirmDialog";
 import ThumbnailTab from "./ThumbnailTab";
 
@@ -16,18 +16,21 @@ interface MediaStatus {
   retentionDays: number;
 }
 
-interface OrphanItem {
+interface MediaFileItem {
   key: string;
   storageId: number;
   size: number;
   lastModified: string;
   type: "avatar" | "evaluation" | "thumbnail" | "other";
+  referenced: boolean;
+  userCode: string | null;
+  userName: string | null;
   sourceKey: string | null;
   orphanDays: number;
   deletable: boolean;
 }
 
-const TYPE_LABEL: Record<OrphanItem["type"], string> = {
+const TYPE_LABEL: Record<MediaFileItem["type"], string> = {
   avatar: "头像",
   evaluation: "词云",
   thumbnail: "缩略图",
@@ -41,21 +44,25 @@ function formatBytes(bytes: number): string {
 }
 
 /**
- * 媒体管理面板（#117）：存储总览 + 孤儿文件检测/清理（可配置保留期）+ 缩略图维护（#118）。仅 admin。
+ * 媒体管理面板（#117）：全部存储资源列表（类型/引用状态/学生筛选，引用状态与关联学生可见）、
+ * 孤儿文件按可配置保留期清理（源图删除连带缩略图）+ 缩略图维护（#118）。仅 admin。
  */
 export default function MediaTab() {
   const [status, setStatus] = useState<MediaStatus | null>(null);
   const [statusLoading, setStatusLoading] = useState(false);
   const [retentionInput, setRetentionInput] = useState("7");
   const [savingRetention, setSavingRetention] = useState(false);
-  const [subTab, setSubTab] = useState<"orphans" | "thumbnails">("orphans");
+  const [subTab, setSubTab] = useState<"files" | "thumbnails">("files");
 
-  // 孤儿列表
-  const [items, setItems] = useState<OrphanItem[]>([]);
+  // 媒体资源列表与筛选
+  const [items, setItems] = useState<MediaFileItem[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
   const [pageSize] = useState(20);
   const [listLoading, setListLoading] = useState(false);
+  const [typeFilter, setTypeFilter] = useState("all");
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [studentQuery, setStudentQuery] = useState("");
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -76,28 +83,39 @@ export default function MediaTab() {
     }
   }, []);
 
-  const loadOrphans = useCallback(async (p: number) => {
-    setListLoading(true);
-    try {
-      const res = await fetch(`/api/manage/media/orphans?page=${p}&pageSize=20`);
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "孤儿列表加载失败");
-      setItems(data.items || []);
-      setTotal(data.total || 0);
-      setPage(data.page || 1);
-      setSelected(new Set());
-    } catch (err) {
-      console.error("Orphans load failed:", err);
-      toast.error(err instanceof Error ? err.message : "孤儿列表加载失败");
-    } finally {
-      setListLoading(false);
-    }
-  }, []);
+  const loadFiles = useCallback(
+    async (p: number) => {
+      setListLoading(true);
+      try {
+        const params = new URLSearchParams({ page: String(p), pageSize: String(pageSize) });
+        if (typeFilter !== "all") params.set("type", typeFilter);
+        if (statusFilter !== "all") params.set("status", statusFilter);
+        if (studentQuery.trim()) params.set("student", studentQuery.trim());
+        const res = await fetch(`/api/manage/media/files?${params.toString()}`);
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || "媒体列表加载失败");
+        setItems(data.items || []);
+        setTotal(data.total || 0);
+        setPage(data.page || 1);
+        setSelected(new Set());
+      } catch (err) {
+        console.error("Media files load failed:", err);
+        toast.error(err instanceof Error ? err.message : "媒体列表加载失败");
+      } finally {
+        setListLoading(false);
+      }
+    },
+    [typeFilter, statusFilter, studentQuery, pageSize]
+  );
 
   /* eslint-disable react-hooks/set-state-in-effect -- initial load on mount */
   useEffect(() => {
     loadStatus();
   }, [loadStatus]);
+
+  useEffect(() => {
+    loadFiles(1);
+  }, [loadFiles]);
   /* eslint-enable react-hooks/set-state-in-effect */
 
   const saveRetention = async () => {
@@ -117,7 +135,7 @@ export default function MediaTab() {
       if (!res.ok) throw new Error(data.error || "保存失败");
       toast.success(`保留期已更新为 ${data.retentionDays} 天`);
       await loadStatus();
-      if (subTab === "orphans") await loadOrphans(1);
+      await loadFiles(1);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "保存失败");
     } finally {
@@ -153,13 +171,15 @@ export default function MediaTab() {
       toast.success(`已删除 ${data.deleted} 个孤儿文件${data.skipped > 0 ? `，跳过 ${data.skipped} 个` : ""}`);
       setConfirmDelete(false);
       await loadStatus();
-      await loadOrphans(1);
+      await loadFiles(1);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "清理失败");
     } finally {
       setDeleting(false);
     }
   };
+
+  const totalPages = Math.ceil(total / pageSize);
 
   return (
     <div className="space-y-5">
@@ -169,7 +189,7 @@ export default function MediaTab() {
           <HardDrive size={16} className="text-gray-400 dark:text-gray-500" aria-hidden />
           <h2 className="font-semibold text-gray-800 dark:text-gray-100">媒体管理</h2>
           <button
-            onClick={() => { loadStatus(); if (subTab === "orphans") loadOrphans(1); }}
+            onClick={() => { loadStatus(); loadFiles(1); }}
             disabled={statusLoading}
             className="ml-auto px-3 py-1.5 bg-gray-100 hover:bg-gray-200 dark:bg-gray-800 dark:hover:bg-gray-700 disabled:opacity-50 text-gray-600 dark:text-gray-300 text-xs font-medium rounded-lg transition-colors flex items-center gap-1"
           >
@@ -226,26 +246,26 @@ export default function MediaTab() {
               </div>
             </div>
             <p className="text-xs text-gray-400 dark:text-gray-500">
-              孤儿 = 未被任何档案或历史版本引用的文件（含上传未提交）；超过保留期才可清理，覆盖「上传→保存」宽限期。
+              展示全部存储资源（含被引用文件与关联学生）；孤儿 = 未被任何档案或历史版本引用，超过保留期才可清理（覆盖「上传→保存」宽限期），源图删除时连带其缩略图。
             </p>
           </>
         )}
       </div>
 
-      {/* 子面板：孤儿文件 / 缩略图维护 */}
+      {/* 子面板：媒体资源 / 缩略图维护 */}
       <div className="bg-card rounded-xl border border-gray-100 dark:border-gray-700 p-5 space-y-4">
         <div className="flex gap-1 bg-gray-100 dark:bg-gray-800 rounded-xl p-1 w-fit">
           <button
-            onClick={() => { setSubTab("orphans"); loadOrphans(1); }}
+            onClick={() => { setSubTab("files"); loadFiles(1); }}
             className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-colors ${
-              subTab === "orphans"
+              subTab === "files"
                 ? "bg-card text-gray-900 dark:text-gray-100 shadow-sm"
                 : "text-gray-500 hover:text-gray-700 dark:hover:text-gray-300"
             }`}
           >
             <span className="inline-flex items-center gap-1.5">
               <FolderOpen className="w-3.5 h-3.5" aria-hidden />
-              孤儿文件（{total}）
+              媒体资源（{total}）
             </span>
           </button>
           <button
@@ -267,27 +287,63 @@ export default function MediaTab() {
           <ThumbnailTab />
         ) : (
           <div className="space-y-3">
-            {selected.size > 0 && (
-              <div className="flex items-center gap-3 flex-wrap">
+            {/* 筛选条 */}
+            <div className="flex flex-wrap items-center gap-2">
+              <select
+                value={typeFilter}
+                onChange={(e) => { setTypeFilter(e.target.value); loadFiles(1); }}
+                className="px-2.5 py-1.5 border border-gray-200 dark:border-gray-700 bg-card text-foreground rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-300"
+              >
+                <option value="all">全部类型</option>
+                <option value="avatar">头像</option>
+                <option value="evaluation">词云</option>
+                <option value="thumbnail">缩略图</option>
+                <option value="other">其他</option>
+              </select>
+              <select
+                value={statusFilter}
+                onChange={(e) => { setStatusFilter(e.target.value); loadFiles(1); }}
+                className="px-2.5 py-1.5 border border-gray-200 dark:border-gray-700 bg-card text-foreground rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-300"
+              >
+                <option value="all">全部状态</option>
+                <option value="referenced">使用中</option>
+                <option value="orphan">孤儿</option>
+              </select>
+              <div className="relative">
+                <Search className="w-4 h-4 text-gray-400 absolute left-2.5 top-1/2 -translate-y-1/2" aria-hidden />
+                <input
+                  type="text"
+                  value={studentQuery}
+                  onChange={(e) => setStudentQuery(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Enter") loadFiles(1); }}
+                  placeholder="搜索关联学号/姓名..."
+                  className="pl-8 pr-3 py-1.5 border border-gray-200 dark:border-gray-700 bg-card text-foreground rounded-lg text-sm w-56 focus:outline-none focus:ring-2 focus:ring-green-300"
+                />
+              </div>
+              {(typeFilter !== "all" || statusFilter !== "all" || studentQuery.trim()) && (
+                <button
+                  onClick={() => { setTypeFilter("all"); setStatusFilter("all"); setStudentQuery(""); loadFiles(1); }}
+                  className="text-xs text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
+                >
+                  清除筛选
+                </button>
+              )}
+              {selected.size > 0 && (
                 <button
                   onClick={() => setConfirmDelete(true)}
                   disabled={deleting}
-                  className="px-4 py-2 bg-red-500 hover:bg-red-600 disabled:opacity-50 text-white text-sm font-medium rounded-lg transition-colors flex items-center gap-1.5"
+                  className="ml-auto px-3 py-1.5 bg-red-500 hover:bg-red-600 disabled:opacity-50 text-white text-xs font-medium rounded-lg transition-colors flex items-center gap-1"
                 >
-                  <Trash2 className="w-4 h-4" aria-hidden />
-                  删除选中（{selected.size} 个，{formatBytes(selectedSize)}）
+                  <Trash2 className="w-3.5 h-3.5" aria-hidden />
+                  删除选中孤儿（{selected.size} 个，{formatBytes(selectedSize)}）
                 </button>
-                <span className="text-xs text-gray-400 dark:text-gray-500">删除不可恢复；源图删除时连带其缩略图</span>
-              </div>
-            )}
+              )}
+            </div>
 
             {listLoading ? (
               <p className="text-sm text-gray-400 dark:text-gray-500">加载中...</p>
             ) : items.length === 0 ? (
-              <p className="text-sm text-gray-400 dark:text-gray-500 flex items-center gap-1.5">
-                <TriangleAlert className="w-4 h-4" aria-hidden />
-                {total === 0 ? "暂无孤儿文件" : "无匹配项"}
-              </p>
+              <p className="text-sm text-gray-400 dark:text-gray-500">{total === 0 ? "暂无媒体文件" : "无匹配项"}</p>
             ) : (
               <div className="overflow-x-auto rounded-lg border border-gray-100 dark:border-gray-700">
                 <table className="w-full text-sm">
@@ -297,7 +353,7 @@ export default function MediaTab() {
                       <th className="px-3 py-2.5 font-medium">文件名</th>
                       <th className="px-3 py-2.5 font-medium">类型</th>
                       <th className="px-3 py-2.5 font-medium">大小</th>
-                      <th className="px-3 py-2.5 font-medium">孤 N 天</th>
+                      <th className="px-3 py-2.5 font-medium">更新时间</th>
                       <th className="px-3 py-2.5 font-medium">状态</th>
                     </tr>
                   </thead>
@@ -313,6 +369,7 @@ export default function MediaTab() {
                               disabled={!item.deletable}
                               onChange={() => toggleSelect(id, item.deletable)}
                               className="rounded border-gray-300"
+                              aria-label={`选择 ${item.key}`}
                             />
                           </td>
                           <td className="px-3 py-2.5 font-mono text-xs text-gray-600 dark:text-gray-300 break-all">{item.key}</td>
@@ -322,13 +379,17 @@ export default function MediaTab() {
                             </span>
                           </td>
                           <td className="px-3 py-2.5 text-gray-500 text-xs">{formatBytes(item.size)}</td>
-                          <td className="px-3 py-2.5 text-gray-500 text-xs">{item.orphanDays} 天</td>
+                          <td className="px-3 py-2.5 text-gray-500 text-xs">{item.lastModified.slice(0, 19).replace("T", " ")}</td>
                           <td className="px-3 py-2.5 text-xs">
-                            {item.deletable ? (
-                              <span className="text-amber-600 dark:text-amber-400">可清理</span>
+                            {item.referenced ? (
+                              <span className="text-green-600 dark:text-green-400">
+                                使用中{item.userCode ? ` · ${item.userName}（${item.userCode}）` : ""}
+                              </span>
+                            ) : item.deletable ? (
+                              <span className="text-amber-600 dark:text-amber-400">孤儿 · 可清理（孤 {item.orphanDays} 天）</span>
                             ) : (
                               <span className="text-gray-400 dark:text-gray-500">
-                                保留中（剩 {Math.max(0, (status?.retentionDays ?? 7) - item.orphanDays)} 天）
+                                孤儿 · 保留中（剩 {Math.max(0, (status?.retentionDays ?? 7) - item.orphanDays)} 天）
                               </span>
                             )}
                           </td>
@@ -340,20 +401,20 @@ export default function MediaTab() {
               </div>
             )}
 
-            {total > pageSize && (
+            {totalPages > 1 && (
               <div className="flex items-center justify-between text-sm">
-                <span className="text-gray-500">第 {page}/{Math.ceil(total / pageSize)} 页（共 {total} 个孤儿）</span>
+                <span className="text-gray-500">第 {page}/{totalPages} 页（共 {total} 个文件）</span>
                 <div className="flex gap-2">
                   <button
-                    onClick={() => loadOrphans(page - 1)}
+                    onClick={() => loadFiles(page - 1)}
                     disabled={page <= 1 || listLoading}
                     className="px-3 py-1 rounded-lg border border-gray-200 dark:border-gray-700 disabled:opacity-40 hover:bg-gray-50 dark:hover:bg-gray-800"
                   >
                     上一页
                   </button>
                   <button
-                    onClick={() => loadOrphans(page + 1)}
-                    disabled={page >= Math.ceil(total / pageSize) || listLoading}
+                    onClick={() => loadFiles(page + 1)}
+                    disabled={page >= totalPages || listLoading}
                     className="px-3 py-1 rounded-lg border border-gray-200 dark:border-gray-700 disabled:opacity-40 hover:bg-gray-50 dark:hover:bg-gray-800"
                   >
                     下一页
