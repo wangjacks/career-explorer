@@ -95,7 +95,8 @@ export async function scanMedia(): Promise<{ status: MediaScanResult; orphans: O
     }
   }
 
-  orphans.sort((a, b) => b.orphanDays - a.orphanDays || a.key.localeCompare(b.key));
+  // 码点序比较（localeCompare 对标点排序不稳定，测试已暴露）
+  orphans.sort((a, b) => b.orphanDays - a.orphanDays || (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
   return {
     status: { total, totalSize, orphanCount, orphanSize, deletableCount, deletableSize, retentionDays },
     orphans,
