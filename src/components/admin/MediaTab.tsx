@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { ChevronDown, FolderOpen, HardDrive, ImageIcon, RefreshCw, Search, Trash2 } from "lucide-react";
 import ConfirmDialog from "./ConfirmDialog";
@@ -41,6 +41,61 @@ function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+}
+
+/** 自定义下拉（#117）：按钮 + 弹出面板，样式与标签筛选/学生选择器一致（原生 select 弹出层无样式） */
+function FilterSelect({
+  value,
+  options,
+  onChange,
+}: {
+  value: string;
+  options: { value: string; label: string }[];
+  onChange: (value: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
+
+  const current = options.find((o) => o.value === value);
+  return (
+    <div className="relative" ref={ref}>
+      <button
+        onClick={() => setOpen((v) => !v)}
+        className="px-3 py-1.5 border border-gray-200 dark:border-gray-700 bg-card text-foreground rounded-lg text-sm font-medium transition-colors hover:border-gray-300 dark:hover:border-gray-600 flex items-center gap-1.5"
+      >
+        {current?.label ?? "全部"}
+        <ChevronDown className={`w-3.5 h-3.5 text-gray-400 transition-transform ${open ? "rotate-180" : ""}`} aria-hidden />
+      </button>
+      {open && (
+        <div className="absolute top-full left-0 mt-1 w-32 bg-card rounded-xl border border-gray-200 dark:border-gray-700 shadow-lg z-30 py-1">
+          {options.map((o) => (
+            <button
+              key={o.value}
+              onClick={() => {
+                onChange(o.value);
+                setOpen(false);
+              }}
+              className={`w-full text-left px-3 py-1.5 text-sm transition-colors ${
+                value === o.value
+                  ? "bg-green-50 dark:bg-green-900/30 text-green-700 dark:text-green-300"
+                  : "hover:bg-gray-50 dark:hover:bg-gray-800 text-gray-700 dark:text-gray-200"
+              }`}
+            >
+              {o.label}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
 }
 
 /**
@@ -286,32 +341,26 @@ export default function MediaTab() {
           <div className="space-y-3">
             {/* 筛选条：条件变更仅更新状态，点「查询」才发起请求（files 端点每次全量扫描，降频） */}
             <div className="flex flex-wrap items-center gap-2">
-              <div className="relative">
-                <select
-                  value={typeFilter}
-                  onChange={(e) => setTypeFilter(e.target.value)}
-                  className="appearance-none pl-2.5 pr-8 py-1.5 border border-gray-200 dark:border-gray-700 bg-card text-foreground rounded-lg text-sm cursor-pointer focus:outline-none focus:ring-2 focus:ring-green-300"
-                >
-                  <option value="all">全部类型</option>
-                  <option value="avatar">头像</option>
-                  <option value="evaluation">词云</option>
-                  <option value="thumbnail">缩略图</option>
-                  <option value="other">其他</option>
-                </select>
-                <ChevronDown className="w-3.5 h-3.5 text-gray-400 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" aria-hidden />
-              </div>
-              <div className="relative">
-                <select
-                  value={statusFilter}
-                  onChange={(e) => setStatusFilter(e.target.value)}
-                  className="appearance-none pl-2.5 pr-8 py-1.5 border border-gray-200 dark:border-gray-700 bg-card text-foreground rounded-lg text-sm cursor-pointer focus:outline-none focus:ring-2 focus:ring-green-300"
-                >
-                  <option value="all">全部状态</option>
-                  <option value="referenced">使用中</option>
-                  <option value="orphan">孤儿</option>
-                </select>
-                <ChevronDown className="w-3.5 h-3.5 text-gray-400 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" aria-hidden />
-              </div>
+              <FilterSelect
+                value={typeFilter}
+                onChange={setTypeFilter}
+                options={[
+                  { value: "all", label: "全部类型" },
+                  { value: "avatar", label: "头像" },
+                  { value: "evaluation", label: "词云" },
+                  { value: "thumbnail", label: "缩略图" },
+                  { value: "other", label: "其他" },
+                ]}
+              />
+              <FilterSelect
+                value={statusFilter}
+                onChange={setStatusFilter}
+                options={[
+                  { value: "all", label: "全部状态" },
+                  { value: "referenced", label: "使用中" },
+                  { value: "orphan", label: "孤儿" },
+                ]}
+              />
               <div className="relative">
                 <Search className="w-4 h-4 text-gray-400 absolute left-2.5 top-1/2 -translate-y-1/2" aria-hidden />
                 <input
