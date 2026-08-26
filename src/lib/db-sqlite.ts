@@ -3,7 +3,7 @@ import { mkdirSync, readFileSync, existsSync } from "fs";
 import { tmpdir } from "os";
 import path from "path";
 import { tagCategories } from "./tagData";
-import { normalizeBackupTags, DEFAULT_MAX_CUSTOM_TAGS, DEFAULT_MAX_PROFILE_SUBMISSIONS, MAX_PROFILE_SUBMISSIONS_KEY } from "./db";
+import { normalizeBackupTags, DEFAULT_MAX_CUSTOM_TAGS, DEFAULT_MAX_PROFILE_SUBMISSIONS, MAX_PROFILE_SUBMISSIONS_KEY, DEFAULT_MEDIA_ORPHAN_RETENTION_DAYS, MEDIA_ORPHAN_RETENTION_KEY } from "./db";
 import type {
   UserRow,
   TagRow,
@@ -349,6 +349,10 @@ export class SqliteAdapter implements DbAdapter {
     this.db
       .prepare("INSERT OR IGNORE INTO configs_profile (key, value, updated_at) VALUES (?, ?, ?)")
       .run(MAX_PROFILE_SUBMISSIONS_KEY, String(DEFAULT_MAX_PROFILE_SUBMISSIONS), getNow());
+    // 孤儿文件保留期默认值（#117，INSERT OR IGNORE 不覆盖配置）
+    this.db
+      .prepare("INSERT OR IGNORE INTO configs_profile (key, value, updated_at) VALUES (?, ?, ?)")
+      .run(MEDIA_ORPHAN_RETENTION_KEY, String(DEFAULT_MEDIA_ORPHAN_RETENTION_DAYS), getNow());
   }
 
   /** 检测旧 students 表并迁移到 users 表 */
