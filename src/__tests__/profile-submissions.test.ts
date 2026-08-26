@@ -167,6 +167,37 @@ describe("profile_submissions CRUD（#95）", () => {
     cleanup(dbPath);
   });
 
+  it("getAllReferencedMedia 真实库集成：返回驼峰字段（url/storageId/userCode/userName），当前档案与历史快照均覆盖（#117）", () => {
+    const dbPath = makeTmpDb();
+    const adapter = new SqliteAdapter(dbPath);
+    adapter.init();
+    adapter.insertUser({ user_code: "202505050101", role: "student", name: "张三" });
+    const storageId = adapter.getDefaultStorageBackend()!.id;
+    // 当前档案（users 引用）
+    adapter.upsertSubmission("202505050101", "[1]", "/a.png", "/w.png", storageId);
+    // 历史快照（profile_submissions 引用，直接插入不覆盖 users）
+    const studentId = adapter.getStudentByCode("202505050101")!.id;
+    adapter.insertProfileSubmission(studentId, 1, {
+      tags: "[2]", avatar_url: "/h-a.png", evaluation_url: "/h-w.png", storage_id: storageId,
+      submitted_at: "2026-08-01 10:00:00", is_current: 0,
+    });
+
+    const refs = adapter.getAllReferencedMedia();
+    // 当前档案引用（users 分支）
+    expect(refs.some((r) => r.url === "/a.png" && r.storageId === storageId && r.userCode === "202505050101" && r.userName === "张三")).toBe(true);
+    expect(refs.some((r) => r.url === "/w.png" && r.userCode === "202505050101")).toBe(true);
+    // 历史快照引用（profile_submissions 分支）
+    expect(refs.some((r) => r.url === "/h-a.png" && r.userCode === "202505050101" && r.userName === "张三")).toBe(true);
+    expect(refs.some((r) => r.url === "/h-w.png" && r.userCode === "202505050101")).toBe(true);
+    // 字段名必须为驼峰（媒体学号搜索依赖，防 mock 掩盖真实 SQL 别名问题）
+    for (const r of refs) {
+      expect(Object.keys(r)).toEqual(expect.arrayContaining(["url", "storageId", "userCode", "userName"]));
+    }
+
+    adapter.close();
+    cleanup(dbPath);
+  });
+
   it("getProfileSubmissionOwnerByFileUrl：按快照文件反查归属（含班级与快照当时的后端）", () => {
     const dbPath = makeTmpDb();
     const adapter = new SqliteAdapter(dbPath);

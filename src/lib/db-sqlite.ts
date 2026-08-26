@@ -653,17 +653,17 @@ export class SqliteAdapter implements DbAdapter {
   getAllReferencedMedia(): MediaFileRef[] {
     return this.db
       .prepare(
-        `SELECT avatar_url AS url, storage_id AS storageId, user_code, name FROM users
+        `SELECT avatar_url AS url, storage_id AS storageId, user_code AS userCode, name AS userName FROM users
          WHERE role = 'student' AND submitted_at IS NOT NULL AND avatar_url IS NOT NULL AND avatar_url != ''
          UNION ALL
-         SELECT evaluation_url AS url, storage_id AS storageId, user_code, name FROM users
+         SELECT evaluation_url AS url, storage_id AS storageId, user_code AS userCode, name AS userName FROM users
          WHERE role = 'student' AND submitted_at IS NOT NULL AND evaluation_url IS NOT NULL AND evaluation_url != ''
          UNION ALL
-         SELECT ps.avatar_url AS url, ps.storage_id AS storageId, u.user_code, u.name
+         SELECT ps.avatar_url AS url, ps.storage_id AS storageId, u.user_code AS userCode, u.name AS userName
          FROM profile_submissions ps JOIN users u ON u.id = ps.user_id
          WHERE ps.avatar_url IS NOT NULL AND ps.avatar_url != ''
          UNION ALL
-         SELECT ps.evaluation_url AS url, ps.storage_id AS storageId, u.user_code, u.name
+         SELECT ps.evaluation_url AS url, ps.storage_id AS storageId, u.user_code AS userCode, u.name AS userName
          FROM profile_submissions ps JOIN users u ON u.id = ps.user_id
          WHERE ps.evaluation_url IS NOT NULL AND ps.evaluation_url != ''`
       )
