@@ -8,6 +8,7 @@
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { mkdtempSync, rmSync } from "fs";
+import { mkdir, writeFile } from "fs/promises";
 import { tmpdir } from "os";
 import path from "path";
 import { SqliteAdapter } from "../lib/db-sqlite";
@@ -93,6 +94,25 @@ describe("LocalStorageAdapter", () => {
     const storage = new LocalStorageAdapter();
     await expect(storage.read("../evil.jpg")).rejects.toThrow();
     await expect(storage.upload("..", Buffer.from("x"), "image/jpeg")).rejects.toThrow();
+  });
+
+  it("listObjects 枚举全部文件（含 size/lastModified），跳过点文件与子目录（#117）", async () => {
+    const storage = new LocalStorageAdapter();
+    await storage.upload("avatar_x.jpg", Buffer.from("hello"), "image/jpeg");
+    await storage.upload("evaluation_y.jpg", Buffer.from("wordcloud"), "image/jpeg");
+    // 点文件（.gitkeep/.DS_Store 保护）与子目录不应进入枚举
+    await writeFile(path.join(tmpRoot, "uploads", ".gitkeep"), "");
+    await mkdir(path.join(tmpRoot, "uploads", "subdir"), { recursive: true });
+
+    const objects = await storage.listObjects();
+    expect(objects.map((o) => o.key).sort()).toEqual(["avatar_x.jpg", "evaluation_y.jpg"]);
+    const avatar = objects.find((o) => o.key === "avatar_x.jpg")!;
+    expect(avatar.size).toBe(5);
+    expect(new Date(avatar.lastModified).getTime()).toBeGreaterThan(0);
+
+    // 目录不存在视为空
+    rmSync(path.join(tmpRoot, "uploads"), { recursive: true, force: true });
+    expect(await storage.listObjects()).toEqual([]);
   });
 });
 
@@ -206,6 +226,48 @@ describe("S3 凭据与适配器构造", () => {
     const url = await adapter.getSignedUrl("avatar_x.jpg", 60);
     expect(url).toContain("localhost:9000");
     expect(url).toContain("/my-bucket/career/avatar_x.jpg");
+  });
+
+  it("listObjects 循环分页并剥离 path_prefix 还原逻辑 key（#117）", async () => {
+    process.env.S3_99_ACCESS_KEY = "ak";
+    process.env.S3_99_SECRET_KEY = "sk";
+    const adapter = new S3StorageAdapter(
+      makeBackend({
+        id: 99,
+        type: "s3",
+        endpoint: "https://cos.ap-shanghai.myqcloud.com",
+        region: "ap-shanghai",
+        bucket: "b",
+        path_prefix: "career/2026",
+      })
+    );
+    const client = (adapter as unknown as { serverClient: { send: (cmd: unknown) => Promise<unknown> } }).serverClient;
+    const sendSpy = vi.spyOn(client, "send");
+    const base = { Bucket: "b", Prefix: "career/2026/" };
+    sendSpy
+      .mockResolvedValueOnce({
+        IsTruncated: true,
+        NextContinuationToken: "tok2",
+        Contents: [{ Key: "career/2026/avatar_a.jpg", Size: 10, LastModified: new Date("2026-08-01T00:00:00Z") }],
+      } as never)
+      .mockResolvedValueOnce({
+        IsTruncated: false,
+        Contents: [{ Key: "career/2026/evaluation_b.jpg", Size: 20, LastModified: new Date("2026-08-02T00:00:00Z") }],
+      } as never);
+
+    const objects = await adapter.listObjects();
+    // 两页循环 + 续传 token
+    expect(sendSpy).toHaveBeenCalledTimes(2);
+    const firstCall = sendSpy.mock.calls[0][0] as { input: Record<string, unknown> };
+    const secondCall = sendSpy.mock.calls[1][0] as { input: Record<string, unknown> };
+    expect(firstCall.input).toMatchObject(base);
+    expect(secondCall.input).toMatchObject({ ...base, ContinuationToken: "tok2" });
+    // 剥离前缀还原逻辑 key + 元数据映射
+    expect(objects).toEqual([
+      { key: "avatar_a.jpg", size: 10, lastModified: "2026-08-01T00:00:00.000Z" },
+      { key: "evaluation_b.jpg", size: 20, lastModified: "2026-08-02T00:00:00.000Z" },
+    ]);
+    sendSpy.mockRestore();
   });
 });
 

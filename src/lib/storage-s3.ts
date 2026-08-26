@@ -9,12 +9,13 @@ import {
   DeleteObjectCommand,
   GetObjectCommand,
   HeadObjectCommand,
+  ListObjectsV2Command,
   PutObjectCommand,
   S3Client,
 } from "@aws-sdk/client-s3";
 import { getSignedUrl as presignUrl } from "@aws-sdk/s3-request-presigner";
 import type { StorageBackendRow } from "./db";
-import { DEFAULT_SIGNED_URL_EXPIRES, validateObjectKey, type StorageAdapter } from "./storage";
+import { DEFAULT_SIGNED_URL_EXPIRES, validateObjectKey, type StorageAdapter, type StoredObject } from "./storage";
 
 export interface S3Credentials {
   accessKeyId: string;
@@ -154,6 +155,36 @@ export class S3StorageAdapter implements StorageAdapter {
       if ((err as { name?: string })?.name === "NotFound") return false;
       throw err;
     }
+  }
+
+  /**
+   * 全量枚举（#117）：ListObjectsV2 循环分页。
+   * Prefix 直接拼规范化前缀（不经 validateObjectKey——空 key 会抛错）；返回对象剥离前缀还原逻辑 key。
+   */
+  async listObjects(): Promise<StoredObject[]> {
+    const objects: StoredObject[] = [];
+    const prefix = this.prefix ? `${this.prefix}/` : undefined;
+    let continuationToken: string | undefined;
+    do {
+      const res = await this.serverClient.send(
+        new ListObjectsV2Command({
+          Bucket: this.bucket,
+          Prefix: prefix,
+          ...(continuationToken ? { ContinuationToken: continuationToken } : {}),
+        })
+      );
+      for (const obj of res.Contents ?? []) {
+        if (!obj.Key) continue;
+        const logicalKey = prefix ? obj.Key.slice(prefix.length) : obj.Key;
+        objects.push({
+          key: logicalKey,
+          size: obj.Size ?? 0,
+          lastModified: obj.LastModified?.toISOString() ?? new Date(0).toISOString(),
+        });
+      }
+      continuationToken = res.IsTruncated ? res.NextContinuationToken : undefined;
+    } while (continuationToken);
+    return objects;
   }
 
   async getSignedUrl(key: string, expiresInSeconds = DEFAULT_SIGNED_URL_EXPIRES): Promise<string> {
