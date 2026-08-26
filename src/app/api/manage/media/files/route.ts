@@ -75,6 +75,14 @@ export async function GET(request: NextRequest) {
     });
   } catch (err) {
     console.error("Media files error:", err);
+    // 服务器异常留痕（CR P2-1）：扫描/存储故障 500 记 failed
+    const { ip, user_agent } = getRequestContext(request);
+    const actor = await getAuditActor(request);
+    void recordAudit({
+      ...actor, action: "media:query", method: "GET", path: request.nextUrl.pathname,
+      resource_type: "media", resource_id: null,
+      status: "failed", error_message: err instanceof Error ? err.message : "服务器错误", ip, user_agent, metadata: null,
+    });
     return NextResponse.json({ error: "服务器错误" }, { status: 500 });
   }
 }

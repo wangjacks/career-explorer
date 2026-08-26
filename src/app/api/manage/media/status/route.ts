@@ -29,6 +29,7 @@ async function requireAdmin(request: NextRequest, action: string): Promise<{ ok:
 
 /** 媒体总览统计（#117）：扫描全部后端文件与引用，返回统计与保留期配置 */
 export async function GET(request: NextRequest) {
+  const { ip, user_agent } = getRequestContext(request);
   const auth = await requireAdmin(request, "media:query");
   if (!auth.ok) return auth.response!;
   try {
@@ -36,6 +37,13 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ ok: true, ...status });
   } catch (err) {
     console.error("Media status error:", err);
+    // 服务器异常留痕（CR P2-1）：扫描/存储故障 500 记 failed
+    const actor = await getAuditActor(request);
+    void recordAudit({
+      ...actor, action: "media:query", method: "GET", path: "/api/manage/media/status",
+      resource_type: "media", resource_id: null,
+      status: "failed", error_message: err instanceof Error ? err.message : "服务器错误", ip, user_agent, metadata: null,
+    });
     return NextResponse.json({ error: "服务器错误" }, { status: 500 });
   }
 }
@@ -47,8 +55,16 @@ export async function PUT(request: NextRequest) {
   if (!auth.ok) return auth.response!;
   try {
     const body = (await request.json()) as { retentionDays?: unknown };
-    const retentionDays = Number(body.retentionDays);
-    if (!Number.isInteger(retentionDays) || retentionDays < 1 || retentionDays > 365) {
+    const retentionDays = body.retentionDays;
+    // 严格类型校验（CR P3-6）：Number(true) 等宽松转换会绕过校验，必须显式 number 类型
+    if (typeof retentionDays !== "number" || !Number.isInteger(retentionDays) || retentionDays < 1 || retentionDays > 365) {
+      // 参数非法也记 failed 审计（CR P3-8 与 cleanup 400 一致）
+      const actor = await getAuditActor(request);
+      void recordAudit({
+        ...actor, action: "media:config-update", method: "PUT", path: "/api/manage/media/status",
+        resource_type: "media", resource_id: null,
+        status: "failed", error_message: "保留期参数非法", ip, user_agent, metadata: null,
+      });
       return NextResponse.json({ error: "保留期须为 1-365 的整数（天）" }, { status: 400 });
     }
     await setProfileConfig(MEDIA_ORPHAN_RETENTION_KEY, String(retentionDays));

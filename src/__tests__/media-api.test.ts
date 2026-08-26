@@ -100,13 +100,16 @@ describe("媒体管理端点（#117）", () => {
     });
   });
 
-  it("status PUT：非法值 400；合法保存并审计 media:config-update", async () => {
+  it("status PUT：非法值 400（含宽松类型如 true/字符串数字）且记 failed 审计；合法保存并审计 media:config-update", async () => {
     const token = await signToken({ role: "admin", uid: 1, name: "管理员" });
-    for (const bad of [0, 366, "abc", 1.5]) {
+    // CR P3-6：Number(true)=1、Number("7.0")=7 会绕过旧宽松校验，必须显式 number 类型
+    for (const bad of [0, 366, "abc", 1.5, true, "7.0"]) {
       const res = await STATUS_PUT(makeRequest("PUT", "/api/manage/media/status", { auth_token: token }, { retentionDays: bad }));
       expect(res.status).toBe(400);
       expect(setProfileConfig).not.toHaveBeenCalled();
     }
+    // 参数非法也记 failed 审计（CR P3-8 与 cleanup 400 一致）
+    expect(vi.mocked(insertAuditLog).mock.calls.some((c) => c[0].status === "failed" && c[0].action === "media:config-update")).toBe(true);
     const res = await STATUS_PUT(makeRequest("PUT", "/api/manage/media/status", { auth_token: token }, { retentionDays: 30 }));
     expect(res.status).toBe(200);
     expect(await res.json()).toMatchObject({ ok: true, retentionDays: 30 });
@@ -221,10 +224,14 @@ describe("媒体管理端点（#117）", () => {
     expect(auditMeta.deletedKeys.sort()).toEqual(["avatar_orphan_a.jpg", "avatar_orphan_a_thumb.jpg"]);
   });
 
-  it("cleanup POST：items 校验、仅删可删孤儿、源图连带缩略图、审计", async () => {
+  it("cleanup POST：items 校验（含非数组/重复条目）、仅删可删孤儿、源图连带缩略图、审计", async () => {
     const token = await signToken({ role: "admin", uid: 1, name: "管理员" });
-    // items 为空 / 超 500
+    // items 为空 / 超 500 / 非数组（对象、字符串，CR P3-4）→ 400 且不触发扫描
     let res = await CLEANUP_POST(makeRequest("POST", "/api/manage/media/orphans/cleanup", { auth_token: token }, { items: [] }));
+    expect(res.status).toBe(400);
+    res = await CLEANUP_POST(makeRequest("POST", "/api/manage/media/orphans/cleanup", { auth_token: token }, { items: {} }));
+    expect(res.status).toBe(400);
+    res = await CLEANUP_POST(makeRequest("POST", "/api/manage/media/orphans/cleanup", { auth_token: token }, { items: "abc" }));
     expect(res.status).toBe(400);
     // 参数非法也记审计（failed）
     expect(vi.mocked(insertAuditLog).mock.calls.some((c) => c[0].status === "failed" && c[0].action === "media:cleanup")).toBe(true);
@@ -240,6 +247,7 @@ describe("媒体管理端点（#117）", () => {
       makeRequest("POST", "/api/manage/media/orphans/cleanup", { auth_token: token }, {
         items: [
           { key: "avatar_orphan_a.jpg", storageId: 1 }, // 可删 → 连带缩略图
+          { key: "avatar_orphan_a.jpg", storageId: 1 }, // 重复条目 → skip（CR P3-5 去重）
           { key: "avatar_new_b.jpg", storageId: 1 }, // 未到期 → skip
           { key: "avatar_used.jpg", storageId: 1 }, // 被引用 → skip
           { key: "nope.jpg", storageId: 99 }, // 后端不符 → skip
@@ -248,7 +256,7 @@ describe("媒体管理端点（#117）", () => {
     );
     expect(res.status).toBe(200);
     const body = await res.json();
-    expect(body).toMatchObject({ ok: true, deleted: 1, skipped: 3, deletedSizeBytes: 100 });
+    expect(body).toMatchObject({ ok: true, deleted: 1, skipped: 4, deletedSizeBytes: 100 });
     // 连坐：源图删除 + 缩略图直接删除（不再依赖 exists 前置检查）
     expect(fakeStorage.delete).toHaveBeenCalledWith("avatar_orphan_a.jpg");
     expect(fakeStorage.delete).toHaveBeenCalledWith("avatar_orphan_a_thumb.jpg");
@@ -257,7 +265,89 @@ describe("媒体管理端点（#117）", () => {
     expect(insertAuditLog).toHaveBeenCalled();
     const auditCall = vi.mocked(insertAuditLog).mock.calls.at(-1)![0];
     const auditMeta = JSON.parse(auditCall.metadata!);
-    expect(auditMeta).toMatchObject({ deleted: 1, skipped: 3, deletedSizeBytes: 100 });
+    expect(auditMeta).toMatchObject({ deleted: 1, skipped: 4, deletedSizeBytes: 100 });
     expect(auditMeta.deletedKeys).toEqual(["avatar_orphan_a.jpg"]);
+  });
+
+  it("cleanup POST：中途删除失败 → 500 且记 failed 审计（含已删明细）", async () => {
+    const token = await signToken({ role: "admin", uid: 1, name: "管理员" });
+    mockScanData();
+    // 第一个删除成功（orphan_a.jpg），连带缩略图删除失败 → 部分删除已发生
+    fakeStorage.delete.mockResolvedValueOnce(undefined).mockRejectedValueOnce(new Error("s3 down"));
+
+    const res = await CLEANUP_POST(makeRequest("POST", "/api/manage/media/orphans/cleanup", { auth_token: token }, { mode: "all" }));
+    expect(res.status).toBe(500);
+    // 失败路径留痕（CR P2-1）：已删明细随错误对象携带
+    const auditCall = vi.mocked(insertAuditLog).mock.calls.at(-1)![0];
+    expect(auditCall.status).toBe("failed");
+    expect(auditCall.action).toBe("media:cleanup");
+    expect(auditCall.error_message).toContain("s3 down");
+    const auditMeta = JSON.parse(auditCall.metadata!);
+    expect(auditMeta).toMatchObject({ deleted: 1, deletedSizeBytes: 100 });
+    expect(auditMeta.deletedKeys).toEqual(["avatar_orphan_a.jpg"]);
+  });
+
+  it("cleanup POST：删除前引用复核（TOCTOU）——复核时新被引用的文件跳过", async () => {
+    const token = await signToken({ role: "admin", uid: 1, name: "管理员" });
+    vi.mocked(getMediaOrphanRetentionDays).mockResolvedValue(7);
+    // 第 1 次调用（scanMedia 内）：orphan_a 未被引用；第 2 次调用（删除前复核）：orphan_a 刚被新提交引用
+    vi.mocked(getAllReferencedMedia)
+      .mockResolvedValueOnce([{ url: "avatar_used.jpg", storageId: 1 }])
+      .mockResolvedValueOnce([
+        { url: "avatar_used.jpg", storageId: 1 },
+        { url: "avatar_orphan_a.jpg", storageId: 1 },
+      ]);
+    vi.mocked(listStorageBackends).mockResolvedValue([{ id: 1, type: "local", name: "本地", is_default: 1 } as never]);
+    fakeStorage.listObjects.mockResolvedValue([
+      { key: "avatar_orphan_a.jpg", size: 100, lastModified: daysAgo(30) },
+      { key: "avatar_orphan_a_thumb.jpg", size: 10, lastModified: daysAgo(30) },
+      { key: "avatar_used.jpg", size: 80, lastModified: daysAgo(1) },
+    ]);
+    fakeStorage.delete.mockResolvedValue(undefined);
+
+    const res = await CLEANUP_POST(makeRequest("POST", "/api/manage/media/orphans/cleanup", { auth_token: token }, { mode: "all" }));
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    // orphan_a 与缩略图均被复核过滤（缩略图跟随源 key 判定）
+    expect(body).toMatchObject({ ok: true, deleted: 0, skipped: 2, deletedSizeBytes: 0 });
+    expect(fakeStorage.delete).not.toHaveBeenCalled();
+  });
+
+  it("cleanup POST：deletedKeys 超限截断保留 50 条 + truncated 标记（防非法 JSON）", async () => {
+    const token = await signToken({ role: "admin", uid: 1, name: "管理员" });
+    vi.mocked(getMediaOrphanRetentionDays).mockResolvedValue(7);
+    vi.mocked(getAllReferencedMedia).mockResolvedValue([]);
+    vi.mocked(listStorageBackends).mockResolvedValue([{ id: 1, type: "local", name: "本地", is_default: 1 } as never]);
+    // 60 个可删孤儿 → deletedKeys 60 条超限
+    fakeStorage.listObjects.mockResolvedValue(
+      Array.from({ length: 60 }, (_, i) => ({
+        key: `avatar_orphan_${String(i).padStart(3, "0")}.jpg`, size: 10, lastModified: daysAgo(30),
+      }))
+    );
+    fakeStorage.delete.mockResolvedValue(undefined);
+
+    const res = await CLEANUP_POST(makeRequest("POST", "/api/manage/media/orphans/cleanup", { auth_token: token }, { mode: "all" }));
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body).toMatchObject({ ok: true, deleted: 60, skipped: 0 });
+    // 审计 metadata 仍是合法 JSON，明细限 50 条 + truncated 标记（CR P2-2）
+    const auditCall = vi.mocked(insertAuditLog).mock.calls.at(-1)![0];
+    const auditMeta = JSON.parse(auditCall.metadata!);
+    expect(auditMeta).toMatchObject({ deleted: 60, truncated: true });
+    expect(auditMeta.deletedKeys).toHaveLength(50);
+    expect(auditMeta.deletedKeys[0]).toBe("avatar_orphan_000.jpg");
+  });
+
+  it("扫描失败 → 500 且记 failed 审计（status GET）", async () => {
+    const token = await signToken({ role: "admin", uid: 1, name: "管理员" });
+    vi.mocked(getMediaOrphanRetentionDays).mockResolvedValue(7);
+    vi.mocked(getAllReferencedMedia).mockResolvedValue([]);
+    vi.mocked(listStorageBackends).mockResolvedValue([{ id: 1, type: "local", name: "本地", is_default: 1 } as never]);
+    fakeStorage.listObjects.mockRejectedValue(new Error("storage down"));
+
+    const res = await STATUS_GET(makeRequest("GET", "/api/manage/media/status", { auth_token: token }));
+    expect(res.status).toBe(500);
+    // 服务器异常留痕（CR P2-1）
+    expect(vi.mocked(insertAuditLog).mock.calls.some((c) => c[0].status === "failed" && c[0].action === "media:query")).toBe(true);
   });
 });

@@ -130,6 +130,8 @@ export default function MediaTab() {
   const [previewList, setPreviewList] = useState<MediaFileItem[]>([]);
   const [previewLoading, setPreviewLoading] = useState(false);
   const [confirmAll, setConfirmAll] = useState(false);
+  // 请求序号守卫（CR P3-7）：快速连续「查询」/翻页时丢弃过期响应，避免旧响应覆盖新数据
+  const listReqSeq = useRef(0);
 
   const loadStatus = useCallback(async () => {
     setStatusLoading(true);
@@ -149,6 +151,7 @@ export default function MediaTab() {
 
   const loadFiles = useCallback(
     async (p: number) => {
+      const seq = ++listReqSeq.current;
       setListLoading(true);
       try {
         const params = new URLSearchParams({ page: String(p), pageSize: String(pageSize) });
@@ -159,15 +162,17 @@ export default function MediaTab() {
         const res = await fetch(`/api/manage/media/files?${params.toString()}`);
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || "媒体列表加载失败");
+        if (seq !== listReqSeq.current) return; // 过期响应丢弃（CR P3-7）
         setItems(data.items || []);
         setTotal(data.total || 0);
         setPage(data.page || 1);
         setSelected(new Set());
       } catch (err) {
+        if (seq !== listReqSeq.current) return;
         console.error("Media files load failed:", err);
         toast.error(err instanceof Error ? err.message : "媒体列表加载失败");
       } finally {
-        setListLoading(false);
+        if (seq === listReqSeq.current) setListLoading(false);
       }
     },
     [typeFilter, statusFilter, studentQuery, keywordQuery, pageSize]
