@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { verifyToken } from "@/lib/token";
 import { scanMedia, type MediaFileItem } from "@/lib/media-scan";
+import { getAuditActor, getRequestContext, recordAudit } from "@/lib/audit";
 
 /** 筛选参数解析（全部可选，默认全量） */
 function parseFilters(sp: URLSearchParams) {
@@ -29,6 +30,13 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
     if (result.role !== "admin") {
+      const { ip, user_agent } = getRequestContext(request);
+      const actor = await getAuditActor(request);
+      void recordAudit({
+        ...actor, action: "media:query", method: "GET", path: request.nextUrl.pathname,
+        resource_type: "media", resource_id: null,
+        status: "failed", error_message: "越权访问", ip, user_agent, metadata: null,
+      });
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 

@@ -4,8 +4,8 @@ import { verifyToken } from "@/lib/token";
 import { scanMedia } from "@/lib/media-scan";
 import { getAuditActor, getRequestContext, recordAudit } from "@/lib/audit";
 
-/** 仅 admin 校验（媒体治理不开放 teacher） */
-async function requireAdmin(request: NextRequest): Promise<{ ok: boolean; response: NextResponse | null }> {
+/** 仅 admin 校验（媒体治理不开放 teacher）；403 越权记审计（#110 模式） */
+async function requireAdmin(request: NextRequest, action: string): Promise<{ ok: boolean; response: NextResponse | null }> {
   const token = request.cookies.get("auth_token")?.value;
   if (!token) {
     return { ok: false, response: NextResponse.json({ error: "Unauthorized" }, { status: 401 }) };
@@ -15,6 +15,13 @@ async function requireAdmin(request: NextRequest): Promise<{ ok: boolean; respon
     return { ok: false, response: NextResponse.json({ error: "Unauthorized" }, { status: 401 }) };
   }
   if (result.role !== "admin") {
+    const { ip, user_agent } = getRequestContext(request);
+    const actor = await getAuditActor(request);
+    void recordAudit({
+      ...actor, action, method: request.method, path: request.nextUrl.pathname,
+      resource_type: "media", resource_id: null,
+      status: "failed", error_message: "越权访问", ip, user_agent, metadata: null,
+    });
     return { ok: false, response: NextResponse.json({ error: "Forbidden" }, { status: 403 }) };
   }
   return { ok: true, response: null };
@@ -22,7 +29,7 @@ async function requireAdmin(request: NextRequest): Promise<{ ok: boolean; respon
 
 /** 媒体总览统计（#117）：扫描全部后端文件与引用，返回统计与保留期配置 */
 export async function GET(request: NextRequest) {
-  const auth = await requireAdmin(request);
+  const auth = await requireAdmin(request, "media:query");
   if (!auth.ok) return auth.response!;
   try {
     const { status } = await scanMedia();
@@ -36,7 +43,7 @@ export async function GET(request: NextRequest) {
 /** 保存孤儿保留期（#117）：整数 1–365，审计 media:config-update */
 export async function PUT(request: NextRequest) {
   const { ip, user_agent } = getRequestContext(request);
-  const auth = await requireAdmin(request);
+  const auth = await requireAdmin(request, "media:config-update");
   if (!auth.ok) return auth.response!;
   try {
     const body = (await request.json()) as { retentionDays?: unknown };

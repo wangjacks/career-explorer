@@ -66,7 +66,7 @@ describe("媒体管理端点（#117）", () => {
     fakeStorage.exists.mockReset();
   });
 
-  it("非 admin → 403（status GET / orphans GET / cleanup POST）", async () => {
+  it("非 admin → 403 且越权记审计（status GET / orphans GET / cleanup POST / files GET）", async () => {
     const token = await signToken({ role: "student", uid: 7, name: "学生" });
     let res = await STATUS_GET(makeRequest("GET", "/api/manage/media/status", { auth_token: token }));
     expect(res.status).toBe(403);
@@ -74,6 +74,16 @@ describe("媒体管理端点（#117）", () => {
     expect(res.status).toBe(403);
     res = await CLEANUP_POST(makeRequest("POST", "/api/manage/media/orphans/cleanup", { auth_token: token }, { items: [] }));
     expect(res.status).toBe(403);
+    res = await FILES_GET(makeRequest("GET", "/api/manage/media/files", { auth_token: token }));
+    expect(res.status).toBe(403);
+    res = await STATUS_PUT(makeRequest("PUT", "/api/manage/media/status", { auth_token: token }, { retentionDays: 7 }));
+    expect(res.status).toBe(403);
+    // 越权访问均记审计（#110 模式）
+    expect(insertAuditLog).toHaveBeenCalledTimes(5);
+    const actions = vi.mocked(insertAuditLog).mock.calls.map((c) => c[0].action);
+    expect(actions.filter((a) => a === "media:query")).toHaveLength(3);
+    expect(actions.filter((a) => a === "media:cleanup")).toHaveLength(1);
+    expect(actions.filter((a) => a === "media:config-update")).toHaveLength(1);
   });
 
   it("status GET：返回扫描统计与保留期", async () => {
@@ -179,6 +189,8 @@ describe("媒体管理端点（#117）", () => {
     // items 为空 / 超 500
     let res = await CLEANUP_POST(makeRequest("POST", "/api/manage/media/orphans/cleanup", { auth_token: token }, { items: [] }));
     expect(res.status).toBe(400);
+    // 参数非法也记审计（failed）
+    expect(vi.mocked(insertAuditLog).mock.calls.some((c) => c[0].status === "failed" && c[0].action === "media:cleanup")).toBe(true);
     res = await CLEANUP_POST(
       makeRequest("POST", "/api/manage/media/orphans/cleanup", { auth_token: token }, { items: Array.from({ length: 501 }, (_, i) => ({ key: `k${i}.jpg`, storageId: 1 })) })
     );
@@ -204,7 +216,11 @@ describe("媒体管理端点（#117）", () => {
     expect(fakeStorage.delete).toHaveBeenCalledWith("avatar_orphan_a.jpg");
     expect(fakeStorage.delete).toHaveBeenCalledWith("avatar_orphan_a_thumb.jpg");
     expect(fakeStorage.exists).not.toHaveBeenCalled();
-    // 审计 media:cleanup
+    // 审计 media:cleanup：统计 + 被删 key 明细（metadata 为 JSON 字符串）
     expect(insertAuditLog).toHaveBeenCalled();
+    const auditCall = vi.mocked(insertAuditLog).mock.calls.at(-1)![0];
+    const auditMeta = JSON.parse(auditCall.metadata!);
+    expect(auditMeta).toMatchObject({ deleted: 1, skipped: 3, deletedSizeBytes: 100 });
+    expect(auditMeta.deletedKeys).toEqual(["avatar_orphan_a.jpg"]);
   });
 });
