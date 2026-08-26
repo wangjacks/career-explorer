@@ -179,6 +179,20 @@ describe("媒体管理端点（#117）", () => {
     expect(body.total).toBe(1);
     expect(body.items[0].key).toBe("avatar_used.jpg");
 
+    // 文件名搜索：独立维度（孤儿文件无关联学生，用文件名定位）
+    res = await FILES_GET(makeRequest("GET", "/api/manage/media/files?keyword=orphan", { auth_token: token }));
+    body = await res.json();
+    expect(body.total).toBe(1);
+    expect(body.items[0].key).toBe("avatar_orphan_a.jpg");
+    // 与孤儿状态组合：文件名搜索可用于孤儿筛选（学号搜索则无法命中孤儿）
+    res = await FILES_GET(makeRequest("GET", "/api/manage/media/files?status=orphan&keyword=new", { auth_token: token }));
+    body = await res.json();
+    expect(body.total).toBe(1);
+    expect(body.items[0].key).toBe("evaluation_new.jpg");
+    res = await FILES_GET(makeRequest("GET", "/api/manage/media/files?status=orphan&student=202505050101", { auth_token: token }));
+    body = await res.json();
+    expect(body.total).toBe(0); // 孤儿无关联学生，学号搜索必然为空
+
     // 非法分页参数
     res = await FILES_GET(makeRequest("GET", "/api/manage/media/files?page=0", { auth_token: token }));
     expect(res.status).toBe(400);

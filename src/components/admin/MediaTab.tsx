@@ -120,6 +120,8 @@ export default function MediaTab() {
   const [typeFilter, setTypeFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
   const [studentQuery, setStudentQuery] = useState("");
+  // 文件名搜索（#117）：独立维度，孤儿文件无关联学生时用此定位
+  const [keywordQuery, setKeywordQuery] = useState("");
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -153,6 +155,7 @@ export default function MediaTab() {
         if (typeFilter !== "all") params.set("type", typeFilter);
         if (statusFilter !== "all") params.set("status", statusFilter);
         if (studentQuery.trim()) params.set("student", studentQuery.trim());
+        if (keywordQuery.trim()) params.set("keyword", keywordQuery.trim());
         const res = await fetch(`/api/manage/media/files?${params.toString()}`);
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || "媒体列表加载失败");
@@ -167,7 +170,7 @@ export default function MediaTab() {
         setListLoading(false);
       }
     },
-    [typeFilter, statusFilter, studentQuery, pageSize]
+    [typeFilter, statusFilter, studentQuery, keywordQuery, pageSize]
   );
 
   /* eslint-disable react-hooks/set-state-in-effect -- initial load on mount */
@@ -452,6 +455,17 @@ export default function MediaTab() {
                   className="pl-8 pr-3 py-1.5 border border-gray-200 dark:border-gray-700 bg-card text-foreground rounded-lg text-sm w-56 focus:outline-none focus:ring-2 focus:ring-green-300"
                 />
               </div>
+              <div className="relative">
+                <Search className="w-4 h-4 text-gray-400 absolute left-2.5 top-1/2 -translate-y-1/2" aria-hidden />
+                <input
+                  type="text"
+                  value={keywordQuery}
+                  onChange={(e) => setKeywordQuery(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Enter") loadFiles(1); }}
+                  placeholder="搜索文件名..."
+                  className="pl-8 pr-3 py-1.5 border border-gray-200 dark:border-gray-700 bg-card text-foreground rounded-lg text-sm w-56 focus:outline-none focus:ring-2 focus:ring-green-300"
+                />
+              </div>
               <button
                 onClick={() => loadFiles(1)}
                 disabled={listLoading}
@@ -460,9 +474,9 @@ export default function MediaTab() {
                 <Search className="w-3.5 h-3.5" aria-hidden />
                 查询
               </button>
-              {(typeFilter !== "all" || statusFilter !== "all" || studentQuery.trim()) && (
+              {(typeFilter !== "all" || statusFilter !== "all" || studentQuery.trim() || keywordQuery.trim()) && (
                 <button
-                  onClick={() => { setTypeFilter("all"); setStatusFilter("all"); setStudentQuery(""); }}
+                  onClick={() => { setTypeFilter("all"); setStatusFilter("all"); setStudentQuery(""); setKeywordQuery(""); }}
                   className="text-xs text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
                 >
                   清除筛选
