@@ -80,8 +80,8 @@ function LoginForm() {
             <div className="w-12 h-12 rounded-xl bg-green-500 flex items-center justify-center mx-auto mb-3 shadow-sm">
               <Compass size={24} strokeWidth={2} className="text-white" />
             </div>
-            <h1 className="text-xl font-bold text-gray-900">登录</h1>
-            <p className="text-sm text-gray-500 mt-1">使用编号和密码登录（管理员 / 教师 / 学生）</p>
+            <h1 className="text-xl font-bold text-gray-900 dark:text-gray-100">登录</h1>
+            <p className="text-sm text-gray-500 mt-1 dark:text-gray-400">使用编号和密码登录（管理员 / 教师 / 学生）</p>
           </div>
 
           <div className="space-y-4">
@@ -89,7 +89,7 @@ function LoginForm() {
               value={userCode}
               onChange={(e) => setUserCode(e.target.value)}
               placeholder="请输入编号（如 10001 / 学号）"
-              className="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-green-300 focus:border-transparent"
+              className="w-full px-4 py-3 border border-gray-200 dark:border-gray-600 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-green-300 focus:border-transparent"
             />
             <input
               type="password"
@@ -97,7 +97,7 @@ function LoginForm() {
               onChange={(e) => setPassword(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && userCode && password && handleLogin()}
               placeholder="请输入密码"
-              className="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-green-300 focus:border-transparent"
+              className="w-full px-4 py-3 border border-gray-200 dark:border-gray-600 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-green-300 focus:border-transparent"
             />
           </div>
 
@@ -106,14 +106,14 @@ function LoginForm() {
           <button
             onClick={handleLogin}
             disabled={!userCode || !password || loading}
-            className="w-full py-3 bg-green-500 hover:bg-green-600 disabled:bg-gray-300 text-white font-medium rounded-xl transition-colors"
+            className="w-full py-3 bg-green-500 hover:bg-green-600 disabled:bg-gray-300 dark:disabled:bg-gray-600 text-white font-medium rounded-xl transition-colors"
           >
             {loading ? "登录中..." : "登录"}
           </button>
 
-          <p className="text-center text-sm text-gray-500">
+          <p className="text-center text-sm text-gray-500 dark:text-gray-400">
             还未激活账户？{" "}
-            <Link href="/activate" className="text-green-600 hover:underline">
+            <Link href="/activate" className="text-green-600 dark:text-green-400 hover:underline">
               激活账户
             </Link>
           </p>
