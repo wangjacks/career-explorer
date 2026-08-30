@@ -7,7 +7,7 @@ import { useSession } from "@/hooks/useSession";
 import NavigationBar from "@/components/NavigationBar";
 
 const inputClass =
-  "w-full px-4 py-3 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-green-300 focus:border-transparent";
+  "w-full px-4 py-3 border border-gray-200 dark:border-gray-600 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-green-300 focus:border-transparent";
 
 /**
  * 学生账户激活（两步单页，Issue #93）：
@@ -128,8 +128,8 @@ function ActivateForm() {
           {step === 1 ? (
             <>
               <div className="text-center">
-                <h1 className="text-xl font-bold text-gray-900">学生账户激活</h1>
-                <p className="text-sm text-gray-500 mt-1">
+                <h1 className="text-xl font-bold text-gray-900 dark:text-gray-100">学生账户激活</h1>
+                <p className="text-sm text-gray-500 mt-1 dark:text-gray-400">
                   账户须由教师导入名单后创建，请先核验身份信息
                 </p>
               </div>
@@ -165,7 +165,7 @@ function ActivateForm() {
               <button
                 onClick={handleVerify}
                 disabled={!step1Valid || loading}
-                className="w-full py-3 bg-green-500 hover:bg-green-600 disabled:bg-gray-300 text-white font-medium rounded-xl transition-colors"
+                className="w-full py-3 bg-green-500 hover:bg-green-600 disabled:bg-gray-300 dark:disabled:bg-gray-600 text-white font-medium rounded-xl transition-colors"
               >
                 {loading ? "核验中..." : "下一步"}
               </button>
@@ -173,10 +173,10 @@ function ActivateForm() {
           ) : (
             <>
               <div className="text-center">
-                <h1 className="text-xl font-bold text-gray-900">
+                <h1 className="text-xl font-bold text-gray-900 dark:text-gray-100">
                   您好，{verifiedName}同学！
                 </h1>
-                <p className="text-sm text-gray-500 mt-1">身份核验通过，请设置密码完成激活</p>
+                <p className="text-sm text-gray-500 mt-1 dark:text-gray-400">身份核验通过，请设置密码完成激活</p>
               </div>
 
               <div className="space-y-4">
@@ -211,7 +211,7 @@ function ActivateForm() {
               <button
                 onClick={handleActivate}
                 disabled={!step2Valid || loading}
-                className="w-full py-3 bg-green-500 hover:bg-green-600 disabled:bg-gray-300 text-white font-medium rounded-xl transition-colors"
+                className="w-full py-3 bg-green-500 hover:bg-green-600 disabled:bg-gray-300 dark:disabled:bg-gray-600 text-white font-medium rounded-xl transition-colors"
               >
                 {loading ? "激活中..." : "激活"}
               </button>
@@ -221,16 +221,16 @@ function ActivateForm() {
                   setVerifiedName(null);
                   goToStep(1);
                 }}
-                className="w-full text-center text-sm text-gray-500 hover:text-gray-700"
+                className="w-full text-center text-sm text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200"
               >
                 返回上一步修改信息
               </button>
             </>
           )}
 
-          <p className="text-center text-sm text-gray-500">
+          <p className="text-center text-sm text-gray-500 dark:text-gray-400">
             已有账号？{" "}
-            <Link href="/login" className="text-green-600 hover:underline">
+            <Link href="/login" className="text-green-600 dark:text-green-400 hover:underline">
               去登录
             </Link>
           </p>
