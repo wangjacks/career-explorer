@@ -111,7 +111,7 @@ This version has breaking changes — APIs, conventions, and file structure may 
 
 - 分支策略：`main`（稳定发布）+ `dev`（日常开发）+ 阶段特性分支（`feat/v2-foundation`、`feat/v2-features`、`feat/v2-panels`、`feat/v2-api-reorg`）
 - 日常 PR 目标 `dev`；阶段 PR 使用 **`--no-ff` 合并**（保留每个步骤的独立 commit 历史）
-- Commit 格式：`<type>: <中文描述>`（feat/fix/refactor/chore/docs/test）
+- Commit 格式：`<type>: <English description>`（feat/fix/refactor/chore/docs/test）；commit 描述必须使用纯英文
 - **所有 commit 必须 GPG 签名**（`commit.gpgsign=true`），失败则停止告知用户
 - **所有 tag 必须 GPG 签名**（annotated tag：`git tag -s -a`）
 - 发布流程（release 分支 → main）：
