@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
-import { ChevronRight, Copy, RefreshCw, FolderPlus } from "lucide-react";
+import { ChevronRight, Copy, QrCode, RefreshCw, FolderPlus, X } from "lucide-react";
 import ConfirmDialog from "./ConfirmDialog";
 
 interface ClassItem {
@@ -52,6 +52,9 @@ export default function ClassesTab({ mode, teacherUid }: Props) {
   // 确认对话框
   const [deleting, setDeleting] = useState<ClassItem | null>(null);
   const [resetting, setResetting] = useState<ClassItem | null>(null);
+  // 邀请海报预览（Issue #102）
+  const [posterClass, setPosterClass] = useState<ClassItem | null>(null);
+  const [posterTs, setPosterTs] = useState(0);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -274,6 +277,10 @@ export default function ClassesTab({ mode, teacherUid }: Props) {
                       onDelete={() => setDeleting(klass)}
                       onReset={() => setResetting(klass)}
                       onCopy={() => copyCode(klass.invitation_code)}
+                      onPoster={() => {
+                        setPosterClass(klass);
+                        setPosterTs(Date.now());
+                      }}
                     />
                   );
                 })}
@@ -345,6 +352,62 @@ export default function ClassesTab({ mode, teacherUid }: Props) {
         onConfirm={resetCode}
         onCancel={() => setResetting(null)}
       />
+
+      {/* 邀请海报预览（Issue #102） */}
+      {posterClass && (
+        <div
+          className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 px-4"
+          onClick={() => setPosterClass(null)}
+        >
+          <div
+            className="bg-card rounded-2xl shadow-xl max-w-md w-full p-6 space-y-4"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-start justify-between">
+              <div>
+                <h3 className="font-semibold text-foreground text-lg">邀请海报</h3>
+                <p className="text-sm text-muted mt-1">
+                  {posterClass.name} · 学生扫码进入激活页
+                </p>
+              </div>
+              <button
+                onClick={() => setPosterClass(null)}
+                className="text-muted hover:text-foreground"
+                aria-label="关闭"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="rounded-xl overflow-hidden border border-border-soft bg-gray-50 dark:bg-gray-800 flex justify-center">
+              <img
+                src={`/api/manage/classes/${posterClass.id}/poster?v=${posterTs}`}
+                alt="班级邀请海报"
+                className="w-full max-w-[280px]"
+              />
+            </div>
+
+            <p className="text-xs text-muted leading-relaxed">
+              邀请码已嵌入二维码；重置邀请码后旧海报将立即失效，请重新生成后再转发。
+            </p>
+
+            <div className="flex gap-2 pt-1">
+              <button
+                onClick={() => setPosterClass(null)}
+                className="flex-1 py-2 bg-gray-100 hover:bg-gray-200 dark:bg-gray-800 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-200 text-sm font-medium rounded-lg transition-colors"
+              >
+                关闭
+              </button>
+              <a
+                href={`/api/manage/classes/${posterClass.id}/poster?download=1`}
+                className="flex-1 py-2 bg-primary hover:bg-primary-strong text-white text-sm font-medium rounded-lg transition-colors text-center"
+              >
+                下载海报
+              </a>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -360,6 +423,7 @@ function FragmentRow({
   onDelete,
   onReset,
   onCopy,
+  onPoster,
 }: {
   klass: ClassItem;
   members: StudentItem[];
@@ -371,6 +435,7 @@ function FragmentRow({
   onDelete: () => void;
   onReset: () => void;
   onCopy: () => void;
+  onPoster: () => void;
 }) {
   return (
     <>
@@ -402,9 +467,14 @@ function FragmentRow({
               <Copy className="w-3.5 h-3.5" />
             </button>
             {modifiable && (
-              <button onClick={onReset} className="text-muted hover:text-amber-600" aria-label="重置邀请码">
-                <RefreshCw className="w-3.5 h-3.5" />
-              </button>
+              <>
+                <button onClick={onPoster} className="text-muted hover:text-green-600" aria-label="生成邀请海报">
+                  <QrCode className="w-3.5 h-3.5" />
+                </button>
+                <button onClick={onReset} className="text-muted hover:text-amber-600" aria-label="重置邀请码">
+                  <RefreshCw className="w-3.5 h-3.5" />
+                </button>
+              </>
             )}
           </span>
         </td>

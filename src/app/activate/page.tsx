@@ -31,6 +31,17 @@ function ActivateForm() {
 
   const step = searchParams.get("step") === "2" && verifiedName ? 2 : 1;
 
+  // 二维码预填邀请码（Issue #102）：仅首次生效，不覆盖用户已输入；
+  // 激活安全仍由服务端三要素核验兜底，预填不构成绕过。
+  /* eslint-disable react-hooks/set-state-in-effect -- 二维码跳转预填（仅一次） */
+  useEffect(() => {
+    const code = searchParams.get("invite");
+    if (code && /^[A-Za-z0-9]{4,32}$/.test(code)) {
+      setInviteCode((prev) => prev || code);
+    }
+  }, [searchParams]);
+  /* eslint-enable react-hooks/set-state-in-effect */
+
   const goToStep = (next: 1 | 2) => {
     setError("");
     router.replace(next === 2 ? "/activate?step=2" : "/activate");

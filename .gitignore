@@ -55,3 +55,6 @@ next-env.d.ts
 
 # IDE/tool local knowledge
 .qoder/
+
+# 本地 issue 文档（不提交）
+/_notes

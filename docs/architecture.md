@@ -21,7 +21,7 @@
 |---|---|
 | `/` | 首页 |
 | `/login` | 登录页（三角色统一） |
-| `/activate` | 学生账户激活（学号 + 姓名 + 邀请码三要素核验） |
+| `/activate` | 学生账户激活（学号 + 姓名 + 邀请码三要素核验；支持 `?invite=` 二维码预填，仅预填不绕过校验） |
 | `/form/create-profile?step=` | 学生档案创建表单（单路由多步：登录门 → 标签 → 词云 → 评价 → 形象 → 确认 → 完成），登录优先 |
 | `/dashboard/admin` | 管理面板（三组两级导航：数据中心 / 用户管理 / 系统设置） |
 | `/dashboard/teacher` | 教师面板（三组两级导航：主页 / 数据中心 / 数据管理） |
@@ -53,7 +53,7 @@
 | `/api/manage/settings` | 禁止 | 数据源配置读写 |
 | `/api/manage/backup` | 禁止 | 备份下载 / 恢复 |
 | `/api/manage/test-db` | 禁止 | 数据库连接测试 |
-| `/api/manage/classes`（含 `/[id]`、`/[id]/reset-code`） | 全方法 | 班级 CRUD + 邀请码 |
+| `/api/manage/classes`（含 `/[id]`、`/[id]/reset-code`、`/[id]/poster`） | 全方法 | 班级 CRUD + 邀请码 + 邀请海报 PNG（#102） |
 | `/api/manage/students`（含 `/batch-password`） | 全方法 | 学生管理 + 批量改密 |
 | `/api/manage/tags`（含 `/batch`） | 全方法 | 预设标签管理（CRUD / 物理删除 / 批量导入 / 排序） |
 | `/api/manage/profile-config` | 全方法 | 档案功能配置（自定义标签上限 #94、提交截止时间 #96、上传大小上限 #111） |
@@ -110,6 +110,14 @@
 管理端：登录 → 数据中心 → 用户管理（学生/教师/班级/标签）→ 系统设置（数据源/功能设置）
 ```
 
+## 班级邀请海报（#102）
+
+- **入口**：管理/教师面板「班级管理」列表，有权限（admin 全权 / teacher 本人创建）的班级可生成海报；`GET /api/manage/classes/[id]/poster` 返回 PNG（`?download=1` 为附件下载）
+- **生成链路**：`src/lib/invite-poster.ts` 用 `qrcode` 生成二维码 SVG，拼入海报 SVG（班级名称 + 邀请说明 + 品牌配色），再由 `sharp` 栅格化为 600×800 PNG；二维码基址取 `NEXT_PUBLIC_APP_URL`，未配置时回退请求 origin
+- **安全边界**：二维码只携带 `/activate?invite=CODE`，激活页仅做表单预填，服务端 `resolveActivation` 仍强制学号 + 姓名 + 班级归属三要素一致；邀请码重置后旧码在数据库即失效，旧海报二维码无法通过校验；海报不含学生个人信息、管理员凭据等敏感数据
+- **文本渲染依赖**：海报中文由服务端系统字体渲染（SVG 多字体回退栈）；Linux 部署须安装中文字体（如 `fonts-noto-cjk`），见 DEPLOY.md
+- **审计**：生成海报计入操作审计（`class:poster`），邀请码本身不落审计日志（#110 凭据类数据不落库）
+
 ## 守护进程
 
 PM2 管理。重启命令：
@@ -122,4 +130,4 @@ pm2 save
 ## 配置文件
 
 - `db-config.json` — 数据库连接信息（本地文件，gitignored）
-- `.env.local` — 环境变量（必需 `JWT_SECRET`，可选 `FONT_CDN_PREFIX`；#111 起可选 `S3_{后端ID}_ACCESS_KEY` / `S3_{后端ID}_SECRET_KEY` 对象存储凭据；gitignored），模板见 `.env.example`
+- `.env.local` — 环境变量（必需 `JWT_SECRET`，可选 `FONT_CDN_PREFIX`、`NEXT_PUBLIC_APP_URL`（#102 邀请海报基址）；#111 起可选 `S3_{后端ID}_ACCESS_KEY` / `S3_{后端ID}_SECRET_KEY` 对象存储凭据；gitignored），模板见 `.env.example`
