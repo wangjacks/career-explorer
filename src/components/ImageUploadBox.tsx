@@ -1,6 +1,7 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { Image as ImageIcon } from "lucide-react";
 import { toast } from "sonner";
 import { safeImageUrl } from "@/lib/sanitize";
 
@@ -29,6 +30,16 @@ export default function ImageUploadBox({
   const [preview, setPreview] = useState<string | null>(() => safeImageUrl(initialUrl));
   const [pending, setPending] = useState(false);
 
+  // 外部恢复预览（如表单草稿从 IndexedDB 异步还原）：
+  // blob: 为浏览器本地生成的对象 URL，天然安全直接采用；其他协议仍走校验。
+  // 用户刚选图（pending）时不覆盖。
+  /* eslint-disable react-hooks/set-state-in-effect -- 同步外部传入的初始图到内部预览，属 effect 正当用法 */
+  useEffect(() => {
+    if (pending) return;
+    setPreview(initialUrl?.startsWith("blob:") ? initialUrl : safeImageUrl(initialUrl));
+  }, [initialUrl, pending]);
+  /* eslint-enable react-hooks/set-state-in-effect */
+
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -56,11 +67,7 @@ export default function ImageUploadBox({
           <img src={preview} alt="预览" className="w-full h-full object-contain" />
         ) : (
           <div className="flex flex-col items-center gap-2 text-gray-400 px-4 text-center">
-            <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-              <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
-              <circle cx="8.5" cy="8.5" r="1.5" />
-              <polyline points="21 15 16 10 5 21" />
-            </svg>
+            <ImageIcon size={36} strokeWidth={1.5} />
             <span className="text-xs">{emptyHint}</span>
           </div>
         )}

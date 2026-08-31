@@ -66,7 +66,7 @@ chore: TypeScript 升级到 6.0.3
 ## PR 规范
 
 - **目标分支：** 始终 PR 到 `dev`，不直接 PR 到 `main`
-- **合并方式：** 使用 **Squash and Merge**，保持 dev 历史干净
+- **合并方式：** 使用 **Create a merge commit**。理由：PR 内 commit 按变更解耦原则原子化（独立可构建、单一主题、GPG 签名），merge commit 保留原子粒度与**签名验证状态**（Squash 压缩丢失粒度、Rebase 重放后签名失效）；代价是 dev 历史存在分叉，对本项目规模可接受。仅当 PR 内为草稿式提交（wip/多次修正）时改用 Squash and Merge 收敛
 - **PR body：** 包含修复内容、涉及文件、验收清单，末尾加 `Closes #xx` 关联 Issue
 - **PR 标题：** 与 commit 格式一致，如 `fix: 修复路径穿越漏洞 (#15)`
 
@@ -91,9 +91,9 @@ Closes #15
 
 ## Issue 管理
 
-- **标题格式：** `[bug]` / `[feat]` / `[refactor]` 前缀 + 中文描述
-- **标签：** `bug`、`security`、`enhancement` 等
-- **Milestone：** 关联版本里程碑（如 `v2.0.0`）
+- Issue 标题保留可选的优先级前缀，例如 `[P1-A] 管理后台操作审计日志`；类型不写入标题
+- Issue 类型、优先级和业务领域通过现有 `type:*`、`priority:*`、`area:*` Label 表达
+- Issue 编写、脱敏、Milestone 和验收标准遵循 `docs/issue-standard.md`
 - **关闭时机：** PR 合并到 `dev` 后**手动关闭** Issue（因默认分支是 main，`Closes #xx` 不会自动触发）
 - **最终关闭：** dev 合并到 main 的 PR 中统一写 `Closes #xx` 作为备份
 
@@ -145,7 +145,8 @@ gh release create v2.0.0 --title "v2.0.0" --notes "变更内容..."
 
 1. `npm ci`
 2. `npm run lint`
-3. `npm run build`
+3. `npm test`
+4. `npm run build`
 
 CI workflow 遵循最小权限原则：`permissions: contents: read`。
 
@@ -163,6 +164,9 @@ CI workflow 遵循最小权限原则：`permissions: contents: read`。
 
 | 变量 | 说明 |
 |---|---|
-| `ADMIN_PASSWORD` | 教师面板登录密码 |
-| `PORT` | 应用端口（默认 3000） |
-| `ALLOWED_ORIGINS` | 允许的跨域来源（逗号分隔） |
+| `JWT_SECRET` | JWT 签名密钥（生产必需；未配置会回退到代码内置的不安全默认值） |
+| `FONT_CDN_PREFIX` | 可选：Google Fonts 镜像前缀（构建时生效，如 https://fonts.loli.net） |
+| `ALLOWED_ORIGINS` | 仅 dev 模式：Next.js 开发服务器 origin 白名单（逗号分隔），生产无效 |
+| `PORT` | 应用端口（Next.js 内置，默认 3000） |
+
+模板文件为 `.env.example`（部署时复制为 `.env.local` 填写）；部署流程见 DEPLOY.md。

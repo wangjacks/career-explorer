@@ -117,6 +117,16 @@ describe("proxy", () => {
       expect(postRes.status).toBe(403);
     });
 
+    it("should allow teacher GET-only on audit-logs（#110 审计只读）", async () => {
+      const token = await signToken({ role: "teacher", uid: 3, name: "测试教师" });
+      const getRes = await proxy(createRequest("/api/manage/audit-logs", { auth_token: token }, "GET"));
+      expect(getRes.status).toBe(200);
+      const postRes = await proxy(createRequest("/api/manage/audit-logs", { auth_token: token }, "POST"));
+      expect(postRes.status).toBe(403);
+      const deleteRes = await proxy(createRequest("/api/manage/audit-logs", { auth_token: token }, "DELETE"));
+      expect(deleteRes.status).toBe(403);
+    });
+
     it("should return 403 for teacher on admin-only routes", async () => {
       const token = await signToken({ role: "teacher", uid: 3, name: "测试教师" });
       for (const path of ["/api/manage/teachers", "/api/manage/settings", "/api/manage/backup", "/api/manage/test-db"]) {

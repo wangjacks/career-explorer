@@ -2,7 +2,10 @@
 
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { toast } from "sonner";
+import { Tag, ChevronDown } from "lucide-react";
 import ConfirmDialog from "./ConfirmDialog";
+import StorageImage from "@/components/StorageImage";
+import { useTagColorMap } from "@/hooks/useTagColorMap";
 import type { Stats, PagedData, Profile } from "@/hooks/useAdminAuth";
 
 interface Props {
@@ -14,6 +17,18 @@ interface Props {
 type ProfilesSortKey = "studentId" | "studentName" | "createdAt";
 type SortDir = "asc" | "desc";
 
+/** 版本历史行（#95）：详情弹窗内展示 */
+interface SubmissionHistoryRow {
+  id: number;
+  version: number;
+  tags: string[];
+  avatar_url: string;
+  evaluation_url: string;
+  storage_id: number;
+  submitted_at: string;
+  is_current: number;
+}
+
 function SortIcon({ active, dir }: { active: boolean; dir: SortDir }) {
   return (
     <span className={`ml-1 inline-block w-3 text-xs ${active ? "text-green-600" : "text-gray-300"}`}>
@@ -24,6 +39,9 @@ function SortIcon({ active, dir }: { active: boolean; dir: SortDir }) {
 
 /** 已提交档案数据列表：分页、搜索、标签筛选、详情查看、单个/批量删除 */
 export default function ProfilesTab({ loadProfiles, loadStats }: Props) {
+  // 标签三色映射（#95）：详情弹窗版本历史标签按分类着色
+  const tagColorMap = useTagColorMap();
+
   const [stats, setStats] = useState<Stats | null>(null);
   const [paged, setPaged] = useState<PagedData | null>(null);
   const [page, setPage] = useState(1);
@@ -37,6 +55,12 @@ export default function ProfilesTab({ loadProfiles, loadStats }: Props) {
   const [tagDropdownOpen, setTagDropdownOpen] = useState(false);
   const [tagSearch, setTagSearch] = useState("");
   const tagDropdownRef = useRef<HTMLDivElement>(null);
+  // 版本历史（#95）：详情弹窗内折叠展示
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [historyRows, setHistoryRows] = useState<SubmissionHistoryRow[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  // 历史请求序号（review 修复）：快速切换学生时丢弃过期响应
+  const historySeqRef = useRef(0);
 
   // 保留最新传入的 load 函数引用，初始加载 effect 仅 mount 时执行
   const loadProfilesRef = useRef(loadProfiles);
@@ -190,11 +214,35 @@ export default function ProfilesTab({ loadProfiles, loadStats }: Props) {
     }
   };
 
+  // 加载版本历史（#95）：首次展开详情弹窗时拉取；序号 guard 防旧响应覆盖新选择
+  const loadHistory = async (userId: number) => {
+    const seq = ++historySeqRef.current;
+    setHistoryLoading(true);
+    try {
+      const res = await fetch(`/api/manage/profiles/submissions?userId=${userId}`);
+      const data = await res.json();
+      if (seq !== historySeqRef.current) return;
+      if (res.ok) setHistoryRows(data.submissions || []);
+    } catch (err) {
+      if (seq !== historySeqRef.current) return;
+      console.error("Failed to load submission history:", err);
+    } finally {
+      if (seq === historySeqRef.current) setHistoryLoading(false);
+    }
+  };
+
+  const openDetail = (p: Profile) => {
+    setDetail(p);
+    setHistoryOpen(false);
+    setHistoryRows([]);
+    if (p.userId != null) void loadHistory(p.userId);
+  };
+
   return (
-    <div className="bg-white rounded-xl border border-gray-100">
-      <div className="px-5 py-4 border-b border-gray-100 flex flex-col gap-3">
+    <div className="bg-card rounded-xl border border-gray-100 dark:border-gray-700">
+      <div className="px-5 py-4 border-b border-gray-100 dark:border-gray-700 flex flex-col gap-3">
         <div className="flex items-center justify-between">
-          <h2 className="font-semibold text-gray-800">
+          <h2 className="font-semibold text-gray-800 dark:text-gray-100">
             数据列表 {paged && `(${paged.total} 条)`}
           </h2>
           {selected.size > 0 && (
@@ -212,7 +260,7 @@ export default function ProfilesTab({ loadProfiles, loadStats }: Props) {
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="搜索学号/姓名..."
-            className="px-3 py-1.5 border border-gray-200 rounded-lg text-sm w-48 focus:outline-none focus:ring-2 focus:ring-green-300"
+            className="px-3 py-1.5 border border-gray-200 dark:border-gray-700 bg-card text-foreground rounded-lg text-sm w-48 focus:outline-none focus:ring-2 focus:ring-green-300"
           />
           {/* Tag dropdown */}
           <div className="relative" ref={tagDropdownRef}>
@@ -220,31 +268,26 @@ export default function ProfilesTab({ loadProfiles, loadStats }: Props) {
               onClick={() => setTagDropdownOpen((v) => !v)}
               className={`px-3 py-1.5 rounded-lg text-sm font-medium border transition-colors flex items-center gap-1.5 ${
                 selectedTags.size > 0
-                  ? "bg-green-50 text-green-700 border-green-200"
-                  : "bg-white text-gray-600 border-gray-200 hover:border-gray-300"
+                  ? "bg-green-50 dark:bg-green-900/30 text-green-700 dark:text-green-300 border-green-200 dark:border-green-800"
+                  : "bg-card text-gray-600 dark:text-gray-300 border-gray-200 dark:border-gray-700 hover:border-gray-300"
               }`}
             >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9.568 3H5.25A2.25 2.25 0 003 5.25v4.318c0 .597.237 1.17.659 1.591l9.581 9.581c.699.699 1.78.872 2.607.33a18.095 18.095 0 005.223-5.223c.542-.827.369-1.908-.33-2.607L11.16 3.66A2.25 2.25 0 009.568 3z" />
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M6 6h.008v.008H6V6z" />
-              </svg>
+              <Tag className="w-4 h-4" strokeWidth={1.5} />
               标签筛选
               {selectedTags.size > 0 && (
                 <span className="ml-0.5 px-1.5 py-0.5 bg-green-500 text-white text-xs rounded-full leading-none">{selectedTags.size}</span>
               )}
-              <svg className={`w-3 h-3 transition-transform ${tagDropdownOpen ? "rotate-180" : ""}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-              </svg>
+              <ChevronDown className={`w-3 h-3 transition-transform ${tagDropdownOpen ? "rotate-180" : ""}`} />
             </button>
             {tagDropdownOpen && (
-              <div className="absolute top-full left-0 mt-1 w-64 bg-white rounded-xl border border-gray-200 shadow-lg z-30">
-                <div className="p-2 border-b border-gray-100">
+              <div className="absolute top-full left-0 mt-1 w-64 bg-card rounded-xl border border-gray-200 dark:border-gray-700 shadow-lg z-30">
+                <div className="p-2 border-b border-gray-100 dark:border-gray-700">
                   <input
                     type="text"
                     value={tagSearch}
                     onChange={(e) => setTagSearch(e.target.value)}
                     placeholder="搜索标签..."
-                    className="w-full px-2.5 py-1.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-300"
+                    className="w-full px-2.5 py-1.5 border border-gray-200 dark:border-gray-700 bg-card text-foreground rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-300"
                     autoFocus
                   />
                 </div>
@@ -256,7 +299,7 @@ export default function ProfilesTab({ loadProfiles, loadStats }: Props) {
                         key={t.tag}
                         onClick={() => toggleTag(t.tag)}
                         className={`w-full text-left px-3 py-1.5 text-sm flex items-center justify-between transition-colors ${
-                          isActive ? "bg-green-50 text-green-700" : "hover:bg-gray-50 text-gray-700"
+                          isActive ? "bg-green-50 dark:bg-green-900/30 text-green-700 dark:text-green-300" : "hover:bg-gray-50 dark:hover:bg-gray-800 text-gray-700 dark:text-gray-200"
                         }`}
                       >
                         <span className="flex items-center gap-2 truncate">
@@ -280,7 +323,7 @@ export default function ProfilesTab({ loadProfiles, loadStats }: Props) {
           </div>
           {/* Selected tags as removable pills */}
           {Array.from(selectedTags).map((tag) => (
-            <span key={tag} className="inline-flex items-center gap-1 px-2 py-0.5 bg-green-100 text-green-700 rounded-full text-xs font-medium">
+            <span key={tag} className="inline-flex items-center gap-1 px-2 py-0.5 bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 rounded-full text-xs font-medium">
               {tag}
               <button onClick={() => toggleTag(tag)} className="hover:text-green-900 leading-none">×</button>
             </span>
@@ -298,7 +341,7 @@ export default function ProfilesTab({ loadProfiles, loadStats }: Props) {
       <div className="overflow-x-auto rounded-b-xl">
         <table className="w-full text-sm">
           <thead>
-            <tr className="bg-gray-50 text-left text-gray-500">
+            <tr className="bg-gray-50 dark:bg-gray-800 text-left text-gray-500 dark:text-gray-400">
               <th className="px-5 py-3 font-medium w-10">
                 <input
                   type="checkbox"
@@ -316,11 +359,11 @@ export default function ProfilesTab({ loadProfiles, loadStats }: Props) {
               <th className="px-5 py-3 font-medium">操作</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-gray-50">
+          <tbody className="divide-y divide-gray-50 dark:divide-gray-700/50">
             {filteredData?.data.map((p) => (
               <tr
                 key={p.studentId}
-                className={`hover:bg-gray-50/50 ${selected.has(p.studentId) ? "bg-blue-50/30" : ""}`}
+                className={`hover:bg-gray-50/50 dark:hover:bg-gray-800/40 ${selected.has(p.studentId) ? "bg-blue-50/30 dark:bg-blue-900/20" : ""}`}
               >
                 <td className="px-5 py-3">
                   <input
@@ -330,18 +373,18 @@ export default function ProfilesTab({ loadProfiles, loadStats }: Props) {
                     className="rounded border-gray-300"
                   />
                 </td>
-                <td className="px-5 py-3 font-mono text-xs text-gray-600">{p.studentId}</td>
-                <td className="px-5 py-3 text-gray-700">{p.studentName || "-"}</td>
+                <td className="px-5 py-3 font-mono text-xs text-gray-600 dark:text-gray-300">{p.studentId}</td>
+                <td className="px-5 py-3 text-gray-700 dark:text-gray-200">{p.studentName || "-"}</td>
                 <td className="px-5 py-3">
                   {p.avatarUrl ? (
-                    <img src={p.avatarUrl} alt="" className="w-8 h-8 rounded-full object-cover" />
+                    <StorageImage url={p.avatarUrl} storageId={p.storageId} alt="" thumbnail className="w-8 h-8 rounded-full object-cover" />
                   ) : (
                     <span className="text-gray-400 text-xs">无</span>
                   )}
                 </td>
                 <td className="px-5 py-3">
                   {p.evaluationUrl ? (
-                    <img src={p.evaluationUrl} alt="" className="w-8 h-8 rounded object-cover" />
+                    <StorageImage url={p.evaluationUrl} storageId={p.storageId} alt="" thumbnail className="w-8 h-8 rounded object-cover" />
                   ) : (
                     <span className="text-gray-400 text-xs">无</span>
                   )}
@@ -349,7 +392,7 @@ export default function ProfilesTab({ loadProfiles, loadStats }: Props) {
                 <td className="px-5 py-3">
                   <div className="flex flex-wrap gap-1">
                     {p.tags.slice(0, 3).map((t) => (
-                      <span key={t} className="px-2 py-0.5 bg-green-50 text-green-700 rounded text-xs">
+                      <span key={t} className="px-2 py-0.5 bg-green-50 dark:bg-green-900/30 text-green-700 dark:text-green-300 rounded text-xs">
                         {t}
                       </span>
                     ))}
@@ -361,7 +404,7 @@ export default function ProfilesTab({ loadProfiles, loadStats }: Props) {
                 <td className="px-5 py-3 text-gray-500 text-xs">{p.createdAt}</td>
                 <td className="px-5 py-3">
                   <div className="flex items-center gap-2">
-                    <button onClick={() => setDetail(p)}
+                    <button onClick={() => openDetail(p)}
                       className="text-green-600 hover:text-green-700 text-xs font-medium">查看</button>
                     <button onClick={() => setConfirmDelete([p.studentId])}
                       className="text-red-500 hover:text-red-600 text-xs font-medium">删除</button>
@@ -396,50 +439,106 @@ export default function ProfilesTab({ loadProfiles, loadStats }: Props) {
       {detail && (
         <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 px-4"
           onClick={() => setDetail(null)}>
-          <div className="bg-white rounded-2xl shadow-xl max-w-md w-full p-6 space-y-4 max-h-[85vh] overflow-y-auto"
+          <div className="bg-card rounded-2xl shadow-xl max-w-md w-full p-6 space-y-4 max-h-[85vh] overflow-y-auto"
             onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between">
-              <h3 className="font-semibold text-gray-800 text-lg">档案详情</h3>
-              <button onClick={() => setDetail(null)} className="text-gray-400 hover:text-gray-600 text-xl">×</button>
+              <h3 className="font-semibold text-gray-800 dark:text-gray-100 text-lg">档案详情</h3>
+              <button onClick={() => setDetail(null)} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 text-xl">×</button>
             </div>
 
             <div className="grid grid-cols-2 gap-3 text-sm">
-              <div className="bg-gray-50 rounded-lg p-3">
-                <p className="text-xs text-gray-500">学号</p>
-                <p className="font-mono font-medium text-gray-800 mt-0.5">{detail.studentId}</p>
+              <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-3">
+                <p className="text-xs text-gray-500 dark:text-gray-400">学号</p>
+                <p className="font-mono font-medium text-gray-800 dark:text-gray-100 mt-0.5">{detail.studentId}</p>
               </div>
-              <div className="bg-gray-50 rounded-lg p-3">
-                <p className="text-xs text-gray-500">姓名</p>
-                <p className="font-medium text-gray-800 mt-0.5">{detail.studentName || "-"}</p>
+              <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-3">
+                <p className="text-xs text-gray-500 dark:text-gray-400">姓名</p>
+                <p className="font-medium text-gray-800 dark:text-gray-100 mt-0.5">{detail.studentName || "-"}</p>
               </div>
-              <div className="bg-gray-50 rounded-lg p-3 col-span-2">
-                <p className="text-xs text-gray-500">提交时间</p>
-                <p className="font-medium text-gray-800 mt-0.5">{detail.createdAt}</p>
+              <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-3 col-span-2">
+                <p className="text-xs text-gray-500 dark:text-gray-400">提交时间</p>
+                <p className="font-medium text-gray-800 dark:text-gray-100 mt-0.5">{detail.createdAt}</p>
               </div>
             </div>
 
             {detail.avatarUrl && (
               <div>
-                <p className="text-xs text-gray-500 mb-2">虚拟形象</p>
-                <img src={detail.avatarUrl} alt="" className="w-20 h-20 rounded-xl object-cover border border-gray-100" />
+                <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">虚拟形象</p>
+                <StorageImage url={detail.avatarUrl} storageId={detail.storageId} alt="" className="w-20 h-20 rounded-xl object-cover border border-gray-100" />
               </div>
             )}
 
             <div>
-              <p className="text-xs text-gray-500 mb-2">标签（{detail.tags.length}个）</p>
+              <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">标签（{detail.tags.length}个）</p>
               <div className="flex flex-wrap gap-1.5">
                 {detail.tags.map((t) => (
-                  <span key={t} className="px-2.5 py-1 bg-green-50 text-green-700 rounded-full text-xs font-medium">{t}</span>
+                  <span key={t} className="px-2.5 py-1 bg-green-50 dark:bg-green-900/30 text-green-700 dark:text-green-300 rounded-full text-xs font-medium">{t}</span>
                 ))}
               </div>
             </div>
 
             {detail.evaluationUrl && (
               <div>
-                <p className="text-xs text-gray-500 mb-2">评价词云</p>
-                <img src={detail.evaluationUrl} alt="" className="w-full rounded-xl border border-gray-100" />
+                <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">评价词云</p>
+                <StorageImage url={detail.evaluationUrl} storageId={detail.storageId} alt="" className="w-full rounded-xl border border-gray-100" />
               </div>
             )}
+
+            {/* 版本历史（#95）：折叠展示，打开详情时已预取 */}
+            <div className="border-t border-gray-100 dark:border-gray-700 pt-3">
+              <button
+                onClick={() => setHistoryOpen((v) => !v)}
+                className="w-full flex items-center justify-between text-sm font-medium text-gray-700 dark:text-gray-200"
+                aria-expanded={historyOpen}
+              >
+                <span>版本历史（{historyRows.length}）</span>
+                <span className="text-gray-400">{historyOpen ? "收起" : "展开"}</span>
+              </button>
+              {historyOpen && (
+                <div className="mt-3 space-y-2">
+                  {historyLoading ? (
+                    <p className="text-sm text-gray-400">加载中...</p>
+                  ) : historyRows.length === 0 ? (
+                    <p className="text-sm text-gray-400">暂无版本记录</p>
+                  ) : (
+                    historyRows.map((h) => (
+                      <div key={h.id} className="border border-gray-100 dark:border-gray-700 rounded-lg p-2.5 space-y-1.5">
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs font-semibold text-gray-700 dark:text-gray-200">版本 {h.version}</span>
+                          {h.is_current === 1 ? (
+                            <span className="px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-green-50 text-green-600 dark:bg-green-900/30 dark:text-green-400">当前</span>
+                          ) : (
+                            <span className="px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-400">历史</span>
+                          )}
+                          <span className="ml-auto text-[10px] text-gray-400">{h.submitted_at}</span>
+                        </div>
+                        <div className="flex flex-wrap gap-1">
+                          {h.tags.length === 0 ? (
+                            <span className="text-[10px] text-gray-400">暂无标签</span>
+                          ) : (
+                            h.tags.map((t) => (
+                              <span key={t} className={`px-1.5 py-0.5 rounded text-[10px] ${tagColorMap.get(t) ?? "bg-green-50 dark:bg-green-900/30 text-green-700 dark:text-green-300"}`}>
+                                {t}
+                              </span>
+                            ))
+                          )}
+                        </div>
+                        {(h.avatar_url || h.evaluation_url) && (
+                          <div className="flex gap-1.5">
+                            {h.avatar_url && (
+                              <StorageImage url={h.avatar_url} storageId={h.storage_id} alt="" className="w-8 h-8 rounded object-cover border border-gray-100 dark:border-gray-700" />
+                            )}
+                            {h.evaluation_url && (
+                              <StorageImage url={h.evaluation_url} storageId={h.storage_id} alt="" className="h-8 w-14 rounded object-cover border border-gray-100 dark:border-gray-700" />
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    ))
+                  )}
+                </div>
+              )}
+            </div>
 
             <div className="flex gap-2 pt-2">
               <button onClick={() => setDetail(null)}

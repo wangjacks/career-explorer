@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getTags, insertTag, setTagActive, updateTag } from "@/lib/db";
+import { getTags, insertTag, updateTag, deleteTags } from "@/lib/db";
 import type { TagRow } from "@/lib/db";
+import { getAuditActor, getRequestContext, recordAudit } from "@/lib/audit";
 
 type TagType = "category" | "tag";
 
@@ -29,6 +30,13 @@ function errorResponse(err: unknown, fallback: string) {
   );
 }
 
+/** 一级分类重名校验（#94 补充：一级分类不得重名；唯一索引对 NULL parent_id 不生效，须应用层校验） */
+function findDuplicateCategory(tags: TagRow[], name: string, excludeId?: number): boolean {
+  return tags.some(
+    (t) => t.type === "category" && t.class_id === 0 && t.name === name && t.id !== excludeId
+  );
+}
+
 export async function GET() {
   try {
     return NextResponse.json({ data: await getTags() });
@@ -39,6 +47,8 @@ export async function GET() {
 }
 
 export async function POST(request: NextRequest) {
+  const { ip, user_agent } = getRequestContext(request);
+  const actor = await getAuditActor(request);
   try {
     const body = await request.json() as Record<string, unknown>;
     const name = String(body.name ?? "").trim();
@@ -51,12 +61,27 @@ export async function POST(request: NextRequest) {
     if (parentId === undefined) {
       return NextResponse.json({ error: "请选择有效的一级分类" }, { status: 400 });
     }
+    if (type === "category" && findDuplicateCategory(tags, name)) {
+      void recordAudit({
+        ...actor, action: "tag:create", method: "POST", path: "/api/manage/tags",
+        resource_type: "tag", resource_id: null,
+        status: "failed", error_message: "分类名称已存在", ip, user_agent,
+        metadata: { name, type },
+      });
+      return NextResponse.json({ error: "分类名称已存在" }, { status: 409 });
+    }
     const categoryOrder = parseOrder(body.category_order);
     const sortOrder = parseOrder(body.sort_order);
     if (Number.isNaN(categoryOrder) || Number.isNaN(sortOrder)) {
       return NextResponse.json({ error: "排序值无效" }, { status: 400 });
     }
     const id = await insertTag({ name, type, parent_id: parentId, category_order: categoryOrder, sort_order: sortOrder });
+    void recordAudit({
+      ...actor, action: "tag:create", method: "POST", path: "/api/manage/tags",
+      resource_type: "tag", resource_id: String(id),
+      status: "success", error_message: null, ip, user_agent,
+      metadata: { name, type },
+    });
     return NextResponse.json({ id }, { status: 201 });
   } catch (err) {
     console.error("Admin tags POST error:", err);
@@ -65,6 +90,8 @@ export async function POST(request: NextRequest) {
 }
 
 export async function PATCH(request: NextRequest) {
+  const { ip, user_agent } = getRequestContext(request);
+  const actor = await getAuditActor(request);
   try {
     const body = await request.json() as Record<string, unknown>;
     const id = Number(body.id);
@@ -74,11 +101,6 @@ export async function PATCH(request: NextRequest) {
     const tags = await getTags();
     const current = tags.find((tag) => tag.id === id);
     if (!current) return NextResponse.json({ error: "标签不存在" }, { status: 404 });
-
-    if (typeof body.active === "boolean") {
-      await setTagActive(id, body.active);
-      return NextResponse.json({ ok: true });
-    }
 
     const parentId = body.parent_id === undefined
       ? current.parent_id
@@ -90,12 +112,21 @@ export async function PATCH(request: NextRequest) {
     if (name !== undefined && (!name || name.length > 50)) {
       return NextResponse.json({ error: "标签名称无效" }, { status: 400 });
     }
+    if (current.type === "category" && name !== undefined && name !== current.name && findDuplicateCategory(tags, name, id)) {
+      return NextResponse.json({ error: "分类名称已存在" }, { status: 409 });
+    }
     const categoryOrder = parseOrder(body.category_order, current.category_order);
     const sortOrder = parseOrder(body.sort_order, current.sort_order);
     if (Number.isNaN(categoryOrder) || Number.isNaN(sortOrder)) {
       return NextResponse.json({ error: "排序值无效" }, { status: 400 });
     }
     await updateTag(id, { name, parent_id: parentId, category_order: categoryOrder, sort_order: sortOrder });
+    void recordAudit({
+      ...actor, action: "tag:update", method: "PATCH", path: "/api/manage/tags",
+      resource_type: "tag", resource_id: String(id),
+      status: "success", error_message: null, ip, user_agent,
+      metadata: { old: { name: current.name }, new: { name: name ?? current.name }, type: current.type },
+    });
     return NextResponse.json({ ok: true });
   } catch (err) {
     console.error("Admin tags PATCH error:", err);
@@ -103,17 +134,35 @@ export async function PATCH(request: NextRequest) {
   }
 }
 
+/** 物理删除（#94：停用机制下线）；支持单个 { id } 与批量 { ids }，分类级联删除其下标签 */
 export async function DELETE(request: NextRequest) {
+  const { ip, user_agent } = getRequestContext(request);
+  const actor = await getAuditActor(request);
   try {
-    const body = await request.json() as { id?: unknown };
-    const id = Number(body.id);
-    if (!Number.isInteger(id) || id <= 0) {
+    const body = await request.json() as { id?: unknown; ids?: unknown };
+    const ids: number[] = [];
+    if (Array.isArray(body.ids)) {
+      for (const raw of body.ids) {
+        const id = Number(raw);
+        if (Number.isInteger(id) && id > 0) ids.push(id);
+      }
+    } else {
+      const id = Number(body.id);
+      if (Number.isInteger(id) && id > 0) ids.push(id);
+    }
+    if (ids.length === 0) {
       return NextResponse.json({ error: "标签 ID 无效" }, { status: 400 });
     }
-    await setTagActive(id, false);
+    await deleteTags(ids);
+    void recordAudit({
+      ...actor, action: "tag:delete", method: "DELETE", path: "/api/manage/tags",
+      resource_type: "tag", resource_id: ids.length === 1 ? String(ids[0]) : null,
+      status: "success", error_message: null, ip, user_agent,
+      metadata: { ids, count: ids.length },
+    });
     return NextResponse.json({ ok: true });
   } catch (err) {
     console.error("Admin tags DELETE error:", err);
-    return NextResponse.json({ error: "停用标签失败" }, { status: 500 });
+    return NextResponse.json({ error: "删除标签失败" }, { status: 500 });
   }
 }

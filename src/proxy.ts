@@ -9,6 +9,8 @@ const TEACHER_ALLOWED: { prefix: string; methods: "all" | string[] }[] = [
   { prefix: "/api/manage/export", methods: "all" }, // startsWith 覆盖 export-images
   { prefix: "/api/manage/stats", methods: ["GET"] },
   { prefix: "/api/manage/profiles", methods: ["GET", "DELETE"] },
+  { prefix: "/api/manage/profile-config", methods: "all" },
+  { prefix: "/api/manage/audit-logs", methods: ["GET"] }, // #110：教师仅可查询本人记录，路由内强制 actor_id = 本人
 ];
 
 export async function proxy(request: NextRequest) {

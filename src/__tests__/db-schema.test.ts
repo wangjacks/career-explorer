@@ -12,26 +12,61 @@ function makeTmpDb(): string {
 }
 
 describe("新安装 Schema", () => {
-  it("创建 4 张表并预填充 3 个分类和 15 个标签", () => {
+  it("创建 4 张表并预填充 5 个分类和 56 个标签（仅安装时种子一次）", () => {
     const dbPath = makeTmpDb();
     const adapter = new SqliteAdapter(dbPath);
     adapter.init();
 
     const tags = adapter.getTags();
-    expect(tags.filter((tag) => tag.type === "category").length).toBe(3);
-    expect(tags.filter((tag) => tag.type === "tag").length).toBe(15);
-    expect(tags.filter((tag) => tag.parent_id === null).length).toBe(3);
-    expect(adapter.getActiveTags().length).toBe(18);
+    expect(tags.filter((tag) => tag.type === "category").length).toBe(5);
+    expect(tags.filter((tag) => tag.type === "tag").length).toBe(56);
+    expect(tags.filter((tag) => tag.parent_id === null).length).toBe(5);
+    expect(adapter.getActiveTags().length).toBe(61);
 
-    // 重复 init 不应重复填充
+    // 重复 init 不会重复填充（种子标记已写入）
     adapter.init();
-    expect(adapter.getTags().length).toBe(18);
+    expect(adapter.getTags().length).toBe(61);
 
     adapter.close();
     rmSync(path.dirname(dbPath), { recursive: true, force: true });
   });
 
-  it("支持标签层级 CRUD 和停用，停用不删除历史标签", () => {
+  it("种子仅在首次安装执行：手动清空后重启不会自动回填（#94 补充）", () => {
+    const dbPath = makeTmpDb();
+    const adapter = new SqliteAdapter(dbPath);
+    adapter.init();
+    expect(adapter.getTags().length).toBe(61);
+
+    // 模拟运营手动清空标签（如重新导入前的准备）
+    adapter.deleteTags(adapter.getTags().map((t) => t.id));
+    expect(adapter.getTags().length).toBe(0);
+
+    // 再次 init（模拟重启）：种子标记已存在，不再自动回填污染环境
+    adapter.init();
+    expect(adapter.getTags().length).toBe(0);
+
+    adapter.close();
+    rmSync(path.dirname(dbPath), { recursive: true, force: true });
+  });
+
+  it("恢复默认预设：清空后重插默认预设（#94 补充）", () => {
+    const dbPath = makeTmpDb();
+    const adapter = new SqliteAdapter(dbPath);
+    adapter.init();
+
+    // 自定义改动后重置：应回到 5 分类 + 56 标签
+    adapter.insertTag({ name: "自定义分类", type: "category", category_order: 9 });
+    adapter.resetTagsToDefaults();
+    const tags = adapter.getTags();
+    expect(tags.filter((tag) => tag.type === "category").length).toBe(5);
+    expect(tags.filter((tag) => tag.type === "tag").length).toBe(56);
+    expect(tags.some((tag) => tag.name === "自定义分类")).toBe(false);
+
+    adapter.close();
+    rmSync(path.dirname(dbPath), { recursive: true, force: true });
+  });
+
+  it("支持标签层级 CRUD 与物理删除（#94：停用机制下线，删除分类级联删除其下标签）", () => {
     const dbPath = makeTmpDb();
     const adapter = new SqliteAdapter(dbPath);
     adapter.init();
@@ -39,15 +74,24 @@ describe("新安装 Schema", () => {
     const categoryId = adapter.insertTag({ name: "能力", type: "category", category_order: 3 });
     const tagId = adapter.insertTag({ name: "分析", type: "tag", parent_id: categoryId, sort_order: 0 });
     adapter.updateTag(tagId, { name: "分析能力" });
-    adapter.setTagActive(categoryId, false);
+    expect(adapter.getTags().find((tag) => tag.id === tagId)?.name).toBe("分析能力");
 
-    const allTags = adapter.getTags();
-    expect(allTags.find((tag) => tag.id === tagId)?.name).toBe("分析能力");
-    expect(allTags.find((tag) => tag.id === tagId)?.active).toBe(0);
-    expect(adapter.getActiveTags().some((tag) => tag.id === tagId)).toBe(false);
+    // 删除分类：其下标签一并物理删除（含重复分类下的标签）
+    const otherTagId = adapter.insertTag({ name: "协作", type: "tag", parent_id: categoryId, sort_order: 1 });
+    adapter.deleteTags([categoryId]);
+    const afterDelete = adapter.getTags();
+    expect(afterDelete.some((tag) => tag.id === categoryId)).toBe(false);
+    expect(afterDelete.some((tag) => tag.id === tagId)).toBe(false);
+    expect(afterDelete.some((tag) => tag.id === otherTagId)).toBe(false);
 
-    adapter.setTagActive(categoryId, true);
-    expect(adapter.getActiveTags().some((tag) => tag.id === tagId)).toBe(true);
+    // 单个二级标签删除不影响分类本身；空数组无副作用；学生已提交数据（文本直存）不受影响——此处仅验证标签表行为
+    const keepCatId = adapter.insertTag({ name: "临时分类", type: "category", category_order: 4 });
+    const singleTagId = adapter.insertTag({ name: "临时标签", type: "tag", parent_id: keepCatId, sort_order: 0 });
+    adapter.deleteTags([singleTagId]);
+    expect(adapter.getTags().some((tag) => tag.id === singleTagId)).toBe(false);
+    expect(adapter.getTags().some((tag) => tag.id === keepCatId)).toBe(true);
+    adapter.deleteTags([]);
+    expect(adapter.getTags().some((tag) => tag.id === keepCatId)).toBe(true);
 
     adapter.close();
     rmSync(path.dirname(dbPath), { recursive: true, force: true });
@@ -204,7 +248,8 @@ describe("提交流程", () => {
     adapter.insertUser({ user_code: "202505050101", role: "student", name: "张三" });
     const allTags = adapter.getTags();
     const ids = allTags.filter((t) => ["音乐", "设计"].includes(t.name)).map((t) => t.id);
-    adapter.upsertSubmission("202505050101", JSON.stringify(ids), "/a.png", "/w.png");
+    const localBackendId = adapter.getDefaultStorageBackend()!.id;
+    adapter.upsertSubmission("202505050101", JSON.stringify(ids), "/a.png", "/w.png", localBackendId);
 
     const { rows, total } = adapter.getSubmittedProfiles(1, 20);
     expect(total).toBe(1);
@@ -224,7 +269,7 @@ describe("提交流程", () => {
 
     // 备份 / 恢复
     const data = adapter.backup();
-    expect(data.version).toBe(3);
+    expect(data.version).toBe(4);
     adapter.clearSubmissions(["202505050101"]);
     expect(adapter.getStats().total).toBe(0);
     adapter.restore(data);
@@ -262,7 +307,7 @@ describe("班级管理与教师账户", () => {
 
     const classId = adapter.insertClass("一班", "BBBB2222");
     adapter.insertUser({ user_code: "202505050102", role: "student", name: "李四", class_id: classId });
-    adapter.upsertSubmission("202505050102", "[]", "/a.png", "/w.png");
+    adapter.upsertSubmission("202505050102", "[]", "/a.png", "/w.png", adapter.getDefaultStorageBackend()!.id);
     expect(adapter.getCompareBy("class")).toEqual([{ key: "一班", count: 1 }]);
 
     adapter.deleteClass(classId);
@@ -331,6 +376,87 @@ describe("班级管理与教师账户", () => {
     expect(adapter.getUserById(teachers[0].id)?.name).toBe("王老师（改）");
 
     expect(() => adapter.insertUser({ user_code: "10000001", role: "teacher", name: "重复" })).toThrow();
+
+    adapter.close();
+    rmSync(path.dirname(dbPath), { recursive: true, force: true });
+  });
+});
+
+describe("审计日志（#110）", () => {
+  const sampleLog = (overrides: Partial<Parameters<SqliteAdapter["insertAuditLog"]>[0]> = {}) => ({
+    actor_id: 1,
+    actor_user_code: "10001",
+    actor_name: "管理员",
+    actor_role: "admin",
+    action: "student:create",
+    method: "POST",
+    path: "/api/manage/students",
+    resource_type: "student",
+    resource_id: "202505050101",
+    status: "success",
+    error_message: null,
+    ip: "127.0.0.1",
+    user_agent: "vitest",
+    metadata: JSON.stringify({ name: "张三" }),
+    ...overrides,
+  });
+
+  it("insertAuditLog + queryAuditLogs 分页与筛选", () => {
+    const dbPath = makeTmpDb();
+    const adapter = new SqliteAdapter(dbPath);
+    adapter.init();
+
+    adapter.insertAuditLog(sampleLog());
+    adapter.insertAuditLog(sampleLog({ actor_id: 2, actor_user_code: "10000001", actor_name: "王老师", actor_role: "teacher", action: "class:create", resource_type: "class", resource_id: "1" }));
+    adapter.insertAuditLog(sampleLog({ status: "failed", error_message: "学号不存在", action: "student:update" }));
+
+    // 全量：倒序返回（最新在前）
+    const all = adapter.queryAuditLogs({ page: 1, pageSize: 20 });
+    expect(all.total).toBe(3);
+    expect(all.rows[0].action).toBe("student:update");
+
+    // action 筛选
+    const byAction = adapter.queryAuditLogs({ page: 1, pageSize: 20, action: "student:create" });
+    expect(byAction.total).toBe(1);
+
+    // 操作者强制筛选（教师越权防护的数据层支撑）
+    const byActor = adapter.queryAuditLogs({ page: 1, pageSize: 20, actorId: 2 });
+    expect(byActor.total).toBe(1);
+    expect(byActor.rows[0].actor_name).toBe("王老师");
+
+    // 结果筛选 + 模糊搜索 + 分页
+    expect(adapter.queryAuditLogs({ page: 1, pageSize: 20, status: "failed" }).total).toBe(1);
+    expect(adapter.queryAuditLogs({ page: 1, pageSize: 20, actorQuery: "王" }).total).toBe(1);
+    // 按对象编号搜索（#117 补强）：resource_id 命中「关于该学生」的记录（样例 1、3 的 resource_id 均为该学号）
+    expect(adapter.queryAuditLogs({ page: 1, pageSize: 20, actorQuery: "202505050101" }).total).toBe(2);
+    expect(adapter.queryAuditLogs({ page: 1, pageSize: 2 }).rows).toHaveLength(2);
+    expect(adapter.queryAuditLogs({ page: 2, pageSize: 2 }).rows).toHaveLength(1);
+
+    adapter.close();
+    rmSync(path.dirname(dbPath), { recursive: true, force: true });
+  });
+
+  it("备份含 audit_logs 且恢复后保留；旧备份无此字段时保留当前记录", () => {
+    const dbPath = makeTmpDb();
+    const adapter = new SqliteAdapter(dbPath);
+    adapter.init();
+
+    adapter.insertAuditLog(sampleLog());
+    const data = adapter.backup();
+    expect(Array.isArray(data.audit_logs)).toBe(true);
+    expect(data.audit_logs).toHaveLength(1);
+
+    // 恢复后审计记录保留（新增一条验证替换而非累加）
+    adapter.insertAuditLog(sampleLog({ action: "audit:query" }));
+    expect(adapter.queryAuditLogs({ page: 1, pageSize: 20 }).total).toBe(2);
+    adapter.restore(data);
+    expect(adapter.queryAuditLogs({ page: 1, pageSize: 20 }).total).toBe(1);
+
+    // 旧备份无 audit_logs 字段 → 保留当前审计记录不动（兼容）
+    const legacy = { ...data, audit_logs: undefined };
+    adapter.insertAuditLog(sampleLog({ action: "auth:login" }));
+    adapter.restore(legacy);
+    expect(adapter.queryAuditLogs({ page: 1, pageSize: 20 }).total).toBe(2);
 
     adapter.close();
     rmSync(path.dirname(dbPath), { recursive: true, force: true });
