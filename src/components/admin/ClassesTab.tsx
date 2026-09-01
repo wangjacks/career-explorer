@@ -1,9 +1,10 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { ChevronRight, Copy, QrCode, RefreshCw, FolderPlus, X } from "lucide-react";
 import ConfirmDialog from "./ConfirmDialog";
+import { useEscapeKey } from "@/hooks/useEscapeKey";
 
 interface ClassItem {
   id: number;
@@ -55,6 +56,38 @@ export default function ClassesTab({ mode, teacherUid }: Props) {
   // 邀请海报预览（Issue #102）
   const [posterClass, setPosterClass] = useState<ClassItem | null>(null);
   const [posterTs, setPosterTs] = useState(0);
+  const posterTitleId = useId();
+  const posterDialogRef = useRef<HTMLDivElement>(null);
+  const closePoster = useCallback(() => setPosterClass(null), []);
+
+  useEffect(() => {
+    if (!posterClass) return;
+    const prevActive = document.activeElement as HTMLElement | null;
+    posterDialogRef.current?.focus();
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== "Tab" || !posterDialogRef.current) return;
+      const focusables = posterDialogRef.current.querySelectorAll<HTMLElement>(
+        'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+      );
+      if (focusables.length === 0) return;
+      const first = focusables[0];
+      const last = focusables[focusables.length - 1];
+      if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault();
+        last.focus();
+      } else if (document.activeElement === last) {
+        e.preventDefault();
+        first.focus();
+      }
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("keydown", onKeyDown);
+      prevActive?.focus?.();
+    };
+  }, [posterClass]);
+
+  useEscapeKey(posterClass !== null, closePoster);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -357,21 +390,26 @@ export default function ClassesTab({ mode, teacherUid }: Props) {
       {posterClass && (
         <div
           className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 px-4"
-          onClick={() => setPosterClass(null)}
+          onClick={closePoster}
         >
           <div
-            className="bg-card rounded-2xl shadow-xl max-w-md w-full p-6 space-y-4"
+            ref={posterDialogRef}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby={posterTitleId}
+            tabIndex={-1}
+            className="bg-card rounded-2xl shadow-xl max-w-md w-full p-6 space-y-4 outline-none"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-start justify-between">
               <div>
-                <h3 className="font-semibold text-foreground text-lg">邀请海报</h3>
+                <h3 id={posterTitleId} className="font-semibold text-foreground text-lg">邀请海报</h3>
                 <p className="text-sm text-muted mt-1">
                   {posterClass.name} · 学生扫码进入激活页
                 </p>
               </div>
               <button
-                onClick={() => setPosterClass(null)}
+                onClick={closePoster}
                 className="text-muted hover:text-foreground"
                 aria-label="关闭"
               >
@@ -393,7 +431,7 @@ export default function ClassesTab({ mode, teacherUid }: Props) {
 
             <div className="flex gap-2 pt-1">
               <button
-                onClick={() => setPosterClass(null)}
+                onClick={closePoster}
                 className="flex-1 py-2 bg-gray-100 hover:bg-gray-200 dark:bg-gray-800 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-200 text-sm font-medium rounded-lg transition-colors"
               >
                 关闭
