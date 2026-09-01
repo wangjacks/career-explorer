@@ -127,12 +127,13 @@ body {
   }
 }
 
-/* 动效可及性：尊重系统减少动效偏好 */
+/* 动效可及性：尊重系统减少动效偏好（含延迟重置——带 both 填充的延迟动画在 reduced-motion 下会长时间停留不可见的起始帧） */
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
   *::after {
     animation-duration: 0.01ms !important;
+    animation-delay: 0s !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
   }

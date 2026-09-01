@@ -20,11 +20,22 @@ const FONT_CDN_PREFIX = (
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
+  themeColor: [
+    { media: "(prefers-color-scheme: light)", color: "#065f46" },
+    { media: "(prefers-color-scheme: dark)", color: "#059669" },
+  ],
 };
 
 export const metadata: Metadata = {
   title: "Career Explorer",
   description: "开始你的职业探索之旅",
+  openGraph: {
+    title: "Career Explorer",
+    description: "开始你的职业探索之旅",
+    type: "website",
+    locale: "zh_CN",
+    siteName: "Career Explorer",
+  },
 };
 
 export default function RootLayout({

@@ -59,7 +59,7 @@ export default function SiteFooter() {
               );
             })}
           </nav>
-          <p className="text-xs text-gray-400 dark:text-gray-500">© 2026 Career Explorer · 学生职业探索工具</p>
+          <p className="text-xs text-gray-400 dark:text-gray-500">© {new Date().getFullYear()} Career Explorer · 学生职业探索工具</p>
         </div>
       </footer>
     </>
