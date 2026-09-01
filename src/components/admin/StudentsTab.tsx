@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { ChevronDown, Users } from "lucide-react";
 import { Field } from "./AdminUI";
 import ConfirmDialog from "./ConfirmDialog";
+import { useEscapeKey } from "@/hooks/useEscapeKey";
 import type { Student } from "@/hooks/useAdminAuth";
 import { generatePassword } from "@/lib/password";
 
@@ -86,7 +87,7 @@ function deriveParsedRows(preview: PreviewState): ParsedRow[] {
 
 function SortIcon({ active, dir }: { active: boolean; dir: SortDir }) {
   return (
-    <span className={`ml-1 inline-block w-3 text-xs ${active ? "text-green-600" : "text-gray-300"}`}>
+    <span aria-hidden="true" className={`ml-1 inline-block w-3 text-xs ${active ? "text-green-600" : "text-gray-300"}`}>
       {active ? (dir === "asc" ? "↑" : "↓") : "↕"}
     </span>
   );
@@ -139,6 +140,13 @@ export default function StudentsTab({ students, loadError, onRetry, onStudentsCh
   const [batchClassName, setBatchClassName] = useState("");
 
   const batchInputRef = useRef<HTMLTextAreaElement>(null);
+
+  // 弹窗 Escape 关闭（键盘可达性）
+  useEscapeKey(!!preview, () => setPreview(null));
+  useEscapeKey(!!resettingStudent, () => setResettingStudent(null));
+  useEscapeKey(!!credential, () => setCredential(null));
+  useEscapeKey(!!batchPwdResults, () => setBatchPwdResults(null));
+  useEscapeKey(!!editing, () => setEditing(null));
 
   const refreshClasses = async () => {
     try {
@@ -685,6 +693,7 @@ export default function StudentsTab({ students, loadError, onRetry, onStudentsCh
                 <th className="px-4 py-2 w-10">
                   <input
                     type="checkbox"
+                    aria-label="全选学生"
                     className="rounded border-gray-300"
                     checked={filteredStudents.length > 0 && selectedStudents.size === filteredStudents.length}
                     onChange={() => {
@@ -693,14 +702,20 @@ export default function StudentsTab({ students, loadError, onRetry, onStudentsCh
                     }}
                   />
                 </th>
-                <th className="px-4 py-2 cursor-pointer select-none" onClick={() => handleSort("user_code")}>
-                  学号<SortIcon active={sortKey === "user_code"} dir={sortDir} />
+                <th aria-sort={sortKey === "user_code" ? (sortDir === "asc" ? "ascending" : "descending") : "none"} className="px-4 py-2">
+                  <button type="button" onClick={() => handleSort("user_code")} className="cursor-pointer select-none">
+                    学号<SortIcon active={sortKey === "user_code"} dir={sortDir} />
+                  </button>
                 </th>
-                <th className="px-4 py-2 cursor-pointer select-none" onClick={() => handleSort("name")}>
-                  姓名<SortIcon active={sortKey === "name"} dir={sortDir} />
+                <th aria-sort={sortKey === "name" ? (sortDir === "asc" ? "ascending" : "descending") : "none"} className="px-4 py-2">
+                  <button type="button" onClick={() => handleSort("name")} className="cursor-pointer select-none">
+                    姓名<SortIcon active={sortKey === "name"} dir={sortDir} />
+                  </button>
                 </th>
-                <th className="px-4 py-2 cursor-pointer select-none" onClick={() => handleSort("class_name")}>
-                  班级<SortIcon active={sortKey === "class_name"} dir={sortDir} />
+                <th aria-sort={sortKey === "class_name" ? (sortDir === "asc" ? "ascending" : "descending") : "none"} className="px-4 py-2">
+                  <button type="button" onClick={() => handleSort("class_name")} className="cursor-pointer select-none">
+                    班级<SortIcon active={sortKey === "class_name"} dir={sortDir} />
+                  </button>
                 </th>
                 <th className="px-4 py-2">操作</th>
               </tr>
@@ -711,6 +726,7 @@ export default function StudentsTab({ students, loadError, onRetry, onStudentsCh
                   <td className="px-4 py-2">
                     <input
                       type="checkbox"
+                      aria-label={`选择 ${s.name}`}
                       className="rounded border-gray-300"
                       checked={selectedStudents.has(s.user_code)}
                       onChange={() => {
@@ -737,8 +753,16 @@ export default function StudentsTab({ students, loadError, onRetry, onStudentsCh
                       />
                     ) : (
                       <span
+                        role="button"
+                        tabIndex={0}
                         className="cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-800 px-1 rounded"
                         onClick={() => setInlineEdit({ studentId: s.user_code, field: "name", value: s.name })}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" || e.key === " ") {
+                            e.preventDefault();
+                            e.currentTarget.click();
+                          }
+                        }}
                       >
                         {s.name}
                       </span>
@@ -760,8 +784,16 @@ export default function StudentsTab({ students, loadError, onRetry, onStudentsCh
                       />
                     ) : (
                       <span
+                        role="button"
+                        tabIndex={0}
                         className="cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-800 px-1 rounded"
                         onClick={() => setInlineEdit({ studentId: s.user_code, field: "class_name", value: classNameOf(s) })}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" || e.key === " ") {
+                            e.preventDefault();
+                            e.currentTarget.click();
+                          }
+                        }}
                       >
                         {classNameOf(s) || <span className="text-gray-400 dark:text-gray-500">-</span>}
                       </span>
@@ -815,10 +847,10 @@ export default function StudentsTab({ students, loadError, onRetry, onStudentsCh
       {/* Edit Modal */}
       {editing && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 px-4" onClick={() => setEditing(null)}>
-          <div className="bg-card rounded-2xl shadow-xl max-w-sm w-full p-6 space-y-4" onClick={(e) => e.stopPropagation()}>
+          <div role="dialog" aria-modal="true" aria-labelledby="students-edit-title" className="bg-card rounded-2xl shadow-xl max-w-sm w-full p-6 space-y-4" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between">
-              <h3 className="font-semibold text-gray-800 dark:text-gray-100">编辑学生</h3>
-              <button onClick={() => setEditing(null)} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 text-xl">
+              <h3 id="students-edit-title" className="font-semibold text-gray-800 dark:text-gray-100">编辑学生</h3>
+              <button onClick={() => setEditing(null)} aria-label="关闭" className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 text-xl">
                 ×
               </button>
             </div>
@@ -873,10 +905,13 @@ export default function StudentsTab({ students, loadError, onRetry, onStudentsCh
       {preview && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 px-4">
           <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="students-import-title"
             className="bg-card rounded-2xl shadow-xl max-w-2xl w-full p-6 space-y-4 max-h-[85vh] flex flex-col"
           >
             <div className="flex items-center justify-between">
-              <h3 className="font-semibold text-gray-800 dark:text-gray-100 text-lg">导入预览</h3>
+              <h3 id="students-import-title" className="font-semibold text-gray-800 dark:text-gray-100 text-lg">导入预览</h3>
               <button
                 onClick={() => setPreview(null)}
                 aria-label="关闭导入预览"
@@ -981,8 +1016,8 @@ export default function StudentsTab({ students, loadError, onRetry, onStudentsCh
       {/* Single reset password modal */}
       {resettingStudent && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 px-4" onClick={() => setResettingStudent(null)}>
-          <div className="bg-card rounded-2xl shadow-xl max-w-sm w-full p-6 space-y-4" onClick={(e) => e.stopPropagation()}>
-            <h3 className="font-semibold text-gray-800 dark:text-gray-100 text-lg">重置密码 — {resettingStudent.name}</h3>
+          <div role="dialog" aria-modal="true" aria-labelledby="students-reset-title" className="bg-card rounded-2xl shadow-xl max-w-sm w-full p-6 space-y-4" onClick={(e) => e.stopPropagation()}>
+            <h3 id="students-reset-title" className="font-semibold text-gray-800 dark:text-gray-100 text-lg">重置密码 — {resettingStudent.name}</h3>
             <div className="flex gap-2">
               <input
                 type="text"
@@ -1020,8 +1055,8 @@ export default function StudentsTab({ students, loadError, onRetry, onStudentsCh
       {/* Single credentials dialog (one-time) */}
       {credential && (
         <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 px-4" onClick={() => setCredential(null)}>
-          <div className="bg-card rounded-2xl shadow-xl max-w-sm w-full p-6 space-y-4" onClick={(e) => e.stopPropagation()}>
-            <h3 className="font-semibold text-gray-800 dark:text-gray-100 text-lg">密码已重置</h3>
+          <div role="dialog" aria-modal="true" aria-labelledby="students-credential-title" className="bg-card rounded-2xl shadow-xl max-w-sm w-full p-6 space-y-4" onClick={(e) => e.stopPropagation()}>
+            <h3 id="students-credential-title" className="font-semibold text-gray-800 dark:text-gray-100 text-lg">密码已重置</h3>
             <p className="text-xs text-amber-600">请立即记录并告知学生，关闭后将无法再次查看密码。</p>
             <div className="space-y-2 text-sm">
               <div className="flex justify-between items-center bg-gray-50 dark:bg-gray-800 rounded-lg px-3 py-2">
@@ -1050,10 +1085,13 @@ export default function StudentsTab({ students, loadError, onRetry, onStudentsCh
           onClick={() => setBatchPwdResults(null)}
         >
           <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="students-batch-title"
             className="bg-card rounded-2xl shadow-xl max-w-lg w-full p-6 space-y-4 max-h-[85vh] flex flex-col"
             onClick={(e) => e.stopPropagation()}
           >
-            <h3 className="font-semibold text-gray-800 dark:text-gray-100 text-lg">批量重置完成（{batchPwdResults.length} 人）</h3>
+            <h3 id="students-batch-title" className="font-semibold text-gray-800 dark:text-gray-100 text-lg">批量重置完成（{batchPwdResults.length} 人）</h3>
             <p className="text-xs text-amber-600">请立即记录或复制，关闭后将无法再次查看密码。</p>
             <div className="overflow-y-auto border border-gray-100 dark:border-gray-700 rounded-lg flex-1">
               <table className="w-full text-sm">

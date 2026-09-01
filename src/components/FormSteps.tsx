@@ -39,7 +39,8 @@ export default function FormSteps({ current }: { current: number }) {
                       : "bg-gray-100 dark:bg-gray-800 text-gray-400 dark:text-gray-500"
                 }`}
               >
-                {done ? <Check size={14} strokeWidth={2.5} /> : step}
+                <span className="sr-only">第 {step} 步，共 {STEPS.length} 步</span>
+                {done ? <Check size={14} strokeWidth={2.5} aria-hidden="true" /> : step}
               </span>
               <span
                 className={`text-[10px] sm:text-xs leading-none hidden sm:block ${
