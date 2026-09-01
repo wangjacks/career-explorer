@@ -3,6 +3,7 @@ import Link from "next/link";
 import { Compass } from "lucide-react";
 import NavigationBar from "@/components/NavigationBar";
 import SiteFooter from "@/components/SiteFooter";
+import HeroExploreCard from "@/components/HeroExploreCard";
 
 export const metadata: Metadata = {
   title: "Career Explorer · 学生职业探索工具",
@@ -47,26 +48,8 @@ export default function IndexPage() {
             </Link>
           </div>
 
-          {/* 探索悬浮卡（仅在 lg 及以上展示） */}
-          <div className="hidden lg:block absolute right-8 top-1/2 -translate-y-1/2 w-80">
-            <div className="bg-white/95 text-stone-900 rounded-2xl p-4 shadow-2xl border border-white/20">
-              <div className="flex items-center gap-3">
-                <div className="p-3 rounded-xl bg-accent text-stone-900"><Compass size={24} strokeWidth={1.5} /></div>
-                <div>
-                  <div className="text-sm font-semibold">快速了解：学生探索流程</div>
-                  <div className="text-xs text-stone-500 mt-1">一个步骤化的、指导式表单，约 6 步完成档案</div>
-                </div>
-              </div>
-              <ul className="mt-3 text-sm space-y-2">
-                <li className="flex items-start gap-2"><span className="text-accent font-semibold">1.</span><span>选择标签（兴趣 / 技能 / 性格）</span></li>
-                <li className="flex items-start gap-2"><span className="text-accent font-semibold">2.</span><span>上传词云与评价</span></li>
-                <li className="flex items-start gap-2"><span className="text-accent font-semibold">3.</span><span>上传虚拟形象并确认提交</span></li>
-              </ul>
-              <div className="mt-3 text-right">
-                <Link href="/form/create-profile" className="text-sm font-semibold text-accent hover:underline" aria-label="浏览学生探索流程">查看流程</Link>
-              </div>
-            </div>
-          </div>
+          {/* 替换为客户端可交互的探索悬浮卡组件（lg+ 显示） */}
+          <HeroExploreCard />
         </section>
       </main>
       <SiteFooter />
