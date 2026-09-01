@@ -113,15 +113,15 @@ export default function ProfilesTab({ loadProfiles, loadStats }: Props) {
     if (d) setPaged(d);
   }, [defaultLoadProfiles]);
 
-  /* eslint-disable react-hooks/set-state-in-effect -- reset selection on page change */
+  /* eslint-disable react-hooks/set-state-in-effect -- reset selection + load page data on page change */
   useEffect(() => {
     setSelected(new Set());
-  }, [page]);
+    refreshProfiles(page);
+  }, [page, refreshProfiles]);
   /* eslint-enable react-hooks/set-state-in-effect */
 
   useEffect(() => {
     refreshStats();
-    refreshProfiles(1);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- only on mount
   }, []);
 
@@ -206,11 +206,12 @@ export default function ProfilesTab({ loadProfiles, loadStats }: Props) {
   };
 
   const toggleSelectAll = () => {
-    if (!paged) return;
-    if (selected.size === paged.data.length) {
+    if (!filteredData) return;
+    const visible = filteredData.data;
+    if (selected.size === visible.length) {
       setSelected(new Set());
     } else {
-      setSelected(new Set(paged.data.map((p) => p.studentId)));
+      setSelected(new Set(visible.map((p) => p.studentId)));
     }
   };
 
@@ -345,7 +346,7 @@ export default function ProfilesTab({ loadProfiles, loadStats }: Props) {
               <th className="px-5 py-3 font-medium w-10">
                 <input
                   type="checkbox"
-                  checked={paged ? selected.size === paged.data.length && paged.data.length > 0 : false}
+                  checked={filteredData ? selected.size === filteredData.data.length && filteredData.data.length > 0 : false}
                   onChange={toggleSelectAll}
                   className="rounded border-gray-300"
                 />

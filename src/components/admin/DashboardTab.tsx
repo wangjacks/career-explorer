@@ -41,9 +41,11 @@ export default function DashboardTab() {
   const [compareBy, setCompareBy] = useState<"class" | "segment">("class");
   const [trendDays, setTrendDays] = useState(30);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
 
   const loadData = useCallback(async () => {
     setLoading(true);
+    setLoadError(false);
     try {
       const [tRes, dRes, cRes] = await Promise.all([
         fetch(`/api/manage/stats/trends?days=${trendDays}`),
@@ -53,8 +55,10 @@ export default function DashboardTab() {
       if (tRes.ok) setTrends(await tRes.json());
       if (dRes.ok) setDistribution(await dRes.json());
       if (cRes.ok) setCompare(await cRes.json());
+      setLoadError(!(tRes.ok && dRes.ok && cRes.ok));
     } catch (err) {
       console.error("Dashboard load error:", err);
+      setLoadError(true);
     }
     setLoading(false);
   }, [trendDays, compareBy]);
@@ -71,6 +75,13 @@ export default function DashboardTab() {
 
   return (
     <div className="space-y-6">
+      {loadError && (
+        <div className="flex items-center justify-between bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl px-4 py-3">
+          <p className="text-sm text-red-600 dark:text-red-400">部分数据加载失败，图表可能不完整</p>
+          <button onClick={loadData}
+            className="px-3 py-1 bg-red-500 hover:bg-red-600 text-white text-sm rounded-lg transition-colors">重试</button>
+        </div>
+      )}
       {/* Controls */}
       <div className="flex flex-wrap items-center gap-4">
         <div className="flex items-center gap-2">

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { ClipboardList, Tag, Flame } from "lucide-react";
 import { StatCard } from "./AdminUI";
 import ClassOverviewTable from "./ClassOverviewTable";
@@ -23,16 +23,29 @@ function getGreeting(hour: number): string {
 /** 教师面板主页：时段问候 + 数据概览摘要（统计卡 + 班级概览） */
 export default function TeacherHomeTab({ teacherName, students }: Props) {
   const [stats, setStats] = useState<Stats | null>(null);
+  const [loadError, setLoadError] = useState(false);
   const [now, setNow] = useState(() => new Date());
 
-  useEffect(() => {
-    fetch("/api/manage/stats")
-      .then((res) => (res.ok ? res.json() : null))
-      .then((data) => {
-        if (data) setStats(data);
-      })
-      .catch((err) => console.error("Failed to load stats:", err));
+  const loadStats = useCallback(async () => {
+    setLoadError(false);
+    try {
+      const res = await fetch("/api/manage/stats");
+      if (!res.ok) {
+        setLoadError(true);
+        return;
+      }
+      setStats(await res.json());
+    } catch (err) {
+      console.error("Failed to load stats:", err);
+      setLoadError(true);
+    }
   }, []);
+
+  /* eslint-disable react-hooks/set-state-in-effect -- data fetch on mount */
+  useEffect(() => {
+    loadStats();
+  }, [loadStats]);
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   // 跨时段停留时问候语跟随本地时间更新
   useEffect(() => {
@@ -92,6 +105,16 @@ export default function TeacherHomeTab({ teacherName, students }: Props) {
               </div>
             </div>
           </div>
+        </div>
+      ) : loadError ? (
+        <div className="text-center py-8 space-y-3">
+          <p className="text-sm text-red-500">统计数据加载失败</p>
+          <button
+            onClick={loadStats}
+            className="px-4 py-1.5 bg-gray-100 hover:bg-gray-200 dark:bg-gray-800 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-200 text-sm font-medium rounded-lg transition-colors"
+          >
+            重试
+          </button>
         </div>
       ) : (
         <div className="text-center py-8 text-gray-400 dark:text-gray-500 text-sm">统计数据加载中...</div>
