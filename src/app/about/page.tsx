@@ -69,14 +69,16 @@ export default function AboutPage() {
         <section className="space-y-4">
           <h2 className="text-lg font-semibold text-foreground">学生探索流程</h2>
           <ol className="space-y-2 text-gray-600 dark:text-gray-300 text-sm leading-relaxed list-decimal list-inside">
-            <li>输入学号开始（已激活的学生也可登录后在面板中修改）</li>
+            <li>登录后进入（未激活学生需先通过教师导入或激活流程）</li>
             <li>选择兴趣 / 技能 / 性格标签</li>
-            <li>查看专属标签词云</li>
-            <li>上传同学评价词云与虚拟形象</li>
-            <li>完成提交，生成职业探索档案</li>
+            <li>查看基于所选标签生成的词云</li>
+            <li>上传同学评价词云（仅本地预览，确认页统一上传）</li>
+            <li>上传虚拟形象图片（仅本地预览，确认页统一上传）</li>
+            <li>最终确认并提交，生成职业探索档案</li>
           </ol>
           <Link
             href="/"
+            aria-label="返回主页开始探索"
             className="inline-block mt-2 px-5 py-2.5 bg-primary hover:bg-primary-strong text-white text-sm font-medium rounded-xl transition-colors shadow-sm"
           >
             返回主页开始探索
