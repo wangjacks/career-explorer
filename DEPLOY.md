@@ -40,6 +40,18 @@ sudo systemctl start mysql
 mysql -u root -e "CREATE DATABASE career_app CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
 ```
 
+### 2.1 安装中文字体（班级邀请海报需要，#102）
+
+邀请海报由服务端生成 PNG，其中的中文依赖服务器系统字体，未安装时海报文字会显示为方块：
+
+```bash
+# Ubuntu / Debian
+sudo apt-get install -y fonts-noto-cjk
+
+# CentOS / RHEL
+sudo yum install -y google-noto-sans-cjk-fonts
+```
+
 ### 3. 安装 Nginx
 
 ```bash
@@ -84,6 +96,8 @@ cat > .env.local << 'EOF'
 JWT_SECRET=一个随机字符串作为JWT签名密钥
 # 可选：Google Fonts 镜像前缀（官方域名访问不畅的环境配置，构建前生效）
 #FONT_CDN_PREFIX=https://fonts.loli.net
+# 可选：站点公网地址（班级邀请海报二维码的链接基址，建议显式配置，否则回退请求来源）
+#NEXT_PUBLIC_APP_URL=https://career.example.com
 EOF
 
 # 构建生产版本
