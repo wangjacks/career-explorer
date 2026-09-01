@@ -21,7 +21,7 @@ function PasswordField({ value, onChange }: { value: string; onChange: (v: strin
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder="至少 8 位密码"
-        className="flex-1 px-3 py-2 border border-gray-200 dark:border-gray-700 bg-card text-foreground rounded-lg text-sm font-mono focus:outline-none focus:ring-2 focus:ring-green-300"
+        className="flex-1 px-3 py-2 border border-gray-200 dark:border-gray-700 bg-card text-foreground rounded-lg text-sm font-mono focus:outline-none focus:ring-2 focus:ring-focus-ring"
       />
       <button
         type="button"
@@ -55,16 +55,16 @@ function CredentialsDialog({
         className="bg-card rounded-2xl shadow-xl max-w-sm w-full p-6 space-y-4"
         onClick={(e) => e.stopPropagation()}
       >
-        <h3 className="font-semibold text-gray-800 dark:text-gray-100 text-lg">{title}</h3>
+        <h3 className="font-semibold text-foreground text-lg">{title}</h3>
         <p className="text-xs text-amber-600">请立即记录并告知教师，关闭后将无法再次查看密码。</p>
         <div className="space-y-2 text-sm">
           <div className="flex justify-between items-center bg-gray-50 dark:bg-gray-800 rounded-lg px-3 py-2">
-            <span className="text-gray-500 dark:text-gray-400">编号</span>
-            <code className="font-mono font-medium text-gray-800 dark:text-gray-100">{code}</code>
+            <span className="text-muted">编号</span>
+            <code className="font-mono font-medium text-foreground">{code}</code>
           </div>
           <div className="flex justify-between items-center bg-gray-50 dark:bg-gray-800 rounded-lg px-3 py-2">
-            <span className="text-gray-500 dark:text-gray-400">密码</span>
-            <code className="font-mono font-medium text-gray-800 dark:text-gray-100">{password}</code>
+            <span className="text-muted">密码</span>
+            <code className="font-mono font-medium text-foreground">{password}</code>
           </div>
         </div>
         <button
@@ -196,30 +196,30 @@ export default function TeachersTab() {
   return (
     <div className="space-y-6">
       {/* 创建教师 */}
-      <div className="bg-card rounded-xl border border-gray-100 dark:border-gray-700 p-5">
-        <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-100 mb-3">创建教师账户</h3>
+      <div className="bg-card rounded-xl border border-border-soft p-5">
+        <h3 className="text-sm font-semibold text-foreground mb-3">创建教师账户</h3>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div>
-            <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">教师编号（8 位数字）</label>
+            <label className="block text-xs text-muted mb-1">教师编号（8 位数字）</label>
             <input
               value={newCode}
               onChange={(e) => setNewCode(e.target.value)}
               placeholder="如 10000001"
               maxLength={8}
-              className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg text-sm font-mono focus:outline-none focus:ring-2 focus:ring-green-300"
+              className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg text-sm font-mono focus:outline-none focus:ring-2 focus:ring-focus-ring"
             />
           </div>
           <div>
-            <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">姓名</label>
+            <label className="block text-xs text-muted mb-1">姓名</label>
             <input
               value={newName}
               onChange={(e) => setNewName(e.target.value)}
               placeholder="教师姓名"
-              className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 bg-card text-foreground rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-300"
+              className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 bg-card text-foreground rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-focus-ring"
             />
           </div>
           <div className="sm:col-span-2">
-            <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">初始密码</label>
+            <label className="block text-xs text-muted mb-1">初始密码</label>
             <PasswordField value={newPassword} onChange={setNewPassword} />
           </div>
         </div>
@@ -232,21 +232,21 @@ export default function TeachersTab() {
       </div>
 
       {/* 教师列表 */}
-      <div className="bg-card rounded-xl border border-gray-100 dark:border-gray-700 overflow-hidden">
-        <div className="px-5 py-4 border-b border-gray-100 dark:border-gray-700 flex items-center justify-between">
-          <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-100">教师列表</h3>
-          <span className="text-xs text-gray-400 dark:text-gray-500">{teachers.length} 名教师</span>
+      <div className="bg-card rounded-xl border border-border-soft overflow-hidden">
+        <div className="px-5 py-4 border-b border-border-soft flex items-center justify-between">
+          <h3 className="text-sm font-semibold text-foreground">教师列表</h3>
+          <span className="text-xs text-muted">{teachers.length} 名教师</span>
         </div>
 
         {loading ? (
-          <p className="p-5 text-sm text-gray-400 dark:text-gray-500">加载中...</p>
+          <p className="p-5 text-sm text-muted">加载中...</p>
         ) : teachers.length === 0 ? (
-          <p className="p-5 text-sm text-gray-400 dark:text-gray-500">暂无教师账户</p>
+          <p className="p-5 text-sm text-muted">暂无教师账户</p>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
-                <tr className="text-left text-xs text-gray-400 dark:text-gray-500 border-b border-gray-100 dark:border-gray-700">
+                <tr className="text-left text-xs text-muted border-b border-border-soft">
                   <th className="px-5 py-2.5 font-medium">编号</th>
                   <th className="px-3 py-2.5 font-medium">姓名</th>
                   <th className="px-3 py-2.5 font-medium hidden md:table-cell">创建时间</th>
@@ -257,8 +257,8 @@ export default function TeachersTab() {
                 {teachers.map((t) => (
                   <tr key={t.id} className="border-b border-gray-50 dark:border-gray-700/50 hover:bg-gray-50/60 dark:hover:bg-gray-800/40">
                     <td className="px-5 py-3 font-mono text-gray-700 dark:text-gray-300">{t.user_code}</td>
-                    <td className="px-3 py-3 font-medium text-gray-800 dark:text-gray-100">{t.name}</td>
-                    <td className="px-3 py-3 text-gray-400 dark:text-gray-500 text-xs hidden md:table-cell">{t.created_at}</td>
+                    <td className="px-3 py-3 font-medium text-foreground">{t.name}</td>
+                    <td className="px-3 py-3 text-muted text-xs hidden md:table-cell">{t.created_at}</td>
                     <td className="px-5 py-3 text-right whitespace-nowrap">
                       <button
                         onClick={() => {
@@ -303,7 +303,7 @@ export default function TeachersTab() {
             className="bg-card rounded-2xl shadow-xl max-w-sm w-full p-6 space-y-4"
             onClick={(e) => e.stopPropagation()}
           >
-            <h3 className="font-semibold text-gray-800 dark:text-gray-100 text-lg">重置密码 — {resetting.name}</h3>
+            <h3 className="font-semibold text-foreground text-lg">重置密码 — {resetting.name}</h3>
             <PasswordField value={resetPassword} onChange={setResetPassword} />
             <div className="flex gap-2 pt-2">
               <button
@@ -333,12 +333,12 @@ export default function TeachersTab() {
             className="bg-card rounded-2xl shadow-xl max-w-sm w-full p-6 space-y-4"
             onClick={(e) => e.stopPropagation()}
           >
-            <h3 className="font-semibold text-gray-800 dark:text-gray-100 text-lg">教师改名</h3>
+            <h3 className="font-semibold text-foreground text-lg">教师改名</h3>
             <input
               value={renameValue}
               onChange={(e) => setRenameValue(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && renameTeacher()}
-              className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 bg-card text-foreground rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-300"
+              className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 bg-card text-foreground rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-focus-ring"
             />
             <div className="flex gap-2 pt-2">
               <button

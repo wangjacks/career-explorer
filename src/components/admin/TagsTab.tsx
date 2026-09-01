@@ -375,7 +375,7 @@ export default function TagsTab() {
       <button
         type="button"
         onClick={() => setOpen(!open)}
-        className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 bg-card text-foreground rounded-lg text-sm text-left flex items-center justify-between focus:outline-none focus:ring-2 focus:ring-green-300"
+        className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 bg-card text-foreground rounded-lg text-sm text-left flex items-center justify-between focus:outline-none focus:ring-2 focus:ring-focus-ring"
       >
         <span className={selectedId ? "text-gray-800" : "text-gray-400"}>
           {selectedId ? filtered.find((c) => c.id === Number(selectedId))?.name || "所属分类" : "所属分类"}
@@ -384,13 +384,13 @@ export default function TagsTab() {
       </button>
       {open && (
         <div className="absolute top-full left-0 mt-1 w-56 bg-card rounded-xl border border-gray-200 dark:border-gray-700 shadow-lg z-30">
-          <div className="p-2 border-b border-gray-100 dark:border-gray-700">
+          <div className="p-2 border-b border-border-soft">
             <input
               type="text"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="搜索分类..."
-              className="w-full px-2.5 py-1.5 border border-gray-200 dark:border-gray-700 bg-card text-foreground rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-300"
+              className="w-full px-2.5 py-1.5 border border-gray-200 dark:border-gray-700 bg-card text-foreground rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-focus-ring"
               autoFocus
             />
           </div>
@@ -427,18 +427,18 @@ export default function TagsTab() {
     <button
       onClick={onClick}
       title={title}
-      className="inline-flex items-center justify-center w-6 h-6 rounded-md text-gray-400 dark:text-gray-500 hover:text-green-600 dark:hover:text-green-400 hover:bg-green-50 dark:hover:bg-green-900/30 transition-colors flex-shrink-0"
+      className="inline-flex items-center justify-center w-6 h-6 rounded-md text-muted hover:text-green-600 dark:hover:text-green-400 hover:bg-green-50 dark:hover:bg-green-900/30 transition-colors flex-shrink-0"
     >
       {dir === "up" ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
     </button>
   );
 
   return (
-    <div className="bg-card rounded-xl border border-gray-100 dark:border-gray-700 p-6 space-y-6">
+    <div className="bg-card rounded-xl border border-border-soft p-6 space-y-6">
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div>
-          <h2 className="font-semibold text-gray-800 dark:text-gray-100">标签管理</h2>
-          <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">删除为物理删除，不影响学生已提交的标签数据；删除分类会同时删除其下标签。</p>
+          <h2 className="font-semibold text-foreground">标签管理</h2>
+          <p className="text-xs text-muted mt-1">删除为物理删除，不影响学生已提交的标签数据；删除分类会同时删除其下标签。</p>
         </div>
         <button
           onClick={() => setRestoreOpen(true)}
@@ -451,19 +451,19 @@ export default function TagsTab() {
 
       {/* Add forms */}
       <div className="grid gap-4 md:grid-cols-2">
-        <div className="border border-gray-100 dark:border-gray-700 rounded-lg p-4 space-y-3">
+        <div className="border border-border-soft rounded-lg p-4 space-y-3">
           <h3 className="text-sm font-medium text-gray-700 dark:text-gray-200">新增一级分类</h3>
           <div className="flex flex-col sm:flex-row gap-2">
             <input value={categoryName} onChange={(e) => setCategoryName(e.target.value)} placeholder="分类名称"
-              className="flex-1 px-3 py-2 border border-gray-200 dark:border-gray-700 bg-card text-foreground rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-300" />
+              className="flex-1 px-3 py-2 border border-gray-200 dark:border-gray-700 bg-card text-foreground rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-focus-ring" />
             <button onClick={addCategory} className="px-3 py-2 bg-primary hover:bg-primary-strong text-white text-sm rounded-lg whitespace-nowrap">新增</button>
           </div>
         </div>
-        <div className="border border-gray-100 dark:border-gray-700 rounded-lg p-4 space-y-3">
+        <div className="border border-border-soft rounded-lg p-4 space-y-3">
           <h3 className="text-sm font-medium text-gray-700 dark:text-gray-200">新增二级标签</h3>
           <div className="flex flex-col sm:flex-row gap-2">
             <input value={tagName} onChange={(e) => setTagName(e.target.value)} placeholder="标签名称"
-              className="flex-1 min-w-0 px-3 py-2 border border-gray-200 dark:border-gray-700 bg-card text-foreground rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-300" />
+              className="flex-1 min-w-0 px-3 py-2 border border-gray-200 dark:border-gray-700 bg-card text-foreground rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-focus-ring" />
             <div className="flex gap-2">
               {renderCategoryPicker(catOpen, setCatOpen, catSearch, setCatSearch, catRef, filteredAddCategories, selectedCatId, (id) => { setSelectedCatId(id); setCatOpen(false); })}
               <button onClick={addTag} className="px-3 py-2 bg-primary hover:bg-primary-strong text-white text-sm rounded-lg whitespace-nowrap">新增</button>
@@ -488,7 +488,7 @@ export default function TagsTab() {
         className={`border rounded-lg p-4 space-y-3 transition-colors ${
           dragActive
             ? "border-green-400 bg-green-50 dark:bg-green-900/20"
-            : "border-gray-100 dark:border-gray-700"
+            : "border-border-soft"
         }`}
       >
         <div className="flex flex-wrap items-center justify-between gap-2">
@@ -508,7 +508,7 @@ export default function TagsTab() {
           onChange={(e) => setBatchText(e.target.value)}
           rows={3}
           placeholder={"每行一条：分类,标签名\n示例：\n兴趣,阅读\n兴趣,编程\n技能,绘画"}
-          className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 bg-card text-foreground rounded-lg text-sm font-mono focus:outline-none focus:ring-2 focus:ring-green-300"
+          className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 bg-card text-foreground rounded-lg text-sm font-mono focus:outline-none focus:ring-2 focus:ring-focus-ring"
         />
         {batchPreview === null ? (
           <button
@@ -520,13 +520,13 @@ export default function TagsTab() {
           </button>
         ) : (
           <div className="space-y-2">
-            <p className="text-xs text-gray-500 dark:text-gray-400">
+            <p className="text-xs text-muted">
               识别到 {batchPreview.length} 条（分类不存在时将自动创建；已存在的标签自动跳过）
             </p>
-            <div className="max-h-40 overflow-y-auto border border-gray-100 dark:border-gray-700 rounded-lg divide-y divide-gray-50 dark:divide-gray-700/50">
+            <div className="max-h-40 overflow-y-auto border border-border-soft rounded-lg divide-y divide-gray-50 dark:divide-gray-700/50">
               {batchPreview.map((item, i) => (
                 <div key={i} className="px-3 py-1.5 text-sm flex gap-2">
-                  <span className="text-gray-400 dark:text-gray-500 flex-shrink-0">{item.category}</span>
+                  <span className="text-muted flex-shrink-0">{item.category}</span>
                   <span className="text-gray-700 dark:text-gray-200 truncate">{item.name}</span>
                 </div>
               ))}
@@ -554,51 +554,51 @@ export default function TagsTab() {
       {selected.size > 0 && (
         <div className="flex flex-wrap items-center gap-2 sm:gap-3 px-4 py-2.5 bg-green-50 dark:bg-green-900/20 rounded-lg border border-green-100 dark:border-green-900">
           <span className="text-sm text-green-700 dark:text-green-400 font-medium">已选 {selected.size} 项</span>
-          <button onClick={() => setBatchDeleteOpen(true)} className="px-3 py-1 bg-red-500 hover:bg-red-600 text-white text-xs rounded-lg">批量删除</button>
+          <button onClick={() => setBatchDeleteOpen(true)} className="px-3 py-1 bg-danger hover:bg-red-600 text-white text-xs rounded-lg">批量删除</button>
           <button onClick={() => setSelected(new Set())} className="text-xs text-gray-500 hover:text-gray-700">取消选择</button>
         </div>
       )}
 
       {/* Tag list */}
-      {loading ? <p className="text-center py-8 text-gray-400 dark:text-gray-500">加载中...</p> : (
+      {loading ? <p className="text-center py-8 text-muted">加载中...</p> : (
         <div className="space-y-3">
           {categories.map((category) => {
             const children = displayTags.filter((tag) => tag.type === "tag" && tag.parent_id === category.id)
               .sort((a, b) => a.sort_order - b.sort_order || a.id - b.id);
             return (
-              <div key={category.id} className="border rounded-lg border-gray-100 dark:border-gray-700">
+              <div key={category.id} className="border rounded-lg border-border-soft">
                 <div className="px-4 py-3 bg-gray-50 dark:bg-gray-800 rounded-t-lg">
                   {editing?.id === category.id ? (
                     <>
                       {/* Mobile: two-row layout */}
                       <div className="sm:hidden space-y-2">
                         <div className="flex items-center gap-2">
-                          <input type="checkbox" className="rounded border-gray-300 text-green-500 focus:ring-green-300 flex-shrink-0" checked={selected.has(category.id)} onChange={() => toggleSelect(category.id)} />
+                          <input type="checkbox" className="rounded border-gray-300 text-green-500 focus:ring-focus-ring flex-shrink-0" checked={selected.has(category.id)} onChange={() => toggleSelect(category.id)} />
                           <input autoFocus value={editing.name} onChange={(e) => setEditing({ ...editing, name: e.target.value })} className="flex-1 min-w-0 px-2 py-1.5 border border-gray-200 dark:border-gray-700 rounded text-sm" />
                         </div>
                         <div className="flex items-center gap-2 pl-6">
-                          <span className="text-xs text-gray-400 dark:text-gray-500 flex-shrink-0">一级分类 · {children.length} 个标签</span>
+                          <span className="text-xs text-muted flex-shrink-0">一级分类 · {children.length} 个标签</span>
                           <SortBtn onClick={() => moveTag(category, -1)} dir="up" title="上移" />
                           <SortBtn onClick={() => moveTag(category, 1)} dir="down" title="下移" />
                           <button onClick={saveEdit} className="text-xs text-green-600 dark:text-green-400 hover:text-green-700 dark:hover:text-green-300 flex-shrink-0">保存</button>
-                          <button onClick={() => setEditing(null)} className="text-xs text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 flex-shrink-0">取消</button>
+                          <button onClick={() => setEditing(null)} className="text-xs text-muted hover:text-gray-700 dark:hover:text-gray-200 flex-shrink-0">取消</button>
                         </div>
                       </div>
                       {/* Desktop: single-row layout */}
                       <div className="hidden sm:flex items-center gap-2">
-                        <input type="checkbox" className="rounded border-gray-300 text-green-500 focus:ring-green-300 flex-shrink-0" checked={selected.has(category.id)} onChange={() => toggleSelect(category.id)} />
+                        <input type="checkbox" className="rounded border-gray-300 text-green-500 focus:ring-focus-ring flex-shrink-0" checked={selected.has(category.id)} onChange={() => toggleSelect(category.id)} />
                         <input autoFocus value={editing.name} onChange={(e) => setEditing({ ...editing, name: e.target.value })} className="flex-1 min-w-0 px-2 py-1 border border-gray-200 dark:border-gray-700 rounded text-sm" />
                         <SortBtn onClick={() => moveTag(category, -1)} dir="up" title="上移" />
                         <SortBtn onClick={() => moveTag(category, 1)} dir="down" title="下移" />
                         <button onClick={saveEdit} className="text-xs text-green-600 dark:text-green-400 hover:text-green-700 dark:hover:text-green-300 flex-shrink-0">保存</button>
-                        <button onClick={() => setEditing(null)} className="text-xs text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 flex-shrink-0">取消</button>
+                        <button onClick={() => setEditing(null)} className="text-xs text-muted hover:text-gray-700 dark:hover:text-gray-200 flex-shrink-0">取消</button>
                       </div>
                     </>
                   ) : (
                     <div className="flex items-center gap-2">
-                      <input type="checkbox" className="rounded border-gray-300 text-green-500 focus:ring-green-300 flex-shrink-0" checked={selected.has(category.id)} onChange={() => toggleSelect(category.id)} />
-                      <span className="flex-1 min-w-0 text-sm font-medium truncate text-gray-800 dark:text-gray-100">{category.name}</span>
-                      <span className="text-xs text-gray-400 dark:text-gray-500 flex-shrink-0 hidden sm:inline">一级分类 · {children.length} 个标签</span>
+                      <input type="checkbox" className="rounded border-gray-300 text-green-500 focus:ring-focus-ring flex-shrink-0" checked={selected.has(category.id)} onChange={() => toggleSelect(category.id)} />
+                      <span className="flex-1 min-w-0 text-sm font-medium truncate text-foreground">{category.name}</span>
+                      <span className="text-xs text-muted flex-shrink-0 hidden sm:inline">一级分类 · {children.length} 个标签</span>
                       <SortBtn onClick={() => moveTag(category, -1)} dir="up" title="上移" />
                       <SortBtn onClick={() => moveTag(category, 1)} dir="down" title="下移" />
                       <button onClick={() => setEditing({ ...category })} className="text-xs text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 flex-shrink-0">编辑</button>
@@ -615,7 +615,7 @@ export default function TagsTab() {
                           {/* Mobile: two-row layout */}
                           <div className="sm:hidden space-y-2">
                             <div className="flex items-center gap-2">
-                              <input type="checkbox" className="rounded border-gray-300 text-green-500 focus:ring-green-300 flex-shrink-0" checked={selected.has(tag.id)} onChange={() => toggleSelect(tag.id)} />
+                              <input type="checkbox" className="rounded border-gray-300 text-green-500 focus:ring-focus-ring flex-shrink-0" checked={selected.has(tag.id)} onChange={() => toggleSelect(tag.id)} />
                               <input autoFocus value={editing.name} onChange={(e) => setEditing({ ...editing, name: e.target.value })} className="flex-1 min-w-0 px-2 py-1.5 border border-gray-200 dark:border-gray-700 rounded text-sm" />
                             </div>
                             <div className="flex items-center gap-2 pl-6">
@@ -625,12 +625,12 @@ export default function TagsTab() {
                               <SortBtn onClick={() => moveTag(tag, -1)} dir="up" title="上移" />
                               <SortBtn onClick={() => moveTag(tag, 1)} dir="down" title="下移" />
                               <button onClick={saveEdit} className="text-xs text-green-600 dark:text-green-400 hover:text-green-700 dark:hover:text-green-300 flex-shrink-0">保存</button>
-                              <button onClick={() => setEditing(null)} className="text-xs text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 flex-shrink-0">取消</button>
+                              <button onClick={() => setEditing(null)} className="text-xs text-muted hover:text-gray-700 dark:hover:text-gray-200 flex-shrink-0">取消</button>
                             </div>
                           </div>
                           {/* Desktop: single-row layout */}
                           <div className="hidden sm:flex items-center gap-2">
-                            <input type="checkbox" className="rounded border-gray-300 text-green-500 focus:ring-green-300 flex-shrink-0" checked={selected.has(tag.id)} onChange={() => toggleSelect(tag.id)} />
+                            <input type="checkbox" className="rounded border-gray-300 text-green-500 focus:ring-focus-ring flex-shrink-0" checked={selected.has(tag.id)} onChange={() => toggleSelect(tag.id)} />
                             <input autoFocus value={editing.name} onChange={(e) => setEditing({ ...editing, name: e.target.value })} className="flex-1 min-w-0 px-2 py-1 border border-gray-200 dark:border-gray-700 rounded text-sm" />
                             <div className="flex-shrink-0">
                               {renderCategoryPicker(editCatOpen, setEditCatOpen, editCatSearch, setEditCatSearch, editCatRef, filteredEditCategories, String(editing.parent_id ?? ""), (id) => setEditing({ ...editing, parent_id: Number(id) || null }))}
@@ -638,12 +638,12 @@ export default function TagsTab() {
                             <SortBtn onClick={() => moveTag(tag, -1)} dir="up" title="上移" />
                             <SortBtn onClick={() => moveTag(tag, 1)} dir="down" title="下移" />
                             <button onClick={saveEdit} className="text-xs text-green-600 dark:text-green-400 hover:text-green-700 dark:hover:text-green-300 flex-shrink-0">保存</button>
-                            <button onClick={() => setEditing(null)} className="text-xs text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 flex-shrink-0">取消</button>
+                            <button onClick={() => setEditing(null)} className="text-xs text-muted hover:text-gray-700 dark:hover:text-gray-200 flex-shrink-0">取消</button>
                           </div>
                         </>
                       ) : (
                         <div className="flex items-center gap-2">
-                          <input type="checkbox" className="rounded border-gray-300 text-green-500 focus:ring-green-300 flex-shrink-0" checked={selected.has(tag.id)} onChange={() => toggleSelect(tag.id)} />
+                          <input type="checkbox" className="rounded border-gray-300 text-green-500 focus:ring-focus-ring flex-shrink-0" checked={selected.has(tag.id)} onChange={() => toggleSelect(tag.id)} />
                           <span className="flex-1 min-w-0 text-sm text-gray-700 dark:text-gray-200">{tag.name}</span>
                           <SortBtn onClick={() => moveTag(tag, -1)} dir="up" title="上移" />
                           <SortBtn onClick={() => moveTag(tag, 1)} dir="down" title="下移" />
@@ -653,12 +653,12 @@ export default function TagsTab() {
                       )}
                     </div>
                   ))}
-                  {children.length === 0 && <p className="px-12 py-3 text-xs text-gray-400 dark:text-gray-500">暂无标签</p>}
+                  {children.length === 0 && <p className="px-12 py-3 text-xs text-muted">暂无标签</p>}
                 </div>
               </div>
             );
           })}
-          {categories.length === 0 && <p className="text-center py-8 text-gray-400 dark:text-gray-500">暂无分类</p>}
+          {categories.length === 0 && <p className="text-center py-8 text-muted">暂无分类</p>}
         </div>
       )}
 

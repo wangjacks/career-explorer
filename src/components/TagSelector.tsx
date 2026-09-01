@@ -121,7 +121,7 @@ export default function TagSelector({ categories, selectedTags, onToggle, onRemo
 
       {maxCustomTags !== undefined && (
         <section className="space-y-2">
-          <h2 className="text-sm font-semibold text-gray-500 dark:text-gray-400">
+          <h2 className="text-sm font-semibold text-muted">
             自定义标签（{customSelected.length}/{maxCustomTags}）
           </h2>
           <div className="flex gap-2">
@@ -135,7 +135,7 @@ export default function TagSelector({ categories, selectedTags, onToggle, onRemo
               aria-label="自定义标签"
               placeholder={customFull ? "已达自定义标签上限" : "输入自定义标签..."}
               disabled={customFull}
-              className="flex-1 px-4 py-2 border border-gray-200 dark:border-gray-700 bg-card text-foreground rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-green-300 disabled:bg-gray-50 dark:disabled:bg-gray-800"
+              className="flex-1 px-4 py-2 border border-gray-200 dark:border-gray-700 bg-card text-foreground rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-focus-ring disabled:bg-gray-50 dark:disabled:bg-gray-800"
             />
             <button
               onClick={addCustomTag}
@@ -151,7 +151,7 @@ export default function TagSelector({ categories, selectedTags, onToggle, onRemo
 
       {selectedTags.length > 0 && (
         <section className="space-y-2">
-          <h2 className="text-sm font-semibold text-gray-500 dark:text-gray-400">
+          <h2 className="text-sm font-semibold text-muted">
             已选标签（{selectedTags.length}）
           </h2>
           <div className="flex flex-wrap gap-2">

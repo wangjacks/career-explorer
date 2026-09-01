@@ -123,7 +123,7 @@ export default function AdminPage() {
   if (!loggedIn) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center px-4">
-        <p className="text-sm text-gray-400 dark:text-gray-500">加载中...</p>
+        <p className="text-sm text-muted">加载中...</p>
       </div>
     );
   }

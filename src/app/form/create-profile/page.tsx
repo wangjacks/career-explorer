@@ -217,7 +217,7 @@ function CreateProfileForm() {
               <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
                 已经填写了一些信息，是否继续档案创建流程？
               </h3>
-              <p className="text-sm text-gray-500 dark:text-gray-400">
+              <p className="text-sm text-muted">
                 选择继续将保留已填写的内容；重新开始会删除本地预存的全部数据。
               </p>
             </div>

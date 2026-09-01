@@ -48,7 +48,7 @@ export default class ErrorBoundary extends Component<Props, State> {
             </div>
             <div>
               <h2 className="text-lg font-bold text-foreground">页面出错了</h2>
-              <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+              <p className="text-sm text-muted mt-1">
                 {this.state.error?.message || "发生了未知错误"}
               </p>
             </div>

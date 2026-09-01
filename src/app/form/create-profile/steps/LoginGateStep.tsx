@@ -44,7 +44,7 @@ export default function LoginGateStep({
   const deadlineText = deadline ?? precheckedDeadline;
 
   if (checking) {
-    return <p className="text-center py-10 text-sm text-gray-400 dark:text-gray-500">加载中...</p>;
+    return <p className="text-center py-10 text-sm text-muted">加载中...</p>;
   }
 
   if (!session) {
@@ -55,7 +55,7 @@ export default function LoginGateStep({
         </div>
         <div className="space-y-1">
           <h1 className="text-xl font-bold text-gray-900 dark:text-gray-100">请先登录</h1>
-          <p className="text-sm text-gray-500 dark:text-gray-400">
+          <p className="text-sm text-muted">
             档案创建需要登录，登录后即可继续填写
           </p>
         </div>
@@ -73,7 +73,7 @@ export default function LoginGateStep({
     return (
       <div className="w-full max-w-sm sm:max-w-md mx-auto bg-card rounded-2xl shadow-xl p-8 space-y-4 text-center">
         <h1 className="text-lg font-bold text-gray-900 dark:text-gray-100">此流程仅限学生使用</h1>
-        <p className="text-sm text-gray-500 dark:text-gray-400">当前登录身份无需创建学生档案</p>
+        <p className="text-sm text-muted">当前登录身份无需创建学生档案</p>
         <Link
           href={`/dashboard/${session.role}`}
           className="block w-full py-3 bg-primary hover:bg-primary-strong text-white font-medium rounded-xl transition-colors"
@@ -92,7 +92,7 @@ export default function LoginGateStep({
           <UserRound size={26} className="text-accent" aria-hidden />
         </div>
         <h1 className="text-lg font-bold text-gray-900 dark:text-gray-100">档案提交已截止</h1>
-        <p className="text-sm text-gray-500 dark:text-gray-400">
+        <p className="text-sm text-muted">
           {deadlineText ? `截止时间：${deadlineText}，` : ""}无法再创建或修改档案，如有疑问请联系老师
         </p>
         <Link
@@ -112,7 +112,7 @@ export default function LoginGateStep({
           <UserRound size={26} className="text-accent" aria-hidden />
         </div>
         <h1 className="text-lg font-bold text-gray-900 dark:text-gray-100">你已提交过档案</h1>
-        <p className="text-sm text-gray-500 dark:text-gray-400">如需修改数据，请前往学生面板操作</p>
+        <p className="text-sm text-muted">如需修改数据，请前往学生面板操作</p>
         <Link
           href="/dashboard/student"
           className="block w-full py-3 bg-primary hover:bg-primary-strong text-white font-medium rounded-xl transition-colors"
@@ -162,7 +162,7 @@ export default function LoginGateStep({
         <h1 className="text-xl font-bold text-gray-900 dark:text-gray-100">
           您好，{session.name}同学！
         </h1>
-        <p className="text-sm text-gray-500 dark:text-gray-400">准备好创建你的职业探索档案了吗？</p>
+        <p className="text-sm text-muted">准备好创建你的职业探索档案了吗？</p>
       </div>
       {error && <p className="text-sm text-red-500">{error}</p>}
       <button

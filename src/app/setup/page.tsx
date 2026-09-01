@@ -132,7 +132,7 @@ export default function SetupPage() {
                   >
                     {done ? "✓" : i + 1}
                   </div>
-                  <span className={`text-[10px] sm:text-xs whitespace-nowrap ${current || done ? "text-green-600 dark:text-green-400 font-medium" : "text-gray-400 dark:text-gray-500"}`}>
+                  <span className={`text-[10px] sm:text-xs whitespace-nowrap ${current || done ? "text-green-600 dark:text-green-400 font-medium" : "text-muted"}`}>
                     {label}
                   </span>
                 </div>
@@ -148,7 +148,7 @@ export default function SetupPage() {
                 <Zap className="w-8 h-8 text-green-600 dark:text-green-400" strokeWidth={2} />
               </div>
               <h1 className="text-xl font-bold text-foreground">欢迎使用 Career Explorer</h1>
-              <p className="text-sm text-gray-500 dark:text-gray-400">请选择数据库类型</p>
+              <p className="text-sm text-muted">请选择数据库类型</p>
             </div>
             <div className="grid grid-cols-2 gap-4">
               <button
@@ -157,7 +157,7 @@ export default function SetupPage() {
               >
                 <div className="text-2xl mb-2">🗄️</div>
                 <div className="font-medium text-foreground">MySQL</div>
-                <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">适合已有 MySQL 服务器的场景</div>
+                <div className="text-xs text-muted mt-1">适合已有 MySQL 服务器的场景</div>
               </button>
               <button
                 onClick={() => { setDbType("sqlite"); setStep("config"); setConnectionOk(false); }}
@@ -165,7 +165,7 @@ export default function SetupPage() {
               >
                 <div className="text-2xl mb-2">📁</div>
                 <div className="font-medium text-foreground">SQLite</div>
-                <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">轻量级方案，数据存储在本地文件</div>
+                <div className="text-xs text-muted mt-1">轻量级方案，数据存储在本地文件</div>
               </button>
             </div>
           </>
@@ -177,7 +177,7 @@ export default function SetupPage() {
               <h1 className="text-xl font-bold text-foreground">
                 {dbType === "mysql" ? "MySQL 配置" : "SQLite 配置"}
               </h1>
-              <p className="text-sm text-gray-500 dark:text-gray-400">
+              <p className="text-sm text-muted">
                 {dbType === "mysql" ? "请填写数据库连接信息" : "设置 SQLite 数据库文件路径"}
               </p>
             </div>
@@ -186,64 +186,64 @@ export default function SetupPage() {
               <div className="space-y-4">
                 <div className="grid grid-cols-3 gap-3">
                   <div className="col-span-2">
-                    <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">主机</label>
+                    <label className="block text-xs text-muted mb-1">主机</label>
                     <input
                       type="text"
                       value={mysqlConfig.host}
                       onChange={(e) => setMysqlConfig({ ...mysqlConfig, host: e.target.value })}
-                      className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-300"
+                      className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-focus-ring"
                     />
                   </div>
                   <div>
-                    <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">端口</label>
+                    <label className="block text-xs text-muted mb-1">端口</label>
                     <input
                       type="number"
                       value={mysqlConfig.port}
                       onChange={(e) => setMysqlConfig({ ...mysqlConfig, port: parseInt(e.target.value) || 3306 })}
-                      className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-300"
+                      className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-focus-ring"
                     />
                   </div>
                 </div>
                 <div>
-                  <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">用户名</label>
+                  <label className="block text-xs text-muted mb-1">用户名</label>
                   <input
                     type="text"
                     value={mysqlConfig.user}
                     onChange={(e) => setMysqlConfig({ ...mysqlConfig, user: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-300"
+                    className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-focus-ring"
                   />
                 </div>
                 <div>
-                  <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">密码</label>
+                  <label className="block text-xs text-muted mb-1">密码</label>
                   <input
                     type="password"
                     value={mysqlConfig.password}
                     onChange={(e) => setMysqlConfig({ ...mysqlConfig, password: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-300"
+                    className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-focus-ring"
                   />
                 </div>
                 <div>
-                  <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">数据库名</label>
+                  <label className="block text-xs text-muted mb-1">数据库名</label>
                   <input
                     type="text"
                     value={mysqlConfig.database}
                     onChange={(e) => setMysqlConfig({ ...mysqlConfig, database: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-300"
+                    className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-focus-ring"
                   />
-                  <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">数据库必须已存在，系统会自动创建表结构</p>
+                  <p className="text-xs text-muted mt-1">数据库必须已存在，系统会自动创建表结构</p>
                 </div>
               </div>
             ) : (
               <div className="space-y-4">
                 <div>
-                  <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">数据库文件路径</label>
+                  <label className="block text-xs text-muted mb-1">数据库文件路径</label>
                   <input
                     type="text"
                     value={sqlitePath}
                     onChange={(e) => setSqlitePath(e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-300"
+                    className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-focus-ring"
                   />
-                  <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">相对于项目根目录，系统会自动创建目录</p>
+                  <p className="text-xs text-muted mt-1">相对于项目根目录，系统会自动创建目录</p>
                 </div>
               </div>
             )}
@@ -265,7 +265,7 @@ export default function SetupPage() {
               <button
                 onClick={() => setStep("password")}
                 disabled={!connectionOk}
-                className="flex-1 py-3 bg-green-500 hover:bg-green-600 text-white font-medium rounded-xl transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                className="flex-1 py-3 bg-primary hover:bg-primary-strong text-white font-medium rounded-xl transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 下一步
               </button>
@@ -282,24 +282,24 @@ export default function SetupPage() {
 
             <div className="space-y-4">
               <div>
-                <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">管理员密码</label>
+                <label className="block text-xs text-muted mb-1">管理员密码</label>
                 <input
                   type="password"
                   value={adminPassword}
                   onChange={(e) => setAdminPassword(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-300"
+                  className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-focus-ring"
                 />
                 {adminPassword.length > 0 && adminPassword.length < 8 && (
                   <p className="text-xs text-red-500 dark:text-red-400 mt-1">密码至少需要 8 位</p>
                 )}
               </div>
               <div>
-                <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">确认密码</label>
+                <label className="block text-xs text-muted mb-1">确认密码</label>
                 <input
                   type="password"
                   value={confirmPassword}
                   onChange={(e) => setConfirmPassword(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-300"
+                  className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-focus-ring"
                 />
                 {confirmPassword.length > 0 && confirmPassword !== adminPassword && (
                   <p className="text-xs text-red-500 dark:text-red-400 mt-1">两次输入的密码不一致</p>
@@ -317,7 +317,7 @@ export default function SetupPage() {
               <button
                 onClick={handleInstall}
                 disabled={!passwordValid || installing}
-                className="flex-1 py-3 bg-green-500 hover:bg-green-600 text-white font-medium rounded-xl transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                className="flex-1 py-3 bg-primary hover:bg-primary-strong text-white font-medium rounded-xl transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {installing ? "安装中..." : "安装"}
               </button>
@@ -339,8 +339,8 @@ export default function SetupPage() {
             </div>
             <div>
               <h2 className="text-lg font-bold text-foreground">安装成功</h2>
-              <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">管理员编号：10001</p>
-              <p className="text-sm text-gray-400 dark:text-gray-500 mt-1">正在跳转到管理后台...</p>
+              <p className="text-sm text-muted mt-1">管理员编号：10001</p>
+              <p className="text-sm text-muted mt-1">正在跳转到管理后台...</p>
             </div>
           </div>
         )}

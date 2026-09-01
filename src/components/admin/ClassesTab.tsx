@@ -206,15 +206,15 @@ export default function ClassesTab({ mode, teacherUid }: Props) {
   return (
     <div className="space-y-6">
       {/* 创建班级 */}
-      <div className="bg-card rounded-xl border border-gray-100 dark:border-gray-700 p-5">
-        <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-100 mb-3">创建班级</h3>
+      <div className="bg-card rounded-xl border border-border-soft p-5">
+        <h3 className="text-sm font-semibold text-foreground mb-3">创建班级</h3>
         <div className="flex flex-col sm:flex-row gap-2">
           <input
             value={nameInput}
             onChange={(e) => setNameInput(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && createClass()}
             placeholder="班级名称，如 2026级1班"
-            className="flex-1 px-3 py-2 border border-gray-200 dark:border-gray-700 bg-card text-foreground rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-300"
+            className="flex-1 px-3 py-2 border border-gray-200 dark:border-gray-700 bg-card text-foreground rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-focus-ring"
           />
           <button
             onClick={createClass}
@@ -226,16 +226,16 @@ export default function ClassesTab({ mode, teacherUid }: Props) {
       </div>
 
       {/* 班级列表 */}
-      <div className="bg-card rounded-xl border border-gray-100 dark:border-gray-700 overflow-hidden">
-        <div className="px-5 py-4 border-b border-gray-100 dark:border-gray-700 flex items-center justify-between">
-          <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-100">班级列表</h3>
-          <span className="text-xs text-gray-400 dark:text-gray-500">{classes.length} 个班级</span>
+      <div className="bg-card rounded-xl border border-border-soft overflow-hidden">
+        <div className="px-5 py-4 border-b border-border-soft flex items-center justify-between">
+          <h3 className="text-sm font-semibold text-foreground">班级列表</h3>
+          <span className="text-xs text-muted">{classes.length} 个班级</span>
         </div>
 
         {loading ? (
-          <p className="p-5 text-sm text-gray-400 dark:text-gray-500">加载中...</p>
+          <p className="p-5 text-sm text-muted">加载中...</p>
         ) : classes.length === 0 ? (
-          <p className="p-5 text-sm text-gray-400 dark:text-gray-500 flex items-center justify-center gap-2">
+          <p className="p-5 text-sm text-muted flex items-center justify-center gap-2">
             <FolderPlus size={18} strokeWidth={1.5} className="text-gray-300 dark:text-gray-500" />
             暂无班级，请先创建
           </p>
@@ -243,7 +243,7 @@ export default function ClassesTab({ mode, teacherUid }: Props) {
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
-                <tr className="text-left text-xs text-gray-400 dark:text-gray-500 border-b border-gray-100 dark:border-gray-700">
+                <tr className="text-left text-xs text-muted border-b border-border-soft">
                   <th className="px-5 py-2.5 font-medium w-8"></th>
                   <th className="px-3 py-2.5 font-medium">班级名称</th>
                   <th className="px-3 py-2.5 font-medium">学生数</th>
@@ -293,12 +293,12 @@ export default function ClassesTab({ mode, teacherUid }: Props) {
             className="bg-card rounded-2xl shadow-xl max-w-sm w-full p-6 space-y-4"
             onClick={(e) => e.stopPropagation()}
           >
-            <h3 className="font-semibold text-gray-800 dark:text-gray-100 text-lg">班级改名</h3>
+            <h3 className="font-semibold text-foreground text-lg">班级改名</h3>
             <input
               value={renameValue}
               onChange={(e) => setRenameValue(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && renameClass()}
-              className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 bg-card text-foreground rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-300"
+              className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 bg-card text-foreground rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-focus-ring"
             />
             <div className="flex gap-2 pt-2">
               <button
@@ -378,7 +378,7 @@ function FragmentRow({
         <td className="px-5 py-3">
           <button
             onClick={onToggle}
-            className="text-gray-400 dark:text-gray-500 hover:text-gray-600"
+            className="text-muted hover:text-gray-600"
             aria-label={isOpen ? "收起学生名单" : "展开学生名单"}
           >
             <ChevronRight
@@ -387,7 +387,7 @@ function FragmentRow({
           </button>
         </td>
         <td className="px-3 py-3">
-          <span className="font-medium text-gray-800 dark:text-gray-100">{klass.name}</span>
+          <span className="font-medium text-foreground">{klass.name}</span>
           {creator && (
             <span className="ml-2 px-1.5 py-0.5 bg-blue-50 dark:bg-blue-900/30 text-blue-500 dark:text-blue-400 rounded text-xs">{creator}</span>
           )}
@@ -398,17 +398,17 @@ function FragmentRow({
             <code className="px-2 py-0.5 bg-gray-100 dark:bg-gray-800 rounded text-xs font-mono text-gray-700 dark:text-gray-300">
               {klass.invitation_code}
             </code>
-            <button onClick={onCopy} className="text-gray-400 dark:text-gray-500 hover:text-green-600" aria-label="复制邀请码">
+            <button onClick={onCopy} className="text-muted hover:text-green-600" aria-label="复制邀请码">
               <Copy className="w-3.5 h-3.5" />
             </button>
             {modifiable && (
-              <button onClick={onReset} className="text-gray-400 dark:text-gray-500 hover:text-amber-600" aria-label="重置邀请码">
+              <button onClick={onReset} className="text-muted hover:text-amber-600" aria-label="重置邀请码">
                 <RefreshCw className="w-3.5 h-3.5" />
               </button>
             )}
           </span>
         </td>
-        <td className="px-3 py-3 text-gray-400 dark:text-gray-500 text-xs hidden md:table-cell">{klass.created_at}</td>
+        <td className="px-3 py-3 text-muted text-xs hidden md:table-cell">{klass.created_at}</td>
         <td className="px-5 py-3 text-right whitespace-nowrap">
           {modifiable ? (
             <>
@@ -425,11 +425,11 @@ function FragmentRow({
         </td>
       </tr>
       {isOpen && (
-        <tr className="border-b border-gray-100 dark:border-gray-700 bg-gray-50/50 dark:bg-gray-800/30">
+        <tr className="border-b border-border-soft bg-gray-50/50 dark:bg-gray-800/30">
           <td></td>
           <td colSpan={5} className="px-3 py-3">
             {members.length === 0 ? (
-              <p className="text-xs text-gray-400 dark:text-gray-500">该班级暂无学生</p>
+              <p className="text-xs text-muted">该班级暂无学生</p>
             ) : (
               <div className="flex flex-wrap gap-1.5">
                 {members.map((s) => (

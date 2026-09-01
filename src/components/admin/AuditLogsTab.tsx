@@ -59,7 +59,7 @@ const ROLE_LABELS: Record<string, string> = {
 };
 
 const inputClass =
-  "px-2 py-1.5 border border-gray-200 dark:border-gray-700 rounded-lg text-sm bg-card text-foreground focus:outline-none focus:ring-2 focus:ring-green-300";
+  "px-2 py-1.5 border border-gray-200 dark:border-gray-700 rounded-lg text-sm bg-card text-foreground focus:outline-none focus:ring-2 focus:ring-focus-ring";
 
 /**
  * 操作审计页（#110）：只读查询，不提供修改/删除。
@@ -123,10 +123,10 @@ export default function AuditLogsTab({ mode }: AuditLogsTabProps) {
   const handleSearch = () => load(1);
 
   return (
-    <div className="bg-card rounded-xl border border-gray-100 dark:border-gray-700 p-6 space-y-4">
+    <div className="bg-card rounded-xl border border-border-soft p-6 space-y-4">
       <div>
-        <h2 className="font-semibold text-gray-800 dark:text-gray-100">操作审计</h2>
-        <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
+        <h2 className="font-semibold text-foreground">操作审计</h2>
+        <p className="text-xs text-muted mt-1">
           {mode === "admin"
             ? "记录管理操作、认证事件与档案提交的完整审计轨迹；只读，不可修改删除。"
             : "仅展示你本人产生的操作记录；只读，不可修改删除。"}
@@ -136,7 +136,7 @@ export default function AuditLogsTab({ mode }: AuditLogsTabProps) {
       {/* 筛选栏 */}
       <div className="flex flex-wrap items-center gap-2">
         <input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} className={inputClass} aria-label="开始日期" />
-        <span className="text-xs text-gray-400 dark:text-gray-500">至</span>
+        <span className="text-xs text-muted">至</span>
         <input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} className={inputClass} aria-label="结束日期" />
         <select value={action} onChange={(e) => setAction(e.target.value)} className={inputClass} aria-label="操作类型">
           <option value="">全部操作</option>
@@ -185,17 +185,17 @@ export default function AuditLogsTab({ mode }: AuditLogsTabProps) {
       {loadFailed && rows.length === 0 && (
         <div className="text-center py-6 space-y-2">
           <p className="text-sm text-red-500">审计记录加载失败</p>
-          <button onClick={() => load(page)} className="px-4 py-1.5 bg-red-500 hover:bg-red-600 text-white text-sm rounded-lg">
+          <button onClick={() => load(page)} className="px-4 py-1.5 bg-danger hover:bg-red-600 text-white text-sm rounded-lg">
             重试
           </button>
         </div>
       )}
 
       {/* 记录表 */}
-      <div className="overflow-x-auto rounded-lg border border-gray-100 dark:border-gray-700">
+      <div className="overflow-x-auto rounded-lg border border-border-soft">
         <table className="w-full text-sm">
           <thead className="bg-gray-50 dark:bg-gray-800">
-            <tr className="text-left text-gray-500 dark:text-gray-400 border-b border-gray-100 dark:border-gray-700">
+            <tr className="text-left text-muted border-b border-border-soft">
               <th className="px-3 py-2 font-medium whitespace-nowrap">时间</th>
               <th className="px-3 py-2 font-medium">操作者</th>
               <th className="px-3 py-2 font-medium">动作</th>
@@ -213,7 +213,7 @@ export default function AuditLogsTab({ mode }: AuditLogsTabProps) {
                     <div className="flex items-center gap-1.5">
                       <span>{r.actor_name || r.actor_user_code || "-"}</span>
                       {r.actor_role && (
-                        <span className="px-1.5 py-0.5 text-[10px] rounded bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400">
+                        <span className="px-1.5 py-0.5 text-[10px] rounded bg-gray-100 dark:bg-gray-800 text-muted">
                           {ROLE_LABELS[r.actor_role] || r.actor_role}
                         </span>
                       )}
@@ -237,7 +237,7 @@ export default function AuditLogsTab({ mode }: AuditLogsTabProps) {
                   <td className="px-3 py-2">
                     <button
                       onClick={() => setExpanded(expanded === r.id ? null : r.id)}
-                      className="text-xs text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300"
+                      className="text-xs text-muted hover:text-gray-600 dark:hover:text-gray-300"
                       aria-label="展开详情"
                     >
                       {expanded === r.id ? "收起" : "详情"}
@@ -248,15 +248,15 @@ export default function AuditLogsTab({ mode }: AuditLogsTabProps) {
                   <tr className="bg-gray-50/60 dark:bg-gray-800/30">
                     <td colSpan={6} className="px-4 py-3">
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs text-gray-600 dark:text-gray-300">
-                        <p><span className="text-gray-400 dark:text-gray-500">编号：</span>{r.actor_user_code || "-"}</p>
-                        <p><span className="text-gray-400 dark:text-gray-500">IP：</span>{r.ip || "-"}</p>
-                        <p><span className="text-gray-400 dark:text-gray-500">请求：</span>{r.method} {r.path}</p>
-                        <p className="sm:col-span-2 break-all"><span className="text-gray-400 dark:text-gray-500">UA：</span>{r.user_agent || "-"}</p>
+                        <p><span className="text-muted">编号：</span>{r.actor_user_code || "-"}</p>
+                        <p><span className="text-muted">IP：</span>{r.ip || "-"}</p>
+                        <p><span className="text-muted">请求：</span>{r.method} {r.path}</p>
+                        <p className="sm:col-span-2 break-all"><span className="text-muted">UA：</span>{r.user_agent || "-"}</p>
                         {r.error_message && (
-                          <p className="sm:col-span-2 text-red-500"><span className="text-gray-400 dark:text-gray-500">错误：</span>{r.error_message}</p>
+                          <p className="sm:col-span-2 text-red-500"><span className="text-muted">错误：</span>{r.error_message}</p>
                         )}
                         {r.metadata && (
-                          <pre className="sm:col-span-2 bg-card border border-gray-100 dark:border-gray-700 rounded p-2 overflow-x-auto">
+                          <pre className="sm:col-span-2 bg-card border border-border-soft rounded p-2 overflow-x-auto">
                             {(() => {
                               try {
                                 return JSON.stringify(JSON.parse(r.metadata), null, 2);
@@ -274,7 +274,7 @@ export default function AuditLogsTab({ mode }: AuditLogsTabProps) {
             ))}
             {!loading && rows.length === 0 && (
               <tr>
-                <td colSpan={6} className="px-3 py-8 text-center text-sm text-gray-400 dark:text-gray-500">
+                <td colSpan={6} className="px-3 py-8 text-center text-sm text-muted">
                   暂无审计记录
                 </td>
               </tr>
@@ -285,7 +285,7 @@ export default function AuditLogsTab({ mode }: AuditLogsTabProps) {
 
       {/* 分页 */}
       <div className="flex items-center justify-between text-sm">
-        <p className="text-xs text-gray-400 dark:text-gray-500">
+        <p className="text-xs text-muted">
           共 {total} 条，第 {page}/{totalPages} 页
         </p>
         <div className="flex gap-2">

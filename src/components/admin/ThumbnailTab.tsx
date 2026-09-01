@@ -68,10 +68,10 @@ export default function ThumbnailTab() {
 
   return (
     <div className="space-y-5">
-      <div className="bg-card rounded-xl border border-gray-100 dark:border-gray-700 p-5 space-y-4">
+      <div className="bg-card rounded-xl border border-border-soft p-5 space-y-4">
         <div className="flex items-center gap-2">
-          <ImageIcon size={16} className="text-gray-400 dark:text-gray-500" aria-hidden />
-          <h2 className="font-semibold text-gray-800 dark:text-gray-100">缩略图维护</h2>
+          <ImageIcon size={16} className="text-muted" aria-hidden />
+          <h2 className="font-semibold text-foreground">缩略图维护</h2>
           <button
             onClick={() => scan()}
             disabled={loading}
@@ -81,16 +81,16 @@ export default function ThumbnailTab() {
             {status === null ? "检测" : "重新检测"}
           </button>
         </div>
-        <p className="text-xs text-gray-400 dark:text-gray-500">
+        <p className="text-xs text-muted">
           扫描全部被引用图片（当前档案 + 历史版本快照），统计缩略图覆盖情况；缩略图由原图 key 派生（`_thumb` 后缀），不影响原图与详情展示。
         </p>
 
         {status === null ? (
-          <p className="text-sm text-gray-400 dark:text-gray-500">点击上方「检测」按钮扫描缩略图覆盖情况</p>
+          <p className="text-sm text-muted">点击上方「检测」按钮扫描缩略图覆盖情况</p>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-4">
-              <p className="text-xs text-gray-500 dark:text-gray-400">被引用图片</p>
+              <p className="text-xs text-muted">被引用图片</p>
               <p className="text-2xl font-extrabold text-gray-900 dark:text-gray-100 mt-1">{status.total}</p>
             </div>
             <div className="bg-green-50 dark:bg-green-900/20 rounded-lg p-4">
@@ -98,7 +98,7 @@ export default function ThumbnailTab() {
               <p className="text-2xl font-extrabold text-green-700 dark:text-green-300 mt-1">{status.existing}</p>
             </div>
             <div className={`rounded-lg p-4 ${status.missing > 0 ? "bg-amber-50 dark:bg-amber-900/20" : "bg-gray-50 dark:bg-gray-800"}`}>
-              <p className={`text-xs ${status.missing > 0 ? "text-amber-600 dark:text-amber-400" : "text-gray-500 dark:text-gray-400"}`}>
+              <p className={`text-xs ${status.missing > 0 ? "text-amber-600 dark:text-amber-400" : "text-muted"}`}>
                 缺失缩略图
               </p>
               <p className={`text-2xl font-extrabold mt-1 ${status.missing > 0 ? "text-amber-700 dark:text-amber-300" : "text-gray-900 dark:text-gray-100"}`}>
@@ -118,7 +118,7 @@ export default function ThumbnailTab() {
               <Wrench className="w-4 h-4" aria-hidden />
               {running ? "补生成中..." : `补生成缺失缩略图（${status.missing} 张）`}
             </button>
-            <span className="text-xs text-gray-400 dark:text-gray-500">仅生成缺失项，已存在的不重复处理；单张失败不影响其余</span>
+            <span className="text-xs text-muted">仅生成缺失项，已存在的不重复处理；单张失败不影响其余</span>
           </div>
         )}
 
@@ -130,7 +130,7 @@ export default function ThumbnailTab() {
         )}
 
         {result && (
-          <div className="text-xs text-gray-500 dark:text-gray-400 border-t border-gray-100 dark:border-gray-700 pt-3">
+          <div className="text-xs text-muted border-t border-border-soft pt-3">
             本次结果：共 {result.total} 张 · 新生成 <span className="text-green-600 dark:text-green-400">{result.generated}</span> ·
             已存在跳过 {result.skipped} · 失败 <span className={result.failed > 0 ? "text-red-500" : ""}>{result.failed}</span>
           </div>

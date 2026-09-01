@@ -202,10 +202,10 @@ export default function ProfileSubmissionsTab() {
   return (
     <div className="space-y-5">
       {/* 学生选择器 + 版本列表 */}
-      <div className="bg-card rounded-xl border border-gray-100 dark:border-gray-700 p-5 space-y-4">
+      <div className="bg-card rounded-xl border border-border-soft p-5 space-y-4">
         <div className="flex items-center gap-2">
-          <History size={16} className="text-gray-400 dark:text-gray-500" aria-hidden />
-          <h2 className="font-semibold text-gray-800 dark:text-gray-100">档案提交历史</h2>
+          <History size={16} className="text-muted" aria-hidden />
+          <h2 className="font-semibold text-foreground">档案提交历史</h2>
         </div>
 
         {/* 学生选择器：按钮 + 弹出面板（搜索 + 列表） */}
@@ -246,21 +246,21 @@ export default function ProfileSubmissionsTab() {
           </div>
           {pickerOpen && (
             <div className="absolute top-full left-0 mt-1 w-80 bg-card rounded-xl border border-gray-200 dark:border-gray-700 shadow-lg z-30">
-              <div className="p-2 border-b border-gray-100 dark:border-gray-700">
+              <div className="p-2 border-b border-border-soft">
                 <input
                   type="text"
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
                   placeholder="搜索学号/姓名..."
-                  className="w-full px-2.5 py-1.5 border border-gray-200 dark:border-gray-700 bg-card text-foreground rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-300"
+                  className="w-full px-2.5 py-1.5 border border-gray-200 dark:border-gray-700 bg-card text-foreground rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-focus-ring"
                   autoFocus
                 />
               </div>
               <div className="max-h-64 overflow-y-auto py-1">
                 {studentLoading && students.length === 0 ? (
-                  <div className="px-3 py-4 text-center text-sm text-gray-400 dark:text-gray-500">加载中...</div>
+                  <div className="px-3 py-4 text-center text-sm text-muted">加载中...</div>
                 ) : filteredStudents.length === 0 ? (
-                  <div className="px-3 py-4 text-center text-sm text-gray-400 dark:text-gray-500">无匹配学生</div>
+                  <div className="px-3 py-4 text-center text-sm text-muted">无匹配学生</div>
                 ) : (
                   /* 只渲染前 10 个（大名单时避免卡顿），底部提示剩余数量 */
                   filteredStudents.slice(0, 10).map((s) => (
@@ -280,7 +280,7 @@ export default function ProfileSubmissionsTab() {
                   ))
                 )}
               </div>
-              <div className="px-3 py-1.5 border-t border-gray-100 dark:border-gray-700 text-[10px] text-gray-400 dark:text-gray-500">
+              <div className="px-3 py-1.5 border-t border-border-soft text-[10px] text-muted">
                 共 {students.length} 名已提交学生
                 {filteredStudents.length > 10 && `，匹配 ${filteredStudents.length} 名，仅显示前 10 个，可输入学号/姓名精确查找`}
               </div>
@@ -294,15 +294,15 @@ export default function ProfileSubmissionsTab() {
               {selectedName} 的提交历史（{submissions.length} 个版本）
             </p>
             {subLoading ? (
-              <p className="text-sm text-gray-400 dark:text-gray-500">加载中...</p>
+              <p className="text-sm text-muted">加载中...</p>
             ) : submissions.length === 0 ? (
-              <p className="text-sm text-gray-400 dark:text-gray-500">暂无版本记录</p>
+              <p className="text-sm text-muted">暂无版本记录</p>
             ) : (
               <ul className="space-y-2">
                 {submissions.map((s) => (
-                  <li key={s.id} className="border border-gray-100 dark:border-gray-700 rounded-lg p-3 space-y-2">
+                  <li key={s.id} className="border border-border-soft rounded-lg p-3 space-y-2">
                     <div className="flex items-center gap-2 flex-wrap">
-                      <span className="text-sm font-semibold text-gray-800 dark:text-gray-100">版本 {s.version}</span>
+                      <span className="text-sm font-semibold text-foreground">版本 {s.version}</span>
                       {s.is_current === 1 ? (
                         <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-green-50 text-green-600 dark:bg-green-900/30 dark:text-green-400">
                           当前版本
@@ -312,11 +312,11 @@ export default function ProfileSubmissionsTab() {
                           历史版本
                         </span>
                       )}
-                      <span className="ml-auto text-xs text-gray-400 dark:text-gray-500">{s.submitted_at}</span>
+                      <span className="ml-auto text-xs text-muted">{s.submitted_at}</span>
                     </div>
                     <div className="flex flex-wrap gap-1.5">
                       {s.tags.length === 0 ? (
-                        <span className="text-xs text-gray-400 dark:text-gray-500">暂无标签</span>
+                        <span className="text-xs text-muted">暂无标签</span>
                       ) : (
                         s.tags.map((tag) => (
                           <span key={tag} className={`px-2.5 py-1 rounded-full text-xs ${tagColorMap.get(tag) ?? "bg-green-50 dark:bg-green-900/30 text-green-700 dark:text-green-300"}`}>
@@ -328,10 +328,10 @@ export default function ProfileSubmissionsTab() {
                     {(s.avatar_url || s.evaluation_url) && (
                       <div className="flex gap-2">
                         {s.avatar_url && (
-                          <StorageImage url={s.avatar_url} storageId={s.storage_id} alt={`版本 ${s.version} 头像`} thumbnail className="w-12 h-12 rounded-lg object-cover border border-gray-100 dark:border-gray-700" />
+                          <StorageImage url={s.avatar_url} storageId={s.storage_id} alt={`版本 ${s.version} 头像`} thumbnail className="w-12 h-12 rounded-lg object-cover border border-border-soft" />
                         )}
                         {s.evaluation_url && (
-                          <StorageImage url={s.evaluation_url} storageId={s.storage_id} alt={`版本 ${s.version} 评价词云`} thumbnail className="h-12 w-20 rounded-lg object-cover border border-gray-100 dark:border-gray-700" />
+                          <StorageImage url={s.evaluation_url} storageId={s.storage_id} alt={`版本 ${s.version} 评价词云`} thumbnail className="h-12 w-20 rounded-lg object-cover border border-border-soft" />
                         )}
                       </div>
                     )}
@@ -345,11 +345,11 @@ export default function ProfileSubmissionsTab() {
 
       {/* 超限学生子面板（#95）：展示超限名单，admin 可手动清理最旧版本
           每次提交会自动清理超限；仅在调低版本上限后，存量学生可能超限并在此浮现 */}
-      <div className="bg-card rounded-xl border border-gray-100 dark:border-gray-700 p-5 space-y-4">
+      <div className="bg-card rounded-xl border border-border-soft p-5 space-y-4">
         <div className="flex items-center gap-2 flex-wrap">
           <TriangleAlert size={16} className="text-amber-500" aria-hidden />
-          <h2 className="font-semibold text-gray-800 dark:text-gray-100">超限学生</h2>
-          <span className="text-xs text-gray-400 dark:text-gray-500">版本上限 {maxVersions} 条，超出部分仅删除记录（文件保留）</span>
+          <h2 className="font-semibold text-foreground">超限学生</h2>
+          <span className="text-xs text-muted">版本上限 {maxVersions} 条，超出部分仅删除记录（文件保留）</span>
           {exceeding.length > 0 && (
             <button
               onClick={() => setConfirmCleanupAll(true)}
@@ -361,17 +361,17 @@ export default function ProfileSubmissionsTab() {
             </button>
           )}
         </div>
-        <p className="text-xs text-gray-400 dark:text-gray-500">
+        <p className="text-xs text-muted">
           每次提交时会自动清理超限版本，正常情况下此处为空；仅当调低「功能设置」中的版本上限后，存量学生可能超限并在此列出，可单个或一键清理。
         </p>
         {exceeding.length === 0 ? (
-          <p className="text-sm text-gray-400 dark:text-gray-500">暂无超限学生</p>
+          <p className="text-sm text-muted">暂无超限学生</p>
         ) : (
           <ul className="space-y-2">
             {exceeding.map((row) => (
-              <li key={row.user_id} className="flex items-center gap-3 border border-gray-100 dark:border-gray-700 rounded-lg px-3 py-2">
+              <li key={row.user_id} className="flex items-center gap-3 border border-border-soft rounded-lg px-3 py-2">
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm text-gray-800 dark:text-gray-100 truncate">
+                  <p className="text-sm text-foreground truncate">
                     {row.name} <span className="font-mono text-xs text-gray-400">({row.user_code})</span>
                   </p>
                   <p className="text-xs text-amber-600 dark:text-amber-400">{row.version_count} 个版本（超限 {row.version_count - maxVersions} 条）</p>

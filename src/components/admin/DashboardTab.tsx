@@ -70,7 +70,7 @@ export default function DashboardTab() {
   /* eslint-enable react-hooks/set-state-in-effect */
 
   if (loading) {
-    return <div className="text-center py-12 text-gray-400 dark:text-gray-500">加载中...</div>;
+    return <div className="text-center py-12 text-muted">加载中...</div>;
   }
 
   return (
@@ -79,13 +79,13 @@ export default function DashboardTab() {
         <div className="flex items-center justify-between bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl px-4 py-3">
           <p className="text-sm text-red-600 dark:text-red-400">部分数据加载失败，图表可能不完整</p>
           <button onClick={loadData}
-            className="px-3 py-1 bg-red-500 hover:bg-red-600 text-white text-sm rounded-lg transition-colors">重试</button>
+            className="px-3 py-1 bg-danger hover:bg-red-600 text-white text-sm rounded-lg transition-colors">重试</button>
         </div>
       )}
       {/* Controls */}
       <div className="flex flex-wrap items-center gap-4">
         <div className="flex items-center gap-2">
-          <span className="text-sm text-gray-500 dark:text-gray-400">趋势天数：</span>
+          <span className="text-sm text-muted">趋势天数：</span>
           {[7, 14, 30, 60].map((d) => (
             <button
               key={d}
@@ -101,7 +101,7 @@ export default function DashboardTab() {
           ))}
         </div>
         <div className="flex items-center gap-2">
-          <span className="text-sm text-gray-500 dark:text-gray-400">对比维度：</span>
+          <span className="text-sm text-muted">对比维度：</span>
           <button
             onClick={() => setCompareBy("class")}
             className={`px-3 py-1 text-sm rounded-lg transition-colors ${
@@ -128,8 +128,8 @@ export default function DashboardTab() {
       {/* Charts Grid */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Trends Line Chart */}
-        <div className="bg-card rounded-xl border border-gray-100 dark:border-gray-700 p-5">
-          <h3 className="font-semibold text-gray-800 dark:text-gray-100 mb-4">提交趋势（近{trendDays}天）</h3>
+        <div className="bg-card rounded-xl border border-border-soft p-5">
+          <h3 className="font-semibold text-foreground mb-4">提交趋势（近{trendDays}天）</h3>
           {trends.length > 0 ? (
             <ResponsiveContainer width="100%" height={260}>
               <LineChart data={trends}>
@@ -155,13 +155,13 @@ export default function DashboardTab() {
               </LineChart>
             </ResponsiveContainer>
           ) : (
-            <div className="h-[260px] flex items-center justify-center text-gray-400 dark:text-gray-500">暂无数据</div>
+            <div className="h-[260px] flex items-center justify-center text-muted">暂无数据</div>
           )}
         </div>
 
         {/* Distribution Pie Chart */}
-        <div className="bg-card rounded-xl border border-gray-100 dark:border-gray-700 p-5">
-          <h3 className="font-semibold text-gray-800 dark:text-gray-100 mb-4">标签分类分布</h3>
+        <div className="bg-card rounded-xl border border-border-soft p-5">
+          <h3 className="font-semibold text-foreground mb-4">标签分类分布</h3>
           {distribution.length > 0 ? (
             <ResponsiveContainer width="100%" height={260}>
               <PieChart>
@@ -186,13 +186,13 @@ export default function DashboardTab() {
               </PieChart>
             </ResponsiveContainer>
           ) : (
-            <div className="h-[260px] flex items-center justify-center text-gray-400 dark:text-gray-500">暂无数据</div>
+            <div className="h-[260px] flex items-center justify-center text-muted">暂无数据</div>
           )}
         </div>
 
         {/* Compare Bar Chart */}
-        <div className="bg-card rounded-xl border border-gray-100 dark:border-gray-700 p-5 lg:col-span-2">
-          <h3 className="font-semibold text-gray-800 dark:text-gray-100 mb-4">
+        <div className="bg-card rounded-xl border border-border-soft p-5 lg:col-span-2">
+          <h3 className="font-semibold text-foreground mb-4">
             {compareBy === "class" ? "班级" : "年级/院系"}对比
           </h3>
           {compare.length > 0 ? (
@@ -208,7 +208,7 @@ export default function DashboardTab() {
               </BarChart>
             </ResponsiveContainer>
           ) : (
-            <div className="h-[300px] flex items-center justify-center text-gray-400 dark:text-gray-500">暂无数据</div>
+            <div className="h-[300px] flex items-center justify-center text-muted">暂无数据</div>
           )}
         </div>
       </div>

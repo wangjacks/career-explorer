@@ -314,10 +314,10 @@ export default function MediaTab() {
   return (
     <div className="space-y-5">
       {/* 存储总览与保留期配置 */}
-      <div className="bg-card rounded-xl border border-gray-100 dark:border-gray-700 p-5 space-y-4">
+      <div className="bg-card rounded-xl border border-border-soft p-5 space-y-4">
         <div className="flex items-center gap-2">
-          <HardDrive size={16} className="text-gray-400 dark:text-gray-500" aria-hidden />
-          <h2 className="font-semibold text-gray-800 dark:text-gray-100">媒体管理</h2>
+          <HardDrive size={16} className="text-muted" aria-hidden />
+          <h2 className="font-semibold text-foreground">媒体管理</h2>
           <button
             onClick={() => { loadStatus(); }}
             disabled={statusLoading}
@@ -329,22 +329,22 @@ export default function MediaTab() {
         </div>
 
         {status === null ? (
-          <p className="text-sm text-gray-400 dark:text-gray-500">{statusLoading ? "检测中..." : "检测失败，请重试"}</p>
+          <p className="text-sm text-muted">{statusLoading ? "检测中..." : "检测失败，请重试"}</p>
         ) : (
           <>
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
               <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-4">
-                <p className="text-xs text-gray-500 dark:text-gray-400">文件总数</p>
+                <p className="text-xs text-muted">文件总数</p>
                 <p className="text-2xl font-extrabold text-gray-900 dark:text-gray-100 mt-1">{status.total}</p>
                 <p className="text-xs text-gray-400 mt-0.5">{formatBytes(status.totalSize)}</p>
               </div>
               <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-4">
-                <p className="text-xs text-gray-500 dark:text-gray-400">孤儿文件</p>
+                <p className="text-xs text-muted">孤儿文件</p>
                 <p className="text-2xl font-extrabold text-gray-900 dark:text-gray-100 mt-1">{status.orphanCount}</p>
                 <p className="text-xs text-gray-400 mt-0.5">{formatBytes(status.orphanSize)}</p>
               </div>
               <div className={`rounded-lg p-4 ${status.deletableCount > 0 ? "bg-amber-50 dark:bg-amber-900/20" : "bg-gray-50 dark:bg-gray-800"}`}>
-                <p className={`text-xs ${status.deletableCount > 0 ? "text-amber-600 dark:text-amber-400" : "text-gray-500 dark:text-gray-400"}`}>
+                <p className={`text-xs ${status.deletableCount > 0 ? "text-amber-600 dark:text-amber-400" : "text-muted"}`}>
                   可清理（孤儿 ≥ {status.retentionDays} 天）
                 </p>
                 <p className={`text-2xl font-extrabold mt-1 ${status.deletableCount > 0 ? "text-amber-700 dark:text-amber-300" : "text-gray-900 dark:text-gray-100"}`}>
@@ -356,14 +356,14 @@ export default function MediaTab() {
                 <button
                   onClick={openDeleteAllPreview}
                   disabled={previewLoading}
-                  className="self-start sm:self-center px-4 py-2 bg-red-500 hover:bg-red-600 disabled:opacity-50 text-white text-sm font-medium rounded-lg transition-colors flex items-center gap-1.5"
+                  className="self-start sm:self-center px-4 py-2 bg-danger hover:bg-red-600 disabled:opacity-50 text-white text-sm font-medium rounded-lg transition-colors flex items-center gap-1.5"
                 >
                   <Trash2 className="w-4 h-4" aria-hidden />
                   一键删除全部可删孤儿（{status.deletableCount} 个）
                 </button>
               )}
               <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-4">
-                <p className="text-xs text-gray-500 dark:text-gray-400">孤儿保留期</p>
+                <p className="text-xs text-muted">孤儿保留期</p>
                 <div className="flex items-center gap-1.5 mt-1">
                   <input
                     type="number"
@@ -372,7 +372,7 @@ export default function MediaTab() {
                     value={retentionInput}
                     disabled={savingRetention}
                     onChange={(e) => setRetentionInput(e.target.value)}
-                    className="w-16 px-2 py-1 border border-gray-200 dark:border-gray-700 rounded-lg text-sm bg-card text-foreground focus:outline-none focus:ring-2 focus:ring-green-300"
+                    className="w-16 px-2 py-1 border border-gray-200 dark:border-gray-700 rounded-lg text-sm bg-card text-foreground focus:outline-none focus:ring-2 focus:ring-focus-ring"
                   />
                   <span className="text-xs text-gray-400">天</span>
                   <button
@@ -385,7 +385,7 @@ export default function MediaTab() {
                 </div>
               </div>
             </div>
-            <p className="text-xs text-gray-400 dark:text-gray-500">
+            <p className="text-xs text-muted">
               展示全部存储资源（含被引用文件与关联学生）；孤儿 = 未被任何档案或历史版本引用，超过保留期才可清理（覆盖「上传→保存」宽限期），源图删除时连带其缩略图。
             </p>
           </>
@@ -393,7 +393,7 @@ export default function MediaTab() {
       </div>
 
       {/* 子面板：媒体资源 / 缩略图维护 */}
-      <div className="bg-card rounded-xl border border-gray-100 dark:border-gray-700 p-5 space-y-4">
+      <div className="bg-card rounded-xl border border-border-soft p-5 space-y-4">
         <div className="flex gap-1 bg-gray-100 dark:bg-gray-800 rounded-xl p-1 w-fit">
           <button
             onClick={() => setSubTab("files")}
@@ -457,7 +457,7 @@ export default function MediaTab() {
                   onChange={(e) => setStudentQuery(e.target.value)}
                   onKeyDown={(e) => { if (e.key === "Enter") loadFiles(1); }}
                   placeholder="搜索关联学号/姓名..."
-                  className="pl-8 pr-3 py-1.5 border border-gray-200 dark:border-gray-700 bg-card text-foreground rounded-lg text-sm w-56 focus:outline-none focus:ring-2 focus:ring-green-300"
+                  className="pl-8 pr-3 py-1.5 border border-gray-200 dark:border-gray-700 bg-card text-foreground rounded-lg text-sm w-56 focus:outline-none focus:ring-2 focus:ring-focus-ring"
                 />
               </div>
               <div className="relative">
@@ -468,7 +468,7 @@ export default function MediaTab() {
                   onChange={(e) => setKeywordQuery(e.target.value)}
                   onKeyDown={(e) => { if (e.key === "Enter") loadFiles(1); }}
                   placeholder="搜索文件名..."
-                  className="pl-8 pr-3 py-1.5 border border-gray-200 dark:border-gray-700 bg-card text-foreground rounded-lg text-sm w-56 focus:outline-none focus:ring-2 focus:ring-green-300"
+                  className="pl-8 pr-3 py-1.5 border border-gray-200 dark:border-gray-700 bg-card text-foreground rounded-lg text-sm w-56 focus:outline-none focus:ring-2 focus:ring-focus-ring"
                 />
               </div>
               <button
@@ -491,7 +491,7 @@ export default function MediaTab() {
                 <button
                   onClick={() => setConfirmDelete(true)}
                   disabled={deleting}
-                  className="ml-auto px-3 py-1.5 bg-red-500 hover:bg-red-600 disabled:opacity-50 text-white text-xs font-medium rounded-lg transition-colors flex items-center gap-1"
+                  className="ml-auto px-3 py-1.5 bg-danger hover:bg-red-600 disabled:opacity-50 text-white text-xs font-medium rounded-lg transition-colors flex items-center gap-1"
                 >
                   <Trash2 className="w-3.5 h-3.5" aria-hidden />
                   删除选中孤儿（{selected.size} 个，{formatBytes(selectedSize)}）
@@ -500,16 +500,16 @@ export default function MediaTab() {
             </div>
 
             {listLoading ? (
-              <p className="text-sm text-gray-400 dark:text-gray-500">加载中...</p>
+              <p className="text-sm text-muted">加载中...</p>
             ) : items.length === 0 && total === 0 ? (
-              <p className="text-sm text-gray-400 dark:text-gray-500">点击上方「查询」按钮加载媒体资源</p>
+              <p className="text-sm text-muted">点击上方「查询」按钮加载媒体资源</p>
             ) : items.length === 0 ? (
-              <p className="text-sm text-gray-400 dark:text-gray-500">无匹配项</p>
+              <p className="text-sm text-muted">无匹配项</p>
             ) : (
-              <div className="overflow-x-auto rounded-lg border border-gray-100 dark:border-gray-700">
+              <div className="overflow-x-auto rounded-lg border border-border-soft">
                 <table className="w-full text-sm">
                   <thead>
-                    <tr className="bg-gray-50 dark:bg-gray-800 text-left text-gray-500 dark:text-gray-400 text-xs">
+                    <tr className="bg-gray-50 dark:bg-gray-800 text-left text-muted text-xs">
                       <th className="px-3 py-2.5 font-medium w-10"></th>
                       <th className="px-3 py-2.5 font-medium">文件名</th>
                       <th className="px-3 py-2.5 font-medium">类型</th>
@@ -551,12 +551,12 @@ export default function MediaTab() {
                             ) : item.deletable ? (
                               <span className="text-amber-600 dark:text-amber-400">孤儿 · 可清理（孤 {item.orphanDays} 天）</span>
                             ) : (
-                              <span className="text-gray-400 dark:text-gray-500">
+                              <span className="text-muted">
                                 孤儿 · 保留中（剩 {Math.max(0, (status?.retentionDays ?? 7) - item.orphanDays)} 天）
                               </span>
                             )}
                             {item.type === "thumbnail" && (
-                              <span className="text-gray-400 dark:text-gray-500">（随源图）</span>
+                              <span className="text-muted">（随源图）</span>
                             )}
                           </td>
                         </tr>
@@ -569,7 +569,7 @@ export default function MediaTab() {
 
             {totalPages > 1 && (
               <div className="flex items-center justify-between text-sm">
-                <span className="text-gray-500 dark:text-gray-400">第 {page}/{totalPages} 页（共 {total} 个文件）</span>
+                <span className="text-muted">第 {page}/{totalPages} 页（共 {total} 个文件）</span>
                 <div className="flex gap-2">
                   <button
                     onClick={() => loadFiles(page - 1)}
@@ -600,26 +600,26 @@ export default function MediaTab() {
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center justify-between">
-              <h3 className="font-semibold text-gray-800 dark:text-gray-100 text-lg">
+              <h3 className="font-semibold text-foreground text-lg">
                 待删除的孤儿文件
               </h3>
               <button onClick={() => setPreviewOpen(false)} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors" aria-label="关闭预览">
                 <X className="w-5 h-5" />
               </button>
             </div>
-            <p className="text-xs text-gray-400 dark:text-gray-500">
+            <p className="text-xs text-muted">
               以下文件当前未被任何档案或历史版本引用，且已超过保留期（{status?.retentionDays ?? 7} 天）。删除不可恢复，请核对清单。
             </p>
             {previewLoading ? (
-              <p className="text-sm text-gray-400 dark:text-gray-500">加载中...</p>
+              <p className="text-sm text-muted">加载中...</p>
             ) : previewList.length === 0 ? (
-              <p className="text-sm text-gray-400 dark:text-gray-500">没有可删除的孤儿文件</p>
+              <p className="text-sm text-muted">没有可删除的孤儿文件</p>
             ) : (
               <>
-                <div className="overflow-y-auto rounded-lg border border-gray-100 dark:border-gray-700 flex-1 min-h-0">
+                <div className="overflow-y-auto rounded-lg border border-border-soft flex-1 min-h-0">
                   <table className="w-full text-sm">
                     <thead className="sticky top-0 bg-gray-50 dark:bg-gray-800">
-                      <tr className="text-left text-gray-500 dark:text-gray-400 text-xs">
+                      <tr className="text-left text-muted text-xs">
                         <th className="px-3 py-2 font-medium">文件名</th>
                         <th className="px-3 py-2 font-medium">类型</th>
                         <th className="px-3 py-2 font-medium">后端</th>
@@ -645,12 +645,12 @@ export default function MediaTab() {
                   </table>
                 </div>
                 <div className="flex items-center gap-3 flex-wrap">
-                  <span className="text-sm text-gray-500 dark:text-gray-400">
+                  <span className="text-sm text-muted">
                     共 {previewList.length} 个文件 · {formatBytes(previewSize)}
                   </span>
                   <button
                     onClick={requestFinalConfirm}
-                    className="ml-auto px-4 py-2 bg-red-500 hover:bg-red-600 text-white text-sm font-medium rounded-lg transition-colors flex items-center gap-1.5"
+                    className="ml-auto px-4 py-2 bg-danger hover:bg-red-600 text-white text-sm font-medium rounded-lg transition-colors flex items-center gap-1.5"
                   >
                     <Trash2 className="w-4 h-4" aria-hidden />
                     确认删除
