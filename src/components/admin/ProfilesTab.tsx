@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { toast } from "sonner";
 import { Tag, ChevronDown } from "lucide-react";
 import ConfirmDialog from "./ConfirmDialog";
+import { useEscapeKey } from "@/hooks/useEscapeKey";
 import StorageImage from "@/components/StorageImage";
 import { useTagColorMap } from "@/hooks/useTagColorMap";
 import type { Stats, PagedData, Profile } from "@/hooks/useAdminAuth";
@@ -31,7 +32,7 @@ interface SubmissionHistoryRow {
 
 function SortIcon({ active, dir }: { active: boolean; dir: SortDir }) {
   return (
-    <span className={`ml-1 inline-block w-3 text-xs ${active ? "text-green-600" : "text-gray-300"}`}>
+    <span aria-hidden="true" className={`ml-1 inline-block w-3 text-xs ${active ? "text-green-600" : "text-gray-300"}`}>
       {active ? (dir === "asc" ? "↑" : "↓") : "↕"}
     </span>
   );
@@ -61,6 +62,9 @@ export default function ProfilesTab({ loadProfiles, loadStats }: Props) {
   const [historyLoading, setHistoryLoading] = useState(false);
   // 历史请求序号（review 修复）：快速切换学生时丢弃过期响应
   const historySeqRef = useRef(0);
+
+  // 弹窗 Escape 关闭（键盘可达性）
+  useEscapeKey(!!detail, () => setDetail(null));
 
   // 保留最新传入的 load 函数引用，初始加载 effect 仅 mount 时执行
   const loadProfilesRef = useRef(loadProfiles);
@@ -346,17 +350,24 @@ export default function ProfilesTab({ loadProfiles, loadStats }: Props) {
               <th className="px-5 py-3 font-medium w-10">
                 <input
                   type="checkbox"
+                  aria-label="全选档案"
                   checked={filteredData ? selected.size === filteredData.data.length && filteredData.data.length > 0 : false}
                   onChange={toggleSelectAll}
                   className="rounded border-gray-300"
                 />
               </th>
-              <th className="px-5 py-3 font-medium cursor-pointer select-none" onClick={() => handleSort("studentId")}>学号<SortIcon active={sortKey === "studentId"} dir={sortDir} /></th>
-              <th className="px-5 py-3 font-medium cursor-pointer select-none" onClick={() => handleSort("studentName")}>姓名<SortIcon active={sortKey === "studentName"} dir={sortDir} /></th>
+              <th aria-sort={sortKey === "studentId" ? (sortDir === "asc" ? "ascending" : "descending") : "none"} className="px-5 py-3 font-medium">
+                <button type="button" onClick={() => handleSort("studentId")} className="cursor-pointer select-none">学号<SortIcon active={sortKey === "studentId"} dir={sortDir} /></button>
+              </th>
+              <th aria-sort={sortKey === "studentName" ? (sortDir === "asc" ? "ascending" : "descending") : "none"} className="px-5 py-3 font-medium">
+                <button type="button" onClick={() => handleSort("studentName")} className="cursor-pointer select-none">姓名<SortIcon active={sortKey === "studentName"} dir={sortDir} /></button>
+              </th>
               <th className="px-5 py-3 font-medium">虚拟形象</th>
               <th className="px-5 py-3 font-medium">评价词云</th>
               <th className="px-5 py-3 font-medium">标签</th>
-              <th className="px-5 py-3 font-medium cursor-pointer select-none" onClick={() => handleSort("createdAt")}>提交时间<SortIcon active={sortKey === "createdAt"} dir={sortDir} /></th>
+              <th aria-sort={sortKey === "createdAt" ? (sortDir === "asc" ? "ascending" : "descending") : "none"} className="px-5 py-3 font-medium">
+                <button type="button" onClick={() => handleSort("createdAt")} className="cursor-pointer select-none">提交时间<SortIcon active={sortKey === "createdAt"} dir={sortDir} /></button>
+              </th>
               <th className="px-5 py-3 font-medium">操作</th>
             </tr>
           </thead>
@@ -369,6 +380,7 @@ export default function ProfilesTab({ loadProfiles, loadStats }: Props) {
                 <td className="px-5 py-3">
                   <input
                     type="checkbox"
+                    aria-label={`选择 ${p.studentName || p.studentId}`}
                     checked={selected.has(p.studentId)}
                     onChange={() => toggleSelect(p.studentId)}
                     className="rounded border-gray-300"
@@ -440,11 +452,11 @@ export default function ProfilesTab({ loadProfiles, loadStats }: Props) {
       {detail && (
         <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 px-4"
           onClick={() => setDetail(null)}>
-          <div className="bg-card rounded-2xl shadow-xl max-w-md w-full p-6 space-y-4 max-h-[85vh] overflow-y-auto"
+          <div role="dialog" aria-modal="true" aria-labelledby="profiles-detail-title" className="bg-card rounded-2xl shadow-xl max-w-md w-full p-6 space-y-4 max-h-[85vh] overflow-y-auto"
             onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between">
-              <h3 className="font-semibold text-gray-800 dark:text-gray-100 text-lg">档案详情</h3>
-              <button onClick={() => setDetail(null)} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 text-xl">×</button>
+              <h3 id="profiles-detail-title" className="font-semibold text-gray-800 dark:text-gray-100 text-lg">档案详情</h3>
+              <button onClick={() => setDetail(null)} aria-label="关闭" className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 text-xl">×</button>
             </div>
 
             <div className="grid grid-cols-2 gap-3 text-sm">

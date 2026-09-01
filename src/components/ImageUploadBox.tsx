@@ -59,7 +59,8 @@ export default function ImageUploadBox({
 
   return (
     <div className="space-y-2">
-      <div
+      <button
+        type="button"
         onClick={() => fileInputRef.current?.click()}
         className={`w-full ${aspectClass} max-w-xs rounded-2xl border-2 border-dashed border-gray-200 dark:border-gray-700 flex items-center justify-center cursor-pointer hover:border-green-400 transition-colors overflow-hidden bg-card relative`}
       >
@@ -76,7 +77,7 @@ export default function ImageUploadBox({
             待保存
           </span>
         )}
-      </div>
+      </button>
       {preview && (
         <button
           type="button"
@@ -91,7 +92,7 @@ export default function ImageUploadBox({
         type="file"
         accept="image/*"
         onChange={handleFileChange}
-        className="hidden"
+        className="sr-only"
       />
     </div>
   );
