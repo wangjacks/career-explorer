@@ -14,6 +14,7 @@
 | 背景 | `--color-background` | `#fafaf9` / `#0d1210` | 页面底 |
 | 卡片底 | `--color-card` | `#ffffff` / `#16201c` | 内容卡片 |
 | 软边框 | `--color-border-soft` | `#e7e5e4` / `#2a3833` | 卡片/分隔线 |
+| 次要文本 | `--color-muted` | `#78716c` / `#a8a29e` | 辅助说明、占位、次要信息 |
 | 墨色 | `--color-foreground` | `#1c1917` / `#e7e5e4` | 标题/正文 |
 
 ### 功能色 token
@@ -23,7 +24,7 @@
 | 主操作 | `--color-primary` | green-600 | 主按钮、激活态、链接强调 |
 | 主操作悬停 | `--color-primary-strong` | green-700 | hover 加深 |
 | 品牌浅底 | `--color-primary-soft` | green-50 | 选中底色、标签浅底 |
-| 焦点环 | `--color-focus-ring` | green-300 | `focus:ring-2 focus:ring-green-300` |
+| 焦点环 | `--color-focus-ring` | green-300 | `focus:ring-2 focus:ring-focus-ring` |
 | 信息/批量 | `--color-info` | blue-500 | 批量操作按钮、信息提示 |
 | 警告/凭据 | `--color-warning` | amber-500 | 警告提示、凭据展示、重置密码 |
 | 危险/删除 | `--color-danger` | red-500 | 删除、错误态 |
@@ -42,7 +43,7 @@
 - 品牌色在 `.dark` 下提亮（深绿顶栏用 emerald-600，琥珀用 amber-400），避免深底糊成一片
 - 暗色对比度需重新过 WCAG AA
 
-灰阶层级：`gray-900` 标题 / `gray-800` 卡片标题 / `gray-600` 正文 / `gray-500` 次要 / `gray-400` 仅纯装饰（占位/辅助文字对比不足，逐步收敛至 gray-500+）。
+灰阶层级：`gray-900` 标题 / `gray-800` 卡片标题 / `gray-600` 正文 / `text-muted` 次要文本标准（浅色 stone-500 / 暗色 stone-400）/ `gray-400` 仅纯装饰（图标、占位弱化，对比不足慎用）。
 
 存量代码中的 `green-*` 硬编码（240+ 处）不强制迁移；新代码优先使用语义 token。
 
@@ -56,7 +57,7 @@
 
 | 类型 | 规格 |
 |---|---|
-| 内容卡片 | `bg-white rounded-xl border border-gray-100 shadow-sm` |
+| 内容卡片 | `bg-white rounded-xl border border-border-soft shadow-sm` |
 | 统计卡 | 内容卡规格 + 顶部 `h-1` 渐变色条 + hover 上浮 |
 | 弹窗/模态 | `rounded-2xl shadow-xl`（全屏遮罩 `bg-black/40`） |
 
@@ -67,9 +68,9 @@
 
 | 变体 | 样式 |
 |---|---|
-| 主操作 | `bg-green-500 hover:bg-green-600 text-white` |
+| 主操作 | `bg-primary hover:bg-primary-strong text-white` |
 | 次操作 | `bg-gray-100 hover:bg-gray-200 text-gray-700` |
-| 危险 | `bg-red-500 hover:bg-red-600 text-white` |
+| 危险 | `bg-danger hover:bg-red-600 text-white` |
 | 文字按钮 | `text-xs font-medium` + 语义色文字 |
 
 - 面板内尺寸统一 `px-4 py-2 text-sm rounded-lg`；首页/落地页大号 CTA `py-3 rounded-xl` 为特例
@@ -85,7 +86,7 @@
 
 ## 状态
 
-- **加载态**：区块居中「加载中...」`text-gray-400`；按钮异步态显示动作文案（如「验证中...」）
+- **加载态**：区块居中「加载中...」`text-muted`；按钮异步态显示动作文案（如「验证中...」）
 - **空态**：居中 lucide 图标 + 说明 + 行动引导（空屏幕是行动的邀请，不写「暂无数据」孤句）
 - **错误态**：说明发生了什么 + 重试按钮；toast 用 `toast.error` 陈述事实，不道歉
 - **表单反馈**：成功 `toast.success(「已XX」)`，动作与结果用同一词汇

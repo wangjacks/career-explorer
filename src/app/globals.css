@@ -9,6 +9,7 @@
   --foreground: #1c1917; /* stone-900 墨色 */
   --surface-card: #ffffff; /* 卡片底 */
   --border-soft: #e7e5e4; /* stone-200 软边框 */
+  --muted: #78716c; /* stone-500 次要文本 */
   /* 品牌色（暗色下在 .dark 提亮） */
   --brand: #065f46; /* emerald-800 品牌深绿 */
   --accent: #f59e0b; /* amber-500 能量琥珀 */
@@ -19,6 +20,7 @@
   --foreground: #e7e5e4; /* stone-200 浅色文字 */
   --surface-card: #16201c; /* 暗卡片 */
   --border-soft: #2a3833; /* 暗边框 */
+  --muted: #a8a29e; /* stone-400 暗色次要文本提亮 */
   --brand: #059669; /* emerald-600 暗色提亮，避免深底糊成一片 */
   --accent: #fbbf24; /* amber-400 暗色提亮 */
 }
@@ -28,6 +30,7 @@
   --color-foreground: var(--foreground);
   --color-card: var(--surface-card);
   --color-border-soft: var(--border-soft);
+  --color-muted: var(--muted);
   --font-sans: "Noto Sans SC", "PingFang SC", "Microsoft YaHei", sans-serif;
   --font-mono: ui-monospace, "SF Mono", "Cascadia Mono", Consolas, monospace;
   /* 品牌色 token（引用 :root/.dark 变量，暗色自动提亮） */
