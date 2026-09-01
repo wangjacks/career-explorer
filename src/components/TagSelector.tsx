@@ -105,6 +105,7 @@ export default function TagSelector({ categories, selectedTags, onToggle, onRemo
                   <button
                     key={tag.id}
                     onClick={() => onToggle(tag.name)}
+                    aria-pressed={isSelected}
                     className={`px-4 py-2 rounded-full text-sm font-medium transition-all active:scale-95 ${
                       isSelected ? color.selected : color.unselected
                     }`}
@@ -131,6 +132,7 @@ export default function TagSelector({ categories, selectedTags, onToggle, onRemo
                 setCustomHint("");
               }}
               onKeyDown={(e) => e.key === "Enter" && addCustomTag()}
+              aria-label="自定义标签"
               placeholder={customFull ? "已达自定义标签上限" : "输入自定义标签..."}
               disabled={customFull}
               className="flex-1 px-4 py-2 border border-gray-200 dark:border-gray-700 bg-card text-foreground rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-green-300 disabled:bg-gray-50 dark:disabled:bg-gray-800"
@@ -143,7 +145,7 @@ export default function TagSelector({ categories, selectedTags, onToggle, onRemo
               添加
             </button>
           </div>
-          {customHint && <p className="text-xs text-red-500">{customHint}</p>}
+          {customHint && <p role="alert" className="text-xs text-red-500">{customHint}</p>}
         </section>
       )}
 
@@ -163,6 +165,7 @@ export default function TagSelector({ categories, selectedTags, onToggle, onRemo
                   {tag}
                   <button
                     onClick={() => onRemove(tag)}
+                    aria-label={`移除标签 ${tag}`}
                     className={`ml-1 ${color.chipRemove}`}
                   >
                     ×
