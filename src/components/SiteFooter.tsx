@@ -15,7 +15,7 @@ export default function SiteFooter() {
   return (
     <>
       {/* 移动端：fixed 底部 Tab Bar */}
-      <nav className="md:hidden fixed bottom-0 inset-x-0 z-40 bg-card/90 backdrop-blur-md border-t border-gray-100 dark:border-gray-700 pb-[env(safe-area-inset-bottom)]">
+      <nav aria-label="移动端站点导航" className="md:hidden fixed bottom-0 inset-x-0 z-40 bg-card/90 backdrop-blur-md border-t border-gray-100 dark:border-gray-700 pb-[env(safe-area-inset-bottom)]">
         <div className="flex items-stretch justify-around">
           {links.map((l) => {
             const active = pathname === l.href;
@@ -23,6 +23,7 @@ export default function SiteFooter() {
               <Link
                 key={l.href}
                 href={l.href}
+                aria-current={active ? "page" : undefined}
                 className={`flex flex-col items-center gap-0.5 py-2 px-6 text-xs transition-colors ${
                   active
                     ? "text-green-600 dark:text-green-400 font-medium"
@@ -41,13 +42,14 @@ export default function SiteFooter() {
       <footer className="hidden md:block fixed bottom-0 inset-x-0 z-40 border-t border-gray-100 dark:border-gray-700 bg-card/90 backdrop-blur-md">
         <div className="max-w-6xl mx-auto px-6 py-3.5 flex items-center justify-between gap-3">
           <p className="text-sm font-medium text-gray-600 dark:text-gray-300">Career Explorer</p>
-          <nav className="flex items-center gap-6">
+          <nav aria-label="桌面端站点导航" className="flex items-center gap-6">
             {links.map((l) => {
               const active = pathname === l.href;
               return (
                 <Link
                   key={l.href}
                   href={l.href}
+                  aria-current={active ? "page" : undefined}
                   className={`text-sm transition-colors ${
                     active
                       ? "text-green-600 dark:text-green-400 font-medium"
