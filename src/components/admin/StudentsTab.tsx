@@ -401,11 +401,12 @@ export default function StudentsTab({ students, loadError, onRetry, onStudentsCh
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
       });
-      if (!res.ok) throw new Error("更新失败");
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "更新失败");
       onStudentsChanged();
       refreshClasses();
-    } catch {
-      toast.error("更新失败");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "更新失败");
     }
   };
 
@@ -428,13 +429,14 @@ export default function StudentsTab({ students, loadError, onRetry, onStudentsCh
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ studentId: editing.user_code, name: editName.trim(), className: editClass.trim() }),
       });
-      if (!res.ok) throw new Error("更新失败");
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "更新失败");
       toast.success("更新成功");
       setEditing(null);
       onStudentsChanged();
       refreshClasses();
-    } catch {
-      toast.error("更新失败");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "更新失败");
     }
   };
 
@@ -461,21 +463,39 @@ export default function StudentsTab({ students, loadError, onRetry, onStudentsCh
   // Batch set class
   const executeBatchSetClass = async () => {
     const ids = Array.from(selectedStudents);
+    const className = batchClassName.trim();
+    if (!className) {
+      toast.warning("请输入班级名称");
+      return;
+    }
+    let okCount = 0;
+    const failed: string[] = [];
     try {
       await Promise.all(
-        ids.map((id) =>
-          fetch("/api/manage/students", {
+        ids.map(async (id) => {
+          const res = await fetch("/api/manage/students", {
             method: "PUT",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ studentId: id, className: batchClassName }),
-          })
-        )
+            body: JSON.stringify({ studentId: id, className }),
+          });
+          if (res.ok) {
+            okCount++;
+            return;
+          }
+          const data = await res.json().catch(() => ({}));
+          failed.push(`${id}${data.error ? `（${data.error}）` : ""}`);
+        })
       );
-      toast.success(`已更新 ${ids.length} 名学生的班级`);
-      setBatchClassName("");
-      setSelectedStudents(new Set());
-      onStudentsChanged();
-      refreshClasses();
+      if (okCount > 0) {
+        toast.success(`已更新 ${okCount} 名学生的班级`);
+        setBatchClassName("");
+        setSelectedStudents(new Set());
+        onStudentsChanged();
+        refreshClasses();
+      }
+      if (failed.length > 0) {
+        toast.error(`更新失败 ${failed.length} 名：${failed.slice(0, 3).join("、")}${failed.length > 3 ? " 等" : ""}`);
+      }
     } catch {
       toast.error("批量更新失败");
     }

@@ -142,8 +142,16 @@ export async function PUT(request: NextRequest) {
         fields.class_id = null;
       } else {
         const cls = await getClassByName(className);
-        if (cls) fields.class_id = cls.id;
-        // 班级不存在时保持不变（班级管理在步骤 8 实现）
+        if (!cls) {
+          void recordAudit({
+            ...actor, action: "student:update", method: "PUT", path: "/api/manage/students",
+            resource_type: "student", resource_id: String(studentId),
+            status: "failed", error_message: "班级不存在", ip, user_agent,
+            metadata: { className },
+          });
+          return NextResponse.json({ error: "班级不存在" }, { status: 400 });
+        }
+        fields.class_id = cls.id;
       }
     }
     if (password !== undefined) {
