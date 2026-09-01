@@ -574,7 +574,7 @@ export default function TagsTab() {
                       <div className="sm:hidden space-y-2">
                         <div className="flex items-center gap-2">
                           <input type="checkbox" className="rounded border-gray-300 text-green-500 focus:ring-green-300 flex-shrink-0" checked={selected.has(category.id)} onChange={() => toggleSelect(category.id)} />
-                          <input autoFocus value={editing.name} onChange={(e) => setEditing({ ...editing, name: e.target.value })} className="flex-1 min-w-0 px-2 py-1.5 border border-gray-200 rounded text-sm" />
+                          <input autoFocus value={editing.name} onChange={(e) => setEditing({ ...editing, name: e.target.value })} className="flex-1 min-w-0 px-2 py-1.5 border border-gray-200 dark:border-gray-700 rounded text-sm" />
                         </div>
                         <div className="flex items-center gap-2 pl-6">
                           <span className="text-xs text-gray-400 dark:text-gray-500 flex-shrink-0">一级分类 · {children.length} 个标签</span>
@@ -587,7 +587,7 @@ export default function TagsTab() {
                       {/* Desktop: single-row layout */}
                       <div className="hidden sm:flex items-center gap-2">
                         <input type="checkbox" className="rounded border-gray-300 text-green-500 focus:ring-green-300 flex-shrink-0" checked={selected.has(category.id)} onChange={() => toggleSelect(category.id)} />
-                        <input autoFocus value={editing.name} onChange={(e) => setEditing({ ...editing, name: e.target.value })} className="flex-1 min-w-0 px-2 py-1 border border-gray-200 rounded text-sm" />
+                        <input autoFocus value={editing.name} onChange={(e) => setEditing({ ...editing, name: e.target.value })} className="flex-1 min-w-0 px-2 py-1 border border-gray-200 dark:border-gray-700 rounded text-sm" />
                         <SortBtn onClick={() => moveTag(category, -1)} dir="up" title="上移" />
                         <SortBtn onClick={() => moveTag(category, 1)} dir="down" title="下移" />
                         <button onClick={saveEdit} className="text-xs text-green-600 dark:text-green-400 hover:text-green-700 dark:hover:text-green-300 flex-shrink-0">保存</button>
@@ -616,7 +616,7 @@ export default function TagsTab() {
                           <div className="sm:hidden space-y-2">
                             <div className="flex items-center gap-2">
                               <input type="checkbox" className="rounded border-gray-300 text-green-500 focus:ring-green-300 flex-shrink-0" checked={selected.has(tag.id)} onChange={() => toggleSelect(tag.id)} />
-                              <input autoFocus value={editing.name} onChange={(e) => setEditing({ ...editing, name: e.target.value })} className="flex-1 min-w-0 px-2 py-1.5 border border-gray-200 rounded text-sm" />
+                              <input autoFocus value={editing.name} onChange={(e) => setEditing({ ...editing, name: e.target.value })} className="flex-1 min-w-0 px-2 py-1.5 border border-gray-200 dark:border-gray-700 rounded text-sm" />
                             </div>
                             <div className="flex items-center gap-2 pl-6">
                               <div className="flex-shrink-0">
@@ -631,7 +631,7 @@ export default function TagsTab() {
                           {/* Desktop: single-row layout */}
                           <div className="hidden sm:flex items-center gap-2">
                             <input type="checkbox" className="rounded border-gray-300 text-green-500 focus:ring-green-300 flex-shrink-0" checked={selected.has(tag.id)} onChange={() => toggleSelect(tag.id)} />
-                            <input autoFocus value={editing.name} onChange={(e) => setEditing({ ...editing, name: e.target.value })} className="flex-1 min-w-0 px-2 py-1 border border-gray-200 rounded text-sm" />
+                            <input autoFocus value={editing.name} onChange={(e) => setEditing({ ...editing, name: e.target.value })} className="flex-1 min-w-0 px-2 py-1 border border-gray-200 dark:border-gray-700 rounded text-sm" />
                             <div className="flex-shrink-0">
                               {renderCategoryPicker(editCatOpen, setEditCatOpen, editCatSearch, setEditCatSearch, editCatRef, filteredEditCategories, String(editing.parent_id ?? ""), (id) => setEditing({ ...editing, parent_id: Number(id) || null }))}
                             </div>
@@ -653,7 +653,7 @@ export default function TagsTab() {
                       )}
                     </div>
                   ))}
-                  {children.length === 0 && <p className="px-12 py-3 text-xs text-gray-400">暂无标签</p>}
+                  {children.length === 0 && <p className="px-12 py-3 text-xs text-gray-400 dark:text-gray-500">暂无标签</p>}
                 </div>
               </div>
             );

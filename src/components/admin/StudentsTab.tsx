@@ -881,7 +881,7 @@ export default function StudentsTab({ students, loadError, onRetry, onStudentsCh
                   ))}
                 </select>
               </label>
-              <label className="flex items-center gap-1.5 text-sm text-gray-600">
+              <label className="flex items-center gap-1.5 text-sm text-gray-600 dark:text-gray-300">
                 姓名列
                 <select
                   value={preview.nameCol}
@@ -895,7 +895,7 @@ export default function StudentsTab({ students, loadError, onRetry, onStudentsCh
                   ))}
                 </select>
               </label>
-              <label className="flex items-center gap-1.5 text-sm text-gray-600">
+              <label className="flex items-center gap-1.5 text-sm text-gray-600 dark:text-gray-300">
                 班级列
                 <select
                   value={preview.classCol}
@@ -911,15 +911,15 @@ export default function StudentsTab({ students, loadError, onRetry, onStudentsCh
                 </select>
               </label>
             </div>
-            <p className="text-sm text-gray-500">
+            <p className="text-sm text-gray-500 dark:text-gray-400">
               共 {parsedRows.length} 条
               {previewInvalid > 0 && <span className="text-red-500">，其中 {previewInvalid} 条学号/姓名无效（红色，不会导入）</span>}
               。黄色表示班级不存在，导入后将留未分班。
             </p>
-            <div className="overflow-y-auto border border-gray-100 rounded-lg flex-1">
+            <div className="overflow-y-auto border border-gray-100 dark:border-gray-700 rounded-lg flex-1">
               <table className="w-full text-sm">
-                <thead className="sticky top-0 bg-gray-50">
-                  <tr className="text-left text-gray-500">
+                <thead className="sticky top-0 bg-gray-50 dark:bg-gray-800">
+                  <tr className="text-left text-gray-500 dark:text-gray-400">
                     <th className="px-4 py-2 font-medium">学号</th>
                     <th className="px-4 py-2 font-medium">姓名</th>
                     <th className="px-4 py-2 font-medium">班级</th>
@@ -943,7 +943,7 @@ export default function StudentsTab({ students, loadError, onRetry, onStudentsCh
             <div className="flex gap-2 pt-1">
               <button
                 onClick={() => setPreview(null)}
-                className="flex-1 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm font-medium rounded-lg transition-colors"
+                className="flex-1 py-2 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-200 text-sm font-medium rounded-lg transition-colors"
               >
                 取消
               </button>
@@ -969,12 +969,12 @@ export default function StudentsTab({ students, loadError, onRetry, onStudentsCh
                 value={resetPwd}
                 onChange={(e) => setResetPwd(e.target.value)}
                 placeholder="至少 8 位密码"
-                className="flex-1 px-3 py-2 border border-gray-200 rounded-lg text-sm font-mono focus:outline-none focus:ring-2 focus:ring-green-300"
+                className="flex-1 px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg text-sm font-mono focus:outline-none focus:ring-2 focus:ring-green-300"
               />
               <button
                 type="button"
                 onClick={() => setResetPwd(generatePassword())}
-                className="px-3 py-2 bg-gray-100 hover:bg-gray-200 text-gray-600 text-sm rounded-lg transition-colors whitespace-nowrap"
+                className="px-3 py-2 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-200 text-sm rounded-lg transition-colors whitespace-nowrap"
               >
                 自动生成
               </button>
@@ -982,7 +982,7 @@ export default function StudentsTab({ students, loadError, onRetry, onStudentsCh
             <div className="flex gap-2 pt-2">
               <button
                 onClick={() => setResettingStudent(null)}
-                className="flex-1 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm font-medium rounded-lg transition-colors"
+                className="flex-1 py-2 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-200 text-sm font-medium rounded-lg transition-colors"
               >
                 取消
               </button>
@@ -1004,13 +1004,13 @@ export default function StudentsTab({ students, loadError, onRetry, onStudentsCh
             <h3 className="font-semibold text-gray-800 dark:text-gray-100 text-lg">密码已重置</h3>
             <p className="text-xs text-amber-600">请立即记录并告知学生，关闭后将无法再次查看密码。</p>
             <div className="space-y-2 text-sm">
-              <div className="flex justify-between items-center bg-gray-50 rounded-lg px-3 py-2">
-                <span className="text-gray-500">学号</span>
-                <code className="font-mono font-medium text-gray-800">{credential.user_code}</code>
+              <div className="flex justify-between items-center bg-gray-50 dark:bg-gray-800 rounded-lg px-3 py-2">
+                <span className="text-gray-500 dark:text-gray-400">学号</span>
+                <code className="font-mono font-medium text-gray-800 dark:text-gray-100">{credential.user_code}</code>
               </div>
-              <div className="flex justify-between items-center bg-gray-50 rounded-lg px-3 py-2">
-                <span className="text-gray-500">新密码</span>
-                <code className="font-mono font-medium text-gray-800">{credential.password}</code>
+              <div className="flex justify-between items-center bg-gray-50 dark:bg-gray-800 rounded-lg px-3 py-2">
+                <span className="text-gray-500 dark:text-gray-400">新密码</span>
+                <code className="font-mono font-medium text-gray-800 dark:text-gray-100">{credential.password}</code>
               </div>
             </div>
             <button
@@ -1035,10 +1035,10 @@ export default function StudentsTab({ students, loadError, onRetry, onStudentsCh
           >
             <h3 className="font-semibold text-gray-800 dark:text-gray-100 text-lg">批量重置完成（{batchPwdResults.length} 人）</h3>
             <p className="text-xs text-amber-600">请立即记录或复制，关闭后将无法再次查看密码。</p>
-            <div className="overflow-y-auto border border-gray-100 rounded-lg flex-1">
+            <div className="overflow-y-auto border border-gray-100 dark:border-gray-700 rounded-lg flex-1">
               <table className="w-full text-sm">
-                <thead className="sticky top-0 bg-gray-50">
-                  <tr className="text-left text-gray-500">
+                <thead className="sticky top-0 bg-gray-50 dark:bg-gray-800">
+                  <tr className="text-left text-gray-500 dark:text-gray-400">
                     <th className="px-4 py-2 font-medium">学号</th>
                     <th className="px-4 py-2 font-medium">姓名</th>
                     <th className="px-4 py-2 font-medium">新密码</th>

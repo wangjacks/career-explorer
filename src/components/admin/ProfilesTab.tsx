@@ -424,13 +424,13 @@ export default function ProfilesTab({ loadProfiles, loadStats }: Props) {
       </div>
 
       {paged && paged.totalPages > 1 && (
-        <div className="px-5 py-3 border-t border-gray-100 flex items-center justify-between text-sm">
-          <span className="text-gray-500">第 {paged.page}/{paged.totalPages} 页</span>
+        <div className="px-5 py-3 border-t border-gray-100 dark:border-gray-700 flex items-center justify-between text-sm">
+          <span className="text-gray-500 dark:text-gray-400">第 {paged.page}/{paged.totalPages} 页</span>
           <div className="flex gap-2">
             <button onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page <= 1}
-              className="px-3 py-1 rounded-lg border border-gray-200 disabled:opacity-40 hover:bg-gray-50">上一页</button>
+              className="px-3 py-1 rounded-lg border border-gray-200 dark:border-gray-700 disabled:opacity-40 hover:bg-gray-50 dark:hover:bg-gray-800">上一页</button>
             <button onClick={() => setPage((p) => Math.min(paged.totalPages, p + 1))} disabled={page >= paged.totalPages}
-              className="px-3 py-1 rounded-lg border border-gray-200 disabled:opacity-40 hover:bg-gray-50">下一页</button>
+              className="px-3 py-1 rounded-lg border border-gray-200 dark:border-gray-700 disabled:opacity-40 hover:bg-gray-50 dark:hover:bg-gray-800">下一页</button>
           </div>
         </div>
       )}

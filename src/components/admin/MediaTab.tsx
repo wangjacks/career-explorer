@@ -530,7 +530,7 @@ export default function MediaTab() {
                               checked={selected.has(id)}
                               disabled={!item.deletable || item.type === "thumbnail"}
                               onChange={() => toggleSelect(id, item.deletable)}
-                              className="rounded border-gray-300"
+                              className="rounded border-gray-300 dark:border-gray-700"
                               aria-label={`选择 ${item.key}`}
                             />
                           </td>
@@ -569,7 +569,7 @@ export default function MediaTab() {
 
             {totalPages > 1 && (
               <div className="flex items-center justify-between text-sm">
-                <span className="text-gray-500">第 {page}/{totalPages} 页（共 {total} 个文件）</span>
+                <span className="text-gray-500 dark:text-gray-400">第 {page}/{totalPages} 页（共 {total} 个文件）</span>
                 <div className="flex gap-2">
                   <button
                     onClick={() => loadFiles(page - 1)}

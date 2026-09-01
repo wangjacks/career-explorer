@@ -236,7 +236,7 @@ export default function ClassesTab({ mode, teacherUid }: Props) {
           <p className="p-5 text-sm text-gray-400 dark:text-gray-500">加载中...</p>
         ) : classes.length === 0 ? (
           <p className="p-5 text-sm text-gray-400 dark:text-gray-500 flex items-center justify-center gap-2">
-            <FolderPlus size={18} strokeWidth={1.5} className="text-gray-300" />
+            <FolderPlus size={18} strokeWidth={1.5} className="text-gray-300 dark:text-gray-500" />
             暂无班级，请先创建
           </p>
         ) : (
@@ -378,7 +378,7 @@ function FragmentRow({
         <td className="px-5 py-3">
           <button
             onClick={onToggle}
-            className="text-gray-400 hover:text-gray-600"
+            className="text-gray-400 dark:text-gray-500 hover:text-gray-600"
             aria-label={isOpen ? "收起学生名单" : "展开学生名单"}
           >
             <ChevronRight
@@ -398,11 +398,11 @@ function FragmentRow({
             <code className="px-2 py-0.5 bg-gray-100 dark:bg-gray-800 rounded text-xs font-mono text-gray-700 dark:text-gray-300">
               {klass.invitation_code}
             </code>
-            <button onClick={onCopy} className="text-gray-400 hover:text-green-600" aria-label="复制邀请码">
+            <button onClick={onCopy} className="text-gray-400 dark:text-gray-500 hover:text-green-600" aria-label="复制邀请码">
               <Copy className="w-3.5 h-3.5" />
             </button>
             {modifiable && (
-              <button onClick={onReset} className="text-gray-400 hover:text-amber-600" aria-label="重置邀请码">
+              <button onClick={onReset} className="text-gray-400 dark:text-gray-500 hover:text-amber-600" aria-label="重置邀请码">
                 <RefreshCw className="w-3.5 h-3.5" />
               </button>
             )}
@@ -420,7 +420,7 @@ function FragmentRow({
               </button>
             </>
           ) : (
-            <span className="text-xs text-gray-300">只读</span>
+            <span className="text-xs text-gray-300 dark:text-gray-500">只读</span>
           )}
         </td>
       </tr>
@@ -439,7 +439,7 @@ function FragmentRow({
                     title={s.user_code}
                   >
                     {s.name}
-                    <span className="ml-1 text-gray-300">{s.user_code.slice(-4)}</span>
+                    <span className="ml-1 text-gray-300 dark:text-gray-500">{s.user_code.slice(-4)}</span>
                   </span>
                 ))}
               </div>

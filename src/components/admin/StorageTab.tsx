@@ -274,7 +274,7 @@ export default function StorageTab() {
         )}
 
         {!loadFailed && !loaded && (
-          <p className="text-sm text-gray-400 py-4 text-center">加载中...</p>
+          <p className="text-sm text-gray-400 dark:text-gray-500 py-4 text-center">加载中...</p>
         )}
 
         {/* 后端卡片列表 */}
@@ -381,7 +381,7 @@ export default function StorageTab() {
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-3">
-            <ArrowRightLeft size={16} className="text-gray-400" />
+            <ArrowRightLeft size={16} className="text-gray-400 dark:text-gray-500" />
             <select
               value={migrateTargetId}
               onChange={(e) => setMigrateTargetId(e.target.value === "" ? "" : Number(e.target.value))}
