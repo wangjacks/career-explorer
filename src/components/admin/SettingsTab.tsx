@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef } from "react";
+import { useEffect, useState, useRef } from "react";
 import { toast } from "sonner";
 import { Field } from "./AdminUI";
 import type { DbConfig } from "@/hooks/useAdminAuth";
@@ -23,10 +23,12 @@ export default function SettingsTab({ dbConfig, loadError, onRetry, onConfigSave
   const [restoring, setRestoring] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Sync with parent when dbConfig changes
-  if (dbConfig && config === null) {
-    setConfig(dbConfig);
-  }
+  // 父组件刷新 dbConfig（保存/切换/恢复后）时同步到表单
+  /* eslint-disable react-hooks/set-state-in-effect -- sync prop to state on refresh */
+  useEffect(() => {
+    if (dbConfig) setConfig(dbConfig);
+  }, [dbConfig]);
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   const currentType = config?.type || "mysql";
 
