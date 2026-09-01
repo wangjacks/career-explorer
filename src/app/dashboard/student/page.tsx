@@ -642,7 +642,7 @@ export default function StudentDashboardPage() {
                 <section className="bg-card rounded-xl border border-gray-100 dark:border-gray-700 p-5 space-y-4">
                   <SectionHeader label="修改标签" />
                   {categories.length === 0 ? (
-                    <p className="text-sm text-gray-400 py-4 text-center">标签加载中...</p>
+                    <p className="text-sm text-gray-400 dark:text-gray-500 py-4 text-center">标签加载中...</p>
                   ) : (
                     <TagSelector
                       categories={categories}
@@ -658,7 +658,7 @@ export default function StudentDashboardPage() {
                   <SectionHeader label="头像与评价词云" />
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
                     <div className="space-y-2">
-                      <p className="text-xs text-gray-400">头像</p>
+                      <p className="text-xs text-gray-400 dark:text-gray-500">头像</p>
                       <ImageUploadBox
                         initialUrl={avatarPreview ?? undefined}
                         aspect="square"
@@ -667,7 +667,7 @@ export default function StudentDashboardPage() {
                       />
                     </div>
                     <div className="space-y-2">
-                      <p className="text-xs text-gray-400">评价词云</p>
+                      <p className="text-xs text-gray-400 dark:text-gray-500">评价词云</p>
                       <ImageUploadBox
                         initialUrl={evaluationPreview ?? undefined}
                         aspect="wide"
@@ -682,7 +682,7 @@ export default function StudentDashboardPage() {
                   <button
                     onClick={() => setEditing(false)}
                     disabled={saving}
-                    className="flex-1 py-3 bg-gray-100 hover:bg-gray-200 disabled:opacity-50 text-gray-700 font-medium rounded-xl transition-colors"
+                    className="flex-1 py-3 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 disabled:opacity-50 text-gray-700 dark:text-gray-200 font-medium rounded-xl transition-colors"
                   >
                     取消
                   </button>

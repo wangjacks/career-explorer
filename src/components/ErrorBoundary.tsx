@@ -41,27 +41,27 @@ export default class ErrorBoundary extends Component<Props, State> {
       if (this.props.fallback) return this.props.fallback;
 
       return (
-        <div className="min-h-screen bg-gray-50 flex items-center justify-center px-4">
+        <div className="min-h-screen bg-background flex items-center justify-center px-4">
           <div className="text-center space-y-4 max-w-sm">
-            <div className="w-16 h-16 mx-auto rounded-full bg-red-100 flex items-center justify-center">
-              <CircleAlert size={32} className="text-red-500" />
+            <div className="w-16 h-16 mx-auto rounded-full bg-red-100 dark:bg-red-900/30 flex items-center justify-center">
+              <CircleAlert size={32} className="text-red-500 dark:text-red-400" />
             </div>
             <div>
-              <h2 className="text-lg font-bold text-gray-900">页面出错了</h2>
-              <p className="text-sm text-gray-500 mt-1">
+              <h2 className="text-lg font-bold text-foreground">页面出错了</h2>
+              <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
                 {this.state.error?.message || "发生了未知错误"}
               </p>
             </div>
             <div className="flex gap-3 justify-center">
               <button
                 onClick={this.handleRetry}
-                className="px-5 py-2 bg-blue-500 hover:bg-blue-600 text-white text-sm font-medium rounded-lg transition-colors"
+                className="px-5 py-2 bg-blue-500 dark:bg-blue-600 hover:bg-blue-600 dark:hover:bg-blue-500 text-white text-sm font-medium rounded-lg transition-colors"
               >
                 重试
               </button>
               <Link
                 href="/"
-                className="px-5 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm font-medium rounded-lg transition-colors"
+                className="px-5 py-2 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-200 text-sm font-medium rounded-lg transition-colors"
               >
                 返回首页
               </Link>

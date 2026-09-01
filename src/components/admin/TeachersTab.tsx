@@ -206,7 +206,7 @@ export default function TeachersTab() {
               onChange={(e) => setNewCode(e.target.value)}
               placeholder="如 10000001"
               maxLength={8}
-              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm font-mono focus:outline-none focus:ring-2 focus:ring-green-300"
+              className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg text-sm font-mono focus:outline-none focus:ring-2 focus:ring-green-300"
             />
           </div>
           <div>

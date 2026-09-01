@@ -136,7 +136,7 @@ export default function AuditLogsTab({ mode }: AuditLogsTabProps) {
       {/* 筛选栏 */}
       <div className="flex flex-wrap items-center gap-2">
         <input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} className={inputClass} aria-label="开始日期" />
-        <span className="text-xs text-gray-400">至</span>
+        <span className="text-xs text-gray-400 dark:text-gray-500">至</span>
         <input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} className={inputClass} aria-label="结束日期" />
         <select value={action} onChange={(e) => setAction(e.target.value)} className={inputClass} aria-label="操作类型">
           <option value="">全部操作</option>
@@ -237,7 +237,7 @@ export default function AuditLogsTab({ mode }: AuditLogsTabProps) {
                   <td className="px-3 py-2">
                     <button
                       onClick={() => setExpanded(expanded === r.id ? null : r.id)}
-                      className="text-xs text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+                      className="text-xs text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300"
                       aria-label="展开详情"
                     >
                       {expanded === r.id ? "收起" : "详情"}
@@ -248,12 +248,12 @@ export default function AuditLogsTab({ mode }: AuditLogsTabProps) {
                   <tr className="bg-gray-50/60 dark:bg-gray-800/30">
                     <td colSpan={6} className="px-4 py-3">
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs text-gray-600 dark:text-gray-300">
-                        <p><span className="text-gray-400">编号：</span>{r.actor_user_code || "-"}</p>
-                        <p><span className="text-gray-400">IP：</span>{r.ip || "-"}</p>
-                        <p><span className="text-gray-400">请求：</span>{r.method} {r.path}</p>
-                        <p className="sm:col-span-2 break-all"><span className="text-gray-400">UA：</span>{r.user_agent || "-"}</p>
+                        <p><span className="text-gray-400 dark:text-gray-500">编号：</span>{r.actor_user_code || "-"}</p>
+                        <p><span className="text-gray-400 dark:text-gray-500">IP：</span>{r.ip || "-"}</p>
+                        <p><span className="text-gray-400 dark:text-gray-500">请求：</span>{r.method} {r.path}</p>
+                        <p className="sm:col-span-2 break-all"><span className="text-gray-400 dark:text-gray-500">UA：</span>{r.user_agent || "-"}</p>
                         {r.error_message && (
-                          <p className="sm:col-span-2 text-red-500"><span className="text-gray-400">错误：</span>{r.error_message}</p>
+                          <p className="sm:col-span-2 text-red-500"><span className="text-gray-400 dark:text-gray-500">错误：</span>{r.error_message}</p>
                         )}
                         {r.metadata && (
                           <pre className="sm:col-span-2 bg-card border border-gray-100 dark:border-gray-700 rounded p-2 overflow-x-auto">
@@ -274,7 +274,7 @@ export default function AuditLogsTab({ mode }: AuditLogsTabProps) {
             ))}
             {!loading && rows.length === 0 && (
               <tr>
-                <td colSpan={6} className="px-3 py-8 text-center text-sm text-gray-400">
+                <td colSpan={6} className="px-3 py-8 text-center text-sm text-gray-400 dark:text-gray-500">
                   暂无审计记录
                 </td>
               </tr>
