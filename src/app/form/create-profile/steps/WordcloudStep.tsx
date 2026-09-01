@@ -14,7 +14,7 @@ export default function WordcloudStep({ tags, onBack, onNext }: WordcloudStepPro
     <>
       <main className="flex-1 px-4 py-6 space-y-6 max-w-lg sm:max-w-xl md:max-w-2xl mx-auto w-full">
         <div className="text-center space-y-1">
-          <p className="text-sm text-gray-500 dark:text-gray-400">共选择了 {tags.length} 个标签</p>
+          <p className="text-sm text-muted">共选择了 {tags.length} 个标签</p>
         </div>
 
         <WordCloudClient words={tags} />
@@ -24,7 +24,7 @@ export default function WordcloudStep({ tags, onBack, onNext }: WordcloudStepPro
         </p>
       </main>
 
-      <div className="sticky bottom-0 bg-card/80 backdrop-blur-md border-t border-gray-100 dark:border-gray-700 p-4">
+      <div className="sticky bottom-0 bg-card/80 backdrop-blur-md border-t border-border-soft p-4">
         <div className="max-w-lg sm:max-w-xl md:max-w-2xl mx-auto flex gap-3">
           <button
             onClick={onBack}

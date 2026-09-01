@@ -118,9 +118,9 @@ export default function UserMenu() {
           />
         </button>
         {open && (
-          <div ref={menuRef} role="menu" className="absolute right-0 top-full mt-2 w-48 bg-card rounded-xl shadow-lg border border-gray-100 dark:border-gray-700 py-2">
+          <div ref={menuRef} role="menu" className="absolute right-0 top-full mt-2 w-48 bg-card rounded-xl shadow-lg border border-border-soft py-2">
             {/* 主题切换（浅色/深色/跟随系统） */}
-            <div className="px-4 py-2 border-b border-gray-100 dark:border-gray-700">
+            <div className="px-4 py-2 border-b border-border-soft">
               <p className="text-xs text-gray-400 mb-1.5">主题</p>
               <div className="flex gap-1">
                 {([["light", Sun, "浅色"], ["dark", Moon, "深色"], ["system", Monitor, "系统"]] as [Theme, typeof Sun, string][]).map(([value, Icon, label]) => (
@@ -143,7 +143,7 @@ export default function UserMenu() {
             </div>
             {session ? (
               <>
-                <div className="px-4 py-2 border-b border-gray-100 dark:border-gray-700">
+                <div className="px-4 py-2 border-b border-border-soft">
                   <p className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">{session.name}</p>
                   <p className="text-xs text-gray-400 mt-0.5">{ROLE_LABEL[session.role] ?? session.role}</p>
                 </div>
@@ -167,7 +167,7 @@ export default function UserMenu() {
               </>
             ) : (
               <>
-                <div className="px-4 py-2 border-b border-gray-100 dark:border-gray-700">
+                <div className="px-4 py-2 border-b border-border-soft">
                   <p className="text-sm font-medium text-gray-900 dark:text-gray-100">未登录</p>
                   <p className="text-xs text-gray-400 mt-0.5">登录后管理个人信息</p>
                 </div>

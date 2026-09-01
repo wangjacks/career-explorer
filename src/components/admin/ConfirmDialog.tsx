@@ -56,9 +56,9 @@ export default function ConfirmDialog({
   if (!open) return null;
 
   const btnClass = {
-    danger: "bg-red-500 hover:bg-red-600 text-white focus-visible:ring-red-300",
+    danger: "bg-danger hover:bg-red-600 text-white focus-visible:ring-red-300",
     warning: "bg-amber-500 hover:bg-amber-600 text-white focus-visible:ring-amber-300",
-    default: "bg-green-500 hover:bg-green-600 text-white focus-visible:ring-green-300",
+    default: "bg-primary hover:bg-primary-strong text-white focus-visible:ring-green-300",
   }[variant];
 
   return (
@@ -73,7 +73,7 @@ export default function ConfirmDialog({
         className="bg-card rounded-2xl shadow-xl max-w-sm w-full p-6 space-y-4 outline-none animate-[scale-in_0.15s_ease-out]"
         onClick={(e) => e.stopPropagation()}
       >
-        <h3 id={titleId} className="font-semibold text-gray-800 dark:text-gray-100 text-lg">{title}</h3>
+        <h3 id={titleId} className="font-semibold text-foreground text-lg">{title}</h3>
         <div className="text-sm text-gray-600 dark:text-gray-300">{message}</div>
         <div className="flex gap-2 pt-2">
           <button type="button" onClick={onCancel}

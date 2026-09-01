@@ -56,8 +56,8 @@ export default function TeacherHomeTab({ teacherName, students }: Props) {
   return (
     <>
       {/* 问候卡 */}
-      <div className="bg-card rounded-xl border border-gray-100 dark:border-gray-700 p-6">
-        <h2 className="text-xl font-semibold text-gray-800 dark:text-gray-100">
+      <div className="bg-card rounded-xl border border-border-soft p-6">
+        <h2 className="text-xl font-semibold text-foreground">
           {getGreeting(now.getHours())}，{teacherName}老师
         </h2>
         <p className="text-sm text-gray-400 dark:text-gray-500 mt-1">
@@ -86,11 +86,11 @@ export default function TeacherHomeTab({ teacherName, students }: Props) {
               <Tag className="w-5 h-5" strokeWidth={1.5} />
             }
           />
-          <div className="bg-card rounded-xl border border-gray-100 dark:border-gray-700 overflow-hidden hover:-translate-y-1 hover:shadow-lg transition-all duration-200 shadow-sm">
+          <div className="bg-card rounded-xl border border-border-soft overflow-hidden hover:-translate-y-1 hover:shadow-lg transition-all duration-200 shadow-sm">
             <div className="h-1 bg-gradient-to-r from-amber-500 to-amber-400" />
             <div className="p-5">
               <div className="flex items-center justify-between mb-3">
-                <p className="text-sm font-medium text-gray-500 dark:text-gray-400">热门标签</p>
+                <p className="text-sm font-medium text-muted">热门标签</p>
                 <div className="w-10 h-10 rounded-xl bg-amber-100 dark:bg-amber-900/30 text-amber-600 dark:text-amber-400 flex items-center justify-center">
                   <Flame className="w-5 h-5" strokeWidth={1.5} />
                 </div>

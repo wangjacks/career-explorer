@@ -59,7 +59,7 @@ const ROLE_LABELS: Record<string, string> = {
 };
 
 const inputClass =
-  "px-2 py-1.5 border border-gray-200 dark:border-gray-700 rounded-lg text-sm bg-card text-foreground focus:outline-none focus:ring-2 focus:ring-green-300";
+  "px-2 py-1.5 border border-gray-200 dark:border-gray-700 rounded-lg text-sm bg-card text-foreground focus:outline-none focus:ring-2 focus:ring-focus-ring";
 
 /**
  * 操作审计页（#110）：只读查询，不提供修改/删除。
@@ -123,9 +123,9 @@ export default function AuditLogsTab({ mode }: AuditLogsTabProps) {
   const handleSearch = () => load(1);
 
   return (
-    <div className="bg-card rounded-xl border border-gray-100 dark:border-gray-700 p-6 space-y-4">
+    <div className="bg-card rounded-xl border border-border-soft p-6 space-y-4">
       <div>
-        <h2 className="font-semibold text-gray-800 dark:text-gray-100">操作审计</h2>
+        <h2 className="font-semibold text-foreground">操作审计</h2>
         <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
           {mode === "admin"
             ? "记录管理操作、认证事件与档案提交的完整审计轨迹；只读，不可修改删除。"
@@ -185,17 +185,17 @@ export default function AuditLogsTab({ mode }: AuditLogsTabProps) {
       {loadFailed && rows.length === 0 && (
         <div className="text-center py-6 space-y-2">
           <p className="text-sm text-red-500">审计记录加载失败</p>
-          <button onClick={() => load(page)} className="px-4 py-1.5 bg-red-500 hover:bg-red-600 text-white text-sm rounded-lg">
+          <button onClick={() => load(page)} className="px-4 py-1.5 bg-danger hover:bg-red-600 text-white text-sm rounded-lg">
             重试
           </button>
         </div>
       )}
 
       {/* 记录表 */}
-      <div className="overflow-x-auto rounded-lg border border-gray-100 dark:border-gray-700">
+      <div className="overflow-x-auto rounded-lg border border-border-soft">
         <table className="w-full text-sm">
           <thead className="bg-gray-50 dark:bg-gray-800">
-            <tr className="text-left text-gray-500 dark:text-gray-400 border-b border-gray-100 dark:border-gray-700">
+            <tr className="text-left text-muted border-b border-border-soft">
               <th className="px-3 py-2 font-medium whitespace-nowrap">时间</th>
               <th className="px-3 py-2 font-medium">操作者</th>
               <th className="px-3 py-2 font-medium">动作</th>
@@ -213,7 +213,7 @@ export default function AuditLogsTab({ mode }: AuditLogsTabProps) {
                     <div className="flex items-center gap-1.5">
                       <span>{r.actor_name || r.actor_user_code || "-"}</span>
                       {r.actor_role && (
-                        <span className="px-1.5 py-0.5 text-[10px] rounded bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400">
+                        <span className="px-1.5 py-0.5 text-[10px] rounded bg-gray-100 dark:bg-gray-800 text-muted">
                           {ROLE_LABELS[r.actor_role] || r.actor_role}
                         </span>
                       )}
@@ -256,7 +256,7 @@ export default function AuditLogsTab({ mode }: AuditLogsTabProps) {
                           <p className="sm:col-span-2 text-red-500"><span className="text-gray-400 dark:text-gray-500">错误：</span>{r.error_message}</p>
                         )}
                         {r.metadata && (
-                          <pre className="sm:col-span-2 bg-card border border-gray-100 dark:border-gray-700 rounded p-2 overflow-x-auto">
+                          <pre className="sm:col-span-2 bg-card border border-border-soft rounded p-2 overflow-x-auto">
                             {(() => {
                               try {
                                 return JSON.stringify(JSON.parse(r.metadata), null, 2);

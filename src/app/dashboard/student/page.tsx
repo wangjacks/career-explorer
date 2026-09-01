@@ -77,7 +77,7 @@ function SectionHeader({ label, done }: { label: string; done?: boolean }) {
   return (
     <div className="flex items-center gap-2">
       <span className="w-1 h-4 rounded-full bg-accent" aria-hidden />
-      <h2 className="text-sm font-semibold text-gray-800 dark:text-gray-100">{label}</h2>
+      <h2 className="text-sm font-semibold text-foreground">{label}</h2>
       {done !== undefined && (
         <span
           className={`ml-auto px-2 py-0.5 rounded-full text-xs font-medium ${
@@ -126,9 +126,9 @@ function HistoryItem({
   const evaluationPreview = safeImageUrl(evaluationResolved);
 
   return (
-    <li className="border border-gray-100 dark:border-gray-700 rounded-lg p-3 space-y-2">
+    <li className="border border-border-soft rounded-lg p-3 space-y-2">
       <div className="flex items-center gap-2 flex-wrap">
-        <span className="text-sm font-semibold text-gray-800 dark:text-gray-100">版本 {submission.version}</span>
+        <span className="text-sm font-semibold text-foreground">版本 {submission.version}</span>
         {submission.is_current === 1 ? (
           <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-green-50 text-green-600 dark:bg-green-900/30 dark:text-green-400">
             当前版本
@@ -158,7 +158,7 @@ function HistoryItem({
               src={avatarPreview}
               alt={`版本 ${submission.version} 头像`}
               onError={() => setAvatarThumbFailed(true)}
-              className="w-12 h-12 rounded-lg object-cover border border-gray-100 dark:border-gray-700"
+              className="w-12 h-12 rounded-lg object-cover border border-border-soft"
             />
           )}
           {evaluationPreview && (
@@ -166,7 +166,7 @@ function HistoryItem({
               src={evaluationPreview}
               alt={`版本 ${submission.version} 评价词云`}
               onError={() => setEvaluationThumbFailed(true)}
-              className="h-12 w-20 rounded-lg object-cover border border-gray-100 dark:border-gray-700"
+              className="h-12 w-20 rounded-lg object-cover border border-border-soft"
             />
           )}
         </div>
@@ -526,7 +526,7 @@ export default function StudentDashboardPage() {
                   {activeView === "profile" ? (
                     <>
                       {/* 我的标签（按 API 分类分组三色） */}
-                      <section className="bg-card rounded-xl border border-gray-100 dark:border-gray-700 p-5 space-y-4">
+                      <section className="bg-card rounded-xl border border-border-soft p-5 space-y-4">
                         <SectionHeader label="我的标签" done={profile.tags.length > 0} />
                         {profile.tags.length === 0 ? (
                           <p className="text-sm text-gray-400 dark:text-gray-500">暂无标签</p>
@@ -560,14 +560,14 @@ export default function StudentDashboardPage() {
                       </section>
 
                       {/* 评价词云（预览可放大） */}
-                      <section className="bg-card rounded-xl border border-gray-100 dark:border-gray-700 p-5 space-y-4">
+                      <section className="bg-card rounded-xl border border-border-soft p-5 space-y-4">
                         <SectionHeader label="评价词云" done={!!profile.evaluation_url} />
                         {evaluationPreview ? (
                           <img
                             src={evaluationPreview}
                             alt="评价词云"
                             onClick={() => setLightbox(evaluationPreview)}
-                            className="w-full max-w-sm rounded-lg border border-gray-100 dark:border-gray-700 cursor-zoom-in"
+                            className="w-full max-w-sm rounded-lg border border-border-soft cursor-zoom-in"
                           />
                         ) : (
                           <p className="text-sm text-gray-400 dark:text-gray-500">暂无评价词云</p>
@@ -589,7 +589,7 @@ export default function StudentDashboardPage() {
                     </>
                   ) : (
                     /* 历史提交（#95）：独立 Tab，恢复按钮截止后隐藏 */
-                    <section className="bg-card rounded-xl border border-gray-100 dark:border-gray-700 p-5 space-y-4">
+                    <section className="bg-card rounded-xl border border-border-soft p-5 space-y-4">
                       <SectionHeader label="历史提交" />
                       {historyLoading ? (
                         <p className="text-sm text-gray-400 dark:text-gray-500">加载中...</p>
@@ -614,13 +614,13 @@ export default function StudentDashboardPage() {
                 </>
               ) : (
                 /* 从未提交：引导卡 */
-                <div className="bg-card rounded-xl border border-gray-100 dark:border-gray-700 p-8 text-center space-y-4">
+                <div className="bg-card rounded-xl border border-border-soft p-8 text-center space-y-4">
                   <div className="w-14 h-14 bg-brand rounded-2xl flex items-center justify-center mx-auto">
                     <SquarePen className="w-7 h-7 text-accent" strokeWidth={2} />
                   </div>
                   <div>
-                    <h2 className="text-base font-semibold text-gray-800 dark:text-gray-100">你还没有提交职业探索档案</h2>
-                    <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">完成标签选择、头像与评价词云上传，让老师了解你的职业兴趣方向</p>
+                    <h2 className="text-base font-semibold text-foreground">你还没有提交职业探索档案</h2>
+                    <p className="text-sm text-muted mt-1">完成标签选择、头像与评价词云上传，让老师了解你的职业兴趣方向</p>
                   </div>
                   <button
                     onClick={goSubmit}
@@ -639,7 +639,7 @@ export default function StudentDashboardPage() {
             ) : (
               /* 编辑模式（hero 保留在顶部） */
               <div className="space-y-5">
-                <section className="bg-card rounded-xl border border-gray-100 dark:border-gray-700 p-5 space-y-4">
+                <section className="bg-card rounded-xl border border-border-soft p-5 space-y-4">
                   <SectionHeader label="修改标签" />
                   {categories.length === 0 ? (
                     <p className="text-sm text-gray-400 dark:text-gray-500 py-4 text-center">标签加载中...</p>
@@ -654,7 +654,7 @@ export default function StudentDashboardPage() {
                   )}
                 </section>
 
-                <section className="bg-card rounded-xl border border-gray-100 dark:border-gray-700 p-5 space-y-4">
+                <section className="bg-card rounded-xl border border-border-soft p-5 space-y-4">
                   <SectionHeader label="头像与评价词云" />
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
                     <div className="space-y-2">

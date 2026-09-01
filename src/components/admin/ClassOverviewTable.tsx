@@ -60,7 +60,7 @@ export default function ClassOverviewTable({ students }: Props) {
 
   if (loadError) {
     return (
-      <div className="bg-card rounded-xl border border-gray-100 dark:border-gray-700 p-6 text-center space-y-3">
+      <div className="bg-card rounded-xl border border-border-soft p-6 text-center space-y-3">
         <p className="text-sm text-red-500">班级数据加载失败</p>
         <button onClick={loadClasses}
           className="px-4 py-1.5 bg-gray-100 hover:bg-gray-200 dark:bg-gray-800 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-200 text-sm font-medium rounded-lg transition-colors">重试</button>
@@ -69,14 +69,14 @@ export default function ClassOverviewTable({ students }: Props) {
   }
 
   return (
-    <div className="bg-card rounded-xl border border-gray-100 dark:border-gray-700 overflow-hidden">
-      <div className="px-5 py-4 border-b border-gray-100 dark:border-gray-700">
-        <h2 className="font-semibold text-gray-800 dark:text-gray-100">班级概览</h2>
+    <div className="bg-card rounded-xl border border-border-soft overflow-hidden">
+      <div className="px-5 py-4 border-b border-border-soft">
+        <h2 className="font-semibold text-foreground">班级概览</h2>
       </div>
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
-            <tr className="bg-gray-50 dark:bg-gray-800 text-left text-gray-500 dark:text-gray-400">
+            <tr className="bg-gray-50 dark:bg-gray-800 text-left text-muted">
               <th className="px-5 py-3 font-medium">班级</th>
               <th className="px-5 py-3 font-medium">学生总数</th>
               <th className="px-5 py-3 font-medium">已提交</th>
@@ -108,11 +108,11 @@ export default function ClassOverviewTable({ students }: Props) {
               </tr>
             )}
             <tr className="bg-gray-50 dark:bg-gray-800 font-medium">
-              <td className="px-5 py-3 text-gray-800 dark:text-gray-100">合计</td>
-              <td className="px-5 py-3 text-gray-800 dark:text-gray-100">{classOverview.total}</td>
+              <td className="px-5 py-3 text-foreground">合计</td>
+              <td className="px-5 py-3 text-foreground">{classOverview.total}</td>
               <td className="px-5 py-3 text-green-700 dark:text-green-400">{classOverview.totalSubmitted}</td>
-              <td className="px-5 py-3 text-gray-800 dark:text-gray-100">{classOverview.totalUnsubmitted}</td>
-              <td className="px-5 py-3 text-gray-800 dark:text-gray-100">
+              <td className="px-5 py-3 text-foreground">{classOverview.totalUnsubmitted}</td>
+              <td className="px-5 py-3 text-foreground">
                 {classOverview.total > 0 ? `${((classOverview.totalSubmitted / classOverview.total) * 100).toFixed(2)}%` : "-"}
               </td>
             </tr>

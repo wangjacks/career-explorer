@@ -56,7 +56,7 @@ function FieldInput({
 }) {
   return (
     <div>
-      <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
+      <label className="block text-xs text-muted mb-1">
         {label}
         {optional && <span className="ml-1 text-gray-400 dark:text-gray-500">（可选）</span>}
       </label>
@@ -64,7 +64,7 @@ function FieldInput({
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
-        className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg text-sm bg-card text-foreground focus:outline-none focus:ring-2 focus:ring-green-300"
+        className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg text-sm bg-card text-foreground focus:outline-none focus:ring-2 focus:ring-focus-ring"
       />
       {hint && <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">{hint}</p>}
     </div>
@@ -246,10 +246,10 @@ export default function StorageTab() {
 
   return (
     <div className="space-y-6">
-      <div className="bg-card rounded-xl border border-gray-100 dark:border-gray-700 p-6 space-y-4">
+      <div className="bg-card rounded-xl border border-border-soft p-6 space-y-4">
         <div className="flex items-center justify-between">
           <div>
-            <h2 className="font-semibold text-gray-800 dark:text-gray-100">存储管理</h2>
+            <h2 className="font-semibold text-foreground">存储管理</h2>
             <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
               本地存储为内置后端；S3 兼容后端支持腾讯云 COS、阿里云 OSS、MinIO 等。凭据通过环境变量配置，不入库。
             </p>
@@ -291,12 +291,12 @@ export default function StorageTab() {
               >
                 <div className="flex items-center gap-2">
                   {b.type === "local" ? (
-                    <HardDrive size={16} className="text-gray-500 dark:text-gray-400" />
+                    <HardDrive size={16} className="text-muted" />
                   ) : (
                     <Cloud size={16} className="text-blue-500" />
                   )}
-                  <span className="font-medium text-gray-800 dark:text-gray-100 text-sm">{b.name}</span>
-                  <span className="px-1.5 py-0.5 bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 rounded text-[10px]">
+                  <span className="font-medium text-foreground text-sm">{b.name}</span>
+                  <span className="px-1.5 py-0.5 bg-gray-100 dark:bg-gray-800 text-muted rounded text-[10px]">
                     {b.type === "local" ? "本地" : "S3 兼容"}
                   </span>
                   {b.is_default === 1 && (
@@ -307,7 +307,7 @@ export default function StorageTab() {
                 </div>
 
                 {b.type === "s3" ? (
-                  <div className="text-xs text-gray-500 dark:text-gray-400 space-y-0.5">
+                  <div className="text-xs text-muted space-y-0.5">
                     <p className="truncate">公网端点：{b.endpoint || "-"}</p>
                     <p className="truncate">内网端点：{b.internal_endpoint || "（未配置，走公网）"}</p>
                     <p className="truncate">桶：{b.bucket || "-"}{b.path_prefix ? ` / ${b.path_prefix}` : ""}</p>
@@ -323,7 +323,7 @@ export default function StorageTab() {
                     </p>
                   </div>
                 ) : (
-                  <p className="text-xs text-gray-500 dark:text-gray-400">
+                  <p className="text-xs text-muted">
                     文件保存在应用服务器 uploads/ 目录，行为与现版本一致。
                   </p>
                 )}
@@ -373,9 +373,9 @@ export default function StorageTab() {
 
       {/* 迁移本地文件区块 */}
       {loaded && localBackend && s3Backends.length > 0 && (
-        <div className="bg-card rounded-xl border border-gray-100 dark:border-gray-700 p-6 space-y-3">
+        <div className="bg-card rounded-xl border border-border-soft p-6 space-y-3">
           <div>
-            <h3 className="font-semibold text-gray-800 dark:text-gray-100 text-sm">迁移本地文件到云后端</h3>
+            <h3 className="font-semibold text-foreground text-sm">迁移本地文件到云后端</h3>
             <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
               将归属本地后端的头像与评价词云批量上传到目标云后端。可重复执行，已存在的对象自动跳过；单用户失败不影响整体。
             </p>
@@ -385,7 +385,7 @@ export default function StorageTab() {
             <select
               value={migrateTargetId}
               onChange={(e) => setMigrateTargetId(e.target.value === "" ? "" : Number(e.target.value))}
-              className="px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg text-sm bg-card text-foreground focus:outline-none focus:ring-2 focus:ring-green-300"
+              className="px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg text-sm bg-card text-foreground focus:outline-none focus:ring-2 focus:ring-focus-ring"
             >
               <option value="">选择目标后端...</option>
               {s3Backends.map((b) => (
@@ -403,7 +403,7 @@ export default function StorageTab() {
             </button>
           </div>
           {migrateResult && (
-            <p className="text-xs text-gray-500 dark:text-gray-400">{migrateResult}</p>
+            <p className="text-xs text-muted">{migrateResult}</p>
           )}
         </div>
       )}
@@ -418,7 +418,7 @@ export default function StorageTab() {
             className="bg-card rounded-2xl shadow-xl max-w-md w-full p-6 space-y-4 max-h-[85vh] overflow-y-auto"
             onClick={(e) => e.stopPropagation()}
           >
-            <h3 className="font-semibold text-gray-800 dark:text-gray-100">
+            <h3 className="font-semibold text-foreground">
               {editingId ? "编辑存储后端" : "新增 S3 兼容后端"}
             </h3>
             <FieldInput

@@ -244,16 +244,16 @@ export default function ProfilesTab({ loadProfiles, loadStats }: Props) {
   };
 
   return (
-    <div className="bg-card rounded-xl border border-gray-100 dark:border-gray-700">
-      <div className="px-5 py-4 border-b border-gray-100 dark:border-gray-700 flex flex-col gap-3">
+    <div className="bg-card rounded-xl border border-border-soft">
+      <div className="px-5 py-4 border-b border-border-soft flex flex-col gap-3">
         <div className="flex items-center justify-between">
-          <h2 className="font-semibold text-gray-800 dark:text-gray-100">
+          <h2 className="font-semibold text-foreground">
             数据列表 {paged && `(${paged.total} 条)`}
           </h2>
           {selected.size > 0 && (
             <button
               onClick={() => setConfirmDelete(Array.from(selected))}
-              className="px-4 py-1.5 bg-red-500 hover:bg-red-600 text-white text-sm font-medium rounded-lg transition-colors"
+              className="px-4 py-1.5 bg-danger hover:bg-red-600 text-white text-sm font-medium rounded-lg transition-colors"
             >
               删除选中（{selected.size}）
             </button>
@@ -265,7 +265,7 @@ export default function ProfilesTab({ loadProfiles, loadStats }: Props) {
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="搜索学号/姓名..."
-            className="px-3 py-1.5 border border-gray-200 dark:border-gray-700 bg-card text-foreground rounded-lg text-sm w-48 focus:outline-none focus:ring-2 focus:ring-green-300"
+            className="px-3 py-1.5 border border-gray-200 dark:border-gray-700 bg-card text-foreground rounded-lg text-sm w-48 focus:outline-none focus:ring-2 focus:ring-focus-ring"
           />
           {/* Tag dropdown */}
           <div className="relative" ref={tagDropdownRef}>
@@ -286,13 +286,13 @@ export default function ProfilesTab({ loadProfiles, loadStats }: Props) {
             </button>
             {tagDropdownOpen && (
               <div className="absolute top-full left-0 mt-1 w-64 bg-card rounded-xl border border-gray-200 dark:border-gray-700 shadow-lg z-30">
-                <div className="p-2 border-b border-gray-100 dark:border-gray-700">
+                <div className="p-2 border-b border-border-soft">
                   <input
                     type="text"
                     value={tagSearch}
                     onChange={(e) => setTagSearch(e.target.value)}
                     placeholder="搜索标签..."
-                    className="w-full px-2.5 py-1.5 border border-gray-200 dark:border-gray-700 bg-card text-foreground rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-300"
+                    className="w-full px-2.5 py-1.5 border border-gray-200 dark:border-gray-700 bg-card text-foreground rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-focus-ring"
                     autoFocus
                   />
                 </div>
@@ -346,7 +346,7 @@ export default function ProfilesTab({ loadProfiles, loadStats }: Props) {
       <div className="overflow-x-auto rounded-b-xl">
         <table className="w-full text-sm">
           <thead>
-            <tr className="bg-gray-50 dark:bg-gray-800 text-left text-gray-500 dark:text-gray-400">
+            <tr className="bg-gray-50 dark:bg-gray-800 text-left text-muted">
               <th className="px-5 py-3 font-medium w-10">
                 <input
                   type="checkbox"
@@ -437,8 +437,8 @@ export default function ProfilesTab({ loadProfiles, loadStats }: Props) {
       </div>
 
       {paged && paged.totalPages > 1 && (
-        <div className="px-5 py-3 border-t border-gray-100 dark:border-gray-700 flex items-center justify-between text-sm">
-          <span className="text-gray-500 dark:text-gray-400">第 {paged.page}/{paged.totalPages} 页</span>
+        <div className="px-5 py-3 border-t border-border-soft flex items-center justify-between text-sm">
+          <span className="text-muted">第 {paged.page}/{paged.totalPages} 页</span>
           <div className="flex gap-2">
             <button onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page <= 1}
               className="px-3 py-1 rounded-lg border border-gray-200 dark:border-gray-700 disabled:opacity-40 hover:bg-gray-50 dark:hover:bg-gray-800">上一页</button>
@@ -455,34 +455,34 @@ export default function ProfilesTab({ loadProfiles, loadStats }: Props) {
           <div role="dialog" aria-modal="true" aria-labelledby="profiles-detail-title" className="bg-card rounded-2xl shadow-xl max-w-md w-full p-6 space-y-4 max-h-[85vh] overflow-y-auto"
             onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between">
-              <h3 id="profiles-detail-title" className="font-semibold text-gray-800 dark:text-gray-100 text-lg">档案详情</h3>
+              <h3 id="profiles-detail-title" className="font-semibold text-foreground text-lg">档案详情</h3>
               <button onClick={() => setDetail(null)} aria-label="关闭" className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 text-xl">×</button>
             </div>
 
             <div className="grid grid-cols-2 gap-3 text-sm">
               <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-3">
-                <p className="text-xs text-gray-500 dark:text-gray-400">学号</p>
-                <p className="font-mono font-medium text-gray-800 dark:text-gray-100 mt-0.5">{detail.studentId}</p>
+                <p className="text-xs text-muted">学号</p>
+                <p className="font-mono font-medium text-foreground mt-0.5">{detail.studentId}</p>
               </div>
               <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-3">
-                <p className="text-xs text-gray-500 dark:text-gray-400">姓名</p>
-                <p className="font-medium text-gray-800 dark:text-gray-100 mt-0.5">{detail.studentName || "-"}</p>
+                <p className="text-xs text-muted">姓名</p>
+                <p className="font-medium text-foreground mt-0.5">{detail.studentName || "-"}</p>
               </div>
               <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-3 col-span-2">
-                <p className="text-xs text-gray-500 dark:text-gray-400">提交时间</p>
-                <p className="font-medium text-gray-800 dark:text-gray-100 mt-0.5">{detail.createdAt}</p>
+                <p className="text-xs text-muted">提交时间</p>
+                <p className="font-medium text-foreground mt-0.5">{detail.createdAt}</p>
               </div>
             </div>
 
             {detail.avatarUrl && (
               <div>
-                <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">虚拟形象</p>
+                <p className="text-xs text-muted mb-2">虚拟形象</p>
                 <StorageImage url={detail.avatarUrl} storageId={detail.storageId} alt="" className="w-20 h-20 rounded-xl object-cover border border-gray-100" />
               </div>
             )}
 
             <div>
-              <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">标签（{detail.tags.length}个）</p>
+              <p className="text-xs text-muted mb-2">标签（{detail.tags.length}个）</p>
               <div className="flex flex-wrap gap-1.5">
                 {detail.tags.map((t) => (
                   <span key={t} className="px-2.5 py-1 bg-green-50 dark:bg-green-900/30 text-green-700 dark:text-green-300 rounded-full text-xs font-medium">{t}</span>
@@ -492,13 +492,13 @@ export default function ProfilesTab({ loadProfiles, loadStats }: Props) {
 
             {detail.evaluationUrl && (
               <div>
-                <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">评价词云</p>
+                <p className="text-xs text-muted mb-2">评价词云</p>
                 <StorageImage url={detail.evaluationUrl} storageId={detail.storageId} alt="" className="w-full rounded-xl border border-gray-100" />
               </div>
             )}
 
             {/* 版本历史（#95）：折叠展示，打开详情时已预取 */}
-            <div className="border-t border-gray-100 dark:border-gray-700 pt-3">
+            <div className="border-t border-border-soft pt-3">
               <button
                 onClick={() => setHistoryOpen((v) => !v)}
                 className="w-full flex items-center justify-between text-sm font-medium text-gray-700 dark:text-gray-200"
@@ -515,7 +515,7 @@ export default function ProfilesTab({ loadProfiles, loadStats }: Props) {
                     <p className="text-sm text-gray-400">暂无版本记录</p>
                   ) : (
                     historyRows.map((h) => (
-                      <div key={h.id} className="border border-gray-100 dark:border-gray-700 rounded-lg p-2.5 space-y-1.5">
+                      <div key={h.id} className="border border-border-soft rounded-lg p-2.5 space-y-1.5">
                         <div className="flex items-center gap-2">
                           <span className="text-xs font-semibold text-gray-700 dark:text-gray-200">版本 {h.version}</span>
                           {h.is_current === 1 ? (
@@ -539,10 +539,10 @@ export default function ProfilesTab({ loadProfiles, loadStats }: Props) {
                         {(h.avatar_url || h.evaluation_url) && (
                           <div className="flex gap-1.5">
                             {h.avatar_url && (
-                              <StorageImage url={h.avatar_url} storageId={h.storage_id} alt="" className="w-8 h-8 rounded object-cover border border-gray-100 dark:border-gray-700" />
+                              <StorageImage url={h.avatar_url} storageId={h.storage_id} alt="" className="w-8 h-8 rounded object-cover border border-border-soft" />
                             )}
                             {h.evaluation_url && (
-                              <StorageImage url={h.evaluation_url} storageId={h.storage_id} alt="" className="h-8 w-14 rounded object-cover border border-gray-100 dark:border-gray-700" />
+                              <StorageImage url={h.evaluation_url} storageId={h.storage_id} alt="" className="h-8 w-14 rounded object-cover border border-border-soft" />
                             )}
                           </div>
                         )}
@@ -559,7 +559,7 @@ export default function ProfilesTab({ loadProfiles, loadStats }: Props) {
                 关闭
               </button>
               <button onClick={() => { setConfirmDelete([detail.studentId]); setDetail(null); }}
-                className="flex-1 py-2 bg-red-500 hover:bg-red-600 text-white text-sm font-medium rounded-lg transition-colors">
+                className="flex-1 py-2 bg-danger hover:bg-red-600 text-white text-sm font-medium rounded-lg transition-colors">
                 删除此记录
               </button>
             </div>

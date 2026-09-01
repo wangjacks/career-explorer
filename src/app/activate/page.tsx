@@ -7,7 +7,7 @@ import { useSession } from "@/hooks/useSession";
 import NavigationBar from "@/components/NavigationBar";
 
 const inputClass =
-  "w-full px-4 py-3 border border-gray-200 dark:border-gray-600 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-green-300 focus:border-transparent";
+  "w-full px-4 py-3 border border-gray-200 dark:border-gray-600 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-focus-ring focus:border-transparent";
 
 /**
  * 学生账户激活（两步单页，Issue #93）：
@@ -165,7 +165,7 @@ function ActivateForm() {
               <button
                 onClick={handleVerify}
                 disabled={!step1Valid || loading}
-                className="w-full py-3 bg-green-500 hover:bg-green-600 disabled:bg-gray-300 dark:disabled:bg-gray-600 text-white font-medium rounded-xl transition-colors"
+                className="w-full py-3 bg-primary hover:bg-primary-strong disabled:bg-gray-300 dark:disabled:bg-gray-600 text-white font-medium rounded-xl transition-colors"
               >
                 {loading ? "核验中..." : "下一步"}
               </button>
@@ -211,7 +211,7 @@ function ActivateForm() {
               <button
                 onClick={handleActivate}
                 disabled={!step2Valid || loading}
-                className="w-full py-3 bg-green-500 hover:bg-green-600 disabled:bg-gray-300 dark:disabled:bg-gray-600 text-white font-medium rounded-xl transition-colors"
+                className="w-full py-3 bg-primary hover:bg-primary-strong disabled:bg-gray-300 dark:disabled:bg-gray-600 text-white font-medium rounded-xl transition-colors"
               >
                 {loading ? "激活中..." : "激活"}
               </button>
@@ -221,14 +221,14 @@ function ActivateForm() {
                   setVerifiedName(null);
                   goToStep(1);
                 }}
-                className="w-full text-center text-sm text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200"
+                className="w-full text-center text-sm text-muted hover:text-gray-700 dark:hover:text-gray-200"
               >
                 返回上一步修改信息
               </button>
             </>
           )}
 
-          <p className="text-center text-sm text-gray-500 dark:text-gray-400">
+          <p className="text-center text-sm text-muted">
             已有账号？{" "}
             <Link href="/login" className="text-green-600 dark:text-green-400 hover:underline">
               去登录

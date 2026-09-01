@@ -88,9 +88,9 @@ export default function ProfileConfigTab() {
   };
 
   return (
-    <div className="bg-card rounded-xl border border-gray-100 dark:border-gray-700 p-6 space-y-6">
+    <div className="bg-card rounded-xl border border-border-soft p-6 space-y-6">
       <div>
-        <h2 className="font-semibold text-gray-800 dark:text-gray-100">功能设置</h2>
+        <h2 className="font-semibold text-foreground">功能设置</h2>
         <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
           档案创建相关的功能配置，保存后即时生效。
         </p>
@@ -119,7 +119,7 @@ export default function ProfileConfigTab() {
               value={maxCustomTags}
               disabled={!loaded}
               onChange={(e) => setMaxCustomTags(Number(e.target.value))}
-              className="w-24 px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg text-sm bg-card text-foreground focus:outline-none focus:ring-2 focus:ring-green-300"
+              className="w-24 px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg text-sm bg-card text-foreground focus:outline-none focus:ring-2 focus:ring-focus-ring"
             />
             <span className="text-xs text-gray-400 dark:text-gray-500">1-20，预设标签不受此限制</span>
           </div>
@@ -135,7 +135,7 @@ export default function ProfileConfigTab() {
               value={deadline}
               disabled={!loaded}
               onChange={(e) => setDeadline(e.target.value)}
-              className="px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg text-sm bg-card text-foreground focus:outline-none focus:ring-2 focus:ring-green-300"
+              className="px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg text-sm bg-card text-foreground focus:outline-none focus:ring-2 focus:ring-focus-ring"
             />
             {deadline && (
               <button
@@ -164,7 +164,7 @@ export default function ProfileConfigTab() {
               value={maxAvatarSizeMb}
               disabled={!loaded}
               onChange={(e) => setMaxAvatarSizeMb(Number(e.target.value))}
-              className="w-24 px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg text-sm bg-card text-foreground focus:outline-none focus:ring-2 focus:ring-green-300"
+              className="w-24 px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg text-sm bg-card text-foreground focus:outline-none focus:ring-2 focus:ring-focus-ring"
             />
             <span className="text-xs text-gray-400 dark:text-gray-500">1-20 MB</span>
           </div>
@@ -181,7 +181,7 @@ export default function ProfileConfigTab() {
               value={maxEvaluationSizeMb}
               disabled={!loaded}
               onChange={(e) => setMaxEvaluationSizeMb(Number(e.target.value))}
-              className="w-24 px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg text-sm bg-card text-foreground focus:outline-none focus:ring-2 focus:ring-green-300"
+              className="w-24 px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg text-sm bg-card text-foreground focus:outline-none focus:ring-2 focus:ring-focus-ring"
             />
             <span className="text-xs text-gray-400 dark:text-gray-500">1-20 MB</span>
           </div>
@@ -199,7 +199,7 @@ export default function ProfileConfigTab() {
               value={maxProfileSubmissions}
               disabled={!loaded}
               onChange={(e) => setMaxProfileSubmissions(Number(e.target.value))}
-              className="w-24 px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg text-sm bg-card text-foreground focus:outline-none focus:ring-2 focus:ring-green-300"
+              className="w-24 px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg text-sm bg-card text-foreground focus:outline-none focus:ring-2 focus:ring-focus-ring"
             />
             <span className="text-xs text-gray-400 dark:text-gray-500">1-100，超出后自动保留最近版本</span>
           </div>
