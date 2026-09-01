@@ -70,7 +70,7 @@ export default function ThumbnailTab() {
     <div className="space-y-5">
       <div className="bg-card rounded-xl border border-border-soft p-5 space-y-4">
         <div className="flex items-center gap-2">
-          <ImageIcon size={16} className="text-gray-400 dark:text-gray-500" aria-hidden />
+          <ImageIcon size={16} className="text-muted" aria-hidden />
           <h2 className="font-semibold text-foreground">缩略图维护</h2>
           <button
             onClick={() => scan()}
@@ -81,12 +81,12 @@ export default function ThumbnailTab() {
             {status === null ? "检测" : "重新检测"}
           </button>
         </div>
-        <p className="text-xs text-gray-400 dark:text-gray-500">
+        <p className="text-xs text-muted">
           扫描全部被引用图片（当前档案 + 历史版本快照），统计缩略图覆盖情况；缩略图由原图 key 派生（`_thumb` 后缀），不影响原图与详情展示。
         </p>
 
         {status === null ? (
-          <p className="text-sm text-gray-400 dark:text-gray-500">点击上方「检测」按钮扫描缩略图覆盖情况</p>
+          <p className="text-sm text-muted">点击上方「检测」按钮扫描缩略图覆盖情况</p>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-4">
@@ -118,7 +118,7 @@ export default function ThumbnailTab() {
               <Wrench className="w-4 h-4" aria-hidden />
               {running ? "补生成中..." : `补生成缺失缩略图（${status.missing} 张）`}
             </button>
-            <span className="text-xs text-gray-400 dark:text-gray-500">仅生成缺失项，已存在的不重复处理；单张失败不影响其余</span>
+            <span className="text-xs text-muted">仅生成缺失项，已存在的不重复处理；单张失败不影响其余</span>
           </div>
         )}
 

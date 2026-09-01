@@ -67,7 +67,7 @@ export default function ImageUploadBox({
         {preview ? (
           <img src={preview} alt="预览" className="w-full h-full object-contain" />
         ) : (
-          <div className="flex flex-col items-center gap-2 text-gray-400 dark:text-gray-500 px-4 text-center">
+          <div className="flex flex-col items-center gap-2 text-muted px-4 text-center">
             <ImageIcon size={36} strokeWidth={1.5} />
             <span className="text-xs">{emptyHint}</span>
           </div>

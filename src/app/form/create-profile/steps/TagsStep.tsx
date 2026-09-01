@@ -58,7 +58,7 @@ export default function TagsStep({ draft, studentName, onBack, onNext }: TagsSte
           同学！请选择你的兴趣 / 技能 / 性格标签
         </div>
 
-        {loading && <p className="text-center py-8 text-gray-400 dark:text-gray-500">标签加载中...</p>}
+        {loading && <p className="text-center py-8 text-muted">标签加载中...</p>}
         {failed && (
           <div className="text-center py-8 space-y-2">
             <p className="text-sm text-red-500">标签加载失败</p>

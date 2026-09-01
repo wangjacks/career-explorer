@@ -27,7 +27,7 @@ export default function SiteFooter() {
                 className={`flex flex-col items-center gap-0.5 py-2 px-6 text-xs transition-colors ${
                   active
                     ? "text-green-600 dark:text-green-400 font-medium"
-                    : "text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300"
+                    : "text-muted hover:text-gray-600 dark:hover:text-gray-300"
                 }`}
               >
                 <l.icon size={20} strokeWidth={active ? 2.2 : 1.8} />
@@ -61,7 +61,7 @@ export default function SiteFooter() {
               );
             })}
           </nav>
-          <p className="text-xs text-gray-400 dark:text-gray-500">© 2026 Career Explorer · 学生职业探索工具</p>
+          <p className="text-xs text-muted">© 2026 Career Explorer · 学生职业探索工具</p>
         </div>
       </footer>
     </>

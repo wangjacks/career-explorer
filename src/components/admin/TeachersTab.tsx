@@ -235,18 +235,18 @@ export default function TeachersTab() {
       <div className="bg-card rounded-xl border border-border-soft overflow-hidden">
         <div className="px-5 py-4 border-b border-border-soft flex items-center justify-between">
           <h3 className="text-sm font-semibold text-foreground">教师列表</h3>
-          <span className="text-xs text-gray-400 dark:text-gray-500">{teachers.length} 名教师</span>
+          <span className="text-xs text-muted">{teachers.length} 名教师</span>
         </div>
 
         {loading ? (
-          <p className="p-5 text-sm text-gray-400 dark:text-gray-500">加载中...</p>
+          <p className="p-5 text-sm text-muted">加载中...</p>
         ) : teachers.length === 0 ? (
-          <p className="p-5 text-sm text-gray-400 dark:text-gray-500">暂无教师账户</p>
+          <p className="p-5 text-sm text-muted">暂无教师账户</p>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
-                <tr className="text-left text-xs text-gray-400 dark:text-gray-500 border-b border-border-soft">
+                <tr className="text-left text-xs text-muted border-b border-border-soft">
                   <th className="px-5 py-2.5 font-medium">编号</th>
                   <th className="px-3 py-2.5 font-medium">姓名</th>
                   <th className="px-3 py-2.5 font-medium hidden md:table-cell">创建时间</th>
@@ -258,7 +258,7 @@ export default function TeachersTab() {
                   <tr key={t.id} className="border-b border-gray-50 dark:border-gray-700/50 hover:bg-gray-50/60 dark:hover:bg-gray-800/40">
                     <td className="px-5 py-3 font-mono text-gray-700 dark:text-gray-300">{t.user_code}</td>
                     <td className="px-3 py-3 font-medium text-foreground">{t.name}</td>
-                    <td className="px-3 py-3 text-gray-400 dark:text-gray-500 text-xs hidden md:table-cell">{t.created_at}</td>
+                    <td className="px-3 py-3 text-muted text-xs hidden md:table-cell">{t.created_at}</td>
                     <td className="px-5 py-3 text-right whitespace-nowrap">
                       <button
                         onClick={() => {

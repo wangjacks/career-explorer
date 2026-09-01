@@ -70,7 +70,7 @@ export default function DashboardTab() {
   /* eslint-enable react-hooks/set-state-in-effect */
 
   if (loading) {
-    return <div className="text-center py-12 text-gray-400 dark:text-gray-500">加载中...</div>;
+    return <div className="text-center py-12 text-muted">加载中...</div>;
   }
 
   return (
@@ -155,7 +155,7 @@ export default function DashboardTab() {
               </LineChart>
             </ResponsiveContainer>
           ) : (
-            <div className="h-[260px] flex items-center justify-center text-gray-400 dark:text-gray-500">暂无数据</div>
+            <div className="h-[260px] flex items-center justify-center text-muted">暂无数据</div>
           )}
         </div>
 
@@ -186,7 +186,7 @@ export default function DashboardTab() {
               </PieChart>
             </ResponsiveContainer>
           ) : (
-            <div className="h-[260px] flex items-center justify-center text-gray-400 dark:text-gray-500">暂无数据</div>
+            <div className="h-[260px] flex items-center justify-center text-muted">暂无数据</div>
           )}
         </div>
 
@@ -208,7 +208,7 @@ export default function DashboardTab() {
               </BarChart>
             </ResponsiveContainer>
           ) : (
-            <div className="h-[300px] flex items-center justify-center text-gray-400 dark:text-gray-500">暂无数据</div>
+            <div className="h-[300px] flex items-center justify-center text-muted">暂无数据</div>
           )}
         </div>
       </div>

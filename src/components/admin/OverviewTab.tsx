@@ -47,7 +47,7 @@ export default function OverviewTab({ installed, loadStats, loadProfiles, studen
         </div>
       )}
       {!stats && !loadError && installed !== false && (
-        <div className="text-center py-12 text-gray-400 dark:text-gray-500">加载中...</div>
+        <div className="text-center py-12 text-muted">加载中...</div>
       )}
       {stats && (
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
@@ -81,7 +81,7 @@ export default function OverviewTab({ installed, loadStats, loadProfiles, studen
                 {stats.topTags.slice(0, 5).map((t) => (
                   <div key={t.tag} className="flex items-center justify-between text-sm">
                     <span className="text-gray-700 dark:text-gray-200 truncate">{t.tag}</span>
-                    <span className="text-xs text-gray-400 dark:text-gray-500 ml-2 flex-shrink-0">{t.count}</span>
+                    <span className="text-xs text-muted ml-2 flex-shrink-0">{t.count}</span>
                   </div>
                 ))}
               </div>

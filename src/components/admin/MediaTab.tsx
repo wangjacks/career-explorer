@@ -316,7 +316,7 @@ export default function MediaTab() {
       {/* 存储总览与保留期配置 */}
       <div className="bg-card rounded-xl border border-border-soft p-5 space-y-4">
         <div className="flex items-center gap-2">
-          <HardDrive size={16} className="text-gray-400 dark:text-gray-500" aria-hidden />
+          <HardDrive size={16} className="text-muted" aria-hidden />
           <h2 className="font-semibold text-foreground">媒体管理</h2>
           <button
             onClick={() => { loadStatus(); }}
@@ -329,7 +329,7 @@ export default function MediaTab() {
         </div>
 
         {status === null ? (
-          <p className="text-sm text-gray-400 dark:text-gray-500">{statusLoading ? "检测中..." : "检测失败，请重试"}</p>
+          <p className="text-sm text-muted">{statusLoading ? "检测中..." : "检测失败，请重试"}</p>
         ) : (
           <>
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
@@ -385,7 +385,7 @@ export default function MediaTab() {
                 </div>
               </div>
             </div>
-            <p className="text-xs text-gray-400 dark:text-gray-500">
+            <p className="text-xs text-muted">
               展示全部存储资源（含被引用文件与关联学生）；孤儿 = 未被任何档案或历史版本引用，超过保留期才可清理（覆盖「上传→保存」宽限期），源图删除时连带其缩略图。
             </p>
           </>
@@ -500,11 +500,11 @@ export default function MediaTab() {
             </div>
 
             {listLoading ? (
-              <p className="text-sm text-gray-400 dark:text-gray-500">加载中...</p>
+              <p className="text-sm text-muted">加载中...</p>
             ) : items.length === 0 && total === 0 ? (
-              <p className="text-sm text-gray-400 dark:text-gray-500">点击上方「查询」按钮加载媒体资源</p>
+              <p className="text-sm text-muted">点击上方「查询」按钮加载媒体资源</p>
             ) : items.length === 0 ? (
-              <p className="text-sm text-gray-400 dark:text-gray-500">无匹配项</p>
+              <p className="text-sm text-muted">无匹配项</p>
             ) : (
               <div className="overflow-x-auto rounded-lg border border-border-soft">
                 <table className="w-full text-sm">
@@ -551,12 +551,12 @@ export default function MediaTab() {
                             ) : item.deletable ? (
                               <span className="text-amber-600 dark:text-amber-400">孤儿 · 可清理（孤 {item.orphanDays} 天）</span>
                             ) : (
-                              <span className="text-gray-400 dark:text-gray-500">
+                              <span className="text-muted">
                                 孤儿 · 保留中（剩 {Math.max(0, (status?.retentionDays ?? 7) - item.orphanDays)} 天）
                               </span>
                             )}
                             {item.type === "thumbnail" && (
-                              <span className="text-gray-400 dark:text-gray-500">（随源图）</span>
+                              <span className="text-muted">（随源图）</span>
                             )}
                           </td>
                         </tr>
@@ -607,13 +607,13 @@ export default function MediaTab() {
                 <X className="w-5 h-5" />
               </button>
             </div>
-            <p className="text-xs text-gray-400 dark:text-gray-500">
+            <p className="text-xs text-muted">
               以下文件当前未被任何档案或历史版本引用，且已超过保留期（{status?.retentionDays ?? 7} 天）。删除不可恢复，请核对清单。
             </p>
             {previewLoading ? (
-              <p className="text-sm text-gray-400 dark:text-gray-500">加载中...</p>
+              <p className="text-sm text-muted">加载中...</p>
             ) : previewList.length === 0 ? (
-              <p className="text-sm text-gray-400 dark:text-gray-500">没有可删除的孤儿文件</p>
+              <p className="text-sm text-muted">没有可删除的孤儿文件</p>
             ) : (
               <>
                 <div className="overflow-y-auto rounded-lg border border-border-soft flex-1 min-h-0">

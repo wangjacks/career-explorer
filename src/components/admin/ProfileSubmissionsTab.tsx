@@ -204,7 +204,7 @@ export default function ProfileSubmissionsTab() {
       {/* 学生选择器 + 版本列表 */}
       <div className="bg-card rounded-xl border border-border-soft p-5 space-y-4">
         <div className="flex items-center gap-2">
-          <History size={16} className="text-gray-400 dark:text-gray-500" aria-hidden />
+          <History size={16} className="text-muted" aria-hidden />
           <h2 className="font-semibold text-foreground">档案提交历史</h2>
         </div>
 
@@ -258,9 +258,9 @@ export default function ProfileSubmissionsTab() {
               </div>
               <div className="max-h-64 overflow-y-auto py-1">
                 {studentLoading && students.length === 0 ? (
-                  <div className="px-3 py-4 text-center text-sm text-gray-400 dark:text-gray-500">加载中...</div>
+                  <div className="px-3 py-4 text-center text-sm text-muted">加载中...</div>
                 ) : filteredStudents.length === 0 ? (
-                  <div className="px-3 py-4 text-center text-sm text-gray-400 dark:text-gray-500">无匹配学生</div>
+                  <div className="px-3 py-4 text-center text-sm text-muted">无匹配学生</div>
                 ) : (
                   /* 只渲染前 10 个（大名单时避免卡顿），底部提示剩余数量 */
                   filteredStudents.slice(0, 10).map((s) => (
@@ -280,7 +280,7 @@ export default function ProfileSubmissionsTab() {
                   ))
                 )}
               </div>
-              <div className="px-3 py-1.5 border-t border-border-soft text-[10px] text-gray-400 dark:text-gray-500">
+              <div className="px-3 py-1.5 border-t border-border-soft text-[10px] text-muted">
                 共 {students.length} 名已提交学生
                 {filteredStudents.length > 10 && `，匹配 ${filteredStudents.length} 名，仅显示前 10 个，可输入学号/姓名精确查找`}
               </div>
@@ -294,9 +294,9 @@ export default function ProfileSubmissionsTab() {
               {selectedName} 的提交历史（{submissions.length} 个版本）
             </p>
             {subLoading ? (
-              <p className="text-sm text-gray-400 dark:text-gray-500">加载中...</p>
+              <p className="text-sm text-muted">加载中...</p>
             ) : submissions.length === 0 ? (
-              <p className="text-sm text-gray-400 dark:text-gray-500">暂无版本记录</p>
+              <p className="text-sm text-muted">暂无版本记录</p>
             ) : (
               <ul className="space-y-2">
                 {submissions.map((s) => (
@@ -312,11 +312,11 @@ export default function ProfileSubmissionsTab() {
                           历史版本
                         </span>
                       )}
-                      <span className="ml-auto text-xs text-gray-400 dark:text-gray-500">{s.submitted_at}</span>
+                      <span className="ml-auto text-xs text-muted">{s.submitted_at}</span>
                     </div>
                     <div className="flex flex-wrap gap-1.5">
                       {s.tags.length === 0 ? (
-                        <span className="text-xs text-gray-400 dark:text-gray-500">暂无标签</span>
+                        <span className="text-xs text-muted">暂无标签</span>
                       ) : (
                         s.tags.map((tag) => (
                           <span key={tag} className={`px-2.5 py-1 rounded-full text-xs ${tagColorMap.get(tag) ?? "bg-green-50 dark:bg-green-900/30 text-green-700 dark:text-green-300"}`}>
@@ -349,7 +349,7 @@ export default function ProfileSubmissionsTab() {
         <div className="flex items-center gap-2 flex-wrap">
           <TriangleAlert size={16} className="text-amber-500" aria-hidden />
           <h2 className="font-semibold text-foreground">超限学生</h2>
-          <span className="text-xs text-gray-400 dark:text-gray-500">版本上限 {maxVersions} 条，超出部分仅删除记录（文件保留）</span>
+          <span className="text-xs text-muted">版本上限 {maxVersions} 条，超出部分仅删除记录（文件保留）</span>
           {exceeding.length > 0 && (
             <button
               onClick={() => setConfirmCleanupAll(true)}
@@ -361,11 +361,11 @@ export default function ProfileSubmissionsTab() {
             </button>
           )}
         </div>
-        <p className="text-xs text-gray-400 dark:text-gray-500">
+        <p className="text-xs text-muted">
           每次提交时会自动清理超限版本，正常情况下此处为空；仅当调低「功能设置」中的版本上限后，存量学生可能超限并在此列出，可单个或一键清理。
         </p>
         {exceeding.length === 0 ? (
-          <p className="text-sm text-gray-400 dark:text-gray-500">暂无超限学生</p>
+          <p className="text-sm text-muted">暂无超限学生</p>
         ) : (
           <ul className="space-y-2">
             {exceeding.map((row) => (

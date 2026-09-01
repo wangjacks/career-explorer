@@ -83,7 +83,7 @@ function SectionHeader({ label, done }: { label: string; done?: boolean }) {
           className={`ml-auto px-2 py-0.5 rounded-full text-xs font-medium ${
             done
               ? "bg-green-50 text-green-600 dark:bg-green-900/30 dark:text-green-400"
-              : "bg-gray-100 text-gray-400 dark:bg-gray-800 dark:text-gray-500"
+              : "bg-gray-100 text-muted dark:bg-gray-800"
           }`}
         >
           {done ? "✓ 已完成" : "待完成"}
@@ -138,11 +138,11 @@ function HistoryItem({
             历史版本
           </span>
         )}
-        <span className="ml-auto text-xs text-gray-400 dark:text-gray-500">{submission.submitted_at}</span>
+        <span className="ml-auto text-xs text-muted">{submission.submitted_at}</span>
       </div>
       <div className="flex flex-wrap gap-1.5">
         {submission.tags.length === 0 ? (
-          <span className="text-xs text-gray-400 dark:text-gray-500">暂无标签</span>
+          <span className="text-xs text-muted">暂无标签</span>
         ) : (
           submission.tags.map((tag) => (
             <span key={tag} className={`px-2.5 py-1 rounded-full text-xs ${tagColorMap.get(tag) ?? TAG_CHIP_COLORS[0]}`}>
@@ -406,7 +406,7 @@ export default function StudentDashboardPage() {
   if (checking || !session || session.role !== "student" || loading) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center px-4">
-        <p className="text-sm text-gray-400 dark:text-gray-500">加载中...</p>
+        <p className="text-sm text-muted">加载中...</p>
       </div>
     );
   }
@@ -414,7 +414,7 @@ export default function StudentDashboardPage() {
   if (!profile) {
     return (
       <div className="min-h-screen bg-background flex flex-col items-center justify-center px-4 gap-3">
-        <p className="text-sm text-gray-400 dark:text-gray-500">档案加载失败</p>
+        <p className="text-sm text-muted">档案加载失败</p>
         <button
           onClick={loadProfile}
           className="px-4 py-1.5 bg-primary hover:bg-primary-strong text-white text-sm rounded-lg"
@@ -529,14 +529,14 @@ export default function StudentDashboardPage() {
                       <section className="bg-card rounded-xl border border-border-soft p-5 space-y-4">
                         <SectionHeader label="我的标签" done={profile.tags.length > 0} />
                         {profile.tags.length === 0 ? (
-                          <p className="text-sm text-gray-400 dark:text-gray-500">暂无标签</p>
+                          <p className="text-sm text-muted">暂无标签</p>
                         ) : (
                           <div className="space-y-3">
                             {groupedTags
                               .filter((g) => g.tags.length > 0)
                               .map((g) => (
                                 <div key={g.name}>
-                                  <p className="text-xs text-gray-400 dark:text-gray-500 mb-1.5">{g.name}</p>
+                                  <p className="text-xs text-muted mb-1.5">{g.name}</p>
                                   <div className="flex flex-wrap gap-1.5">
                                     {g.tags.map((tag) => (
                                       <span key={tag} className={`px-2.5 py-1 rounded-full text-xs ${g.color}`}>
@@ -570,7 +570,7 @@ export default function StudentDashboardPage() {
                             className="w-full max-w-sm rounded-lg border border-border-soft cursor-zoom-in"
                           />
                         ) : (
-                          <p className="text-sm text-gray-400 dark:text-gray-500">暂无评价词云</p>
+                          <p className="text-sm text-muted">暂无评价词云</p>
                         )}
                       </section>
 
@@ -592,9 +592,9 @@ export default function StudentDashboardPage() {
                     <section className="bg-card rounded-xl border border-border-soft p-5 space-y-4">
                       <SectionHeader label="历史提交" />
                       {historyLoading ? (
-                        <p className="text-sm text-gray-400 dark:text-gray-500">加载中...</p>
+                        <p className="text-sm text-muted">加载中...</p>
                       ) : historySubmissions.length === 0 ? (
-                        <p className="text-sm text-gray-400 dark:text-gray-500">暂无历史提交</p>
+                        <p className="text-sm text-muted">暂无历史提交</p>
                       ) : (
                         <ul className="space-y-2">
                           {historySubmissions.map((s) => (
@@ -642,7 +642,7 @@ export default function StudentDashboardPage() {
                 <section className="bg-card rounded-xl border border-border-soft p-5 space-y-4">
                   <SectionHeader label="修改标签" />
                   {categories.length === 0 ? (
-                    <p className="text-sm text-gray-400 dark:text-gray-500 py-4 text-center">标签加载中...</p>
+                    <p className="text-sm text-muted py-4 text-center">标签加载中...</p>
                   ) : (
                     <TagSelector
                       categories={categories}
@@ -658,7 +658,7 @@ export default function StudentDashboardPage() {
                   <SectionHeader label="头像与评价词云" />
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
                     <div className="space-y-2">
-                      <p className="text-xs text-gray-400 dark:text-gray-500">头像</p>
+                      <p className="text-xs text-muted">头像</p>
                       <ImageUploadBox
                         initialUrl={avatarPreview ?? undefined}
                         aspect="square"
@@ -667,7 +667,7 @@ export default function StudentDashboardPage() {
                       />
                     </div>
                     <div className="space-y-2">
-                      <p className="text-xs text-gray-400 dark:text-gray-500">评价词云</p>
+                      <p className="text-xs text-muted">评价词云</p>
                       <ImageUploadBox
                         initialUrl={evaluationPreview ?? undefined}
                         aspect="wide"

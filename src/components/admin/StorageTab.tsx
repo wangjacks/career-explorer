@@ -58,7 +58,7 @@ function FieldInput({
     <div>
       <label className="block text-xs text-muted mb-1">
         {label}
-        {optional && <span className="ml-1 text-gray-400 dark:text-gray-500">（可选）</span>}
+        {optional && <span className="ml-1 text-muted">（可选）</span>}
       </label>
       <input
         value={value}
@@ -66,7 +66,7 @@ function FieldInput({
         placeholder={placeholder}
         className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg text-sm bg-card text-foreground focus:outline-none focus:ring-2 focus:ring-focus-ring"
       />
-      {hint && <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">{hint}</p>}
+      {hint && <p className="text-xs text-muted mt-1">{hint}</p>}
     </div>
   );
 }
@@ -250,7 +250,7 @@ export default function StorageTab() {
         <div className="flex items-center justify-between">
           <div>
             <h2 className="font-semibold text-foreground">存储管理</h2>
-            <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
+            <p className="text-xs text-muted mt-1">
               本地存储为内置后端；S3 兼容后端支持腾讯云 COS、阿里云 OSS、MinIO 等。凭据通过环境变量配置，不入库。
             </p>
           </div>
@@ -274,7 +274,7 @@ export default function StorageTab() {
         )}
 
         {!loadFailed && !loaded && (
-          <p className="text-sm text-gray-400 dark:text-gray-500 py-4 text-center">加载中...</p>
+          <p className="text-sm text-muted py-4 text-center">加载中...</p>
         )}
 
         {/* 后端卡片列表 */}
@@ -376,12 +376,12 @@ export default function StorageTab() {
         <div className="bg-card rounded-xl border border-border-soft p-6 space-y-3">
           <div>
             <h3 className="font-semibold text-foreground text-sm">迁移本地文件到云后端</h3>
-            <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
+            <p className="text-xs text-muted mt-1">
               将归属本地后端的头像与评价词云批量上传到目标云后端。可重复执行，已存在的对象自动跳过；单用户失败不影响整体。
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-3">
-            <ArrowRightLeft size={16} className="text-gray-400 dark:text-gray-500" />
+            <ArrowRightLeft size={16} className="text-muted" />
             <select
               value={migrateTargetId}
               onChange={(e) => setMigrateTargetId(e.target.value === "" ? "" : Number(e.target.value))}

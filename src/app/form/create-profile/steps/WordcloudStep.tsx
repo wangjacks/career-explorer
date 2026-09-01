@@ -19,7 +19,7 @@ export default function WordcloudStep({ tags, onBack, onNext }: WordcloudStepPro
 
         <WordCloudClient words={tags} />
 
-        <p className="text-xs text-gray-400 dark:text-gray-500 text-center">
+        <p className="text-xs text-muted text-center">
           以下是基于你的标签生成的词云
         </p>
       </main>

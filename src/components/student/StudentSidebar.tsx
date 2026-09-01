@@ -59,7 +59,7 @@ export default function StudentSidebar({ open, onClose }: { open: boolean; onClo
               <span
                 key={item.label}
                 title="即将上线"
-                className="flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-sm text-gray-400 dark:text-gray-500 cursor-not-allowed select-none"
+                className="flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-sm text-muted cursor-not-allowed select-none"
               >
                 <item.icon size={17} strokeWidth={1.8} />
                 {item.label}

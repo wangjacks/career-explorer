@@ -83,7 +83,7 @@ export default function WordCloudCanvas({ words }: WordCloudCanvasProps) {
 
   if (words.length === 0) {
     return (
-      <div role="status" className="flex items-center justify-center h-[300px] bg-gray-50 dark:bg-gray-800/50 rounded-xl text-gray-400 dark:text-gray-500">
+      <div role="status" className="flex items-center justify-center h-[300px] bg-gray-50 dark:bg-gray-800/50 rounded-xl text-muted">
         暂无标签数据
       </div>
     );

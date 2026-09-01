@@ -427,7 +427,7 @@ export default function TagsTab() {
     <button
       onClick={onClick}
       title={title}
-      className="inline-flex items-center justify-center w-6 h-6 rounded-md text-gray-400 dark:text-gray-500 hover:text-green-600 dark:hover:text-green-400 hover:bg-green-50 dark:hover:bg-green-900/30 transition-colors flex-shrink-0"
+      className="inline-flex items-center justify-center w-6 h-6 rounded-md text-muted hover:text-green-600 dark:hover:text-green-400 hover:bg-green-50 dark:hover:bg-green-900/30 transition-colors flex-shrink-0"
     >
       {dir === "up" ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
     </button>
@@ -438,7 +438,7 @@ export default function TagsTab() {
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div>
           <h2 className="font-semibold text-foreground">标签管理</h2>
-          <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">删除为物理删除，不影响学生已提交的标签数据；删除分类会同时删除其下标签。</p>
+          <p className="text-xs text-muted mt-1">删除为物理删除，不影响学生已提交的标签数据；删除分类会同时删除其下标签。</p>
         </div>
         <button
           onClick={() => setRestoreOpen(true)}
@@ -526,7 +526,7 @@ export default function TagsTab() {
             <div className="max-h-40 overflow-y-auto border border-border-soft rounded-lg divide-y divide-gray-50 dark:divide-gray-700/50">
               {batchPreview.map((item, i) => (
                 <div key={i} className="px-3 py-1.5 text-sm flex gap-2">
-                  <span className="text-gray-400 dark:text-gray-500 flex-shrink-0">{item.category}</span>
+                  <span className="text-muted flex-shrink-0">{item.category}</span>
                   <span className="text-gray-700 dark:text-gray-200 truncate">{item.name}</span>
                 </div>
               ))}
@@ -560,7 +560,7 @@ export default function TagsTab() {
       )}
 
       {/* Tag list */}
-      {loading ? <p className="text-center py-8 text-gray-400 dark:text-gray-500">加载中...</p> : (
+      {loading ? <p className="text-center py-8 text-muted">加载中...</p> : (
         <div className="space-y-3">
           {categories.map((category) => {
             const children = displayTags.filter((tag) => tag.type === "tag" && tag.parent_id === category.id)
@@ -577,7 +577,7 @@ export default function TagsTab() {
                           <input autoFocus value={editing.name} onChange={(e) => setEditing({ ...editing, name: e.target.value })} className="flex-1 min-w-0 px-2 py-1.5 border border-gray-200 dark:border-gray-700 rounded text-sm" />
                         </div>
                         <div className="flex items-center gap-2 pl-6">
-                          <span className="text-xs text-gray-400 dark:text-gray-500 flex-shrink-0">一级分类 · {children.length} 个标签</span>
+                          <span className="text-xs text-muted flex-shrink-0">一级分类 · {children.length} 个标签</span>
                           <SortBtn onClick={() => moveTag(category, -1)} dir="up" title="上移" />
                           <SortBtn onClick={() => moveTag(category, 1)} dir="down" title="下移" />
                           <button onClick={saveEdit} className="text-xs text-green-600 dark:text-green-400 hover:text-green-700 dark:hover:text-green-300 flex-shrink-0">保存</button>
@@ -598,7 +598,7 @@ export default function TagsTab() {
                     <div className="flex items-center gap-2">
                       <input type="checkbox" className="rounded border-gray-300 text-green-500 focus:ring-focus-ring flex-shrink-0" checked={selected.has(category.id)} onChange={() => toggleSelect(category.id)} />
                       <span className="flex-1 min-w-0 text-sm font-medium truncate text-foreground">{category.name}</span>
-                      <span className="text-xs text-gray-400 dark:text-gray-500 flex-shrink-0 hidden sm:inline">一级分类 · {children.length} 个标签</span>
+                      <span className="text-xs text-muted flex-shrink-0 hidden sm:inline">一级分类 · {children.length} 个标签</span>
                       <SortBtn onClick={() => moveTag(category, -1)} dir="up" title="上移" />
                       <SortBtn onClick={() => moveTag(category, 1)} dir="down" title="下移" />
                       <button onClick={() => setEditing({ ...category })} className="text-xs text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 flex-shrink-0">编辑</button>
@@ -653,12 +653,12 @@ export default function TagsTab() {
                       )}
                     </div>
                   ))}
-                  {children.length === 0 && <p className="px-12 py-3 text-xs text-gray-400 dark:text-gray-500">暂无标签</p>}
+                  {children.length === 0 && <p className="px-12 py-3 text-xs text-muted">暂无标签</p>}
                 </div>
               </div>
             );
           })}
-          {categories.length === 0 && <p className="text-center py-8 text-gray-400 dark:text-gray-500">暂无分类</p>}
+          {categories.length === 0 && <p className="text-center py-8 text-muted">暂无分类</p>}
         </div>
       )}
 

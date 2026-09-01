@@ -87,7 +87,7 @@ export default function AboutPage() {
 
         {/* 版本信息（动态读取 package.json，发布时随 npm version 更新） */}
         <div className="space-y-1.5 pt-4 border-t border-border-soft">
-          <p className="text-xs text-gray-400 dark:text-gray-500">
+          <p className="text-xs text-muted">
             Career Explorer v{pkg.version} · 三角色支持（学生 / 教师 / 管理员）
           </p>
         </div>

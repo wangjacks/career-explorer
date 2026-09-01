@@ -91,7 +91,7 @@ export default function ProfileConfigTab() {
     <div className="bg-card rounded-xl border border-border-soft p-6 space-y-6">
       <div>
         <h2 className="font-semibold text-foreground">功能设置</h2>
-        <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
+        <p className="text-xs text-muted mt-1">
           档案创建相关的功能配置，保存后即时生效。
         </p>
       </div>
@@ -121,7 +121,7 @@ export default function ProfileConfigTab() {
               onChange={(e) => setMaxCustomTags(Number(e.target.value))}
               className="w-24 px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg text-sm bg-card text-foreground focus:outline-none focus:ring-2 focus:ring-focus-ring"
             />
-            <span className="text-xs text-gray-400 dark:text-gray-500">1-20，预设标签不受此限制</span>
+            <span className="text-xs text-muted">1-20，预设标签不受此限制</span>
           </div>
 
           {/* 档案提交截止时间（#96）：超过该时间后学生无法提交或修改档案 */}
@@ -146,7 +146,7 @@ export default function ProfileConfigTab() {
                 清除限制
               </button>
             )}
-            <span className="text-xs text-gray-400 dark:text-gray-500">
+            <span className="text-xs text-muted">
               超过该时间后学生无法提交或修改档案；留空表示不限制
             </span>
           </div>
@@ -166,7 +166,7 @@ export default function ProfileConfigTab() {
               onChange={(e) => setMaxAvatarSizeMb(Number(e.target.value))}
               className="w-24 px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg text-sm bg-card text-foreground focus:outline-none focus:ring-2 focus:ring-focus-ring"
             />
-            <span className="text-xs text-gray-400 dark:text-gray-500">1-20 MB</span>
+            <span className="text-xs text-muted">1-20 MB</span>
           </div>
 
           <div className="flex flex-wrap items-center gap-3">
@@ -183,7 +183,7 @@ export default function ProfileConfigTab() {
               onChange={(e) => setMaxEvaluationSizeMb(Number(e.target.value))}
               className="w-24 px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg text-sm bg-card text-foreground focus:outline-none focus:ring-2 focus:ring-focus-ring"
             />
-            <span className="text-xs text-gray-400 dark:text-gray-500">1-20 MB</span>
+            <span className="text-xs text-muted">1-20 MB</span>
           </div>
 
           {/* 档案提交历史版本上限（#95）：超出后自动清理最旧记录（文件保留） */}
@@ -201,7 +201,7 @@ export default function ProfileConfigTab() {
               onChange={(e) => setMaxProfileSubmissions(Number(e.target.value))}
               className="w-24 px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg text-sm bg-card text-foreground focus:outline-none focus:ring-2 focus:ring-focus-ring"
             />
-            <span className="text-xs text-gray-400 dark:text-gray-500">1-100，超出后自动保留最近版本</span>
+            <span className="text-xs text-muted">1-100，超出后自动保留最近版本</span>
           </div>
 
           <div>

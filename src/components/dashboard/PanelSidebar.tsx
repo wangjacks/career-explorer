@@ -77,7 +77,7 @@ export default function PanelSidebar({ open, onClose, role, groups, activeKey, o
           {groups.map((group, gIdx) => (
             <div key={group.label ?? `group-${gIdx}`} className="space-y-1">
               {group.label && (
-                <p className="px-3 pb-1 text-[11px] font-medium text-gray-400 dark:text-gray-500">
+                <p className="px-3 pb-1 text-[11px] font-medium text-muted">
                   {group.label}
                 </p>
               )}

@@ -100,7 +100,7 @@ export default function ConfirmStep({ draft, studentName, onBack, onSubmitted }:
         </div>
 
         {!profile && !loadFailed && (
-          <p className="text-center py-8 text-gray-400 dark:text-gray-500">档案信息加载中...</p>
+          <p className="text-center py-8 text-muted">档案信息加载中...</p>
         )}
 
         {loadFailed && (

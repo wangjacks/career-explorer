@@ -229,13 +229,13 @@ export default function ClassesTab({ mode, teacherUid }: Props) {
       <div className="bg-card rounded-xl border border-border-soft overflow-hidden">
         <div className="px-5 py-4 border-b border-border-soft flex items-center justify-between">
           <h3 className="text-sm font-semibold text-foreground">班级列表</h3>
-          <span className="text-xs text-gray-400 dark:text-gray-500">{classes.length} 个班级</span>
+          <span className="text-xs text-muted">{classes.length} 个班级</span>
         </div>
 
         {loading ? (
-          <p className="p-5 text-sm text-gray-400 dark:text-gray-500">加载中...</p>
+          <p className="p-5 text-sm text-muted">加载中...</p>
         ) : classes.length === 0 ? (
-          <p className="p-5 text-sm text-gray-400 dark:text-gray-500 flex items-center justify-center gap-2">
+          <p className="p-5 text-sm text-muted flex items-center justify-center gap-2">
             <FolderPlus size={18} strokeWidth={1.5} className="text-gray-300 dark:text-gray-500" />
             暂无班级，请先创建
           </p>
@@ -243,7 +243,7 @@ export default function ClassesTab({ mode, teacherUid }: Props) {
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
-                <tr className="text-left text-xs text-gray-400 dark:text-gray-500 border-b border-border-soft">
+                <tr className="text-left text-xs text-muted border-b border-border-soft">
                   <th className="px-5 py-2.5 font-medium w-8"></th>
                   <th className="px-3 py-2.5 font-medium">班级名称</th>
                   <th className="px-3 py-2.5 font-medium">学生数</th>
@@ -378,7 +378,7 @@ function FragmentRow({
         <td className="px-5 py-3">
           <button
             onClick={onToggle}
-            className="text-gray-400 dark:text-gray-500 hover:text-gray-600"
+            className="text-muted hover:text-gray-600"
             aria-label={isOpen ? "收起学生名单" : "展开学生名单"}
           >
             <ChevronRight
@@ -398,17 +398,17 @@ function FragmentRow({
             <code className="px-2 py-0.5 bg-gray-100 dark:bg-gray-800 rounded text-xs font-mono text-gray-700 dark:text-gray-300">
               {klass.invitation_code}
             </code>
-            <button onClick={onCopy} className="text-gray-400 dark:text-gray-500 hover:text-green-600" aria-label="复制邀请码">
+            <button onClick={onCopy} className="text-muted hover:text-green-600" aria-label="复制邀请码">
               <Copy className="w-3.5 h-3.5" />
             </button>
             {modifiable && (
-              <button onClick={onReset} className="text-gray-400 dark:text-gray-500 hover:text-amber-600" aria-label="重置邀请码">
+              <button onClick={onReset} className="text-muted hover:text-amber-600" aria-label="重置邀请码">
                 <RefreshCw className="w-3.5 h-3.5" />
               </button>
             )}
           </span>
         </td>
-        <td className="px-3 py-3 text-gray-400 dark:text-gray-500 text-xs hidden md:table-cell">{klass.created_at}</td>
+        <td className="px-3 py-3 text-muted text-xs hidden md:table-cell">{klass.created_at}</td>
         <td className="px-5 py-3 text-right whitespace-nowrap">
           {modifiable ? (
             <>
@@ -429,7 +429,7 @@ function FragmentRow({
           <td></td>
           <td colSpan={5} className="px-3 py-3">
             {members.length === 0 ? (
-              <p className="text-xs text-gray-400 dark:text-gray-500">该班级暂无学生</p>
+              <p className="text-xs text-muted">该班级暂无学生</p>
             ) : (
               <div className="flex flex-wrap gap-1.5">
                 {members.map((s) => (

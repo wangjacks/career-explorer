@@ -60,7 +60,7 @@ export default function TeacherHomeTab({ teacherName, students }: Props) {
         <h2 className="text-xl font-semibold text-foreground">
           {getGreeting(now.getHours())}，{teacherName}老师
         </h2>
-        <p className="text-sm text-gray-400 dark:text-gray-500 mt-1">
+        <p className="text-sm text-muted mt-1">
           {now.toLocaleDateString("zh-CN", { year: "numeric", month: "long", day: "numeric", weekday: "long" })}
           ，欢迎回来看看学生们的探索进展。
         </p>
@@ -99,7 +99,7 @@ export default function TeacherHomeTab({ teacherName, students }: Props) {
                 {stats.topTags.slice(0, 5).map((t) => (
                   <div key={t.tag} className="flex items-center justify-between text-sm">
                     <span className="text-gray-700 dark:text-gray-200 truncate">{t.tag}</span>
-                    <span className="text-xs text-gray-400 dark:text-gray-500 ml-2 flex-shrink-0">{t.count}</span>
+                    <span className="text-xs text-muted ml-2 flex-shrink-0">{t.count}</span>
                   </div>
                 ))}
               </div>
@@ -117,7 +117,7 @@ export default function TeacherHomeTab({ teacherName, students }: Props) {
           </button>
         </div>
       ) : (
-        <div className="text-center py-8 text-gray-400 dark:text-gray-500 text-sm">统计数据加载中...</div>
+        <div className="text-center py-8 text-muted text-sm">统计数据加载中...</div>
       )}
 
       {/* 班级概览 */}

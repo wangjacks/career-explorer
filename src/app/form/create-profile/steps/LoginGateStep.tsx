@@ -44,7 +44,7 @@ export default function LoginGateStep({
   const deadlineText = deadline ?? precheckedDeadline;
 
   if (checking) {
-    return <p className="text-center py-10 text-sm text-gray-400 dark:text-gray-500">加载中...</p>;
+    return <p className="text-center py-10 text-sm text-muted">加载中...</p>;
   }
 
   if (!session) {

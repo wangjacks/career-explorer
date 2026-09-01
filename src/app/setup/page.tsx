@@ -132,7 +132,7 @@ export default function SetupPage() {
                   >
                     {done ? "✓" : i + 1}
                   </div>
-                  <span className={`text-[10px] sm:text-xs whitespace-nowrap ${current || done ? "text-green-600 dark:text-green-400 font-medium" : "text-gray-400 dark:text-gray-500"}`}>
+                  <span className={`text-[10px] sm:text-xs whitespace-nowrap ${current || done ? "text-green-600 dark:text-green-400 font-medium" : "text-muted"}`}>
                     {label}
                   </span>
                 </div>
@@ -230,7 +230,7 @@ export default function SetupPage() {
                     onChange={(e) => setMysqlConfig({ ...mysqlConfig, database: e.target.value })}
                     className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-focus-ring"
                   />
-                  <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">数据库必须已存在，系统会自动创建表结构</p>
+                  <p className="text-xs text-muted mt-1">数据库必须已存在，系统会自动创建表结构</p>
                 </div>
               </div>
             ) : (
@@ -243,7 +243,7 @@ export default function SetupPage() {
                     onChange={(e) => setSqlitePath(e.target.value)}
                     className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-focus-ring"
                   />
-                  <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">相对于项目根目录，系统会自动创建目录</p>
+                  <p className="text-xs text-muted mt-1">相对于项目根目录，系统会自动创建目录</p>
                 </div>
               </div>
             )}
@@ -340,7 +340,7 @@ export default function SetupPage() {
             <div>
               <h2 className="text-lg font-bold text-foreground">安装成功</h2>
               <p className="text-sm text-muted mt-1">管理员编号：10001</p>
-              <p className="text-sm text-gray-400 dark:text-gray-500 mt-1">正在跳转到管理后台...</p>
+              <p className="text-sm text-muted mt-1">正在跳转到管理后台...</p>
             </div>
           </div>
         )}
