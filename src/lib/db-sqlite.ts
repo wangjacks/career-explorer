@@ -380,11 +380,6 @@ export class SqliteAdapter implements DbAdapter {
       : [];
     const profileMap = new Map(profiles.map((p) => [p.student_id, p]));
 
-    const tagRows = this.db
-      .prepare("SELECT id, name FROM tags WHERE class_id = 0")
-      .all() as { id: number; name: string }[];
-    const nameToId = new Map(tagRows.map((t) => [t.name, t.id]));
-
     const insertUser = this.db.prepare(
       `INSERT OR IGNORE INTO users (user_code, role, name, tags, avatar_url, evaluation_url, submitted_at, created_at)
        VALUES (?, 'student', ?, ?, ?, ?, ?, ?)`
@@ -396,10 +391,7 @@ export class SqliteAdapter implements DbAdapter {
         if (p) {
           try {
             const names = JSON.parse(p.tags) as string[];
-            const ids = names
-              .map((n) => nameToId.get(n))
-              .filter((id): id is number => id !== undefined);
-            tagsJson = JSON.stringify(ids);
+            tagsJson = JSON.stringify(names);
           } catch {
             tagsJson = null;
           }
@@ -738,8 +730,8 @@ export class SqliteAdapter implements DbAdapter {
     const tagCount: Record<string, number> = {};
     for (const row of allRows) {
       try {
-        for (const id of JSON.parse(row.tags) as number[]) {
-          const name = idToName.get(id);
+        for (const entry of JSON.parse(row.tags) as (string | number)[]) {
+          const name = typeof entry === "string" ? entry : idToName.get(entry);
           if (name) tagCount[name] = (tagCount[name] || 0) + 1;
         }
       } catch {}
