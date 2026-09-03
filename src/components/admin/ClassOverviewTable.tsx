@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type { Student } from "@/hooks/useAdminAuth";
 
 interface Props {
@@ -10,15 +10,29 @@ interface Props {
 /** 班级概览统计表：各班/未分班/合计的学生总数、已提交、未提交与提交率 */
 export default function ClassOverviewTable({ students }: Props) {
   const [classList, setClassList] = useState<{ id: number; name: string }[]>([]);
+  const [loadError, setLoadError] = useState(false);
 
-  useEffect(() => {
-    fetch("/api/manage/classes")
-      .then((res) => (res.ok ? res.json() : null))
-      .then((data) => {
-        if (data) setClassList(data.data || []);
-      })
-      .catch((err) => console.error("Failed to load classes:", err));
+  const loadClasses = useCallback(async () => {
+    setLoadError(false);
+    try {
+      const res = await fetch("/api/manage/classes");
+      if (!res.ok) {
+        setLoadError(true);
+        return;
+      }
+      const data = await res.json();
+      setClassList(data.data || []);
+    } catch (err) {
+      console.error("Failed to load classes:", err);
+      setLoadError(true);
+    }
   }, []);
+
+  /* eslint-disable react-hooks/set-state-in-effect -- data fetch on mount */
+  useEffect(() => {
+    loadClasses();
+  }, [loadClasses]);
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   const classOverview = useMemo(() => {
     const rows = classList.map((c) => {
@@ -44,15 +58,25 @@ export default function ClassOverviewTable({ students }: Props) {
 
   if (students.length === 0) return null;
 
+  if (loadError) {
+    return (
+      <div className="bg-card rounded-xl border border-border-soft p-6 text-center space-y-3">
+        <p className="text-sm text-red-500">班级数据加载失败</p>
+        <button onClick={loadClasses}
+          className="px-4 py-1.5 bg-gray-100 hover:bg-gray-200 dark:bg-gray-800 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-200 text-sm font-medium rounded-lg transition-colors">重试</button>
+      </div>
+    );
+  }
+
   return (
-    <div className="bg-card rounded-xl border border-gray-100 dark:border-gray-700 overflow-hidden">
-      <div className="px-5 py-4 border-b border-gray-100 dark:border-gray-700">
-        <h2 className="font-semibold text-gray-800 dark:text-gray-100">班级概览</h2>
+    <div className="bg-card rounded-xl border border-border-soft overflow-hidden">
+      <div className="px-5 py-4 border-b border-border-soft">
+        <h2 className="font-semibold text-foreground">班级概览</h2>
       </div>
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
-            <tr className="bg-gray-50 dark:bg-gray-800 text-left text-gray-500 dark:text-gray-400">
+            <tr className="bg-gray-50 dark:bg-gray-800 text-left text-muted">
               <th className="px-5 py-3 font-medium">班级</th>
               <th className="px-5 py-3 font-medium">学生总数</th>
               <th className="px-5 py-3 font-medium">已提交</th>
@@ -84,11 +108,11 @@ export default function ClassOverviewTable({ students }: Props) {
               </tr>
             )}
             <tr className="bg-gray-50 dark:bg-gray-800 font-medium">
-              <td className="px-5 py-3 text-gray-800 dark:text-gray-100">合计</td>
-              <td className="px-5 py-3 text-gray-800 dark:text-gray-100">{classOverview.total}</td>
+              <td className="px-5 py-3 text-foreground">合计</td>
+              <td className="px-5 py-3 text-foreground">{classOverview.total}</td>
               <td className="px-5 py-3 text-green-700 dark:text-green-400">{classOverview.totalSubmitted}</td>
-              <td className="px-5 py-3 text-gray-800 dark:text-gray-100">{classOverview.totalUnsubmitted}</td>
-              <td className="px-5 py-3 text-gray-800 dark:text-gray-100">
+              <td className="px-5 py-3 text-foreground">{classOverview.totalUnsubmitted}</td>
+              <td className="px-5 py-3 text-foreground">
                 {classOverview.total > 0 ? `${((classOverview.totalSubmitted / classOverview.total) * 100).toFixed(2)}%` : "-"}
               </td>
             </tr>

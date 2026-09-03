@@ -107,9 +107,9 @@ export default function SetupPage() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 flex items-center justify-center px-4">
+    <div className="min-h-screen bg-background flex items-center justify-center px-4">
       <Toaster position="top-center" />
-      <div className="w-full max-w-md sm:max-w-lg md:max-w-xl bg-white rounded-2xl shadow-sm border border-gray-100 p-8 space-y-6">
+      <div className="w-full max-w-md sm:max-w-lg md:max-w-xl bg-card rounded-2xl shadow-sm border border-gray-200 dark:border-gray-700 p-8 space-y-6">
         {/* 步骤进度条：全程显示安装进度 */}
         <div className="flex items-start">
           {SETUP_STEPS.map((label, i) => {
@@ -118,7 +118,7 @@ export default function SetupPage() {
             return (
               <Fragment key={label}>
                 {i > 0 && (
-                  <div className={`flex-1 h-0.5 mt-3.5 mx-1 ${i <= stepIndex ? "bg-green-500" : "bg-gray-200"}`} />
+                  <div className={`flex-1 h-0.5 mt-3.5 mx-1 ${i <= stepIndex ? "bg-green-500" : "bg-gray-200 dark:bg-gray-700"}`} />
                 )}
                 <div className="flex flex-col items-center gap-1">
                   <div
@@ -126,13 +126,13 @@ export default function SetupPage() {
                       done
                         ? "bg-green-500 text-white"
                         : current
-                          ? "bg-green-500 text-white ring-4 ring-green-100"
-                          : "bg-gray-200 text-gray-500"
+                          ? "bg-green-500 text-white ring-4 ring-green-100 dark:ring-green-900/30"
+                          : "bg-gray-200 dark:bg-gray-700 text-gray-500 dark:text-gray-300"
                     }`}
                   >
                     {done ? "✓" : i + 1}
                   </div>
-                  <span className={`text-[10px] sm:text-xs whitespace-nowrap ${current || done ? "text-green-600 font-medium" : "text-gray-400"}`}>
+                  <span className={`text-[10px] sm:text-xs whitespace-nowrap ${current || done ? "text-green-600 dark:text-green-400 font-medium" : "text-muted"}`}>
                     {label}
                   </span>
                 </div>
@@ -144,28 +144,28 @@ export default function SetupPage() {
         {step === "welcome" && (
           <>
             <div className="text-center space-y-2">
-              <div className="w-16 h-16 bg-green-100 rounded-2xl flex items-center justify-center mx-auto">
-                <Zap className="w-8 h-8 text-green-600" strokeWidth={2} />
+              <div className="w-16 h-16 bg-green-100 dark:bg-green-900/30 rounded-2xl flex items-center justify-center mx-auto">
+                <Zap className="w-8 h-8 text-green-600 dark:text-green-400" strokeWidth={2} />
               </div>
-              <h1 className="text-xl font-bold text-gray-900">欢迎使用 Career Explorer</h1>
-              <p className="text-sm text-gray-500">请选择数据库类型</p>
+              <h1 className="text-xl font-bold text-foreground">欢迎使用 Career Explorer</h1>
+              <p className="text-sm text-muted">请选择数据库类型</p>
             </div>
             <div className="grid grid-cols-2 gap-4">
               <button
                 onClick={() => { setDbType("mysql"); setStep("config"); setConnectionOk(false); }}
-                className="p-4 border-2 border-gray-200 hover:border-green-400 rounded-xl text-left transition-colors"
+                className="p-4 border-2 border-gray-200 dark:border-gray-700 hover:border-green-400 rounded-xl text-left transition-colors"
               >
                 <div className="text-2xl mb-2">🗄️</div>
-                <div className="font-medium text-gray-900">MySQL</div>
-                <div className="text-xs text-gray-500 mt-1">适合已有 MySQL 服务器的场景</div>
+                <div className="font-medium text-foreground">MySQL</div>
+                <div className="text-xs text-muted mt-1">适合已有 MySQL 服务器的场景</div>
               </button>
               <button
                 onClick={() => { setDbType("sqlite"); setStep("config"); setConnectionOk(false); }}
-                className="p-4 border-2 border-gray-200 hover:border-green-400 rounded-xl text-left transition-colors"
+                className="p-4 border-2 border-gray-200 dark:border-gray-700 hover:border-green-400 rounded-xl text-left transition-colors"
               >
                 <div className="text-2xl mb-2">📁</div>
-                <div className="font-medium text-gray-900">SQLite</div>
-                <div className="text-xs text-gray-500 mt-1">轻量级方案，数据存储在本地文件</div>
+                <div className="font-medium text-foreground">SQLite</div>
+                <div className="text-xs text-muted mt-1">轻量级方案，数据存储在本地文件</div>
               </button>
             </div>
           </>
@@ -174,10 +174,10 @@ export default function SetupPage() {
         {step === "config" && (
           <>
             <div className="text-center space-y-2">
-              <h1 className="text-xl font-bold text-gray-900">
+              <h1 className="text-xl font-bold text-foreground">
                 {dbType === "mysql" ? "MySQL 配置" : "SQLite 配置"}
               </h1>
-              <p className="text-sm text-gray-500">
+              <p className="text-sm text-muted">
                 {dbType === "mysql" ? "请填写数据库连接信息" : "设置 SQLite 数据库文件路径"}
               </p>
             </div>
@@ -186,64 +186,64 @@ export default function SetupPage() {
               <div className="space-y-4">
                 <div className="grid grid-cols-3 gap-3">
                   <div className="col-span-2">
-                    <label className="block text-xs text-gray-500 mb-1">主机</label>
+                    <label className="block text-xs text-muted mb-1">主机</label>
                     <input
                       type="text"
                       value={mysqlConfig.host}
                       onChange={(e) => setMysqlConfig({ ...mysqlConfig, host: e.target.value })}
-                      className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-300"
+                      className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-focus-ring"
                     />
                   </div>
                   <div>
-                    <label className="block text-xs text-gray-500 mb-1">端口</label>
+                    <label className="block text-xs text-muted mb-1">端口</label>
                     <input
                       type="number"
                       value={mysqlConfig.port}
                       onChange={(e) => setMysqlConfig({ ...mysqlConfig, port: parseInt(e.target.value) || 3306 })}
-                      className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-300"
+                      className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-focus-ring"
                     />
                   </div>
                 </div>
                 <div>
-                  <label className="block text-xs text-gray-500 mb-1">用户名</label>
+                  <label className="block text-xs text-muted mb-1">用户名</label>
                   <input
                     type="text"
                     value={mysqlConfig.user}
                     onChange={(e) => setMysqlConfig({ ...mysqlConfig, user: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-300"
+                    className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-focus-ring"
                   />
                 </div>
                 <div>
-                  <label className="block text-xs text-gray-500 mb-1">密码</label>
+                  <label className="block text-xs text-muted mb-1">密码</label>
                   <input
                     type="password"
                     value={mysqlConfig.password}
                     onChange={(e) => setMysqlConfig({ ...mysqlConfig, password: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-300"
+                    className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-focus-ring"
                   />
                 </div>
                 <div>
-                  <label className="block text-xs text-gray-500 mb-1">数据库名</label>
+                  <label className="block text-xs text-muted mb-1">数据库名</label>
                   <input
                     type="text"
                     value={mysqlConfig.database}
                     onChange={(e) => setMysqlConfig({ ...mysqlConfig, database: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-300"
+                    className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-focus-ring"
                   />
-                  <p className="text-xs text-gray-400 mt-1">数据库必须已存在，系统会自动创建表结构</p>
+                  <p className="text-xs text-muted mt-1">数据库必须已存在，系统会自动创建表结构</p>
                 </div>
               </div>
             ) : (
               <div className="space-y-4">
                 <div>
-                  <label className="block text-xs text-gray-500 mb-1">数据库文件路径</label>
+                  <label className="block text-xs text-muted mb-1">数据库文件路径</label>
                   <input
                     type="text"
                     value={sqlitePath}
                     onChange={(e) => setSqlitePath(e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-300"
+                    className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-focus-ring"
                   />
-                  <p className="text-xs text-gray-400 mt-1">相对于项目根目录，系统会自动创建目录</p>
+                  <p className="text-xs text-muted mt-1">相对于项目根目录，系统会自动创建目录</p>
                 </div>
               </div>
             )}
@@ -251,21 +251,21 @@ export default function SetupPage() {
             <div className="flex gap-3">
               <button
                 onClick={() => setStep("welcome")}
-                className="px-4 py-3 bg-gray-100 hover:bg-gray-200 text-gray-700 font-medium rounded-xl transition-colors"
+                className="px-4 py-3 bg-gray-100 hover:bg-gray-200 dark:bg-gray-800 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-200 font-medium rounded-xl transition-colors"
               >
                 返回
               </button>
               <button
                 onClick={handleTest}
                 disabled={testing}
-                className="flex-1 py-3 bg-gray-100 hover:bg-gray-200 text-gray-700 font-medium rounded-xl transition-colors disabled:opacity-50"
+                className="flex-1 py-3 bg-gray-100 hover:bg-gray-200 dark:bg-gray-800 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-200 font-medium rounded-xl transition-colors disabled:opacity-50"
               >
                 {testing ? "测试中..." : "测试连接"}
               </button>
               <button
                 onClick={() => setStep("password")}
                 disabled={!connectionOk}
-                className="flex-1 py-3 bg-green-500 hover:bg-green-600 text-white font-medium rounded-xl transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                className="flex-1 py-3 bg-primary hover:bg-primary-strong text-white font-medium rounded-xl transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 下一步
               </button>
@@ -276,33 +276,33 @@ export default function SetupPage() {
         {step === "password" && (
           <>
             <div className="text-center space-y-2">
-              <h1 className="text-xl font-bold text-gray-900">设置管理员密码</h1>
+              <h1 className="text-xl font-bold text-foreground">设置管理员密码</h1>
               <p className="text-sm text-gray-500">管理员编号为 10001，请牢记密码</p>
             </div>
 
             <div className="space-y-4">
               <div>
-                <label className="block text-xs text-gray-500 mb-1">管理员密码</label>
+                <label className="block text-xs text-muted mb-1">管理员密码</label>
                 <input
                   type="password"
                   value={adminPassword}
                   onChange={(e) => setAdminPassword(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-300"
+                  className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-focus-ring"
                 />
                 {adminPassword.length > 0 && adminPassword.length < 8 && (
-                  <p className="text-xs text-red-500 mt-1">密码至少需要 8 位</p>
+                  <p className="text-xs text-red-500 dark:text-red-400 mt-1">密码至少需要 8 位</p>
                 )}
               </div>
               <div>
-                <label className="block text-xs text-gray-500 mb-1">确认密码</label>
+                <label className="block text-xs text-muted mb-1">确认密码</label>
                 <input
                   type="password"
                   value={confirmPassword}
                   onChange={(e) => setConfirmPassword(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-300"
+                  className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-focus-ring"
                 />
                 {confirmPassword.length > 0 && confirmPassword !== adminPassword && (
-                  <p className="text-xs text-red-500 mt-1">两次输入的密码不一致</p>
+                  <p className="text-xs text-red-500 dark:text-red-400 mt-1">两次输入的密码不一致</p>
                 )}
               </div>
             </div>
@@ -310,14 +310,14 @@ export default function SetupPage() {
             <div className="flex gap-3">
               <button
                 onClick={() => setStep("config")}
-                className="px-4 py-3 bg-gray-100 hover:bg-gray-200 text-gray-700 font-medium rounded-xl transition-colors"
+                className="px-4 py-3 bg-gray-100 hover:bg-gray-200 dark:bg-gray-800 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-200 font-medium rounded-xl transition-colors"
               >
                 返回
               </button>
               <button
                 onClick={handleInstall}
                 disabled={!passwordValid || installing}
-                className="flex-1 py-3 bg-green-500 hover:bg-green-600 text-white font-medium rounded-xl transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                className="flex-1 py-3 bg-primary hover:bg-primary-strong text-white font-medium rounded-xl transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {installing ? "安装中..." : "安装"}
               </button>
@@ -328,19 +328,19 @@ export default function SetupPage() {
         {step === "installing" && (
           <div className="text-center space-y-4 py-8">
             <div className="w-12 h-12 border-4 border-green-500 border-t-transparent rounded-full animate-spin mx-auto" />
-            <p className="text-gray-600">正在初始化数据库...</p>
+            <p className="text-gray-600 dark:text-gray-300">正在初始化数据库...</p>
           </div>
         )}
 
         {step === "done" && (
           <div className="text-center space-y-4 py-8">
-            <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto">
-              <Check className="w-8 h-8 text-green-600" strokeWidth={2} />
+            <div className="w-16 h-16 bg-green-100 dark:bg-green-900/30 rounded-full flex items-center justify-center mx-auto">
+              <Check className="w-8 h-8 text-green-600 dark:text-green-400" strokeWidth={2} />
             </div>
             <div>
-              <h2 className="text-lg font-bold text-gray-900">安装成功</h2>
-              <p className="text-sm text-gray-500 mt-1">管理员编号：10001</p>
-              <p className="text-sm text-gray-400 mt-1">正在跳转到管理后台...</p>
+              <h2 className="text-lg font-bold text-foreground">安装成功</h2>
+              <p className="text-sm text-muted mt-1">管理员编号：10001</p>
+              <p className="text-sm text-muted mt-1">正在跳转到管理后台...</p>
             </div>
           </div>
         )}

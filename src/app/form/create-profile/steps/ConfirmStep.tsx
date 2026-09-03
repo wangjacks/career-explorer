@@ -86,8 +86,8 @@ export default function ConfirmStep({ draft, studentName, onBack, onSubmitted }:
 
   const summaryRow = (label: string, value: string) => (
     <div className="flex justify-between text-sm">
-      <span className="text-gray-500 dark:text-gray-400">{label}</span>
-      <span className="font-medium text-gray-800 dark:text-gray-100">{value}</span>
+      <span className="text-muted">{label}</span>
+      <span className="font-medium text-foreground">{value}</span>
     </div>
   );
 
@@ -96,11 +96,11 @@ export default function ConfirmStep({ draft, studentName, onBack, onSubmitted }:
       <main className="flex-1 px-4 py-6 space-y-6 max-w-lg sm:max-w-xl md:max-w-2xl mx-auto w-full">
         <div className="text-center space-y-1">
           <h2 className="text-lg font-bold text-gray-900 dark:text-gray-100">最终确认</h2>
-          <p className="text-sm text-gray-500 dark:text-gray-400">请核验以下信息，提交后才会真正上传</p>
+          <p className="text-sm text-muted">请核验以下信息，提交后才会真正上传</p>
         </div>
 
         {!profile && !loadFailed && (
-          <p className="text-center py-8 text-gray-400 dark:text-gray-500">档案信息加载中...</p>
+          <p className="text-center py-8 text-muted">档案信息加载中...</p>
         )}
 
         {loadFailed && (
@@ -143,7 +143,7 @@ export default function ConfirmStep({ draft, studentName, onBack, onSubmitted }:
 
         {profile && !profile.submissionClosed && !profile.submitted_at && (
           <>
-            <div className="bg-card rounded-xl p-4 shadow-sm border border-gray-100 dark:border-gray-700 space-y-3">
+            <div className="bg-card rounded-xl p-4 shadow-sm border border-border-soft space-y-3">
               {summaryRow("姓名", studentName)}
               {summaryRow("学号", profile.user_code)}
               {summaryRow("标签数量", `${draft.tags.length} 个`)}
@@ -155,21 +155,21 @@ export default function ConfirmStep({ draft, studentName, onBack, onSubmitted }:
               <div className="grid grid-cols-2 gap-4">
                 {draft.evaluationPreview && (
                   <div>
-                    <p className="text-xs text-gray-500 dark:text-gray-400 text-center mb-2">评价词云预览</p>
+                    <p className="text-xs text-muted text-center mb-2">评价词云预览</p>
                     <img
                       src={draft.evaluationPreview}
                       alt="评价词云预览"
-                      className="w-full rounded-xl border border-gray-100 dark:border-gray-700 object-contain max-h-48"
+                      className="w-full rounded-xl border border-border-soft object-contain max-h-48"
                     />
                   </div>
                 )}
                 {draft.avatarPreview && (
                   <div>
-                    <p className="text-xs text-gray-500 dark:text-gray-400 text-center mb-2">虚拟形象预览</p>
+                    <p className="text-xs text-muted text-center mb-2">虚拟形象预览</p>
                     <img
                       src={draft.avatarPreview}
                       alt="虚拟形象预览"
-                      className="w-full rounded-xl border border-gray-100 dark:border-gray-700 object-cover max-h-48"
+                      className="w-full rounded-xl border border-border-soft object-cover max-h-48"
                     />
                   </div>
                 )}
@@ -179,7 +179,7 @@ export default function ConfirmStep({ draft, studentName, onBack, onSubmitted }:
         )}
       </main>
 
-      <div className="sticky bottom-0 bg-card/80 backdrop-blur-md border-t border-gray-100 dark:border-gray-700 p-4">
+      <div className="sticky bottom-0 bg-card/80 backdrop-blur-md border-t border-border-soft p-4">
         <div className="max-w-lg sm:max-w-xl md:max-w-2xl mx-auto flex gap-3">
           <button
             onClick={onBack}

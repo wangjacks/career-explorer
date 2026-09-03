@@ -7,7 +7,7 @@ import { useSession } from "@/hooks/useSession";
 import NavigationBar from "@/components/NavigationBar";
 
 const inputClass =
-  "w-full px-4 py-3 border border-gray-200 dark:border-gray-600 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-green-300 focus:border-transparent";
+  "w-full px-4 py-3 border border-gray-200 dark:border-gray-600 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-focus-ring focus:border-transparent";
 
 /**
  * 学生账户激活（两步单页，Issue #93）：
@@ -30,6 +30,17 @@ function ActivateForm() {
   const [loading, setLoading] = useState(false);
 
   const step = searchParams.get("step") === "2" && verifiedName ? 2 : 1;
+
+  // 二维码预填邀请码（Issue #102）：仅首次生效，不覆盖用户已输入；
+  // 激活安全仍由服务端三要素核验兜底，预填不构成绕过。
+  /* eslint-disable react-hooks/set-state-in-effect -- 二维码跳转预填（仅一次） */
+  useEffect(() => {
+    const code = searchParams.get("invite");
+    if (code && /^[A-Za-z0-9]{4,32}$/.test(code)) {
+      setInviteCode((prev) => prev || code);
+    }
+  }, [searchParams]);
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   const goToStep = (next: 1 | 2) => {
     setError("");
@@ -165,7 +176,7 @@ function ActivateForm() {
               <button
                 onClick={handleVerify}
                 disabled={!step1Valid || loading}
-                className="w-full py-3 bg-green-500 hover:bg-green-600 disabled:bg-gray-300 dark:disabled:bg-gray-600 text-white font-medium rounded-xl transition-colors"
+                className="w-full py-3 bg-primary hover:bg-primary-strong disabled:bg-gray-300 dark:disabled:bg-gray-600 text-white font-medium rounded-xl transition-colors"
               >
                 {loading ? "核验中..." : "下一步"}
               </button>
@@ -211,7 +222,7 @@ function ActivateForm() {
               <button
                 onClick={handleActivate}
                 disabled={!step2Valid || loading}
-                className="w-full py-3 bg-green-500 hover:bg-green-600 disabled:bg-gray-300 dark:disabled:bg-gray-600 text-white font-medium rounded-xl transition-colors"
+                className="w-full py-3 bg-primary hover:bg-primary-strong disabled:bg-gray-300 dark:disabled:bg-gray-600 text-white font-medium rounded-xl transition-colors"
               >
                 {loading ? "激活中..." : "激活"}
               </button>
@@ -221,14 +232,14 @@ function ActivateForm() {
                   setVerifiedName(null);
                   goToStep(1);
                 }}
-                className="w-full text-center text-sm text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200"
+                className="w-full text-center text-sm text-muted hover:text-gray-700 dark:hover:text-gray-200"
               >
                 返回上一步修改信息
               </button>
             </>
           )}
 
-          <p className="text-center text-sm text-gray-500 dark:text-gray-400">
+          <p className="text-center text-sm text-muted">
             已有账号？{" "}
             <Link href="/login" className="text-green-600 dark:text-green-400 hover:underline">
               去登录

@@ -59,29 +59,30 @@ export default function ImageUploadBox({
 
   return (
     <div className="space-y-2">
-      <div
+      <button
+        type="button"
         onClick={() => fileInputRef.current?.click()}
-        className={`w-full ${aspectClass} max-w-xs rounded-2xl border-2 border-dashed border-gray-300 flex items-center justify-center cursor-pointer hover:border-green-400 transition-colors overflow-hidden bg-white relative`}
+        className={`w-full ${aspectClass} max-w-xs rounded-2xl border-2 border-dashed border-gray-200 dark:border-gray-700 flex items-center justify-center cursor-pointer hover:border-green-400 transition-colors overflow-hidden bg-card relative`}
       >
         {preview ? (
           <img src={preview} alt="预览" className="w-full h-full object-contain" />
         ) : (
-          <div className="flex flex-col items-center gap-2 text-gray-400 px-4 text-center">
+          <div className="flex flex-col items-center gap-2 text-muted px-4 text-center">
             <ImageIcon size={36} strokeWidth={1.5} />
             <span className="text-xs">{emptyHint}</span>
           </div>
         )}
         {pending && (
-          <span className="absolute top-2 right-2 px-2 py-0.5 bg-amber-100 text-amber-700 rounded-full text-xs">
+          <span className="absolute top-2 right-2 px-2 py-0.5 bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400 rounded-full text-xs">
             待保存
           </span>
         )}
-      </div>
+      </button>
       {preview && (
         <button
           type="button"
           onClick={() => fileInputRef.current?.click()}
-          className="text-xs text-gray-500 hover:text-gray-700"
+          className="text-xs text-muted hover:text-gray-700 dark:hover:text-gray-200"
         >
           重新选择
         </button>
@@ -91,7 +92,7 @@ export default function ImageUploadBox({
         type="file"
         accept="image/*"
         onChange={handleFileChange}
-        className="hidden"
+        className="sr-only"
       />
     </div>
   );

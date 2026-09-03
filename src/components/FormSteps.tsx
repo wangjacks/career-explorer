@@ -36,16 +36,17 @@ export default function FormSteps({ current }: { current: number }) {
                     ? "bg-primary text-white"
                     : active
                       ? "bg-brand text-white ring-2 ring-accent/60 ring-offset-1"
-                      : "bg-gray-100 dark:bg-gray-800 text-gray-400 dark:text-gray-500"
+                      : "bg-gray-100 dark:bg-gray-800 text-muted"
                 }`}
               >
-                {done ? <Check size={14} strokeWidth={2.5} /> : step}
+                <span className="sr-only">第 {step} 步，共 {STEPS.length} 步</span>
+                {done ? <Check size={14} strokeWidth={2.5} aria-hidden="true" /> : step}
               </span>
               <span
                 className={`text-[10px] sm:text-xs leading-none hidden sm:block ${
                   active
                     ? "text-primary-strong dark:text-green-400 font-medium"
-                    : "text-gray-400 dark:text-gray-500"
+                    : "text-muted"
                 }`}
               >
                 {label}

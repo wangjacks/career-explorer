@@ -51,7 +51,7 @@ export default function PanelSidebar({ open, onClose, role, groups, activeKey, o
         }`}
       />
       <aside
-        className={`bg-card border-r border-gray-100 dark:border-gray-700 transition-all duration-300 ease-out
+        className={`bg-card border-r border-border-soft transition-all duration-300 ease-out
           fixed top-12 bottom-0 left-0 z-40 w-64 overflow-y-auto
           md:sticky md:top-12 md:bottom-auto md:z-auto md:h-[calc(100dvh-3rem)] md:w-60 md:flex-shrink-0
           ${
@@ -77,7 +77,7 @@ export default function PanelSidebar({ open, onClose, role, groups, activeKey, o
           {groups.map((group, gIdx) => (
             <div key={group.label ?? `group-${gIdx}`} className="space-y-1">
               {group.label && (
-                <p className="px-3 pb-1 text-[11px] font-medium text-gray-400 dark:text-gray-500">
+                <p className="px-3 pb-1 text-[11px] font-medium text-muted">
                   {group.label}
                 </p>
               )}

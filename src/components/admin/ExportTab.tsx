@@ -123,8 +123,8 @@ export default function ExportTab() {
   };
 
   return (
-    <div className="bg-card rounded-xl border border-gray-100 dark:border-gray-700 p-6 space-y-6">
-      <h2 className="font-semibold text-gray-800 dark:text-gray-100">数据导出</h2>
+    <div className="bg-card rounded-xl border border-border-soft p-6 space-y-6">
+      <h2 className="font-semibold text-foreground">数据导出</h2>
 
       {/* Scope */}
       <div className="space-y-2">
@@ -154,23 +154,23 @@ export default function ExportTab() {
       {/* Filter conditions */}
       {exportScope === "byIds" && (
         <div>
-          <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">学号列表（逗号分隔）</label>
+          <label className="block text-xs text-muted mb-1">学号列表（逗号分隔）</label>
           <input type="text" value={exportIds} onChange={(e) => setExportIds(e.target.value)}
             placeholder="202505050101,202505050102"
-            className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 bg-card text-foreground rounded-lg text-sm font-mono focus:outline-none focus:ring-2 focus:ring-green-300" />
+            className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 bg-card text-foreground rounded-lg text-sm font-mono focus:outline-none focus:ring-2 focus:ring-focus-ring" />
         </div>
       )}
       {exportScope === "date" && (
         <div className="flex gap-4 items-end">
           <div>
-            <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">开始日期</label>
+            <label className="block text-xs text-muted mb-1">开始日期</label>
             <input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)}
-              className="px-3 py-2 border border-gray-200 dark:border-gray-700 bg-card text-foreground rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-300" />
+              className="px-3 py-2 border border-gray-200 dark:border-gray-700 bg-card text-foreground rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-focus-ring" />
           </div>
           <div>
-            <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">结束日期</label>
+            <label className="block text-xs text-muted mb-1">结束日期</label>
             <input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)}
-              className="px-3 py-2 border border-gray-200 dark:border-gray-700 bg-card text-foreground rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-300" />
+              className="px-3 py-2 border border-gray-200 dark:border-gray-700 bg-card text-foreground rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-focus-ring" />
           </div>
         </div>
       )}
@@ -216,14 +216,14 @@ export default function ExportTab() {
                 role="radio"
                 aria-checked={imagePlacement === value}
                 onClick={() => setImagePlacement(value)}
-                className={`rounded-lg border p-3 text-left transition-colors focus:outline-none focus:ring-2 focus:ring-green-300 ${
+                className={`rounded-lg border p-3 text-left transition-colors focus:outline-none focus:ring-2 focus:ring-focus-ring ${
                   imagePlacement === value
                     ? "border-primary bg-primary-soft text-primary-strong dark:bg-green-900/30 dark:text-green-300"
                     : "border-gray-200 bg-card text-gray-700 hover:border-green-300 dark:border-gray-700 dark:text-gray-200"
                 }`}
               >
                 <span className="block text-sm font-medium">{label}</span>
-                <span className="mt-1 block text-xs text-gray-500 dark:text-gray-400">{description}</span>
+                <span className="mt-1 block text-xs text-muted">{description}</span>
               </button>
             ))}
           </div>
@@ -246,9 +246,9 @@ export default function ExportTab() {
                 const value = Number(e.target.value);
                 setRowHeight(Number.isFinite(value) ? value : 45);
               }}
-              className="w-28 px-3 py-2 border border-gray-200 dark:border-gray-700 bg-card text-foreground rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-300"
+              className="w-28 px-3 py-2 border border-gray-200 dark:border-gray-700 bg-card text-foreground rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-focus-ring"
             />
-            <span className="text-xs text-gray-500 dark:text-gray-400">适用于标题行下方的每一行数据，范围 10-200</span>
+            <span className="text-xs text-muted">适用于标题行下方的每一行数据，范围 10-200</span>
           </div>
         </div>
       )}
@@ -294,7 +294,7 @@ export default function ExportTab() {
         </button>
         {exportScope !== "students" && (
           <button onClick={handleExportImages} disabled={exporting}
-            className="px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white text-sm font-medium rounded-lg transition-colors disabled:opacity-50">
+            className="px-4 py-2 bg-info hover:bg-blue-600 text-white text-sm font-medium rounded-lg transition-colors disabled:opacity-50">
             {exporting ? "打包中..." : "下载图片包"}
           </button>
         )}
@@ -303,13 +303,13 @@ export default function ExportTab() {
       {/* Preview */}
       {previewData.length > 0 && (
         <div className="space-y-2">
-          <p className="text-sm text-gray-500 dark:text-gray-400">
+          <p className="text-sm text-muted">
             预览（前 {previewData.length} 条，共 {previewTotal} 条）
           </p>
-          <div className="overflow-x-auto border border-gray-100 dark:border-gray-700 rounded-lg">
+          <div className="overflow-x-auto border border-border-soft rounded-lg">
             <table className="w-full text-xs">
               <thead>
-                <tr className="bg-gray-50 dark:bg-gray-800 text-left text-gray-500 dark:text-gray-400">
+                <tr className="bg-gray-50 dark:bg-gray-800 text-left text-muted">
                   {Object.keys(previewData[0]).map((key) => (
                     <th key={key} className="px-3 py-2 font-medium">{key}</th>
                   ))}

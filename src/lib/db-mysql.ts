@@ -813,8 +813,8 @@ export class MysqlAdapter implements DbAdapter {
     const tagCount: Record<string, number> = {};
     for (const row of allRows as { tags: string }[]) {
       try {
-        for (const id of JSON.parse(row.tags) as number[]) {
-          const name = idToName.get(id);
+        for (const entry of JSON.parse(row.tags) as (string | number)[]) {
+          const name = typeof entry === "string" ? entry : idToName.get(entry);
           if (name) tagCount[name] = (tagCount[name] || 0) + 1;
         }
       } catch {}

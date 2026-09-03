@@ -23,7 +23,7 @@ export default function AvatarStep({ draft, onBack, onNext }: AvatarStepProps) {
   return (
     <>
       <main className="flex-1 px-4 py-6 space-y-6 max-w-lg sm:max-w-xl md:max-w-2xl mx-auto w-full">
-        <p className="text-sm text-gray-500 dark:text-gray-400 text-center">
+        <p className="text-sm text-muted text-center">
           选择你的虚拟形象（选择后暂存本地，最终确认时才上传）
         </p>
         {/* 包裹层与上传框同宽（均为 max-w-xs），保证各断点下真正居中 */}
@@ -37,7 +37,7 @@ export default function AvatarStep({ draft, onBack, onNext }: AvatarStepProps) {
         </div>
       </main>
 
-      <div className="sticky bottom-0 bg-card/80 backdrop-blur-md border-t border-gray-100 dark:border-gray-700 p-4">
+      <div className="sticky bottom-0 bg-card/80 backdrop-blur-md border-t border-border-soft p-4">
         <div className="max-w-lg sm:max-w-xl md:max-w-2xl mx-auto flex gap-3">
           <button
             onClick={onBack}

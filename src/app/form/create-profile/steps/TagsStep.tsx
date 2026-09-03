@@ -54,11 +54,11 @@ export default function TagsStep({ draft, studentName, onBack, onNext }: TagsSte
     <>
       <main className="flex-1 px-4 py-6 space-y-6 max-w-lg sm:max-w-xl md:max-w-2xl mx-auto w-full">
         <div className="text-center text-sm text-gray-600 dark:text-gray-300">
-          你好，<span className="font-semibold text-gray-800 dark:text-gray-100">{studentName}</span>
+          你好，<span className="font-semibold text-foreground">{studentName}</span>
           同学！请选择你的兴趣 / 技能 / 性格标签
         </div>
 
-        {loading && <p className="text-center py-8 text-gray-400 dark:text-gray-500">标签加载中...</p>}
+        {loading && <p className="text-center py-8 text-muted">标签加载中...</p>}
         {failed && (
           <div className="text-center py-8 space-y-2">
             <p className="text-sm text-red-500">标签加载失败</p>
@@ -81,7 +81,7 @@ export default function TagsStep({ draft, studentName, onBack, onNext }: TagsSte
         )}
       </main>
 
-      <div className="sticky bottom-0 bg-card/80 backdrop-blur-md border-t border-gray-100 dark:border-gray-700 p-4">
+      <div className="sticky bottom-0 bg-card/80 backdrop-blur-md border-t border-border-soft p-4">
         <div className="max-w-lg sm:max-w-xl md:max-w-2xl mx-auto flex gap-3">
           <button
             onClick={onBack}

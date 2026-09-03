@@ -210,16 +210,13 @@ describe("旧数据迁移", () => {
     expect(names).not.toContain("profiles");
     raw.close();
 
-    // 学生已迁移，标签为 ID
+    // 学生已迁移，标签为名称
     const student = adapter.getStudentByCode("202505050101");
     expect(student).toBeDefined();
     expect(student!.name).toBe("张三");
     expect(student!.submitted_at).toBeTruthy();
-    const tagIds = JSON.parse(student!.tags!) as number[];
-    expect(tagIds.length).toBe(3);
-    const allTags = adapter.getTags();
-    const idToName = new Map(allTags.map((t) => [t.id, t.name]));
-    expect(tagIds.map((id) => idToName.get(id))).toEqual(["阅读", "编程", "认真"]);
+    const tagNames = JSON.parse(student!.tags!) as string[];
+    expect(tagNames.sort()).toEqual(["编程", "认真", "阅读"]);
 
     // 未提交学生：submitted_at 为空
     const s2 = adapter.getStudentByCode("202505050102");
@@ -246,10 +243,8 @@ describe("提交流程", () => {
     adapter.init();
 
     adapter.insertUser({ user_code: "202505050101", role: "student", name: "张三" });
-    const allTags = adapter.getTags();
-    const ids = allTags.filter((t) => ["音乐", "设计"].includes(t.name)).map((t) => t.id);
     const localBackendId = adapter.getDefaultStorageBackend()!.id;
-    adapter.upsertSubmission("202505050101", JSON.stringify(ids), "/a.png", "/w.png", localBackendId);
+    adapter.upsertSubmission("202505050101", JSON.stringify(["音乐", "设计"]), "/a.png", "/w.png", localBackendId);
 
     const { rows, total } = adapter.getSubmittedProfiles(1, 20);
     expect(total).toBe(1);

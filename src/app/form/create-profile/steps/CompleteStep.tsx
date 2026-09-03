@@ -25,22 +25,22 @@ export default function CompleteStep({ studentName, userCode, tagCount }: Comple
       </section>
 
       <div className="max-w-xl mx-auto px-6 py-8 space-y-6">
-        <div className="bg-card rounded-xl p-4 shadow-sm border border-gray-100 dark:border-gray-700 space-y-3">
+        <div className="bg-card rounded-xl p-4 shadow-sm border border-border-soft space-y-3">
           {studentName && (
             <div className="flex justify-between text-sm">
-              <span className="text-gray-500 dark:text-gray-400">姓名</span>
-              <span className="font-medium text-gray-800 dark:text-gray-100">{studentName}</span>
+              <span className="text-muted">姓名</span>
+              <span className="font-medium text-foreground">{studentName}</span>
             </div>
           )}
           {userCode && (
             <div className="flex justify-between text-sm">
-              <span className="text-gray-500 dark:text-gray-400">学号</span>
-              <span className="font-medium text-gray-800 dark:text-gray-100">{userCode}</span>
+              <span className="text-muted">学号</span>
+              <span className="font-medium text-foreground">{userCode}</span>
             </div>
           )}
           <div className="flex justify-between text-sm">
-            <span className="text-gray-500 dark:text-gray-400">标签数量</span>
-            <span className="font-medium text-gray-800 dark:text-gray-100">{tagCount} 个</span>
+            <span className="text-muted">标签数量</span>
+            <span className="font-medium text-foreground">{tagCount} 个</span>
           </div>
         </div>
 

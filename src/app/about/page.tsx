@@ -55,11 +55,11 @@ export default function AboutPage() {
             {features.map((f) => (
               <div
                 key={f.title}
-                className="bg-card rounded-xl border border-gray-100 dark:border-gray-700 p-5 space-y-2 shadow-sm"
+                className="bg-card rounded-xl border border-border-soft p-5 space-y-2 shadow-sm"
               >
                 <f.icon size={20} className="text-primary dark:text-green-400" />
                 <h3 className="font-medium text-foreground">{f.title}</h3>
-                <p className="text-sm text-gray-500 dark:text-gray-400 leading-relaxed">{f.desc}</p>
+                <p className="text-sm text-muted leading-relaxed">{f.desc}</p>
               </div>
             ))}
           </div>
@@ -86,8 +86,8 @@ export default function AboutPage() {
         </section>
 
         {/* 版本信息（动态读取 package.json，发布时随 npm version 更新） */}
-        <div className="space-y-1.5 pt-4 border-t border-gray-100 dark:border-gray-700">
-          <p className="text-xs text-gray-400 dark:text-gray-500">
+        <div className="space-y-1.5 pt-4 border-t border-border-soft">
+          <p className="text-xs text-muted">
             Career Explorer v{pkg.version} · 三角色支持（学生 / 教师 / 管理员）
           </p>
         </div>

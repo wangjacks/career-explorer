@@ -9,7 +9,7 @@ export interface UserRow {
   role: string;
   name: string;
   class_id: number | null;
-  tags: string | null; // JSON 数组（标签 ID），如 "[1,5,12]"
+  tags: string | null; // JSON 数组（标签名称），如 '["阅读","编程"]'
   avatar_url: string | null;
   evaluation_url: string | null;
   submitted_at: string | null;

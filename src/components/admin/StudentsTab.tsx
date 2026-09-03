@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { ChevronDown, Users } from "lucide-react";
 import { Field } from "./AdminUI";
 import ConfirmDialog from "./ConfirmDialog";
+import { useEscapeKey } from "@/hooks/useEscapeKey";
 import type { Student } from "@/hooks/useAdminAuth";
 import { generatePassword } from "@/lib/password";
 
@@ -86,7 +87,7 @@ function deriveParsedRows(preview: PreviewState): ParsedRow[] {
 
 function SortIcon({ active, dir }: { active: boolean; dir: SortDir }) {
   return (
-    <span className={`ml-1 inline-block w-3 text-xs ${active ? "text-green-600" : "text-gray-300"}`}>
+    <span aria-hidden="true" className={`ml-1 inline-block w-3 text-xs ${active ? "text-green-600" : "text-gray-300"}`}>
       {active ? (dir === "asc" ? "↑" : "↓") : "↕"}
     </span>
   );
@@ -139,6 +140,13 @@ export default function StudentsTab({ students, loadError, onRetry, onStudentsCh
   const [batchClassName, setBatchClassName] = useState("");
 
   const batchInputRef = useRef<HTMLTextAreaElement>(null);
+
+  // 弹窗 Escape 关闭（键盘可达性）
+  useEscapeKey(!!preview, () => setPreview(null));
+  useEscapeKey(!!resettingStudent, () => setResettingStudent(null));
+  useEscapeKey(!!credential, () => setCredential(null));
+  useEscapeKey(!!batchPwdResults, () => setBatchPwdResults(null));
+  useEscapeKey(!!editing, () => setEditing(null));
 
   const refreshClasses = async () => {
     try {
@@ -401,11 +409,12 @@ export default function StudentsTab({ students, loadError, onRetry, onStudentsCh
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
       });
-      if (!res.ok) throw new Error("更新失败");
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "更新失败");
       onStudentsChanged();
       refreshClasses();
-    } catch {
-      toast.error("更新失败");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "更新失败");
     }
   };
 
@@ -428,13 +437,14 @@ export default function StudentsTab({ students, loadError, onRetry, onStudentsCh
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ studentId: editing.user_code, name: editName.trim(), className: editClass.trim() }),
       });
-      if (!res.ok) throw new Error("更新失败");
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "更新失败");
       toast.success("更新成功");
       setEditing(null);
       onStudentsChanged();
       refreshClasses();
-    } catch {
-      toast.error("更新失败");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "更新失败");
     }
   };
 
@@ -461,36 +471,54 @@ export default function StudentsTab({ students, loadError, onRetry, onStudentsCh
   // Batch set class
   const executeBatchSetClass = async () => {
     const ids = Array.from(selectedStudents);
+    const className = batchClassName.trim();
+    if (!className) {
+      toast.warning("请输入班级名称");
+      return;
+    }
+    let okCount = 0;
+    const failed: string[] = [];
     try {
       await Promise.all(
-        ids.map((id) =>
-          fetch("/api/manage/students", {
+        ids.map(async (id) => {
+          const res = await fetch("/api/manage/students", {
             method: "PUT",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ studentId: id, className: batchClassName }),
-          })
-        )
+            body: JSON.stringify({ studentId: id, className }),
+          });
+          if (res.ok) {
+            okCount++;
+            return;
+          }
+          const data = await res.json().catch(() => ({}));
+          failed.push(`${id}${data.error ? `（${data.error}）` : ""}`);
+        })
       );
-      toast.success(`已更新 ${ids.length} 名学生的班级`);
-      setBatchClassName("");
-      setSelectedStudents(new Set());
-      onStudentsChanged();
-      refreshClasses();
+      if (okCount > 0) {
+        toast.success(`已更新 ${okCount} 名学生的班级`);
+        setBatchClassName("");
+        setSelectedStudents(new Set());
+        onStudentsChanged();
+        refreshClasses();
+      }
+      if (failed.length > 0) {
+        toast.error(`更新失败 ${failed.length} 名：${failed.slice(0, 3).join("、")}${failed.length > 3 ? " 等" : ""}`);
+      }
     } catch {
       toast.error("批量更新失败");
     }
   };
 
   return (
-    <div className="bg-card rounded-xl border border-gray-100 dark:border-gray-700 p-6 space-y-6">
-      <h2 className="font-semibold text-gray-800 dark:text-gray-100">学生管理</h2>
+    <div className="bg-card rounded-xl border border-border-soft p-6 space-y-6">
+      <h2 className="font-semibold text-foreground">学生管理</h2>
 
       {loadError && students.length === 0 && (
         <div className="text-center py-6 text-red-500 space-y-2">
           <p>学生列表加载失败</p>
           <button
             onClick={onRetry}
-            className="px-4 py-1.5 bg-red-500 hover:bg-red-600 text-white text-sm rounded-lg transition-colors"
+            className="px-4 py-1.5 bg-danger hover:bg-red-600 text-white text-sm rounded-lg transition-colors"
           >
             重试
           </button>
@@ -508,7 +536,7 @@ export default function StudentsTab({ students, loadError, onRetry, onStudentsCh
             value={newClassName}
             onChange={(e) => setNewClassName(e.target.value)}
             placeholder="可选"
-            className="px-3 py-2 border border-gray-200 dark:border-gray-700 bg-card text-foreground rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-300"
+            className="px-3 py-2 border border-gray-200 dark:border-gray-700 bg-card text-foreground rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-focus-ring"
           />
           <datalist id="class-datalist-add">
             {classList.map((c) => (
@@ -531,18 +559,18 @@ export default function StudentsTab({ students, loadError, onRetry, onStudentsCh
           ref={batchInputRef}
           rows={3}
           placeholder={"学号,姓名,班级\n202505050101,张三,2025级1班"}
-          className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 bg-card text-foreground rounded-lg text-sm font-mono focus:outline-none focus:ring-2 focus:ring-green-300"
+          className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 bg-card text-foreground rounded-lg text-sm font-mono focus:outline-none focus:ring-2 focus:ring-focus-ring"
         />
         <div className="flex flex-wrap gap-2">
           <button
             onClick={handleBatchImport}
-            className="px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white text-sm font-medium rounded-lg transition-colors"
+            className="px-4 py-2 bg-info hover:bg-blue-600 text-white text-sm font-medium rounded-lg transition-colors"
           >
             粘贴导入
           </button>
           <button
             onClick={() => fileInputRef.current?.click()}
-            className="px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white text-sm font-medium rounded-lg transition-colors"
+            className="px-4 py-2 bg-info hover:bg-blue-600 text-white text-sm font-medium rounded-lg transition-colors"
           >
             选择文件导入（.xlsx/.csv）
           </button>
@@ -551,7 +579,7 @@ export default function StudentsTab({ students, loadError, onRetry, onStudentsCh
       </div>
 
       {/* Student list with search + class filter（外层不用 overflow-hidden，避免裁剪班级筛选下拉） */}
-      <div className="border border-gray-100 dark:border-gray-700 rounded-lg">
+      <div className="border border-border-soft rounded-lg">
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between px-4 py-3 bg-gray-50 dark:bg-gray-800 gap-2 rounded-t-lg">
           <span className="text-sm text-gray-600 dark:text-gray-300">
             学生列表（{filteredStudents.length} / {students.length} 名）
@@ -579,13 +607,13 @@ export default function StudentsTab({ students, loadError, onRetry, onStudentsCh
               </button>
               {classDropdownOpen && (
                 <div className="absolute top-full left-0 mt-1 w-64 bg-card rounded-xl border border-gray-200 dark:border-gray-700 shadow-lg z-30">
-                  <div className="p-2 border-b border-gray-100 dark:border-gray-700">
+                  <div className="p-2 border-b border-border-soft">
                     <input
                       type="text"
                       value={classSearch}
                       onChange={(e) => setClassSearch(e.target.value)}
                       placeholder="搜索班级..."
-                      className="w-full px-2.5 py-1.5 border border-gray-200 dark:border-gray-700 bg-card text-foreground rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-300"
+                      className="w-full px-2.5 py-1.5 border border-gray-200 dark:border-gray-700 bg-card text-foreground rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-focus-ring"
                       autoFocus
                     />
                   </div>
@@ -623,7 +651,7 @@ export default function StudentsTab({ students, loadError, onRetry, onStudentsCh
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="搜索学号/姓名/班级..."
-              className="px-3 py-1.5 border border-gray-200 rounded-lg text-sm w-48 focus:outline-none focus:ring-2 focus:ring-green-300"
+              className="px-3 py-1.5 border border-gray-200 rounded-lg text-sm w-48 focus:outline-none focus:ring-2 focus:ring-focus-ring"
             />
             {selectedClasses.size > 0 && (
               <button
@@ -637,7 +665,7 @@ export default function StudentsTab({ students, loadError, onRetry, onStudentsCh
               <>
                 <button
                   onClick={() => setConfirmBatchClass(true)}
-                  className="px-3 py-1.5 bg-blue-500 hover:bg-blue-600 text-white text-xs rounded-lg transition-colors"
+                  className="px-3 py-1.5 bg-info hover:bg-blue-600 text-white text-xs rounded-lg transition-colors"
                 >
                   批量设班（{selectedStudents.size}）
                 </button>
@@ -649,7 +677,7 @@ export default function StudentsTab({ students, loadError, onRetry, onStudentsCh
                 </button>
                 <button
                   onClick={handleDeleteSelected}
-                  className="px-3 py-1.5 bg-red-500 hover:bg-red-600 text-white text-xs rounded-lg transition-colors"
+                  className="px-3 py-1.5 bg-danger hover:bg-red-600 text-white text-xs rounded-lg transition-colors"
                 >
                   删除选中（{selectedStudents.size}）
                 </button>
@@ -661,10 +689,11 @@ export default function StudentsTab({ students, loadError, onRetry, onStudentsCh
         <div className="max-h-[500px] overflow-y-auto rounded-b-lg bg-card">
           <table className="w-full text-sm">
             <thead className="sticky top-0 bg-gray-50 dark:bg-gray-800 z-10">
-              <tr className="text-left text-gray-500 dark:text-gray-400 border-b border-gray-100 dark:border-gray-700">
+              <tr className="text-left text-muted border-b border-border-soft">
                 <th className="px-4 py-2 w-10">
                   <input
                     type="checkbox"
+                    aria-label="全选学生"
                     className="rounded border-gray-300"
                     checked={filteredStudents.length > 0 && selectedStudents.size === filteredStudents.length}
                     onChange={() => {
@@ -673,14 +702,20 @@ export default function StudentsTab({ students, loadError, onRetry, onStudentsCh
                     }}
                   />
                 </th>
-                <th className="px-4 py-2 cursor-pointer select-none" onClick={() => handleSort("user_code")}>
-                  学号<SortIcon active={sortKey === "user_code"} dir={sortDir} />
+                <th aria-sort={sortKey === "user_code" ? (sortDir === "asc" ? "ascending" : "descending") : "none"} className="px-4 py-2">
+                  <button type="button" onClick={() => handleSort("user_code")} className="cursor-pointer select-none">
+                    学号<SortIcon active={sortKey === "user_code"} dir={sortDir} />
+                  </button>
                 </th>
-                <th className="px-4 py-2 cursor-pointer select-none" onClick={() => handleSort("name")}>
-                  姓名<SortIcon active={sortKey === "name"} dir={sortDir} />
+                <th aria-sort={sortKey === "name" ? (sortDir === "asc" ? "ascending" : "descending") : "none"} className="px-4 py-2">
+                  <button type="button" onClick={() => handleSort("name")} className="cursor-pointer select-none">
+                    姓名<SortIcon active={sortKey === "name"} dir={sortDir} />
+                  </button>
                 </th>
-                <th className="px-4 py-2 cursor-pointer select-none" onClick={() => handleSort("class_name")}>
-                  班级<SortIcon active={sortKey === "class_name"} dir={sortDir} />
+                <th aria-sort={sortKey === "class_name" ? (sortDir === "asc" ? "ascending" : "descending") : "none"} className="px-4 py-2">
+                  <button type="button" onClick={() => handleSort("class_name")} className="cursor-pointer select-none">
+                    班级<SortIcon active={sortKey === "class_name"} dir={sortDir} />
+                  </button>
                 </th>
                 <th className="px-4 py-2">操作</th>
               </tr>
@@ -691,6 +726,7 @@ export default function StudentsTab({ students, loadError, onRetry, onStudentsCh
                   <td className="px-4 py-2">
                     <input
                       type="checkbox"
+                      aria-label={`选择 ${s.name}`}
                       className="rounded border-gray-300"
                       checked={selectedStudents.has(s.user_code)}
                       onChange={() => {
@@ -713,12 +749,20 @@ export default function StudentsTab({ students, loadError, onRetry, onStudentsCh
                           if (e.key === "Enter") saveInlineEdit(s.user_code, "name", inlineEdit.value);
                           if (e.key === "Escape") setInlineEdit(null);
                         }}
-                        className="px-2 py-0.5 border border-gray-300 dark:border-gray-600 bg-card text-foreground rounded text-sm w-24 focus:outline-none focus:ring-1 focus:ring-green-300"
+                        className="px-2 py-0.5 border border-gray-300 dark:border-gray-600 bg-card text-foreground rounded text-sm w-24 focus:outline-none focus:ring-1 focus:ring-focus-ring"
                       />
                     ) : (
                       <span
+                        role="button"
+                        tabIndex={0}
                         className="cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-800 px-1 rounded"
                         onClick={() => setInlineEdit({ studentId: s.user_code, field: "name", value: s.name })}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" || e.key === " ") {
+                            e.preventDefault();
+                            e.currentTarget.click();
+                          }
+                        }}
                       >
                         {s.name}
                       </span>
@@ -736,14 +780,22 @@ export default function StudentsTab({ students, loadError, onRetry, onStudentsCh
                           if (e.key === "Enter") saveInlineEdit(s.user_code, "class_name", inlineEdit.value);
                           if (e.key === "Escape") setInlineEdit(null);
                         }}
-                        className="px-2 py-0.5 border border-gray-300 dark:border-gray-600 bg-card text-foreground rounded text-sm w-28 focus:outline-none focus:ring-1 focus:ring-green-300"
+                        className="px-2 py-0.5 border border-gray-300 dark:border-gray-600 bg-card text-foreground rounded text-sm w-28 focus:outline-none focus:ring-1 focus:ring-focus-ring"
                       />
                     ) : (
                       <span
+                        role="button"
+                        tabIndex={0}
                         className="cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-800 px-1 rounded"
                         onClick={() => setInlineEdit({ studentId: s.user_code, field: "class_name", value: classNameOf(s) })}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" || e.key === " ") {
+                            e.preventDefault();
+                            e.currentTarget.click();
+                          }
+                        }}
                       >
-                        {classNameOf(s) || <span className="text-gray-400 dark:text-gray-500">-</span>}
+                        {classNameOf(s) || <span className="text-muted">-</span>}
                       </span>
                     )}
                   </td>
@@ -770,7 +822,7 @@ export default function StudentsTab({ students, loadError, onRetry, onStudentsCh
               ))}
               {filteredStudents.length === 0 && (
                 <tr>
-                  <td colSpan={5} className="px-4 py-8 text-center text-gray-400 dark:text-gray-500 text-sm">
+                  <td colSpan={5} className="px-4 py-8 text-center text-muted text-sm">
                     {students.length === 0 ? (
                       <span className="inline-flex flex-col items-center gap-2">
                         <Users size={28} strokeWidth={1.5} className="text-gray-300" />
@@ -795,34 +847,34 @@ export default function StudentsTab({ students, loadError, onRetry, onStudentsCh
       {/* Edit Modal */}
       {editing && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 px-4" onClick={() => setEditing(null)}>
-          <div className="bg-card rounded-2xl shadow-xl max-w-sm w-full p-6 space-y-4" onClick={(e) => e.stopPropagation()}>
+          <div role="dialog" aria-modal="true" aria-labelledby="students-edit-title" className="bg-card rounded-2xl shadow-xl max-w-sm w-full p-6 space-y-4" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between">
-              <h3 className="font-semibold text-gray-800 dark:text-gray-100">编辑学生</h3>
-              <button onClick={() => setEditing(null)} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 text-xl">
+              <h3 id="students-edit-title" className="font-semibold text-foreground">编辑学生</h3>
+              <button onClick={() => setEditing(null)} aria-label="关闭" className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 text-xl">
                 ×
               </button>
             </div>
             <div className="space-y-3">
               <div>
-                <label className="text-xs text-gray-500 dark:text-gray-400">学号</label>
+                <label className="text-xs text-muted">学号</label>
                 <p className="font-mono text-sm text-gray-700 dark:text-gray-200 bg-gray-50 dark:bg-gray-800 px-3 py-2 rounded-lg">{editing.user_code}</p>
               </div>
               <div className="space-y-1">
-                <label className="text-xs text-gray-500 dark:text-gray-400">姓名</label>
+                <label className="text-xs text-muted">姓名</label>
                 <input
                   value={editName}
                   onChange={(e) => setEditName(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 bg-card text-foreground rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-300"
+                  className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 bg-card text-foreground rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-focus-ring"
                 />
               </div>
               <div className="space-y-1">
-                <label className="text-xs text-gray-500 dark:text-gray-400">班级</label>
+                <label className="text-xs text-muted">班级</label>
                 <input
                   list="class-datalist-modal"
                   value={editClass}
                   onChange={(e) => setEditClass(e.target.value)}
                   placeholder="输入班级"
-                  className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 bg-card text-foreground rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-300"
+                  className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 bg-card text-foreground rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-focus-ring"
                 />
                 <datalist id="class-datalist-modal">
                   {classList.map((c) => (
@@ -853,10 +905,13 @@ export default function StudentsTab({ students, loadError, onRetry, onStudentsCh
       {preview && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 px-4">
           <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="students-import-title"
             className="bg-card rounded-2xl shadow-xl max-w-2xl w-full p-6 space-y-4 max-h-[85vh] flex flex-col"
           >
             <div className="flex items-center justify-between">
-              <h3 className="font-semibold text-gray-800 dark:text-gray-100 text-lg">导入预览</h3>
+              <h3 id="students-import-title" className="font-semibold text-foreground text-lg">导入预览</h3>
               <button
                 onClick={() => setPreview(null)}
                 aria-label="关闭导入预览"
@@ -872,7 +927,7 @@ export default function StudentsTab({ students, loadError, onRetry, onStudentsCh
                 <select
                   value={preview.idCol}
                   onChange={(e) => setPreview({ ...preview, idCol: Number(e.target.value) })}
-                  className="px-2 py-1 border border-gray-200 dark:border-gray-700 rounded-lg text-sm bg-card text-foreground focus:outline-none focus:ring-2 focus:ring-green-300"
+                  className="px-2 py-1 border border-gray-200 dark:border-gray-700 rounded-lg text-sm bg-card text-foreground focus:outline-none focus:ring-2 focus:ring-focus-ring"
                 >
                   {Array.from({ length: columnCount }, (_, i) => (
                     <option key={i} value={i}>
@@ -881,12 +936,12 @@ export default function StudentsTab({ students, loadError, onRetry, onStudentsCh
                   ))}
                 </select>
               </label>
-              <label className="flex items-center gap-1.5 text-sm text-gray-600">
+              <label className="flex items-center gap-1.5 text-sm text-gray-600 dark:text-gray-300">
                 姓名列
                 <select
                   value={preview.nameCol}
                   onChange={(e) => setPreview({ ...preview, nameCol: Number(e.target.value) })}
-                  className="px-2 py-1 border border-gray-200 dark:border-gray-700 rounded-lg text-sm bg-card text-foreground focus:outline-none focus:ring-2 focus:ring-green-300"
+                  className="px-2 py-1 border border-gray-200 dark:border-gray-700 rounded-lg text-sm bg-card text-foreground focus:outline-none focus:ring-2 focus:ring-focus-ring"
                 >
                   {Array.from({ length: columnCount }, (_, i) => (
                     <option key={i} value={i}>
@@ -895,12 +950,12 @@ export default function StudentsTab({ students, loadError, onRetry, onStudentsCh
                   ))}
                 </select>
               </label>
-              <label className="flex items-center gap-1.5 text-sm text-gray-600">
+              <label className="flex items-center gap-1.5 text-sm text-gray-600 dark:text-gray-300">
                 班级列
                 <select
                   value={preview.classCol}
                   onChange={(e) => setPreview({ ...preview, classCol: Number(e.target.value) })}
-                  className="px-2 py-1 border border-gray-200 dark:border-gray-700 rounded-lg text-sm bg-card text-foreground focus:outline-none focus:ring-2 focus:ring-green-300"
+                  className="px-2 py-1 border border-gray-200 dark:border-gray-700 rounded-lg text-sm bg-card text-foreground focus:outline-none focus:ring-2 focus:ring-focus-ring"
                 >
                   <option value={-1}>不导入</option>
                   {Array.from({ length: columnCount }, (_, i) => (
@@ -911,15 +966,15 @@ export default function StudentsTab({ students, loadError, onRetry, onStudentsCh
                 </select>
               </label>
             </div>
-            <p className="text-sm text-gray-500">
+            <p className="text-sm text-muted">
               共 {parsedRows.length} 条
               {previewInvalid > 0 && <span className="text-red-500">，其中 {previewInvalid} 条学号/姓名无效（红色，不会导入）</span>}
               。黄色表示班级不存在，导入后将留未分班。
             </p>
-            <div className="overflow-y-auto border border-gray-100 rounded-lg flex-1">
+            <div className="overflow-y-auto border border-border-soft rounded-lg flex-1">
               <table className="w-full text-sm">
-                <thead className="sticky top-0 bg-gray-50">
-                  <tr className="text-left text-gray-500">
+                <thead className="sticky top-0 bg-gray-50 dark:bg-gray-800">
+                  <tr className="text-left text-muted">
                     <th className="px-4 py-2 font-medium">学号</th>
                     <th className="px-4 py-2 font-medium">姓名</th>
                     <th className="px-4 py-2 font-medium">班级</th>
@@ -943,13 +998,13 @@ export default function StudentsTab({ students, loadError, onRetry, onStudentsCh
             <div className="flex gap-2 pt-1">
               <button
                 onClick={() => setPreview(null)}
-                className="flex-1 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm font-medium rounded-lg transition-colors"
+                className="flex-1 py-2 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-200 text-sm font-medium rounded-lg transition-colors"
               >
                 取消
               </button>
               <button
                 onClick={confirmImport}
-                className="flex-1 py-2 bg-green-500 hover:bg-green-600 text-white text-sm font-medium rounded-lg transition-colors"
+                className="flex-1 py-2 bg-primary hover:bg-primary-strong text-white text-sm font-medium rounded-lg transition-colors"
               >
                 确认导入（{parsedRows.length - previewInvalid} 条）
               </button>
@@ -961,20 +1016,20 @@ export default function StudentsTab({ students, loadError, onRetry, onStudentsCh
       {/* Single reset password modal */}
       {resettingStudent && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 px-4" onClick={() => setResettingStudent(null)}>
-          <div className="bg-card rounded-2xl shadow-xl max-w-sm w-full p-6 space-y-4" onClick={(e) => e.stopPropagation()}>
-            <h3 className="font-semibold text-gray-800 dark:text-gray-100 text-lg">重置密码 — {resettingStudent.name}</h3>
+          <div role="dialog" aria-modal="true" aria-labelledby="students-reset-title" className="bg-card rounded-2xl shadow-xl max-w-sm w-full p-6 space-y-4" onClick={(e) => e.stopPropagation()}>
+            <h3 id="students-reset-title" className="font-semibold text-foreground text-lg">重置密码 — {resettingStudent.name}</h3>
             <div className="flex gap-2">
               <input
                 type="text"
                 value={resetPwd}
                 onChange={(e) => setResetPwd(e.target.value)}
                 placeholder="至少 8 位密码"
-                className="flex-1 px-3 py-2 border border-gray-200 rounded-lg text-sm font-mono focus:outline-none focus:ring-2 focus:ring-green-300"
+                className="flex-1 px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg text-sm font-mono focus:outline-none focus:ring-2 focus:ring-focus-ring"
               />
               <button
                 type="button"
                 onClick={() => setResetPwd(generatePassword())}
-                className="px-3 py-2 bg-gray-100 hover:bg-gray-200 text-gray-600 text-sm rounded-lg transition-colors whitespace-nowrap"
+                className="px-3 py-2 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-200 text-sm rounded-lg transition-colors whitespace-nowrap"
               >
                 自动生成
               </button>
@@ -982,13 +1037,13 @@ export default function StudentsTab({ students, loadError, onRetry, onStudentsCh
             <div className="flex gap-2 pt-2">
               <button
                 onClick={() => setResettingStudent(null)}
-                className="flex-1 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm font-medium rounded-lg transition-colors"
+                className="flex-1 py-2 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-200 text-sm font-medium rounded-lg transition-colors"
               >
                 取消
               </button>
               <button
                 onClick={submitResetPassword}
-                className="flex-1 py-2 bg-green-500 hover:bg-green-600 text-white text-sm font-medium rounded-lg transition-colors"
+                className="flex-1 py-2 bg-primary hover:bg-primary-strong text-white text-sm font-medium rounded-lg transition-colors"
               >
                 重置
               </button>
@@ -1000,22 +1055,22 @@ export default function StudentsTab({ students, loadError, onRetry, onStudentsCh
       {/* Single credentials dialog (one-time) */}
       {credential && (
         <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 px-4" onClick={() => setCredential(null)}>
-          <div className="bg-card rounded-2xl shadow-xl max-w-sm w-full p-6 space-y-4" onClick={(e) => e.stopPropagation()}>
-            <h3 className="font-semibold text-gray-800 dark:text-gray-100 text-lg">密码已重置</h3>
+          <div role="dialog" aria-modal="true" aria-labelledby="students-credential-title" className="bg-card rounded-2xl shadow-xl max-w-sm w-full p-6 space-y-4" onClick={(e) => e.stopPropagation()}>
+            <h3 id="students-credential-title" className="font-semibold text-foreground text-lg">密码已重置</h3>
             <p className="text-xs text-amber-600">请立即记录并告知学生，关闭后将无法再次查看密码。</p>
             <div className="space-y-2 text-sm">
-              <div className="flex justify-between items-center bg-gray-50 rounded-lg px-3 py-2">
-                <span className="text-gray-500">学号</span>
-                <code className="font-mono font-medium text-gray-800">{credential.user_code}</code>
+              <div className="flex justify-between items-center bg-gray-50 dark:bg-gray-800 rounded-lg px-3 py-2">
+                <span className="text-muted">学号</span>
+                <code className="font-mono font-medium text-foreground">{credential.user_code}</code>
               </div>
-              <div className="flex justify-between items-center bg-gray-50 rounded-lg px-3 py-2">
-                <span className="text-gray-500">新密码</span>
-                <code className="font-mono font-medium text-gray-800">{credential.password}</code>
+              <div className="flex justify-between items-center bg-gray-50 dark:bg-gray-800 rounded-lg px-3 py-2">
+                <span className="text-muted">新密码</span>
+                <code className="font-mono font-medium text-foreground">{credential.password}</code>
               </div>
             </div>
             <button
               onClick={() => setCredential(null)}
-              className="w-full py-2 bg-green-500 hover:bg-green-600 text-white text-sm font-medium rounded-lg transition-colors"
+              className="w-full py-2 bg-primary hover:bg-primary-strong text-white text-sm font-medium rounded-lg transition-colors"
             >
               我已记录
             </button>
@@ -1030,15 +1085,18 @@ export default function StudentsTab({ students, loadError, onRetry, onStudentsCh
           onClick={() => setBatchPwdResults(null)}
         >
           <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="students-batch-title"
             className="bg-card rounded-2xl shadow-xl max-w-lg w-full p-6 space-y-4 max-h-[85vh] flex flex-col"
             onClick={(e) => e.stopPropagation()}
           >
-            <h3 className="font-semibold text-gray-800 dark:text-gray-100 text-lg">批量重置完成（{batchPwdResults.length} 人）</h3>
+            <h3 id="students-batch-title" className="font-semibold text-foreground text-lg">批量重置完成（{batchPwdResults.length} 人）</h3>
             <p className="text-xs text-amber-600">请立即记录或复制，关闭后将无法再次查看密码。</p>
-            <div className="overflow-y-auto border border-gray-100 rounded-lg flex-1">
+            <div className="overflow-y-auto border border-border-soft rounded-lg flex-1">
               <table className="w-full text-sm">
-                <thead className="sticky top-0 bg-gray-50">
-                  <tr className="text-left text-gray-500">
+                <thead className="sticky top-0 bg-gray-50 dark:bg-gray-800">
+                  <tr className="text-left text-muted">
                     <th className="px-4 py-2 font-medium">学号</th>
                     <th className="px-4 py-2 font-medium">姓名</th>
                     <th className="px-4 py-2 font-medium">新密码</th>
@@ -1058,13 +1116,13 @@ export default function StudentsTab({ students, loadError, onRetry, onStudentsCh
             <div className="flex gap-2 pt-1">
               <button
                 onClick={copyAllCredentials}
-                className="flex-1 py-2 bg-blue-500 hover:bg-blue-600 text-white text-sm font-medium rounded-lg transition-colors"
+                className="flex-1 py-2 bg-info hover:bg-blue-600 text-white text-sm font-medium rounded-lg transition-colors"
               >
                 复制全部
               </button>
               <button
                 onClick={() => setBatchPwdResults(null)}
-                className="flex-1 py-2 bg-green-500 hover:bg-green-600 text-white text-sm font-medium rounded-lg transition-colors"
+                className="flex-1 py-2 bg-primary hover:bg-primary-strong text-white text-sm font-medium rounded-lg transition-colors"
               >
                 我已记录
               </button>
@@ -1116,7 +1174,7 @@ export default function StudentsTab({ students, loadError, onRetry, onStudentsCh
               value={batchClassName}
               onChange={(e) => setBatchClassName(e.target.value)}
               placeholder="输入班级名称"
-              className="mt-2 px-3 py-1.5 border border-gray-200 rounded-lg text-sm w-full focus:outline-none focus:ring-2 focus:ring-green-300"
+              className="mt-2 px-3 py-1.5 border border-gray-200 rounded-lg text-sm w-full focus:outline-none focus:ring-2 focus:ring-focus-ring"
             />
           </span>
         }
