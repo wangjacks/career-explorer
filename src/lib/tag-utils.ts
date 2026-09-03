@@ -28,3 +28,15 @@ export function buildTagCategoryMap(allTags: TagRow[]): Map<number, string> {
       .map((tag) => [tag.id, categories.get(tag.parent_id ?? -1) || "自定义"])
   );
 }
+
+/** 构建标签名称 → 分类名的映射（#94 名称直存后的统计路径使用） */
+export function buildTagCategoryMapByName(allTags: TagRow[]): Map<string, string> {
+  const idToCategoryName = new Map(
+    allTags.filter((tag) => tag.type === "category").map((tag) => [tag.id, tag.name])
+  );
+  return new Map(
+    allTags
+      .filter((tag) => tag.type === "tag")
+      .map((tag) => [tag.name, idToCategoryName.get(tag.parent_id ?? -1) || "自定义"])
+  );
+}
