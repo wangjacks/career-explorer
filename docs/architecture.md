@@ -202,7 +202,7 @@
 PM2 管理。重启命令：
 
 ```bash
-PORT=3621 pm2 restart career-app
+PORT=<端口> pm2 restart <应用名>
 pm2 save
 ```
 

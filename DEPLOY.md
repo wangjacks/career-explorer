@@ -155,7 +155,7 @@ cd /var/www/career-app
 # 启动
 pm2 start npm --name "career-app" -- start
 # 如需指定端口：
-# PORT=3621 pm2 start npm --name "career-app" -- start
+# PORT=<端口> pm2 start npm --name "career-app" -- start
 
 # 查看状态
 pm2 status
