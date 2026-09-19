@@ -1,10 +1,14 @@
 # Changelog
 
-## [Unreleased]
+## [2.0.1] - 2026-09-20
 
 ### Changed
 
 - 依赖升级：next 16.3.1 → 16.3.4、eslint-config-next 16.3.2 → 16.3.4、@aws-sdk/client-s3 3.1117.0 → 3.1132.0、mysql2 3.23.3 → 3.24.2、recharts 3.10.0 → 3.10.1、sonner 2.0.7 → 2.0.8、lucide-react 1.34.0 → 1.44.0、lint-staged 17.3.0 → 17.5.0、@types/node 26.1.1 → 26.4.0
+- 文档与 AI Agent 指南全面对账修订：`AGENTS.md` 改为「不变量 + 指针」结构并取消文件级清单，`docs/architecture.md` 补全页面 / API 路由表、八表字段与教师权限表，`docs/standards.md` 补全环境变量表，`docs/overview.md` 更新技术栈清单与路线图，`DEPLOY.md` 校正运行时与数据库事实
+- 文档脱敏：具体端口、应用名与部署值替换为占位符，课程全称泛化；`.env.example` 补充 S3 凭据占位符并与环境变量表对齐
+- README 精简为指向各权威文档的入口，明确「一条信息一个家」的文档归属表
+- commit 签名要求放宽为「GitHub 显示 Verified」，本地签名失败不再阻塞提交；tag 仍须 `git tag -s -a`
 
 ## [2.0.0] - 2026-09-03
 
