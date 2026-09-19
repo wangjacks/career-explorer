@@ -403,7 +403,7 @@ permissions:
 
 ## 11. 环境变量
 
-<!-- 对账：本表是环境变量的唯一权威，键集合须与 .env.example 一致（S3 为按后端 ID 展开的模式，模板中以注释示例给出） -->
+<!-- 对账：本表是环境变量的唯一权威，键集合须与 .env.example 一致（S3 为按后端 ID 展开的模式，模板中以注释示例给出；`PORT` 为例外——它不能写在 .env 文件中，故只在本表登记，不进模板） -->
 
 | 变量 | 说明 |
 |---|---|
@@ -413,6 +413,6 @@ permissions:
 | `S3_{后端ID}_ACCESS_KEY` | 可选：对象存储凭据（#111），`{后端ID}` 为管理面板「系统设置 → 存储管理」创建后端后返回的 ID（对应 `storage_backends.id`）；凭据不入库 |
 | `S3_{后端ID}_SECRET_KEY` | 可选：同上，Secret Key / SecretKey |
 | `ALLOWED_ORIGINS` | 仅 dev 模式：Next.js 开发服务器 origin 白名单（逗号分隔），生产无效 |
-| `PORT` | 应用端口（Next.js 内置，默认 3000） |
+| `PORT` | 应用端口（Next.js 内置，默认 3000）。**只能在进程环境中设置**（如 `PORT=3621 pm2 restart career-app`）或用 `next start -p <port>`；写入 `.env.local` 无效——HTTP server 绑定端口早于 env 文件加载。应用代码不读取此变量 |
 
-模板文件为 `.env.example`（部署时复制为 `.env.local` 填写）；新增或改名环境变量时，本表与 `.env.example` 必须同步修改。部署流程与云存储端点配置见 `DEPLOY.md`。
+模板文件为 `.env.example`（部署时复制为 `.env.local` 填写）；新增或改名环境变量时，本表与 `.env.example` 必须同步修改（`PORT` 除外，见上表说明）。部署流程与云存储端点配置见 `DEPLOY.md`。

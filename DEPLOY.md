@@ -4,7 +4,7 @@
 
 | 项目 | 要求 |
 |---|---|
-| 操作系统 | Ubuntu 22.04 / Debian 12 / CentOS 8+（也支持 Debian 10+ 等旧系统） |
+| 操作系统 | Ubuntu 22.04 / Debian 12 / CentOS 8+（也支持 Debian 10+ 等旧系统）；须 glibc ≥ 2.28、kernel ≥ 4.18（Node 24 官方二进制的硬性门槛） |
 | Node.js | 24.x（`package.json` engines 要求 `>=24`，与 `.nvmrc`、CI 一致） |
 | 数据库 | MySQL 5.7+ / MariaDB 10.3+，或 SQLite（零配置，无需额外安装） |
 | 域名 | 已备案的域名（国内服务器需 ICP 备案） |
@@ -390,7 +390,7 @@ pm2 restart career-app
 
 接入云对象存储（#111）后，新上传文件写入所配置的后端，`uploads/` 仅保留存量本地文件，可用管理面板「系统设置 → 存储管理」的迁移功能批量迁入云端。
 
-## 十四、旧服务器兼容说明（Debian Buster / Ubuntu 18.04 等）
+## 十四、旧服务器兼容说明（Debian Buster 等 glibc ≥ 2.28 的旧系统）
 
 如果服务器系统较旧（如 Debian Buster），apt 源可能已归档。需要先修改 apt 源：
 
@@ -403,3 +403,5 @@ apt update
 ```
 
 项目不依赖 Python 或 C++ 编译工具，只需 Node.js 24.x 与一个数据库（MySQL 或 SQLite）即可运行。
+
+> **glibc 门槛**：Node 24 官方 Linux 二进制要求 glibc ≥ 2.28、kernel ≥ 4.18。Debian 10 Buster 与 CentOS 8（均为 glibc 2.28）达标，可照「二、服务器准备」安装；**Ubuntu 18.04（glibc 2.27）不达标**，`setup_24.x` 装出的 node 会因缺 `GLIBC_2.28` 无法启动，须先升级到 Ubuntu 20.04+，或改用容器运行。
