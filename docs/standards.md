@@ -81,7 +81,9 @@ chore: release v2.0.0-beta.2
 
 **签名要求：**
 
-- 所有 commit 必须 GPG 签名
+- commit 必须在 GitHub 显示 **Verified**：本地 GPG/SSH 签名，或 GitHub 网页端操作（自动签名）均可
+- 本地签名时，GPG/SSH 公钥须已添加到 GitHub 账户，否则不显示 Verified
+- 所有 tag 必须签名（annotated tag：`git tag -s -a`）
 - commit 描述必须使用纯英文，不混用中文
 - 推荐配置：
 
@@ -317,8 +319,8 @@ git push
 - [ ] `npm run build` 通过
 - [ ] CI 全部通过
 - [ ] CodeQL 全部通过
-- [ ] commit 已 GPG 签名
-- [ ] tag 使用 `git tag -s -a` 并已验证
+- [ ] commit 在 GitHub 显示 Verified
+- [ ] tag 已签名（`git tag -s -a`）并已验证
 - [ ] GitHub Release 已创建
 - [ ] 预发布版本已勾选 pre-release
 - [ ] PR 使用 merge commit 合并
@@ -387,6 +389,8 @@ permissions:
   contents: read
 ```
 
+> **CodeQL 来源**：代码扫描由 GitHub 仓库设置侧的**默认代码扫描（default setup）**提供，不在 `.github/workflows/ci.yml` 内，仓库中也没有 CodeQL workflow 文件。发布检查清单与 PR 模板里的「CodeQL 通过」指该扫描在 PR 上的结果。
+
 ## 10. 变更解耦原则
 
 大型重构必须遵循：
@@ -399,11 +403,16 @@ permissions:
 
 ## 11. 环境变量
 
+<!-- 对账：本表是环境变量的唯一权威，键集合须与 .env.example 一致（S3 为按后端 ID 展开的模式，模板中以注释示例给出；`PORT` 为例外——它不能写在 .env 文件中，故只在本表登记，不进模板） -->
+
 | 变量 | 说明 |
 |---|---|
 | `JWT_SECRET` | JWT 签名密钥（生产必需；未配置会回退到代码内置的不安全默认值） |
 | `FONT_CDN_PREFIX` | 可选：Google Fonts 镜像前缀（构建时生效，如 https://fonts.loli.net） |
+| `NEXT_PUBLIC_APP_URL` | 可选：站点公网地址，班级邀请海报二维码的链接基址（#102）；未配置时回退生成海报的请求 origin，生产建议显式配置 |
+| `S3_{后端ID}_ACCESS_KEY` | 可选：对象存储凭据（#111），`{后端ID}` 为管理面板「系统设置 → 存储管理」创建后端后返回的 ID（对应 `storage_backends.id`）；凭据不入库 |
+| `S3_{后端ID}_SECRET_KEY` | 可选：同上，Secret Key / SecretKey |
 | `ALLOWED_ORIGINS` | 仅 dev 模式：Next.js 开发服务器 origin 白名单（逗号分隔），生产无效 |
-| `PORT` | 应用端口（Next.js 内置，默认 3000） |
+| `PORT` | 应用端口（Next.js 内置，默认 3000）。**只能在进程环境中设置**（如 `PORT=<端口> pm2 restart <应用名>`）或用 `next start -p <port>`；写入 `.env.local` 无效——HTTP server 绑定端口早于 env 文件加载。应用代码不读取此变量 |
 
-模板文件为 `.env.example`（部署时复制为 `.env.local` 填写）；部署流程见 `DEPLOY.md`。
+模板文件为 `.env.example`（部署时复制为 `.env.local` 填写）；新增或改名环境变量时，本表与 `.env.example` 必须同步修改（`PORT` 除外，见上表说明）。部署流程与云存储端点配置见 `DEPLOY.md`。
