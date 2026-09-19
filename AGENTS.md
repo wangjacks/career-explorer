@@ -13,7 +13,7 @@ This version has breaking changes — APIs, conventions, and file structure may 
 - 三角色统一用户体系：admin / teacher / student，单一 `users` 表 + 班级邀请码激活
 - 技术栈：Next.js 16 App Router（**不是 15，API 有破坏性变更**）+ React 19 + TypeScript strict + Tailwind CSS v4
 - 数据库：MySQL (mysql2) / SQLite (better-sqlite3) 双适配器，同一 `DbAdapter` 接口
-- 影响写码的关键依赖：jose（JWT HS256）、bcrypt、sharp（仅服务端）、exceljs + jszip、@aws-sdk/client-s3、lucide-react（图标唯一来源）、vitest
+- 影响写码的关键依赖：jose（JWT HS256）、bcrypt、sharp（仅服务端）、exceljs + jszip、@aws-sdk/client-s3、lucide-react（图标唯一来源）、recharts（数据大屏图表）、sonner（toast 通知）、vitest
 - 开发环境：Node.js 24（engines `>=24`，`.nvmrc` 与 CI 同为 24）、npm
 
 ## 2. Directory Structure
@@ -29,11 +29,11 @@ This version has breaking changes — APIs, conventions, and file structure may 
 | `src/app/api/manage/` | 管理域 API，admin + teacher 共用，角色差异由 `proxy.ts` 声明式权限表控制 |
 | `src/app/api/shared/` | 共享域 API，不进 proxy，**路由自鉴权**（档案、提交历史、存储签名） |
 | `src/app/api/{tags,upload,uploads}/` | 开放端点：标签与配置读取、上传、本地文件静态服务（含路径穿越防护） |
-| `src/components/` | 全站公共组件；子目录 `admin/`（面板 Tab，命名一律 `*Tab.tsx`）、`dashboard/`（管理/教师侧边栏）、`student/`（学生侧边栏） |
+| `src/components/` | 全站公共组件；子目录 `admin/`（面板 Tab 页命名 `*Tab.tsx`，同目录另有共用 UI 组件如 `AdminUI` / `ConfirmDialog` / `*Table`）、`dashboard/`（管理/教师侧边栏）、`student/`（学生侧边栏） |
 | `src/hooks/` | 客户端自定义 hook，命名一律 `use*.ts` |
-| `src/lib/` | 服务端数据层与工具，按前缀分组（`db*` / `storage*` / `media-scan`+`thumbnail*` / `profile-*` / `audit` 等，分组表见 `docs/overview.md`） |
+| `src/lib/` | 服务端数据层与工具，按前缀分组（`db*` / `storage*` / `media-*` / `thumbnail*` / `profile-*` / `tag*` 等，分组表见 `docs/overview.md`） |
 | `src/proxy.ts` | 角色权限中间件（替代已删除的 `middleware.ts`），内置 `TEACHER_ALLOWED` 声明式权限表 |
-| `src/types/`、`src/__tests__/` | 类型定义；Vitest 测试，文件名与被测模块同名（改模块必须同步改同名测试） |
+| `src/types/`、`src/__tests__/` | 类型定义；Vitest 测试按被测对象命名——lib / hook 用 `<模块名>.test.ts`，API 路由与跨模块行为用 `<资源>-api.test.ts` / `<行为>.test.ts`（如 `profile-api`、`submission-deadline`）；改代码必须同步改对应测试 |
 | `uploads/`、`data/` | 本地存储后端的上传文件（含 `*_thumb.jpg` 缩略图）、SQLite 库文件，均 gitignored |
 
 现读命令（需要真值时直接执行，不要凭记忆）：
@@ -114,7 +114,7 @@ find src/app -name page.tsx && find src/app/api -name route.ts
 - 对象存储（#111）：一切文件读写走 `StorageAdapter`（本地 / S3 兼容双实现），归属后端由记录的 `storage_id` 决定，**切换默认后端不影响存量文件**；前端取访问地址一律经 `useFileUrl` / `StorageImage`，不要自己拼 URL（细节见 `docs/architecture.md`「文件存储」）
 - 媒体治理（#117/#118）：孤儿**不做自动删除**（保留期可配 + 人工确认清理，服务端重扫自证不信任前端）；缩略图生成仅服务端（依赖 sharp），key 派生 `{base}.jpg` → `{base}_thumb.jpg`
 - 上传与导出：上传走服务端压缩 + 可配置大小上限 + 唯一命名不覆盖；导出用 ExcelJS（XLSX 默认原生单元格图片，可切浮动图片）+ JSZip 打包图片
-- 面板结构：Tab 式布局，管理/教师面板子组件一律命名 `*Tab.tsx`；词云为客户端 canvas 组件
+- 面板结构：Tab 式布局，管理/教师面板的 Tab 页命名 `*Tab.tsx`（同目录共用 UI 组件不套用该后缀）；词云为客户端 canvas 组件
 
 ## 8. Development Environment Notes
 
