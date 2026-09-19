@@ -389,6 +389,8 @@ permissions:
   contents: read
 ```
 
+> **CodeQL 来源**：代码扫描由 GitHub 仓库设置侧的**默认代码扫描（default setup）**提供，不在 `.github/workflows/ci.yml` 内，仓库中也没有 CodeQL workflow 文件。发布检查清单与 PR 模板里的「CodeQL 通过」指该扫描在 PR 上的结果。
+
 ## 10. 变更解耦原则
 
 大型重构必须遵循：
@@ -401,11 +403,16 @@ permissions:
 
 ## 11. 环境变量
 
+<!-- 对账：本表是环境变量的唯一权威，键集合须与 .env.example 一致（S3 为按后端 ID 展开的模式，模板中以注释示例给出） -->
+
 | 变量 | 说明 |
 |---|---|
 | `JWT_SECRET` | JWT 签名密钥（生产必需；未配置会回退到代码内置的不安全默认值） |
 | `FONT_CDN_PREFIX` | 可选：Google Fonts 镜像前缀（构建时生效，如 https://fonts.loli.net） |
+| `NEXT_PUBLIC_APP_URL` | 可选：站点公网地址，班级邀请海报二维码的链接基址（#102）；未配置时回退生成海报的请求 origin，生产建议显式配置 |
+| `S3_{后端ID}_ACCESS_KEY` | 可选：对象存储凭据（#111），`{后端ID}` 为管理面板「系统设置 → 存储管理」创建后端后返回的 ID（对应 `storage_backends.id`）；凭据不入库 |
+| `S3_{后端ID}_SECRET_KEY` | 可选：同上，Secret Key / SecretKey |
 | `ALLOWED_ORIGINS` | 仅 dev 模式：Next.js 开发服务器 origin 白名单（逗号分隔），生产无效 |
 | `PORT` | 应用端口（Next.js 内置，默认 3000） |
 
-模板文件为 `.env.example`（部署时复制为 `.env.local` 填写）；部署流程见 `DEPLOY.md`。
+模板文件为 `.env.example`（部署时复制为 `.env.local` 填写）；新增或改名环境变量时，本表与 `.env.example` 必须同步修改。部署流程与云存储端点配置见 `DEPLOY.md`。
