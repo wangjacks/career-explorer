@@ -3,63 +3,33 @@
 > [!NOTE]
 > 这是一个专对性较强的项目，泛用性不大，只是public了而已。后续会考虑继续改善这个项目，增加能够泛用的功能。
 
-学生职业探索工具 —— 通过标签选择、词云可视化和档案生成，帮助学生发现职业兴趣方向。
+学生职业探索工具 —— 学生通过标签选择、词云可视化和档案生成探索职业兴趣方向；教师按班级管理名单与数据；管理员负责全局统计、导出与系统设置。
 
-## 功能特性
+## 主要能力
 
-- **标签选择** — 兴趣/技能/性格三维度职业标签，支持自定义标签
-- **词云展示** — 基于所选标签实时生成可视化词云
-- **评价词云上传** — 上传评价词云图片
-- **虚拟形象** — 头像上传与预览
-- **学号验证** — 12 位学号验证，支持恢复上次填写记录
-- **管理员面板** — 数据查看/删除/统计/批量操作
-- **数据导出** — Excel/CSV 导出，支持筛选、列选择、图片打包
-- **批量导入** — 学生名单批量导入，自动识别标题行
-- **安装引导** — 首次部署自动引导数据库配置
+- 三角色统一账户体系（管理员 / 教师 / 学生），学生凭学号 + 姓名 + 班级邀请码激活
+- 学生档案：多步表单、草稿暂存、提交截止、历史版本查看与恢复
+- 教师 / 管理员面板：数据概览与大屏、导出、学生与班级与标签管理、操作审计
+- 文件存储：本地目录或 S3 兼容对象存储（私有读写 + 限时签名 URL）
 
 ## 技术栈
 
-- Next.js 16 (App Router)
-- React 19
-- TypeScript
-- Tailwind CSS v4
-- MySQL (via mysql2)
-- ExcelJS / JSZip / Sharp
+Next.js 16 (App Router) · React 19 · TypeScript strict · Tailwind CSS v4 · MySQL / SQLite 双适配器
 
 ## 本地开发
 
 ```bash
-# 安装依赖
 npm install
-
-# 启动开发服务器
 npm run dev
 ```
 
-访问 http://localhost:3000
+访问 http://localhost:3000 。首次使用需**手动打开 `/setup`** 完成安装引导（配置数据库 + 管理员密码），未安装时不会自动跳转。
 
-首次访问会进入安装引导页面，配置 MySQL 数据库连接后即可使用。
+## 文档
 
-## 部署
-
-详见 [DEPLOY.md](./DEPLOY.md)
-
-## 项目结构
-
-```
-src/
-├── app/
-│   ├── page.tsx              # 首页
-│   ├── student/page.tsx      # 学号验证
-│   ├── tags/page.tsx         # 标签选择
-│   ├── wordcloud/page.tsx    # 词云展示
-│   ├── evaluation/page.tsx   # 评价词云上传
-│   ├── avatar/page.tsx       # 头像上传
-│   ├── complete/page.tsx     # 提交完成
-│   ├── admin/page.tsx        # 管理员面板
-│   ├── setup/page.tsx        # 安装引导
-│   └── api/                  # API 路由
-├── components/               # 公共组件
-├── lib/                      # 数据库、配置、标签数据
-└── types/                    # TypeScript 类型定义
-```
+| 文档 | 内容 |
+|---|---|
+| [docs/overview.md](./docs/overview.md) | 项目概况、完整技术栈、目录结构、路线图 |
+| [docs/architecture.md](./docs/architecture.md) | 页面 / API 路由、数据库表、权限模型、面板导航 |
+| [docs/standards.md](./docs/standards.md) | 分支、提交、PR、发布流程与环境变量规范 |
+| [DEPLOY.md](./DEPLOY.md) | 服务器部署、Nginx、HTTPS、对象存储与运维排障 |

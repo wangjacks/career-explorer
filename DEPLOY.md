@@ -4,13 +4,13 @@
 
 | 项目 | 要求 |
 |---|---|
-| 操作系统 | Ubuntu 22.04 / Debian 12 / CentOS 8+（也支持 Debian 10+ 等旧系统） |
-| Node.js | 18.x 或 20.x |
-| MySQL | 5.7+ 或 MariaDB 10.3+ |
+| 操作系统 | Ubuntu 22.04 / Debian 12 / CentOS 8+（也支持 Debian 10+ 等旧系统）；须 glibc ≥ 2.28、kernel ≥ 4.18（Node 24 官方二进制的硬性门槛） |
+| Node.js | 24.x（`package.json` engines 要求 `>=24`，与 `.nvmrc`、CI 一致） |
+| 数据库 | MySQL 5.7+ / MariaDB 10.3+，或 SQLite（零配置，无需额外安装） |
 | 域名 | 已备案的域名（国内服务器需 ICP 备案） |
 | 端口 | 3000（应用）、80/443（Nginx 反向代理） |
 
-> **注意**：项目仅支持 MySQL，不支持 SQLite。服务器无需安装 Python 或 C++ 编译工具。
+> **注意**：数据库支持 MySQL 与 SQLite 二选一（`src/lib/db-mysql.ts` / `src/lib/db-sqlite.ts` 双适配器），在安装引导中选择。SQLite 零配置，适合单机部署；MySQL 适合已有数据库服务或多站点共用。服务器无需安装 Python 或 C++ 编译工具。
 
 ## 二、服务器准备
 
@@ -18,15 +18,17 @@
 
 ```bash
 # Ubuntu / Debian
-curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+curl -fsSL https://deb.nodesource.com/setup_24.x | sudo -E bash -
 sudo apt-get install -y nodejs
 
 # 验证
-node -v   # v20.x.x
-npm -v    # 10.x.x
+node -v   # v24.x.x
+npm -v    # 11.x.x
 ```
 
 ### 2. 安装 MySQL
+
+> 选用 SQLite 时可跳过本节（数据库文件由应用创建在 `data/` 目录，见「十三、目录结构总览」）。
 
 ```bash
 # Ubuntu / Debian
@@ -153,7 +155,7 @@ cd /var/www/career-app
 # 启动
 pm2 start npm --name "career-app" -- start
 # 如需指定端口：
-# PORT=3621 pm2 start npm --name "career-app" -- start
+# PORT=<端口> pm2 start npm --name "career-app" -- start
 
 # 查看状态
 pm2 status
@@ -252,13 +254,13 @@ Let's Encrypt 证书有效期 90 天，Certbot 会自动通过 cron 续期。
 
 ## 八、首次安装引导
 
-### 1. 访问网站
+### 1. 访问安装引导
 
-打开浏览器访问 `http://your-domain.com`（或 `https://your-domain.com` 如果已配置 SSL）。
+打开浏览器访问 `http://your-domain.com/setup`（已配置 SSL 时用 `https://your-domain.com/setup`）。
+
+> 全局安装拦截（InstallGuard）已移除，**未安装时不会自动重定向**到安装引导；未安装状态下访问管理面板会显示「数据库未配置」提示。
 
 ### 2. 完成安装引导
-
-系统会自动跳转到安装引导页面：
 
 1. **选择数据库**：选择 MySQL 或 SQLite
 2. **数据库配置**：填写连接信息（MySQL 示例）
@@ -377,15 +379,18 @@ pm2 restart career-app
 
 ```
 /var/www/career-app/
-├── .env.local          # 环境变量（JWT_SECRET 等）
+├── .env.local          # 环境变量（清单见 docs/standards.md §11，模板 .env.example）
 ├── .next/              # 构建产物
-├── db-config.json      # 数据库配置（安装后自动生成）
-├── uploads/            # 用户上传的头像和图片
+├── db-config.json      # 数据库配置（安装引导后自动生成，gitignored）
+├── data/               # SQLite 数据库文件（默认 ./data/career.db，选用 SQLite 时生成）
+├── uploads/            # 本地存储后端的上传文件（头像 / 评价词云及其 *_thumb.jpg 缩略图）
 ├── package.json
 └── ...
 ```
 
-## 十四、旧服务器兼容说明（Debian Buster / Ubuntu 18.04 等）
+接入云对象存储（#111）后，新上传文件写入所配置的后端，`uploads/` 仅保留存量本地文件，可用管理面板「系统设置 → 存储管理」的迁移功能批量迁入云端。
+
+## 十四、旧服务器兼容说明（Debian Buster 等 glibc ≥ 2.28 的旧系统）
 
 如果服务器系统较旧（如 Debian Buster），apt 源可能已归档。需要先修改 apt 源：
 
@@ -397,4 +402,6 @@ sed -i '/buster-updates/d' /etc/apt/sources.list
 apt update
 ```
 
-项目不依赖 Python 或 C++ 编译工具，只需 Node.js 和 MySQL 即可运行。
+项目不依赖 Python 或 C++ 编译工具，只需 Node.js 24.x 与一个数据库（MySQL 或 SQLite）即可运行。
+
+> **glibc 门槛**：Node 24 官方 Linux 二进制要求 glibc ≥ 2.28、kernel ≥ 4.18。Debian 10 Buster 与 CentOS 8（均为 glibc 2.28）达标，可照「二、服务器准备」安装；**Ubuntu 18.04（glibc 2.27）不达标**，`setup_24.x` 装出的 node 会因缺 `GLIBC_2.28` 无法启动，须先升级到 Ubuntu 20.04+，或改用容器运行。

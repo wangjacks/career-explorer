@@ -1,5 +1,11 @@
 # Changelog
 
+## [Unreleased]
+
+### Changed
+
+- 依赖升级：next 16.3.1 → 16.3.4、eslint-config-next 16.3.2 → 16.3.4、@aws-sdk/client-s3 3.1117.0 → 3.1132.0、mysql2 3.23.3 → 3.24.2、recharts 3.10.0 → 3.10.1、sonner 2.0.7 → 2.0.8、lucide-react 1.34.0 → 1.44.0、lint-staged 17.3.0 → 17.5.0、@types/node 26.1.1 → 26.4.0
+
 ## [2.0.0] - 2026-09-03
 
 ### Added
