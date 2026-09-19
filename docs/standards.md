@@ -81,7 +81,9 @@ chore: release v2.0.0-beta.2
 
 **签名要求：**
 
-- 所有 commit 必须 GPG 签名
+- commit 必须在 GitHub 显示 **Verified**：本地 GPG/SSH 签名，或 GitHub 网页端操作（自动签名）均可
+- 本地签名时，GPG/SSH 公钥须已添加到 GitHub 账户，否则不显示 Verified
+- 所有 tag 必须签名（annotated tag：`git tag -s -a`）
 - commit 描述必须使用纯英文，不混用中文
 - 推荐配置：
 
@@ -317,8 +319,8 @@ git push
 - [ ] `npm run build` 通过
 - [ ] CI 全部通过
 - [ ] CodeQL 全部通过
-- [ ] commit 已 GPG 签名
-- [ ] tag 使用 `git tag -s -a` 并已验证
+- [ ] commit 在 GitHub 显示 Verified
+- [ ] tag 已签名（`git tag -s -a`）并已验证
 - [ ] GitHub Release 已创建
 - [ ] 预发布版本已勾选 pre-release
 - [ ] PR 使用 merge commit 合并

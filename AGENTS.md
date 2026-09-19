@@ -112,8 +112,8 @@ This version has breaking changes — APIs, conventions, and file structure may 
 - 分支策略：`main`（稳定发布）+ `dev`（日常开发）+ 阶段特性分支（`feat/v2-foundation`、`feat/v2-features`、`feat/v2-panels`、`feat/v2-api-reorg`）
 - 日常 PR 目标 `dev`；阶段 PR 使用 **`--no-ff` 合并**（保留每个步骤的独立 commit 历史）
 - Commit 格式：`<type>: <English description>`（feat/fix/refactor/chore/docs/test）；commit 描述必须使用纯英文
-- **所有 commit 必须 GPG 签名**（`commit.gpgsign=true`），失败则停止告知用户
-- **所有 tag 必须 GPG 签名**（annotated tag：`git tag -s -a`）
+- **commit 必须在 GitHub 显示 Verified**：本地 GPG/SSH 签名（公钥已上传 GitHub），或 GitHub 网页端操作（自动签名）均可；本地签名失败则停止告知用户
+- **所有 tag 必须签名**（annotated tag：`git tag -s -a`），确保在 GitHub 显示 Verified
 - 发布流程（release 分支 → main）：
   - 功能集完成即发布，禁止积压；发布动作 = 合并动作，合并即部署
   - 从功能集收官点切 `release/vX.Y.Z`，执行 `npm version X.Y.Z --no-git-tag-version`（同步 package.json / package-lock.json），提交 `chore: release vX.Y.Z`
