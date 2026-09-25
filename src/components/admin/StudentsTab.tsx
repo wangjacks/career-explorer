@@ -26,6 +26,43 @@ interface ClassItem {
   name: string;
 }
 
+/** 批量设班「未分班」选项的 id 哨兵，与真实班级 id（自增正整数）不冲突 */
+const UNASSIGNED_CLASS_ID = -1;
+
+interface BatchClassOptionProps {
+  label: string;
+  selected: boolean;
+  disabled?: boolean;
+  onSelect: () => void;
+}
+
+function BatchClassOption({ label, selected, disabled, onSelect }: BatchClassOptionProps) {
+  return (
+    <button
+      type="button"
+      role="option"
+      aria-selected={selected}
+      aria-disabled={disabled || undefined}
+      disabled={disabled}
+      onClick={onSelect}
+      className={`w-full text-left px-3 py-1.5 text-sm flex items-center gap-2 transition-colors disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent dark:disabled:hover:bg-transparent ${
+        selected
+          ? "bg-green-50 dark:bg-green-900/30 text-green-700 dark:text-green-300"
+          : "hover:bg-gray-50 dark:hover:bg-gray-800 text-gray-700 dark:text-gray-200"
+      }`}
+    >
+      <span
+        className={`w-4 h-4 rounded border flex items-center justify-center flex-shrink-0 text-xs ${
+          selected ? "bg-green-500 border-green-500 text-white" : "border-gray-300"
+        }`}
+      >
+        {selected && "✓"}
+      </span>
+      <span className="truncate">{label}</span>
+    </button>
+  );
+}
+
 interface ParsedRow {
   studentId: string;
   name: string;
@@ -98,6 +135,7 @@ export default function StudentsTab({ students, loadError, onRetry, onStudentsCh
   const [newStudentName, setNewStudentName] = useState("");
   const [newClassName, setNewClassName] = useState("");
   const [classList, setClassList] = useState<ClassItem[]>([]);
+  const [classesFailed, setClassesFailed] = useState(false);
   const [selectedStudents, setSelectedStudents] = useState<Set<string>>(new Set());
 
   // Search & sort
@@ -137,7 +175,10 @@ export default function StudentsTab({ students, loadError, onRetry, onStudentsCh
   const [confirmDelete, setConfirmDelete] = useState<{ ids: string[] } | null>(null);
   const [confirmBatchDelete, setConfirmBatchDelete] = useState(false);
   const [confirmBatchClass, setConfirmBatchClass] = useState(false);
-  const [batchClassName, setBatchClassName] = useState("");
+  // 批量设班选择：null = 未做出选择（不可提交）；UNASSIGNED_CLASS_ID = 清空为未分班
+  const [batchClassPick, setBatchClassPick] = useState<number | null>(null);
+  const [batchClassOpen, setBatchClassOpen] = useState(false);
+  const batchClassRef = useRef<HTMLDivElement>(null);
 
   const batchInputRef = useRef<HTMLTextAreaElement>(null);
 
@@ -151,12 +192,16 @@ export default function StudentsTab({ students, loadError, onRetry, onStudentsCh
   const refreshClasses = async () => {
     try {
       const res = await fetch("/api/manage/classes");
-      if (res.ok) {
-        const data = await res.json();
-        setClassList(data.data || []);
+      if (!res.ok) {
+        setClassesFailed(true);
+        return;
       }
-    } catch {
-      /* ignore */
+      const data = await res.json();
+      setClassList(data.data || []);
+      setClassesFailed(false);
+    } catch (err) {
+      console.error("班级列表加载失败", err);
+      setClassesFailed(true);
     }
   };
 
@@ -173,6 +218,18 @@ export default function StudentsTab({ students, loadError, onRetry, onStudentsCh
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
   }, []);
+
+  // 点击外部关闭批量设班的班级下拉（仅展开期间挂载）
+  useEffect(() => {
+    if (!batchClassOpen) return;
+    const handler = (e: MouseEvent) => {
+      if (batchClassRef.current && !batchClassRef.current.contains(e.target as Node)) {
+        setBatchClassOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [batchClassOpen]);
 
   const classNameOf = (s: Student): string =>
     s.class_id != null ? classList.find((c) => c.id === s.class_id)?.name || "" : "";
@@ -471,11 +528,19 @@ export default function StudentsTab({ students, loadError, onRetry, onStudentsCh
   // Batch set class
   const executeBatchSetClass = async () => {
     const ids = Array.from(selectedStudents);
-    const className = batchClassName.trim();
-    if (!className) {
-      toast.warning("请输入班级名称");
+    if (batchClassPick === null) {
+      toast.warning("请选择要设置的班级");
       return;
     }
+    // UNASSIGNED_CLASS_ID → 空串，命中后端 class_id = null 解绑分支
+    const className =
+      batchClassPick === UNASSIGNED_CLASS_ID ? "" : (classList.find((c) => c.id === batchClassPick)?.name ?? "");
+    if (!className && batchClassPick !== UNASSIGNED_CLASS_ID) {
+      toast.warning("该班级已不存在，请重新选择");
+      return;
+    }
+    setBatchClassOpen(false);
+    setConfirmBatchClass(false);
     let okCount = 0;
     const failed: string[] = [];
     try {
@@ -495,8 +560,8 @@ export default function StudentsTab({ students, loadError, onRetry, onStudentsCh
         })
       );
       if (okCount > 0) {
-        toast.success(`已更新 ${okCount} 名学生的班级`);
-        setBatchClassName("");
+        toast.success(className ? `已将 ${okCount} 名学生设为「${className}」` : `已将 ${okCount} 名学生设为未分班`);
+        setBatchClassPick(null);
         setSelectedStudents(new Set());
         onStudentsChanged();
         refreshClasses();
@@ -508,6 +573,23 @@ export default function StudentsTab({ students, loadError, onRetry, onStudentsCh
       toast.error("批量更新失败");
     }
   };
+
+  // 列表从未加载成功（空 + 失败）才判定不可用：加载失败时不清空 classList，旧数据仍可用
+  const classesUnavailable = classesFailed && classList.length === 0;
+
+  const batchClassLabel =
+    batchClassPick === null
+      ? "选择班级"
+      : batchClassPick === UNASSIGNED_CLASS_ID
+        ? "未分班"
+        : classList.find((c) => c.id === batchClassPick)?.name ?? "班级已不存在";
+
+  const batchClassConfirmText =
+    batchClassPick === null
+      ? "请先选择班级"
+      : batchClassPick === UNASSIGNED_CLASS_ID
+        ? "确认清空为未分班"
+        : "确认设置";
 
   return (
     <div className="bg-card rounded-xl border border-border-soft p-6 space-y-6">
@@ -664,7 +746,11 @@ export default function StudentsTab({ students, loadError, onRetry, onStudentsCh
             {selectedStudents.size > 0 && (
               <>
                 <button
-                  onClick={() => setConfirmBatchClass(true)}
+                  onClick={() => {
+                    setBatchClassPick(null);
+                    setBatchClassOpen(false);
+                    setConfirmBatchClass(true);
+                  }}
                   className="px-3 py-1.5 bg-info hover:bg-blue-600 text-white text-xs rounded-lg transition-colors"
                 >
                   批量设班（{selectedStudents.size}）
@@ -1166,27 +1252,74 @@ export default function StudentsTab({ students, loadError, onRetry, onStudentsCh
         open={confirmBatchClass}
         title="批量设置班级"
         message={
-          <span>
-            将选中的 {selectedStudents.size} 名学生设置为：
-            <br />
-            <input
-              autoFocus
-              value={batchClassName}
-              onChange={(e) => setBatchClassName(e.target.value)}
-              placeholder="输入班级名称"
-              className="mt-2 px-3 py-1.5 border border-gray-200 rounded-lg text-sm w-full focus:outline-none focus:ring-2 focus:ring-focus-ring"
-            />
-          </span>
+          <div className="space-y-2">
+            <p>将选中的 {selectedStudents.size} 名学生设置为：</p>
+            <div className="relative" ref={batchClassRef}>
+              <button
+                type="button"
+                aria-haspopup="listbox"
+                aria-expanded={batchClassOpen}
+                onClick={() => setBatchClassOpen((v) => !v)}
+                className="w-full px-3 py-1.5 rounded-lg text-sm font-medium border transition-colors flex items-center justify-between gap-1.5 bg-card text-gray-600 dark:text-gray-300 border-gray-200 dark:border-gray-700 hover:border-gray-300"
+              >
+                <span className="truncate">{batchClassLabel}</span>
+                <ChevronDown
+                  className={`w-3 h-3 flex-shrink-0 transition-transform ${batchClassOpen ? "rotate-180" : ""}`}
+                />
+              </button>
+              {batchClassOpen && (
+                <div className="absolute top-full left-0 mt-1 w-full bg-card rounded-xl border border-gray-200 dark:border-gray-700 shadow-lg z-30">
+                  <div className="max-h-44 overflow-y-auto py-1">
+                    <div role="listbox" aria-label="选择班级">
+                      {classList.map((c) => (
+                        <BatchClassOption
+                          key={c.id}
+                          label={c.name}
+                          selected={batchClassPick === c.id}
+                          onSelect={() => {
+                            setBatchClassPick(c.id);
+                            setBatchClassOpen(false);
+                          }}
+                        />
+                      ))}
+                      {classList.length > 0 && <div className="my-1 border-t border-border-soft" role="presentation" />}
+                      <BatchClassOption
+                        label="未分班"
+                        selected={batchClassPick === UNASSIGNED_CLASS_ID}
+                        disabled={classesUnavailable}
+                        onSelect={() => {
+                          setBatchClassPick(UNASSIGNED_CLASS_ID);
+                          setBatchClassOpen(false);
+                        }}
+                      />
+                    </div>
+                    {classesUnavailable ? (
+                      <div className="px-3 py-4 text-center space-y-2">
+                        <p className="text-sm text-red-500">班级列表加载失败</p>
+                        <button
+                          type="button"
+                          onClick={refreshClasses}
+                          className="px-3 py-1.5 text-xs font-medium bg-gray-100 hover:bg-gray-200 dark:bg-gray-800 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-200 rounded-lg transition-colors"
+                        >
+                          重试
+                        </button>
+                      </div>
+                    ) : classList.length === 0 ? (
+                      <div className="px-3 py-4 text-center text-sm text-gray-400">暂无班级可选</div>
+                    ) : null}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
         }
         variant="warning"
-        confirmText="确认"
-        onConfirm={() => {
-          executeBatchSetClass();
-          setConfirmBatchClass(false);
-        }}
+        confirmText={batchClassConfirmText}
+        onConfirm={executeBatchSetClass}
         onCancel={() => {
           setConfirmBatchClass(false);
-          setBatchClassName("");
+          setBatchClassOpen(false);
+          setBatchClassPick(null);
         }}
       />
 
