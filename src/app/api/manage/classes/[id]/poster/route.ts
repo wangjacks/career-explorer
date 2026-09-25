@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getClasses } from "@/lib/db";
 import { getAuditActor, getRequestContext, recordAudit } from "@/lib/audit";
-import { generateInvitePoster } from "@/lib/invite-poster";
+import { buildInviteUrl, generateInvitePoster, resolvePosterBaseUrl } from "@/lib/invite-poster";
 import { canModifyClass, getSession } from "../../helpers";
 
 type Ctx = { params: Promise<{ id: string }> };
@@ -11,6 +11,7 @@ type Ctx = { params: Promise<{ id: string }> };
  * GET 返回 PNG：默认 inline 预览；`?download=1` 触发附件下载。
  * 权限与重置邀请码一致：admin 全权，teacher 仅限自己创建的班级。
  * 二维码指向 `/activate?invite=CODE`，激活安全仍由服务端三要素核验兜底。
+ * 基址配置缺失或非法（#148）返回 503 + 中文原因，不产出错误域名的海报。
  */
 export async function GET(request: NextRequest, { params }: Ctx) {
   const { ip, user_agent } = getRequestContext(request);
@@ -35,9 +36,34 @@ export async function GET(request: NextRequest, { params }: Ctx) {
       return NextResponse.json({ error: "班级不存在" }, { status: 404 });
     }
 
-    // 二维码需要可被学生手机访问的绝对链接：优先显式配置的公网地址，
-    // 未配置时回退到教师当前请求的 origin（局域网/内网场景也可用）。
-    const baseUrl = (process.env.NEXT_PUBLIC_APP_URL ?? "").trim() || new URL(request.url).origin;
+    // 二维码需要可被学生手机访问的绝对链接：生产环境只认显式配置的公网地址，
+    // 缺失或非法时报错而不是静默产出 localhost 海报（#148）。
+    let baseUrl: string;
+    let inviteUrl: string;
+    try {
+      baseUrl = resolvePosterBaseUrl(new URL(request.url).origin);
+      inviteUrl = buildInviteUrl(baseUrl, klass.invitation_code);
+    } catch (err) {
+      console.error("Class poster base URL error:", err);
+      void recordAudit({
+        ...actor,
+        action: "class:poster",
+        method: "GET",
+        path,
+        resource_type: "class",
+        resource_id: String(id),
+        status: "failed",
+        error_message: "海报基址配置错误",
+        ip,
+        user_agent,
+        metadata: { failure: "base_url_config" },
+      });
+      return NextResponse.json(
+        { error: err instanceof Error ? err.message : "海报基址配置错误" },
+        { status: 503 }
+      );
+    }
+
     const png = await generateInvitePoster({
       className: klass.name,
       inviteCode: klass.invitation_code,
@@ -68,6 +94,8 @@ export async function GET(request: NextRequest, { params }: Ctx) {
           : "inline",
         // 邀请码可能被重置，禁止缓存旧海报
         "Cache-Control": "no-store",
+        // 让面板把二维码里真正生效的链接显示给管理员核对（#148）
+        "X-Invite-Url": inviteUrl,
       },
     });
   } catch (err) {
