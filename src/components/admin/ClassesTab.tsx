@@ -116,6 +116,16 @@ export default function ClassesTab({ mode, teacherUid }: Props) {
     }
   }, []);
 
+  // 面板按 activeTab 条件渲染，切走即卸载本组件：不兜底清理会漏掉 blob URL，且慢请求可能在卸载后回写
+  useEffect(
+    () => () => {
+      posterReqIdRef.current += 1;
+      if (posterObjectUrlRef.current) URL.revokeObjectURL(posterObjectUrlRef.current);
+      posterObjectUrlRef.current = null;
+    },
+    []
+  );
+
   useEffect(() => {
     if (!posterClass) return;
     const prevActive = document.activeElement as HTMLElement | null;
