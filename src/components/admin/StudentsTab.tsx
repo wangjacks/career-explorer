@@ -40,6 +40,9 @@ function BatchClassOption({ label, selected, disabled, onSelect }: BatchClassOpt
   return (
     <button
       type="button"
+      role="option"
+      aria-selected={selected}
+      aria-disabled={disabled || undefined}
       disabled={disabled}
       onClick={onSelect}
       className={`w-full text-left px-3 py-1.5 text-sm flex items-center gap-2 transition-colors disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent dark:disabled:hover:bg-transparent ${
@@ -1253,6 +1256,8 @@ export default function StudentsTab({ students, loadError, onRetry, onStudentsCh
             <div className="relative" ref={batchClassRef}>
               <button
                 type="button"
+                aria-haspopup="listbox"
+                aria-expanded={batchClassOpen}
                 onClick={() => setBatchClassOpen((v) => !v)}
                 className="w-full px-3 py-1.5 rounded-lg text-sm font-medium border transition-colors flex items-center justify-between gap-1.5 bg-card text-gray-600 dark:text-gray-300 border-gray-200 dark:border-gray-700 hover:border-gray-300"
               >
@@ -1264,27 +1269,29 @@ export default function StudentsTab({ students, loadError, onRetry, onStudentsCh
               {batchClassOpen && (
                 <div className="absolute top-full left-0 mt-1 w-full bg-card rounded-xl border border-gray-200 dark:border-gray-700 shadow-lg z-40">
                   <div className="max-h-44 overflow-y-auto py-1">
-                    {classList.map((c) => (
+                    <div role="listbox" aria-label="选择班级">
+                      {classList.map((c) => (
+                        <BatchClassOption
+                          key={c.id}
+                          label={c.name}
+                          selected={batchClassPick === c.id}
+                          onSelect={() => {
+                            setBatchClassPick(c.id);
+                            setBatchClassOpen(false);
+                          }}
+                        />
+                      ))}
+                      {classList.length > 0 && <div className="my-1 border-t border-border-soft" role="presentation" />}
                       <BatchClassOption
-                        key={c.id}
-                        label={c.name}
-                        selected={batchClassPick === c.id}
+                        label="未分班"
+                        selected={batchClassPick === UNASSIGNED_CLASS_ID}
+                        disabled={classesUnavailable}
                         onSelect={() => {
-                          setBatchClassPick(c.id);
+                          setBatchClassPick(UNASSIGNED_CLASS_ID);
                           setBatchClassOpen(false);
                         }}
                       />
-                    ))}
-                    {classList.length > 0 && <div className="my-1 border-t border-border-soft" />}
-                    <BatchClassOption
-                      label="未分班"
-                      selected={batchClassPick === UNASSIGNED_CLASS_ID}
-                      disabled={classesUnavailable}
-                      onSelect={() => {
-                        setBatchClassPick(UNASSIGNED_CLASS_ID);
-                        setBatchClassOpen(false);
-                      }}
-                    />
+                    </div>
                     {classesUnavailable ? (
                       <div className="px-3 py-4 text-center space-y-2">
                         <p className="text-sm text-red-500">班级列表加载失败</p>
