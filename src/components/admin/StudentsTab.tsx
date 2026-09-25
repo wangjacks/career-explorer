@@ -32,15 +32,17 @@ const UNASSIGNED_CLASS_ID = -1;
 interface BatchClassOptionProps {
   label: string;
   selected: boolean;
+  disabled?: boolean;
   onSelect: () => void;
 }
 
-function BatchClassOption({ label, selected, onSelect }: BatchClassOptionProps) {
+function BatchClassOption({ label, selected, disabled, onSelect }: BatchClassOptionProps) {
   return (
     <button
       type="button"
+      disabled={disabled}
       onClick={onSelect}
-      className={`w-full text-left px-3 py-1.5 text-sm flex items-center gap-2 transition-colors ${
+      className={`w-full text-left px-3 py-1.5 text-sm flex items-center gap-2 transition-colors disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent dark:disabled:hover:bg-transparent ${
         selected
           ? "bg-green-50 dark:bg-green-900/30 text-green-700 dark:text-green-300"
           : "hover:bg-gray-50 dark:hover:bg-gray-800 text-gray-700 dark:text-gray-200"
@@ -130,6 +132,7 @@ export default function StudentsTab({ students, loadError, onRetry, onStudentsCh
   const [newStudentName, setNewStudentName] = useState("");
   const [newClassName, setNewClassName] = useState("");
   const [classList, setClassList] = useState<ClassItem[]>([]);
+  const [classesFailed, setClassesFailed] = useState(false);
   const [selectedStudents, setSelectedStudents] = useState<Set<string>>(new Set());
 
   // Search & sort
@@ -186,12 +189,16 @@ export default function StudentsTab({ students, loadError, onRetry, onStudentsCh
   const refreshClasses = async () => {
     try {
       const res = await fetch("/api/manage/classes");
-      if (res.ok) {
-        const data = await res.json();
-        setClassList(data.data || []);
+      if (!res.ok) {
+        setClassesFailed(true);
+        return;
       }
-    } catch {
-      /* ignore */
+      const data = await res.json();
+      setClassList(data.data || []);
+      setClassesFailed(false);
+    } catch (err) {
+      console.error("班级列表加载失败", err);
+      setClassesFailed(true);
     }
   };
 
@@ -523,7 +530,7 @@ export default function StudentsTab({ students, loadError, onRetry, onStudentsCh
     }
     // UNASSIGNED_CLASS_ID → 空串，命中后端 class_id = null 解绑分支
     const className =
-      batchClassPick === UNASSIGNED_CLASS_ID ? "" : classList.find((c) => c.id === batchClassPick)?.name ?? "";
+      batchClassPick === UNASSIGNED_CLASS_ID ? "" : (classList.find((c) => c.id === batchClassPick)?.name ?? "");
     if (!className && batchClassPick !== UNASSIGNED_CLASS_ID) {
       toast.warning("该班级已不存在，请重新选择");
       return;
@@ -562,6 +569,9 @@ export default function StudentsTab({ students, loadError, onRetry, onStudentsCh
       toast.error("批量更新失败");
     }
   };
+
+  // 列表从未加载成功（空 + 失败）才判定不可用：加载失败时不清空 classList，旧数据仍可用
+  const classesUnavailable = classesFailed && classList.length === 0;
 
   const batchClassLabel =
     batchClassPick === null
@@ -1269,14 +1279,26 @@ export default function StudentsTab({ students, loadError, onRetry, onStudentsCh
                     <BatchClassOption
                       label="未分班"
                       selected={batchClassPick === UNASSIGNED_CLASS_ID}
+                      disabled={classesUnavailable}
                       onSelect={() => {
                         setBatchClassPick(UNASSIGNED_CLASS_ID);
                         setBatchClassOpen(false);
                       }}
                     />
-                    {classList.length === 0 && (
+                    {classesUnavailable ? (
+                      <div className="px-3 py-4 text-center space-y-2">
+                        <p className="text-sm text-red-500">班级列表加载失败</p>
+                        <button
+                          type="button"
+                          onClick={refreshClasses}
+                          className="px-3 py-1.5 text-xs font-medium bg-gray-100 hover:bg-gray-200 dark:bg-gray-800 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-200 rounded-lg transition-colors"
+                        >
+                          重试
+                        </button>
+                      </div>
+                    ) : classList.length === 0 ? (
                       <div className="px-3 py-4 text-center text-sm text-gray-400">暂无班级可选</div>
-                    )}
+                    ) : null}
                   </div>
                 </div>
               )}
