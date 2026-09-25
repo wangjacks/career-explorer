@@ -108,9 +108,10 @@ describe("PUT /api/manage/students — 班级绑定契约（#161）", () => {
 
   it("成功绑定同样落审计，且 metadata 记录新旧 class_id 快照", async () => {
     vi.mocked(getClassByName).mockResolvedValue(CLASS_5);
-    await PUT(
+    const res = await PUT(
       createPutRequest({ studentId: "202505050101", className: "2025级1班" }, await adminCookies())
     );
+    expect(res.status).toBe(200);
     const success = vi
       .mocked(insertAuditLog)
       .mock.calls.map(([a]) => a)
