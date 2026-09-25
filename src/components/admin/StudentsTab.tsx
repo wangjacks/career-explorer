@@ -1174,24 +1174,18 @@ export default function StudentsTab({ students, loadError, onRetry, onStudentsCh
         open={confirmBatchClass}
         title="批量设置班级"
         message={
-          <span>
-            将选中的 {selectedStudents.size} 名学生设置为：
-            <br />
+          <div className="space-y-2">
+            <p>将选中的 {selectedStudents.size} 名学生设置为：</p>
             <input
               autoFocus
               list="class-datalist-batch"
               value={batchClassName}
               onChange={(e) => setBatchClassName(e.target.value)}
               placeholder="选择或输入班级名称"
-              className="mt-2 px-3 py-2 border border-gray-200 dark:border-gray-700 bg-card text-foreground rounded-lg text-sm w-full focus:outline-none focus:ring-2 focus:ring-focus-ring"
+              className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 bg-card text-foreground rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-focus-ring"
             />
-            <datalist id="class-datalist-batch">
-              {classList.map((c) => (
-                <option key={c.id} value={c.name} />
-              ))}
-            </datalist>
-            <span className="mt-1 block text-xs text-muted">可从下拉选择，输入时自动筛选；清空输入则将选中学生设为未分班</span>
-          </span>
+            <p className="text-xs text-muted">可从下拉选择，输入时自动筛选；清空输入则将选中学生设为未分班</p>
+          </div>
         }
         variant="warning"
         confirmText={batchClassName.trim() ? "确认设置" : "确认清空为未分班"}
@@ -1212,6 +1206,12 @@ export default function StudentsTab({ students, loadError, onRetry, onStudentsCh
         onConfirm={executeBatchPassword}
         onCancel={() => setConfirmBatchPwd(false)}
       />
+
+      <datalist id="class-datalist-batch">
+        {classList.map((c) => (
+          <option key={c.id} value={c.name} />
+        ))}
+      </datalist>
     </div>
   );
 }
