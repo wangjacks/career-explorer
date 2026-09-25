@@ -472,10 +472,15 @@ export default function StudentsTab({ students, loadError, onRetry, onStudentsCh
   const executeBatchSetClass = async () => {
     const ids = Array.from(selectedStudents);
     const className = batchClassName.trim();
-    if (!className) {
-      toast.warning("请输入班级名称");
+    if (className && !classList.some((c) => c.name === className)) {
+      toast.warning(
+        classList.length === 0
+          ? "班级列表为空或加载失败，请刷新页面重试"
+          : `班级「${className}」不存在，请从下拉列表选择`
+      );
       return;
     }
+    setConfirmBatchClass(false);
     let okCount = 0;
     const failed: string[] = [];
     try {
@@ -495,7 +500,7 @@ export default function StudentsTab({ students, loadError, onRetry, onStudentsCh
         })
       );
       if (okCount > 0) {
-        toast.success(`已更新 ${okCount} 名学生的班级`);
+        toast.success(className ? `已将 ${okCount} 名学生设为「${className}」` : `已将 ${okCount} 名学生设为未分班`);
         setBatchClassName("");
         setSelectedStudents(new Set());
         onStudentsChanged();
@@ -664,7 +669,10 @@ export default function StudentsTab({ students, loadError, onRetry, onStudentsCh
             {selectedStudents.size > 0 && (
               <>
                 <button
-                  onClick={() => setConfirmBatchClass(true)}
+                  onClick={() => {
+                    setBatchClassName("");
+                    setConfirmBatchClass(true);
+                  }}
                   className="px-3 py-1.5 bg-info hover:bg-blue-600 text-white text-xs rounded-lg transition-colors"
                 >
                   批量设班（{selectedStudents.size}）
@@ -1171,19 +1179,23 @@ export default function StudentsTab({ students, loadError, onRetry, onStudentsCh
             <br />
             <input
               autoFocus
+              list="class-datalist-batch"
               value={batchClassName}
               onChange={(e) => setBatchClassName(e.target.value)}
-              placeholder="输入班级名称"
-              className="mt-2 px-3 py-1.5 border border-gray-200 rounded-lg text-sm w-full focus:outline-none focus:ring-2 focus:ring-focus-ring"
+              placeholder="选择或输入班级名称"
+              className="mt-2 px-3 py-2 border border-gray-200 dark:border-gray-700 bg-card text-foreground rounded-lg text-sm w-full focus:outline-none focus:ring-2 focus:ring-focus-ring"
             />
+            <datalist id="class-datalist-batch">
+              {classList.map((c) => (
+                <option key={c.id} value={c.name} />
+              ))}
+            </datalist>
+            <span className="mt-1 block text-xs text-muted">可从下拉选择，输入时自动筛选；清空输入则将选中学生设为未分班</span>
           </span>
         }
         variant="warning"
-        confirmText="确认"
-        onConfirm={() => {
-          executeBatchSetClass();
-          setConfirmBatchClass(false);
-        }}
+        confirmText={batchClassName.trim() ? "确认设置" : "确认清空为未分班"}
+        onConfirm={executeBatchSetClass}
         onCancel={() => {
           setConfirmBatchClass(false);
           setBatchClassName("");
