@@ -1,5 +1,14 @@
 # Changelog
 
+## [2.0.2] - 2026-09-25
+
+### Changed
+
+- 依赖升级：image-size 2.0.2 → 2.0.4、@aws-sdk/s3-request-presigner 3.1117.0 → 3.1137.0、react 19.2.8 → 19.3.0、react-dom 19.2.8 → 19.3.0
+- `@types/react` / `@types/react-dom` 声明保持 `^19`，锁文件解析刷新至 19.3.0，伴生依赖 `scheduler` 0.27.0 → 0.28.0
+- Dependabot 配置：忽略 eslint 的 10.x 及以后 major 版本提案，`eslint-config-next` 捆绑的 `eslint-plugin-react` 7.x 尚不支持 ESLint 10（#177 CI 报 `contextOrFilename.getFilename is not a function`）
+- 本版本 `src/` 零变更，部署为纯重启型，无数据库迁移
+
 ## [2.0.1] - 2026-09-20
 
 ### Changed
