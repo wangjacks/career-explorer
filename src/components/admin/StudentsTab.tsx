@@ -185,6 +185,12 @@ export default function StudentsTab({ students, loadError, onRetry, onStudentsCh
     return q ? opts.filter((o) => o.name.toLowerCase().includes(q)) : opts;
   }, [classList, classSearch]);
 
+  /** 班级输入即时提示（#160）：输入了不在班级列表中的名称时提前告知不会绑定（服务端校验仍为权威） */
+  const addClassNameMissing = useMemo(() => {
+    const typed = newClassName.trim();
+    return typed.length > 0 && !classList.some((c) => c.name === typed);
+  }, [newClassName, classList]);
+
   const toggleClassFilter = (id: number) => {
     setSelectedClasses((prev) => {
       const next = new Set(prev);
@@ -242,11 +248,13 @@ export default function StudentsTab({ students, loadError, onRetry, onStudentsCh
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ studentId: newStudentId, name: newStudentName.trim(), className: newClassName.trim() }),
       });
+      const data = await res.json();
       if (!res.ok) {
-        const data = await res.json();
-        throw new Error(data.error);
+        throw new Error(data.error || "添加失败");
       }
-      toast.success("添加成功");
+      // 班级名未命中时服务端返回 unbound（#160）：以 warning 展示具体原因，避免“看起来成功但班级没绑上”
+      if (data.unbound) toast.warning(data.message || "添加成功，但班级未绑定");
+      else toast.success(data.message || "添加成功");
       setNewStudentId("");
       setNewStudentName("");
       setNewClassName("");
@@ -543,6 +551,9 @@ export default function StudentsTab({ students, loadError, onRetry, onStudentsCh
               <option key={c.id} value={c.name} />
             ))}
           </datalist>
+          {addClassNameMissing && (
+            <p className="text-xs text-warning">该班级不存在，提交后不会绑定班级</p>
+          )}
         </div>
         <button
           onClick={handleAddStudent}
