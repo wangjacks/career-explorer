@@ -219,8 +219,9 @@ export default function StudentsTab({ students, loadError, onRetry, onStudentsCh
     return () => document.removeEventListener("mousedown", handler);
   }, []);
 
-  // 点击外部关闭批量设班的班级下拉
+  // 点击外部关闭批量设班的班级下拉（仅展开期间挂载）
   useEffect(() => {
+    if (!batchClassOpen) return;
     const handler = (e: MouseEvent) => {
       if (batchClassRef.current && !batchClassRef.current.contains(e.target as Node)) {
         setBatchClassOpen(false);
@@ -228,7 +229,7 @@ export default function StudentsTab({ students, loadError, onRetry, onStudentsCh
     };
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
-  }, []);
+  }, [batchClassOpen]);
 
   const classNameOf = (s: Student): string =>
     s.class_id != null ? classList.find((c) => c.id === s.class_id)?.name || "" : "";
@@ -1267,7 +1268,7 @@ export default function StudentsTab({ students, loadError, onRetry, onStudentsCh
                 />
               </button>
               {batchClassOpen && (
-                <div className="absolute top-full left-0 mt-1 w-full bg-card rounded-xl border border-gray-200 dark:border-gray-700 shadow-lg z-40">
+                <div className="absolute top-full left-0 mt-1 w-full bg-card rounded-xl border border-gray-200 dark:border-gray-700 shadow-lg z-30">
                   <div className="max-h-44 overflow-y-auto py-1">
                     <div role="listbox" aria-label="选择班级">
                       {classList.map((c) => (
