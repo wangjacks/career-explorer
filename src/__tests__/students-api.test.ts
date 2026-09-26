@@ -1,140 +1,123 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { NextRequest } from "next/server";
+import { signToken } from "@/lib/token";
 
-// 隔离数据库层：本组用例只关注班级绑定口径（#160）
+// 隔离数据库层：本测试锁定 PUT /api/manage/students 的班级绑定契约（#161 前置校验依赖此形状）
 vi.mock("@/lib/db", () => ({
   getStudents: vi.fn(),
-  insertUser: vi.fn(async () => 1),
+  insertUser: vi.fn(),
   getUserByCode: vi.fn(),
-  updateUser: vi.fn(async () => undefined),
+  updateUser: vi.fn(),
   deleteStudents: vi.fn(),
   getClassByName: vi.fn(),
-  insertAuditLog: vi.fn(async () => undefined),
+  // @/lib/audit 经 getAuditActor / recordAudit 使用
+  getUserById: vi.fn(),
+  insertAuditLog: vi.fn(),
 }));
 
-vi.mock("@/lib/auth", () => ({
-  hashPassword: vi.fn(async () => "hashed"),
-}));
+import { PUT } from "@/app/api/manage/students/route";
+import { getUserByCode, updateUser, getClassByName, insertAuditLog, getUserById } from "@/lib/db";
+import type { ClassRow, UserRow } from "@/lib/db";
 
-vi.mock("@/lib/token", () => ({
-  verifyToken: vi.fn(async () => ({ valid: false })),
-  signToken: vi.fn(async () => "token"),
-}));
+const STUDENT = {
+  id: 7,
+  user_code: "202505050101",
+  password_hash: "hash",
+  role: "student",
+  name: "测试学生",
+  class_id: 3,
+  tags: null,
+  avatar_url: null,
+  evaluation_url: null,
+  submitted_at: null,
+  created_at: "",
+  storage_id: 1,
+};
 
-import { POST } from "@/app/api/manage/students/route";
-import { insertUser, updateUser, getUserByCode, getClassByName, insertAuditLog } from "@/lib/db";
+const CLASS_5 = { id: 5, name: "2025级1班" } as unknown as ClassRow;
 
-const CLASS_ROW = { id: 7, name: "2025级1班", invitation_code: "abcd1234", created_at: "" };
-
-function postRequest(body: unknown): NextRequest {
-  return new NextRequest(new URL("/api/manage/students", "http://localhost:3000"), {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
+function createPutRequest(body: unknown, cookies?: Record<string, string>): NextRequest {
+  const url = new URL("/api/manage/students", "http://localhost:3000");
+  const cookieHeader = cookies
+    ? Object.entries(cookies).map(([k, v]) => `${k}=${v}`).join("; ")
+    : "";
+  return new NextRequest(url, {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json",
+      ...(cookieHeader ? { cookie: cookieHeader } : {}),
+    },
     body: JSON.stringify(body),
   });
 }
 
-/** 等待 void recordAudit(...) 的异步写入落到 mock 上 */
-const flushAudit = () => new Promise((resolve) => setTimeout(resolve, 0));
+async function adminCookies() {
+  return { auth_token: await signToken({ role: "admin", uid: 1, name: "管理员" }) };
+}
 
 beforeEach(() => {
   vi.clearAllMocks();
+  vi.mocked(getUserByCode).mockResolvedValue(STUDENT as unknown as UserRow);
+  vi.mocked(getUserById).mockResolvedValue({ user_code: "10001", name: "管理员", role: "admin" } as unknown as UserRow);
 });
 
-describe("POST /api/manage/students — 单条添加绑定班级（#160）", () => {
-  it("班级名命中 → 新建学生写入 class_id", async () => {
-    vi.mocked(getClassByName).mockResolvedValue(CLASS_ROW as never);
-    vi.mocked(getUserByCode).mockResolvedValue(undefined as never);
-
-    const res = await POST(
-      postRequest({ studentId: "202505050101", name: "张三", className: " 2025级1班 " })
+describe("PUT /api/manage/students — 班级绑定契约（#161）", () => {
+  it("班级名存在 → 按解析出的 id 绑定", async () => {
+    vi.mocked(getClassByName).mockResolvedValue(CLASS_5);
+    const res = await PUT(
+      createPutRequest({ studentId: "202505050101", className: "2025级1班" }, await adminCookies())
     );
-    const body = await res.json();
-
     expect(res.status).toBe(200);
-    expect(body.unbound).toBe(false);
-    expect(body.message).toBe("添加成功");
-    expect(insertUser).toHaveBeenCalledWith(
-      expect.objectContaining({
-        user_code: "202505050101",
-        role: "student",
-        name: "张三",
-        class_id: 7,
-      })
-    );
+    expect(updateUser).toHaveBeenCalledWith(STUDENT.id, { class_id: 5 });
   });
 
-  it("班级名未命中 → 仍创建学生但不绑定，响应与审计明确说明", async () => {
-    vi.mocked(getClassByName).mockResolvedValue(undefined as never);
-    vi.mocked(getUserByCode).mockResolvedValue(undefined as never);
-
-    const res = await POST(
-      postRequest({ studentId: "202505050102", name: "李四", className: "不存在的班级" })
+  it("className 为空串 → 解绑为未分班（class_id 写入 null，批量清空的依赖路径）", async () => {
+    const res = await PUT(
+      createPutRequest({ studentId: "202505050101", className: "" }, await adminCookies())
     );
-    const body = await res.json();
-
     expect(res.status).toBe(200);
-    expect(body.unbound).toBe(true);
-    expect(body.message).toContain("未绑定班级");
-    expect(vi.mocked(insertUser).mock.calls[0][0]).not.toHaveProperty("class_id");
-    await flushAudit();
-    expect(insertAuditLog).toHaveBeenCalledWith(
-      expect.objectContaining({
-        action: "student:create",
-        metadata: expect.stringContaining('"unbound":true'),
-      })
-    );
-  });
-
-  it("学生已存在 + 班级名命中 → 同时更新姓名与班级", async () => {
-    vi.mocked(getClassByName).mockResolvedValue(CLASS_ROW as never);
-    vi.mocked(getUserByCode).mockResolvedValue({ id: 12, user_code: "202505050103" } as never);
-
-    const res = await POST(
-      postRequest({ studentId: "202505050103", name: "王五", className: "2025级1班" })
-    );
-
-    expect(res.status).toBe(200);
-    expect(updateUser).toHaveBeenCalledWith(12, { name: "王五", class_id: 7 });
-  });
-
-  it("未提交班级名 → 不改动班级（保持既有行为）", async () => {
-    vi.mocked(getUserByCode).mockResolvedValue(undefined as never);
-
-    const res = await POST(
-      postRequest({ studentId: "202505050104", name: "赵六", className: "" })
-    );
-
-    expect(res.status).toBe(200);
+    expect(updateUser).toHaveBeenCalledWith(STUDENT.id, { class_id: null });
     expect(getClassByName).not.toHaveBeenCalled();
-    expect(vi.mocked(insertUser).mock.calls[0][0]).not.toHaveProperty("class_id");
   });
-});
 
-describe("POST /api/manage/students — 批量导入口径回归（#160）", () => {
-  it("命中与未命中混合 → 命中者写 class_id，未命中计数并提示", async () => {
-    vi.mocked(getClassByName).mockImplementation(async (name: string) =>
-      name === "2025级1班" ? (CLASS_ROW as never) : (undefined as never)
+  it("班级不存在 → 400 且不写库，并落一条 failed 审计（前端前置校验要避免的 N 倍噪声）", async () => {
+    vi.mocked(getClassByName).mockResolvedValue(undefined);
+    const res = await PUT(
+      createPutRequest({ studentId: "202505050101", className: "不存在的班" }, await adminCookies())
     );
-    vi.mocked(getUserByCode).mockResolvedValue(undefined as never);
-
-    const res = await POST(
-      postRequest({
-        students: [
-          { studentId: "202505050201", name: "甲", className: "2025级1班" },
-          { studentId: "202505050202", name: "乙", className: "幽灵班" },
-        ],
-      })
-    );
+    expect(res.status).toBe(400);
     const body = await res.json();
+    expect(body.error).toBe("班级不存在");
+    expect(updateUser).not.toHaveBeenCalled();
+    const failed = vi
+      .mocked(insertAuditLog)
+      .mock.calls.map(([a]) => a)
+      .find((a) => a.action === "student:update" && a.status === "failed");
+    expect(failed).toBeTruthy();
+  });
 
-    expect(res.status).toBe(200);
-    expect(body.message).toContain("导入 2 名学生");
-    expect(body.message).toContain("1 条因班级不存在未绑定");
-    expect(insertUser).toHaveBeenNthCalledWith(
-      1,
-      expect.objectContaining({ user_code: "202505050201", class_id: 7 })
+  it("只改姓名、不传 className → fields 不含 class_id（不改归属）", async () => {
+    const res = await PUT(
+      createPutRequest({ studentId: "202505050101", name: "改名后" }, await adminCookies())
     );
-    expect(vi.mocked(insertUser).mock.calls[1][0]).not.toHaveProperty("class_id");
+    expect(res.status).toBe(200);
+    expect(updateUser).toHaveBeenCalledWith(STUDENT.id, { name: "改名后" });
+    const fields = vi.mocked(updateUser).mock.calls[0][1];
+    expect(Object.keys(fields)).not.toContain("class_id");
+  });
+
+  it("成功绑定同样落审计，且 metadata 记录新旧 class_id 快照", async () => {
+    vi.mocked(getClassByName).mockResolvedValue(CLASS_5);
+    const res = await PUT(
+      createPutRequest({ studentId: "202505050101", className: "2025级1班" }, await adminCookies())
+    );
+    expect(res.status).toBe(200);
+    const success = vi
+      .mocked(insertAuditLog)
+      .mock.calls.map(([a]) => a)
+      .find((a) => a.action === "student:update" && a.status === "success");
+    expect(success).toBeTruthy();
+    expect(JSON.parse(success?.metadata ?? "{}").old.class_id).toBe(3);
+    expect(JSON.parse(success?.metadata ?? "{}").new.class_id).toBe(5);
   });
 });
