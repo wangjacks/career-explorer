@@ -242,11 +242,12 @@ export default function StudentsTab({ students, loadError, onRetry, onStudentsCh
     return q ? opts.filter((o) => o.name.toLowerCase().includes(q)) : opts;
   }, [classList, classSearch]);
 
-  /** 班级输入即时提示（#160）：输入了不在班级列表中的名称时提前告知不会绑定（服务端校验仍为权威） */
+  /** 班级输入即时提示（#160）：名称不在班级列表时提前告知不会绑定；班级列表从未加载成功时不作判断，避免把正确班级名误报为不存在 */
   const addClassNameMissing = useMemo(() => {
     const typed = newClassName.trim();
-    return typed.length > 0 && !classList.some((c) => c.name === typed);
-  }, [newClassName, classList]);
+    if (!typed || (classesFailed && classList.length === 0)) return false;
+    return !classList.some((c) => c.name === typed);
+  }, [newClassName, classList, classesFailed]);
 
   const toggleClassFilter = (id: number) => {
     setSelectedClasses((prev) => {
