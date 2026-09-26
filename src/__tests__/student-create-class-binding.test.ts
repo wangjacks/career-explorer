@@ -86,16 +86,60 @@ describe("POST /api/manage/students — 单条添加绑定班级（#160）", () 
     );
   });
 
-  it("学生已存在 + 班级名命中 → 同时更新姓名与班级", async () => {
+  it("学生已存在且未分班 + 班级名命中 → 补绑班级（存量未分班的补救路径）", async () => {
     vi.mocked(getClassByName).mockResolvedValue(CLASS_ROW as never);
     vi.mocked(getUserByCode).mockResolvedValue({ id: 12, user_code: "202505050103" } as never);
 
     const res = await POST(
       postRequest({ studentId: "202505050103", name: "王五", className: "2025级1班" })
     );
+    const body = await res.json();
 
     expect(res.status).toBe(200);
+    expect(body.class_skipped).toBe(false);
     expect(updateUser).toHaveBeenCalledWith(12, { name: "王五", class_id: 7 });
+  });
+
+  it("学生已分班 + 班级名命中另一个班 → 只改姓名不改归属，并明确说明未改绑", async () => {
+    vi.mocked(getClassByName).mockResolvedValue(CLASS_ROW as never);
+    vi.mocked(getUserByCode).mockResolvedValue(
+      { id: 13, user_code: "202505050105", class_id: 9 } as never
+    );
+
+    const res = await POST(
+      postRequest({ studentId: "202505050105", name: "孙七", className: "2025级1班" })
+    );
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body.class_skipped).toBe(true);
+    expect(body.unbound).toBe(false);
+    expect(body.message).toContain("未改绑");
+    expect(updateUser).toHaveBeenCalledWith(13, { name: "孙七" });
+    await flushAudit();
+    expect(insertAuditLog).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: "student:create",
+        metadata: expect.stringContaining('"class_skipped":true'),
+      })
+    );
+  });
+
+  it("学生已在本班 + 班级名命中同一个班 → 不算改绑，响应无附加提示", async () => {
+    vi.mocked(getClassByName).mockResolvedValue(CLASS_ROW as never);
+    vi.mocked(getUserByCode).mockResolvedValue(
+      { id: 14, user_code: "202505050106", class_id: 7 } as never
+    );
+
+    const res = await POST(
+      postRequest({ studentId: "202505050106", name: "周八", className: "2025级1班" })
+    );
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body.class_skipped).toBe(false);
+    expect(body.message).toBe("添加成功");
+    expect(updateUser).toHaveBeenCalledWith(14, { name: "周八" });
   });
 
   it("未提交班级名 → 不改动班级（保持既有行为）", async () => {
@@ -136,5 +180,19 @@ describe("POST /api/manage/students — 批量导入口径回归（#160）", () 
       expect.objectContaining({ user_code: "202505050201", class_id: 7 })
     );
     expect(vi.mocked(insertUser).mock.calls[1][0]).not.toHaveProperty("class_id");
+  });
+
+  it("批量导入对已分班学生仍按名单改绑（与单条添加只补未分班的口径差异，存量补救依赖此行为）", async () => {
+    vi.mocked(getClassByName).mockResolvedValue(CLASS_ROW as never);
+    vi.mocked(getUserByCode).mockResolvedValue(
+      { id: 21, user_code: "202505050203", class_id: 9 } as never
+    );
+
+    const res = await POST(
+      postRequest({ students: [{ studentId: "202505050203", name: "甲", className: "2025级1班" }] })
+    );
+
+    expect(res.status).toBe(200);
+    expect(updateUser).toHaveBeenCalledWith(21, { name: "甲", class_id: 7 });
   });
 });

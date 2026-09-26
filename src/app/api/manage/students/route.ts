@@ -25,20 +25,24 @@ export async function POST(request: NextRequest) {
         });
         return NextResponse.json({ error: "学号必须为12位数字" }, { status: 400 });
       }
-      // 班级名解析（#160）：命中即绑定；未命中不绑定但给出明确反馈，与批量导入口径一致
+      // 班级名解析（#160）：未命中不绑定但给出明确反馈，与批量导入共用解析口径
       const binding = await resolveClassByName(body.className);
       const existing = await getUserByCode(body.studentId);
+      // 手动添加只给未分班学生补绑班级；已分班者只改姓名，转班走编辑弹窗或批量设班
+      const canBind = !existing || existing.class_id == null;
+      const boundClassId = canBind ? binding.classId : null;
+      const classSkipped = !canBind && binding.classId !== null && binding.classId !== existing?.class_id;
       if (existing) {
         await updateUser(existing.id, {
           name: body.name,
-          ...(binding.classId !== null ? { class_id: binding.classId } : {}),
+          ...(boundClassId !== null ? { class_id: boundClassId } : {}),
         });
       } else {
         await insertUser({
           user_code: body.studentId,
           role: "student",
           name: body.name,
-          ...(binding.classId !== null ? { class_id: binding.classId } : {}),
+          ...(boundClassId !== null ? { class_id: boundClassId } : {}),
         });
       }
       const unbound = binding.provided && binding.classId === null;
@@ -50,12 +54,17 @@ export async function POST(request: NextRequest) {
           mode: existing ? "updated" : "created",
           name: body.name,
           className: binding.className || null,
-          class_id: binding.classId,
+          class_id: boundClassId,
           unbound,
+          class_skipped: classSkipped,
         },
       });
-      const suffix = unbound ? `；班级「${binding.className}」不存在，未绑定班级` : "";
-      return NextResponse.json({ message: `添加成功${suffix}`, unbound });
+      const suffix = unbound
+        ? `；班级「${binding.className}」不存在，未绑定班级`
+        : classSkipped
+          ? "；该学生已有班级，未改绑（转班请用编辑或批量设班）"
+          : "";
+      return NextResponse.json({ message: `添加成功${suffix}`, unbound, class_skipped: classSkipped });
     }
 
     // Batch import
