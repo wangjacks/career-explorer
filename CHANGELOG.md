@@ -1,5 +1,27 @@
 # Changelog
 
+## [2.0.3] - 2026-09-26
+
+### Action Required
+
+- 班级邀请海报基址改为**强制配置**：`NEXT_PUBLIC_APP_URL` 由可选升为生产必需。缺失、或配成 `localhost` / `127.0.0.1` / `0.0.0.0` / `::1` / 带子路径、查询串、凭据的值，`GET /api/manage/classes/[id]/poster` 返回 503 并给出中文原因。内网直连演示（如 `http://192.168.x.x:3000`）同样需要显式配置该变量。该值运行时读取，改后重启服务即生效，无需重新构建（#148）
+
+### Fixed
+
+- 班级邀请二维码在反向代理部署下产出 `localhost` 链接：根因是 Next 16 未开 `trustHostHeader` 时 `request.url` 的 host 取进程绑定 hostname 而非 `Host` 头。现只信任显式配置，不读取任何可伪造的代理头；仅非生产模式回退请求 origin；生效链接经 `X-Invite-Url` 回传并在海报弹窗内显示（#148）
+- 手动添加学生时所选班级不生效：`POST /api/manage/students` 单条分支此前完全忽略 `className`。现与批量导入共用 `resolveClassByName` 解析口径，**只给未分班学生补绑**，已分班学生仅改姓名（转班仍走编辑弹窗 / 批量设班 / 批量导入三个专门入口），班级不存在与未绑定均明确反馈，不再静默丢弃（#160）
+- 批量设置班级由自由文本改为受控下拉：不再依赖手工输入正确班级名，浅色与深色主题下均可读，支持一次操作把多名学生清空为「未分班」，目标班级不存在时前置阻断，不再产生 N 次无效 `PUT` 与 N 条 `student:update` 失败审计；「班级列表加载失败」与「暂无班级」两种状态分开展示（#161）
+
+### Changed
+
+- 依赖升级：@types/node 26.4.0 → 26.6.2、@aws-sdk/client-s3 3.1132.0 → 3.1137.0、jszip 3.10.1 → 3.10.2、lucide-react 1.44.0 → 1.47.0
+- 新增 `src/lib/class-utils.ts` 作为班级名解析的单一入口，单条添加与批量导入共用同一口径
+- 学生管理端班级选择状态由班级名字符串改为班级 id（`-1` 哨兵表示未分班），后端 `PUT /api/manage/students` 契约不变，教师权限表与 `docs/architecture.md` 无需同步
+- 文档：`docs/standards.md` 环境变量表与 `.env.example` 将 `NEXT_PUBLIC_APP_URL` 标注为生产必需，`DEPLOY.md` 补 503 排障条目
+- 测试：测试文件 24 → 27，新增 `class-utils` / `student-create-class-binding` / `students-api` 共 16 例，扩充 `invite-poster`（7 → 16）与 `poster-route`（11 → 17）
+- 已知限制：批量设班下拉未实现键盘方向键导航，且 `role="option"` 挂在 `<button>` 上谎报 listbox 语义，登记为 #194 归入 v2.1.0
+- 本版本含 1 项配置要求变更（见 Action Required）与 3 项缺陷修复，`src/` 有变更；无数据库迁移、无 API 路径与权限表变更，部署为「先配 env 再重启」型
+
 ## [2.0.2] - 2026-09-25
 
 ### Changed
