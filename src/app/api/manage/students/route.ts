@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getStudents, insertUser, getUserByCode, updateUser, deleteStudents, getClassByName } from "@/lib/db";
 import { hashPassword } from "@/lib/auth";
 import { getAuditActor, getRequestContext, recordAudit } from "@/lib/audit";
+import { resolveClassByName } from "@/lib/class-utils";
 
 export async function GET() {
   const students = await getStudents();
@@ -24,19 +25,46 @@ export async function POST(request: NextRequest) {
         });
         return NextResponse.json({ error: "学号必须为12位数字" }, { status: 400 });
       }
+      // 班级名解析（#160）：未命中不绑定但给出明确反馈，与批量导入共用解析口径
+      const binding = await resolveClassByName(body.className);
       const existing = await getUserByCode(body.studentId);
+      // 手动添加只给未分班学生补绑班级；已分班者只改姓名，转班走编辑弹窗或批量设班
+      const canBind = !existing || existing.class_id == null;
+      const boundClassId = canBind ? binding.classId : null;
+      const classSkipped = !canBind && binding.classId !== null && binding.classId !== existing?.class_id;
       if (existing) {
-        await updateUser(existing.id, { name: body.name });
+        await updateUser(existing.id, {
+          name: body.name,
+          ...(boundClassId !== null ? { class_id: boundClassId } : {}),
+        });
       } else {
-        await insertUser({ user_code: body.studentId, role: "student", name: body.name });
+        await insertUser({
+          user_code: body.studentId,
+          role: "student",
+          name: body.name,
+          ...(boundClassId !== null ? { class_id: boundClassId } : {}),
+        });
       }
+      const unbound = binding.provided && binding.classId === null;
       void recordAudit({
         ...actor, action: "student:create", method: "POST", path: "/api/manage/students",
         resource_type: "student", resource_id: body.studentId,
         status: "success", error_message: null, ip, user_agent,
-        metadata: { mode: existing ? "updated" : "created", name: body.name },
+        metadata: {
+          mode: existing ? "updated" : "created",
+          name: body.name,
+          className: binding.className || null,
+          class_id: boundClassId,
+          unbound,
+          class_skipped: classSkipped,
+        },
       });
-      return NextResponse.json({ message: "添加成功" });
+      const suffix = unbound
+        ? `；班级「${binding.className}」不存在，未绑定班级`
+        : classSkipped
+          ? "；该学生已有班级，未改绑（转班请用编辑或批量设班）"
+          : "";
+      return NextResponse.json({ message: `添加成功${suffix}`, unbound, class_skipped: classSkipped });
     }
 
     // Batch import
@@ -56,25 +84,20 @@ export async function POST(request: NextRequest) {
       }
       let unbound = 0;
       for (const s of valid) {
-        // 按班级名查 class_id；班级不存在时不绑定并计数
-        const className = (s.className || "").trim();
-        let classId: number | undefined;
-        if (className) {
-          const cls = await getClassByName(className);
-          if (cls) classId = cls.id;
-          else unbound++;
-        }
+        // 按班级名查 class_id；班级不存在时不绑定并计数（与单条添加共用解析口径）
+        const binding = await resolveClassByName(s.className);
+        if (binding.provided && binding.classId === null) unbound++;
         const existing = await getUserByCode(s.studentId);
         if (existing) {
           const fields: { name: string; class_id?: number } = { name: s.name };
-          if (typeof classId === "number") fields.class_id = classId;
+          if (binding.classId !== null) fields.class_id = binding.classId;
           await updateUser(existing.id, fields);
         } else {
           await insertUser({
             user_code: s.studentId,
             role: "student",
             name: s.name,
-            ...(typeof classId === "number" ? { class_id: classId } : {}),
+            ...(binding.classId !== null ? { class_id: binding.classId } : {}),
           });
         }
       }
