@@ -889,7 +889,7 @@ export default function StudentsTab({ students, loadError, onRetry, onStudentsCh
               ))}
               {filteredStudents.length === 0 && (
                 <tr>
-                  <td colSpan={5} className="px-4 py-8 text-center text-muted text-sm">
+                  <td colSpan={6} className="px-4 py-8 text-center text-muted text-sm">
                     {students.length === 0 ? (
                       <span className="inline-flex flex-col items-center gap-2">
                         <Users size={28} strokeWidth={1.5} className="text-gray-300" />
