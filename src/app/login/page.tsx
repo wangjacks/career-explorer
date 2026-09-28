@@ -1,11 +1,13 @@
 "use client";
 
-import { Suspense, useEffect, useState } from "react";
+import { Suspense, useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { Compass } from "lucide-react";
 import { useSession } from "@/hooks/useSession";
 import NavigationBar from "@/components/NavigationBar";
+import GeetestCaptcha, { type GeetestCaptchaHandle } from "@/components/GeetestCaptcha";
+import type { CaptchaTicket } from "@/lib/captcha";
 
 /** 登录成功后按角色跳转的落点 */
 const ROLE_HOME: Record<string, string> = {
@@ -29,6 +31,9 @@ function LoginForm() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  // 人机验证（#155）：票据一次性，登录失败后递增以重置验证码
+  const [captchaResetSignal, setCaptchaResetSignal] = useState(0);
+  const captchaRef = useRef<GeetestCaptchaHandle>(null);
 
   // 已登录访问本页：有 next 回跳目标则跳回，否则跳对应面板
   useEffect(() => {
@@ -37,14 +42,14 @@ function LoginForm() {
     }
   }, [session, router, next]);
 
-  const handleLogin = async () => {
+  const handleLogin = async (ticket: CaptchaTicket | null) => {
     setError("");
     setLoading(true);
     try {
       const res = await fetch("/api/auth", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ userCode, password }),
+        body: JSON.stringify({ userCode, password, ...(ticket ? { captcha: ticket } : {}) }),
       });
       const data = await res.json();
       if (data.ok) {
@@ -52,8 +57,10 @@ function LoginForm() {
         return;
       }
       setError(data.error || "登录失败");
+      setCaptchaResetSignal((n) => n + 1);
     } catch {
       setError("登录失败，请稍后重试");
+      setCaptchaResetSignal((n) => n + 1);
     } finally {
       setLoading(false);
     }
@@ -95,7 +102,7 @@ function LoginForm() {
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && userCode && password && handleLogin()}
+              onKeyDown={(e) => e.key === "Enter" && userCode && password && captchaRef.current?.trigger()}
               placeholder="请输入密码"
               className="w-full px-4 py-3 border border-gray-200 dark:border-gray-600 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-focus-ring focus:border-transparent"
             />
@@ -103,13 +110,15 @@ function LoginForm() {
 
           {error && <p className="text-sm text-red-500">{error}</p>}
 
-          <button
-            onClick={handleLogin}
-            disabled={!userCode || !password || loading}
-            className="w-full py-3 bg-primary hover:bg-primary-strong disabled:bg-gray-300 dark:disabled:bg-gray-600 text-white font-medium rounded-xl transition-colors"
-          >
-            {loading ? "登录中..." : "登录"}
-          </button>
+          <GeetestCaptcha
+            ref={captchaRef}
+            label="登录"
+            loadingLabel="登录中..."
+            disabled={!userCode || !password}
+            loading={loading}
+            resetSignal={captchaResetSignal}
+            onVerified={handleLogin}
+          />
 
           <p className="text-center text-sm text-muted">
             还未激活账户？{" "}

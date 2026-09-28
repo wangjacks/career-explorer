@@ -53,12 +53,78 @@ export default function ClassesTab({ mode, teacherUid }: Props) {
   // 确认对话框
   const [deleting, setDeleting] = useState<ClassItem | null>(null);
   const [resetting, setResetting] = useState<ClassItem | null>(null);
-  // 邀请海报预览（Issue #102）
+  // 邀请海报预览（Issue #102）。#148：改为 fetch→blob，服务端基址配置错误才能以原文呈现
   const [posterClass, setPosterClass] = useState<ClassItem | null>(null);
-  const [posterTs, setPosterTs] = useState(0);
+  const [posterSrc, setPosterSrc] = useState<string | null>(null);
+  const [posterInviteUrl, setPosterInviteUrl] = useState("");
+  const [posterLoading, setPosterLoading] = useState(false);
+  const [posterError, setPosterError] = useState<string | null>(null);
   const posterTitleId = useId();
   const posterDialogRef = useRef<HTMLDivElement>(null);
-  const closePoster = useCallback(() => setPosterClass(null), []);
+  const posterObjectUrlRef = useRef<string | null>(null);
+  const posterReqIdRef = useRef(0);
+
+  const revokePoster = () => {
+    if (posterObjectUrlRef.current) URL.revokeObjectURL(posterObjectUrlRef.current);
+    posterObjectUrlRef.current = null;
+  };
+
+  const closePoster = useCallback(() => {
+    posterReqIdRef.current += 1; // 作废在途请求，避免关闭后仍写入状态
+    revokePoster();
+    setPosterSrc(null);
+    setPosterInviteUrl("");
+    setPosterError(null);
+    setPosterLoading(false);
+    setPosterClass(null);
+  }, []);
+
+  const loadPoster = useCallback(async (klass: ClassItem) => {
+    const reqId = (posterReqIdRef.current += 1);
+    revokePoster();
+    setPosterClass(klass);
+    setPosterSrc(null);
+    setPosterInviteUrl("");
+    setPosterError(null);
+    setPosterLoading(true);
+    try {
+      const res = await fetch(`/api/manage/classes/${klass.id}/poster?v=${Date.now()}`);
+      if (reqId !== posterReqIdRef.current) return;
+      if (!res.ok) {
+        let message = "生成邀请海报失败";
+        try {
+          const data = await res.json();
+          if (typeof data.error === "string") message = data.error;
+        } catch {
+          console.error("海报接口返回非 JSON 错误体:", res.status);
+        }
+        throw new Error(message);
+      }
+      const objectUrl = URL.createObjectURL(await res.blob());
+      if (reqId !== posterReqIdRef.current) {
+        URL.revokeObjectURL(objectUrl);
+        return;
+      }
+      posterObjectUrlRef.current = objectUrl;
+      setPosterSrc(objectUrl);
+      setPosterInviteUrl(res.headers.get("X-Invite-Url") ?? "");
+    } catch (err) {
+      if (reqId !== posterReqIdRef.current) return;
+      setPosterError(err instanceof Error ? err.message : "生成邀请海报失败");
+    } finally {
+      if (reqId === posterReqIdRef.current) setPosterLoading(false);
+    }
+  }, []);
+
+  // 面板按 activeTab 条件渲染，切走即卸载本组件：不兜底清理会漏掉 blob URL，且慢请求可能在卸载后回写
+  useEffect(
+    () => () => {
+      posterReqIdRef.current += 1;
+      if (posterObjectUrlRef.current) URL.revokeObjectURL(posterObjectUrlRef.current);
+      posterObjectUrlRef.current = null;
+    },
+    []
+  );
 
   useEffect(() => {
     if (!posterClass) return;
@@ -221,10 +287,10 @@ export default function ClassesTab({ mode, teacherUid }: Props) {
     }
   };
 
-  const copyCode = async (code: string) => {
+  const copyCode = async (code: string, message = "邀请码已复制") => {
     try {
       await navigator.clipboard.writeText(code);
-      toast.success("邀请码已复制");
+      toast.success(message);
     } catch {
       toast.error("复制失败，请手动复制");
     }
@@ -310,10 +376,7 @@ export default function ClassesTab({ mode, teacherUid }: Props) {
                       onDelete={() => setDeleting(klass)}
                       onReset={() => setResetting(klass)}
                       onCopy={() => copyCode(klass.invitation_code)}
-                      onPoster={() => {
-                        setPosterClass(klass);
-                        setPosterTs(Date.now());
-                      }}
+                      onPoster={() => loadPoster(klass)}
                     />
                   );
                 })}
@@ -417,13 +480,50 @@ export default function ClassesTab({ mode, teacherUid }: Props) {
               </button>
             </div>
 
-            <div className="rounded-xl overflow-hidden border border-border-soft bg-gray-50 dark:bg-gray-800 flex justify-center">
-              <img
-                src={`/api/manage/classes/${posterClass.id}/poster?v=${posterTs}`}
-                alt="班级邀请海报"
-                className="w-full max-w-[280px]"
-              />
-            </div>
+            {posterLoading && (
+              <div className="rounded-xl border border-border-soft bg-gray-50 dark:bg-gray-800 py-16 text-center text-sm text-muted">
+                海报生成中…
+              </div>
+            )}
+
+            {!posterLoading && posterError && (
+              <div className="flex items-start justify-between gap-3 rounded-xl border border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-900/20 px-4 py-3">
+                <p className="text-sm text-red-600 dark:text-red-400 break-all">{posterError}</p>
+                <button
+                  onClick={() => loadPoster(posterClass)}
+                  className="shrink-0 px-3 py-1 bg-danger hover:bg-red-600 text-white text-sm font-medium rounded-lg transition-colors"
+                >
+                  重试
+                </button>
+              </div>
+            )}
+
+            {!posterLoading && posterSrc && (
+              <>
+                <div className="rounded-xl overflow-hidden border border-border-soft bg-gray-50 dark:bg-gray-800 flex justify-center">
+                  <img
+                    src={posterSrc}
+                    alt="班级邀请海报"
+                    className="w-full max-w-[280px]"
+                  />
+                </div>
+                {!!posterInviteUrl && (
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-muted shrink-0">当前生效链接</span>
+                    <code className="flex-1 px-2 py-1 bg-gray-100 dark:bg-gray-800 rounded text-xs font-mono text-foreground break-all">
+                      {posterInviteUrl}
+                    </code>
+                    <button
+                      onClick={() => copyCode(posterInviteUrl, "激活链接已复制")}
+                      className="p-1 text-muted hover:text-foreground"
+                      aria-label="复制激活链接"
+                    >
+                      <Copy className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                )}
+              </>
+            )}
 
             <p className="text-xs text-muted leading-relaxed">
               邀请码已嵌入二维码；重置邀请码后旧海报将立即失效，请重新生成后再转发。
@@ -436,12 +536,15 @@ export default function ClassesTab({ mode, teacherUid }: Props) {
               >
                 关闭
               </button>
-              <a
-                href={`/api/manage/classes/${posterClass.id}/poster?download=1`}
-                className="flex-1 py-2 bg-primary hover:bg-primary-strong text-white text-sm font-medium rounded-lg transition-colors text-center"
-              >
-                下载海报
-              </a>
+              {posterSrc && (
+                <a
+                  href={posterSrc}
+                  download={`邀请海报-${posterClass.name}.png`}
+                  className="flex-1 py-2 bg-primary hover:bg-primary-strong text-white text-sm font-medium rounded-lg transition-colors text-center"
+                >
+                  下载海报
+                </a>
+              )}
             </div>
           </div>
         </div>

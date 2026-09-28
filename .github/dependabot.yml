@@ -5,3 +5,7 @@ updates:
     target-branch: "dev"
     schedule:
       interval: "weekly"
+    # ESLint 10 crashes on eslint-plugin-react 7.x, which eslint-config-next bundles.
+    ignore:
+      - dependency-name: "eslint"
+        versions: [">=10.0.0"]

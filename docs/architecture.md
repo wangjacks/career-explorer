@@ -8,6 +8,9 @@
 - 登录签发 JWT（jose HS256, 24h，含 role/uid/name），HttpOnly Cookie `auth_token` 传递
 - `proxy.ts`（Next.js 16，替代已弃用的 middleware）拦截管理域路由做角色权限校验
 - 学生账户由教师导入名单预建（无密码），学生凭学号 + 姓名 + 本班邀请码三要素核验后激活；激活为两步单页（#93）：先 `verify` 核验取回名单姓名，再 `activate` 设置密码并自动登录
+- 认证入口人机验证（#155）：`POST /api/auth` 与 `POST /api/auth/activate/verify` 在查库 / 三要素核验**之前**校验极验（GeeTest v4）票据，票据缺失或无效直接 400 并统一返回「请先完成人机验证」，不进入 bcrypt 密码比对；凭证经 `NEXT_PUBLIC_GEETEST_CAPTCHA_ID`（公开，前端初始化）与 `GEETEST_PRIVATE_KEY`（仅服务端生成 `sign_token`）注入，不落库、不入日志
+- 人机验证降级策略（#155）：**fail-open，且仅针对服务端不可达**。凭证未配置，或极验校验服务不可达（超时 / 非 200 / 响应不可解析）时放行认证并记 `auth:captcha-degraded` 审计；票据缺失或无效统一返回 400「请先完成人机验证」并记 `auth:captcha-failed`。前端组件脚本被拦截 / 初始化失败时只做本地提示并要求重试——客户端自述「不可用」不可信，静默放行等于给出绕过通道
+- 人机验证前端形态（#155）：绑定式（bind，点击提交按钮弹出验证），票据一次性；登录失败或核验失败后前端重置验证码要求重新验证。仅登录页与激活页第一步启用，激活第二步（设置密码）不启用
 
 | 面板 | 路由 | 访问权限 |
 |---|---|---|
@@ -62,8 +65,8 @@
 
 | 路由 | 方法 | 说明 |
 |---|---|---|
-| `/api/auth` | POST / GET / DELETE | 登录 / 会话检测 / 登出 |
-| `/api/auth/activate/verify` | POST | 激活前置核验（#93 两步激活第一步）：校验学号 + 姓名 + 邀请码三要素，不设置密码；通过时返回名单姓名供第二步问候语展示 |
+| `/api/auth` | POST / GET / DELETE | 登录（#155 起需携带极验票据）/ 会话检测 / 登出 |
+| `/api/auth/activate/verify` | POST | 激活前置核验（#93 两步激活第一步）：校验学号 + 姓名 + 邀请码三要素，不设置密码；通过时返回名单姓名供第二步问候语展示（#155 起需携带极验票据） |
 | `/api/auth/activate` | POST | 学生账户激活（#93 第二步）：三要素核验通过后设置密码并自动登录 |
 
 ### 安装层（proxy 之外）
@@ -192,7 +195,7 @@
 ## 班级邀请海报（#102）
 
 - **入口**：管理/教师面板「班级管理」列表，有权限（admin 全权 / teacher 本人创建）的班级可生成海报；`GET /api/manage/classes/[id]/poster` 返回 PNG（`?download=1` 为附件下载）
-- **生成链路**：`src/lib/invite-poster.ts` 用 `qrcode` 生成二维码 SVG，拼入海报 SVG（班级名称 + 邀请说明 + 品牌配色），再由 `sharp` 栅格化为 600×800 PNG；二维码基址取 `NEXT_PUBLIC_APP_URL`，未配置时回退请求 origin
+- **生成链路**：`src/lib/invite-poster.ts` 用 `qrcode` 生成二维码 SVG，拼入海报 SVG（班级名称 + 邀请说明 + 品牌配色），再由 `sharp` 栅格化为 600×800 PNG；二维码基址由 `resolvePosterBaseUrl()` 解析——生产环境必须显式配置 `NEXT_PUBLIC_APP_URL`，缺失或非法时接口返回 503 与中文原因、不产出错误域名的海报（#148），仅非生产模式回退请求 origin；成功响应的 `X-Invite-Url` 头把生效链接回给面板核对
 - **安全边界**：二维码只携带 `/activate?invite=CODE`，激活页仅做表单预填，服务端 `resolveActivation` 仍强制学号 + 姓名 + 班级归属三要素一致；邀请码重置后旧码在数据库即失效，旧海报二维码无法通过校验；海报不含学生个人信息、管理员凭据等敏感数据
 - **文本渲染依赖**：海报中文由服务端系统字体渲染（SVG 多字体回退栈）；Linux 部署须安装中文字体（如 `fonts-noto-cjk`），见 DEPLOY.md
 - **审计**：生成海报计入操作审计（`class:poster`），邀请码本身不落审计日志（#110 凭据类数据不落库）

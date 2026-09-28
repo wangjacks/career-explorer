@@ -409,7 +409,9 @@ permissions:
 |---|---|
 | `JWT_SECRET` | JWT 签名密钥（生产必需；未配置会回退到代码内置的不安全默认值） |
 | `FONT_CDN_PREFIX` | 可选：Google Fonts 镜像前缀（构建时生效，如 https://fonts.loli.net） |
-| `NEXT_PUBLIC_APP_URL` | 可选：站点公网地址，班级邀请海报二维码的链接基址（#102）；未配置时回退生成海报的请求 origin，生产建议显式配置 |
+| `NEXT_PUBLIC_APP_URL` | 站点公网地址，班级邀请海报二维码的链接基址（#102）。**生产必需**：Next 未开启 `experimental.trustHostHeader`，`request.url` 的 host 取进程绑定地址而非 `Host` 头，`next start` 无 `-H` 时恒为 `localhost`，反向代理下无法从请求推导真实域名；而 `Host` / `X-Forwarded-Host` 可被客户端伪造（钓鱼域名会直接印进海报），故不作为可信来源。缺失或非法（须为含协议的站点根地址、不得指向 localhost/127.0.0.1/0.0.0.0/::1）时 `GET /api/manage/classes/[id]/poster` 返回 503 与中文原因（#148）。仅非生产模式回退请求 origin。运行时读取，改后重启进程即生效、无需重新构建 |
+| `NEXT_PUBLIC_GEETEST_CAPTCHA_ID` | 可选：极验行为验证验证 ID（#155），登录页与激活页第一步前端初始化使用；与 `GEETEST_PRIVATE_KEY` 必须同时配置，公开值 |
+| `GEETEST_PRIVATE_KEY` | 可选：极验行为验证私钥（#155），仅服务端生成 `sign_token` 使用；不提交仓库、不写入日志。两者缺失或极验不可达时按 fail-open 降级放行并记 `auth:captcha-degraded` 审计 |
 | `S3_{后端ID}_ACCESS_KEY` | 可选：对象存储凭据（#111），`{后端ID}` 为管理面板「系统设置 → 存储管理」创建后端后返回的 ID（对应 `storage_backends.id`）；凭据不入库 |
 | `S3_{后端ID}_SECRET_KEY` | 可选：同上，Secret Key / SecretKey |
 | `ALLOWED_ORIGINS` | 仅 dev 模式：Next.js 开发服务器 origin 白名单（逗号分隔），生产无效 |
