@@ -2,12 +2,19 @@
 
 import { useState, useRef, useEffect, useMemo } from "react";
 import { toast } from "sonner";
-import { ChevronDown, Users } from "lucide-react";
+import { ChevronDown, Download, Users } from "lucide-react";
 import { Field } from "./AdminUI";
 import ConfirmDialog from "./ConfirmDialog";
 import { useEscapeKey } from "@/hooks/useEscapeKey";
 import type { Student } from "@/hooks/useAdminAuth";
 import { generatePassword } from "@/lib/password";
+import {
+  countSubmissions,
+  formatSubmittedAt,
+  isSubmitted,
+  matchesSubmissionFilter,
+  type SubmissionFilter,
+} from "@/lib/student-status";
 
 interface Props {
   students: Student[];
@@ -18,7 +25,7 @@ interface Props {
   role?: "admin" | "teacher";
 }
 
-type SortKey = "user_code" | "name" | "class_name";
+type SortKey = "user_code" | "name" | "class_name" | "submitted_at";
 type SortDir = "asc" | "desc";
 
 interface ClassItem {
@@ -137,6 +144,8 @@ export default function StudentsTab({ students, loadError, onRetry, onStudentsCh
   const [classList, setClassList] = useState<ClassItem[]>([]);
   const [classesFailed, setClassesFailed] = useState(false);
   const [selectedStudents, setSelectedStudents] = useState<Set<string>>(new Set());
+  // 提交状态筛选（#170）：催交场景一键切到「未提交」
+  const [submissionFilter, setSubmissionFilter] = useState<SubmissionFilter>("all");
 
   // Search & sort
   const [search, setSearch] = useState("");
@@ -258,8 +267,8 @@ export default function StudentsTab({ students, loadError, onRetry, onStudentsCh
     });
   };
 
-  // Filtered + sorted students
-  const filteredStudents = useMemo(() => {
+  // 班级 + 搜索筛选结果（提交状态计数基于这一层，便于看到「本班未提交 N 名」）
+  const scopedStudents = useMemo(() => {
     const q = search.trim().toLowerCase();
     let list = students;
     if (selectedClasses.size > 0) {
@@ -273,6 +282,15 @@ export default function StudentsTab({ students, loadError, onRetry, onStudentsCh
           classNameOf(s).toLowerCase().includes(q)
       );
     }
+    return list;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [students, search, classList, selectedClasses]);
+
+  const submissionCounts = useMemo(() => countSubmissions(scopedStudents), [scopedStudents]);
+
+  // Filtered + sorted students（#170：叠加提交状态筛选）
+  const filteredStudents = useMemo(() => {
+    const list = scopedStudents.filter((s) => matchesSubmissionFilter(s.submitted_at, submissionFilter));
     return [...list].sort((a, b) => {
       const va = sortKey === "class_name" ? classNameOf(a) : a[sortKey] || "";
       const vb = sortKey === "class_name" ? classNameOf(b) : b[sortKey] || "";
@@ -280,7 +298,7 @@ export default function StudentsTab({ students, loadError, onRetry, onStudentsCh
       return sortDir === "asc" ? cmp : -cmp;
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [students, search, sortKey, sortDir, classList, selectedClasses]);
+  }, [scopedStudents, submissionFilter, sortKey, sortDir, classList]);
 
   const handleSort = (key: SortKey) => {
     if (sortKey === key) {
@@ -289,6 +307,30 @@ export default function StudentsTab({ students, loadError, onRetry, onStudentsCh
       setSortKey(key);
       setSortDir("asc");
     }
+  };
+
+  const handleExportCsv = () => {
+    const esc = (v: string) => `"${v.replace(/"/g, '""')}"`;
+    const header = [esc("学号"), esc("姓名"), esc("班级"), esc("提交状态"), esc("提交时间")].join(",");
+    const rows = filteredStudents.map((s) =>
+      [
+        esc("'" + s.user_code),
+        esc(s.name),
+        esc(classNameOf(s)),
+        esc(isSubmitted(s.submitted_at) ? "已提交" : "未提交"),
+        esc(formatSubmittedAt(s.submitted_at)),
+      ].join(","),
+    );
+    const csv = "\uFEFF" + [header, ...rows].join("\r\n");
+    const now = new Date();
+    const pad = (n: number) => String(n).padStart(2, "0");
+    const filename = `学生名单_${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}.csv`;
+    const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    a.click();
+    URL.revokeObjectURL(url);
   };
 
   const handleAddStudent = async () => {
@@ -679,6 +721,33 @@ export default function StudentsTab({ students, loadError, onRetry, onStudentsCh
             学生列表（{filteredStudents.length} / {students.length} 名）
           </span>
           <div className="flex items-center gap-2 flex-wrap">
+            {/* 提交状态筛选（#170）：一键切到「未提交」用于催交，计数基于当前班级 / 搜索范围 */}
+            <div
+              role="group"
+              aria-label="提交状态筛选"
+              className="flex items-center gap-0.5 p-0.5 rounded-lg border border-gray-200 dark:border-gray-700 bg-card"
+            >
+              {([
+                { key: "all" as const, label: "全部", count: submissionCounts.total },
+                { key: "submitted" as const, label: "已提交", count: submissionCounts.submitted },
+                { key: "pending" as const, label: "未提交", count: submissionCounts.pending },
+              ]).map((opt) => (
+                <button
+                  key={opt.key}
+                  type="button"
+                  aria-pressed={submissionFilter === opt.key}
+                  onClick={() => setSubmissionFilter(opt.key)}
+                  className={`px-2.5 py-1 text-xs rounded-md transition-colors ${
+                    submissionFilter === opt.key
+                      ? "bg-primary text-white"
+                      : "text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800"
+                  }`}
+                >
+                  {opt.label}
+                  <span className="ml-1 opacity-80">{opt.count}</span>
+                </button>
+              ))}
+            </div>
             {/* 班级筛选多选下拉（默认全选） */}
             <div className="relative" ref={classDropdownRef}>
               <button
@@ -755,6 +824,14 @@ export default function StudentsTab({ students, loadError, onRetry, onStudentsCh
                 清除筛选
               </button>
             )}
+            <button
+              onClick={handleExportCsv}
+              disabled={filteredStudents.length === 0}
+              className="px-3 py-1.5 rounded-lg text-sm font-medium border border-gray-200 dark:border-gray-700 bg-card text-gray-600 dark:text-gray-300 hover:border-gray-300 transition-colors flex items-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              <Download className="w-3.5 h-3.5" />
+              导出名单（{filteredStudents.length}）
+            </button>
             {selectedStudents.size > 0 && (
               <>
                 <button
@@ -813,6 +890,14 @@ export default function StudentsTab({ students, loadError, onRetry, onStudentsCh
                 <th aria-sort={sortKey === "class_name" ? (sortDir === "asc" ? "ascending" : "descending") : "none"} className="px-4 py-2">
                   <button type="button" onClick={() => handleSort("class_name")} className="cursor-pointer select-none">
                     班级<SortIcon active={sortKey === "class_name"} dir={sortDir} />
+                  </button>
+                </th>
+                <th
+                  aria-sort={sortKey === "submitted_at" ? (sortDir === "asc" ? "ascending" : "descending") : "none"}
+                  className="px-4 py-2"
+                >
+                  <button type="button" onClick={() => handleSort("submitted_at")} className="cursor-pointer select-none">
+                    提交状态<SortIcon active={sortKey === "submitted_at"} dir={sortDir} />
                   </button>
                 </th>
                 <th className="px-4 py-2">操作</th>
@@ -897,6 +982,20 @@ export default function StudentsTab({ students, loadError, onRetry, onStudentsCh
                       </span>
                     )}
                   </td>
+                  <td className="px-4 py-2 whitespace-nowrap">
+                    {isSubmitted(s.submitted_at) ? (
+                      <span className="inline-flex items-center gap-1.5">
+                        <span className="px-1.5 py-0.5 rounded bg-green-50 dark:bg-green-900/30 text-green-700 dark:text-green-300 text-xs">
+                          已提交
+                        </span>
+                        <span className="text-xs text-muted">{formatSubmittedAt(s.submitted_at)}</span>
+                      </span>
+                    ) : (
+                      <span className="px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-xs text-muted">
+                        未提交
+                      </span>
+                    )}
+                  </td>
                   <td className="px-4 py-2">
                     <div className="flex items-center gap-2 opacity-60 group-hover:opacity-100 transition-opacity">
                       <button onClick={() => openEditModal(s)} className="text-green-600 hover:text-green-700 text-xs font-medium">
@@ -920,7 +1019,7 @@ export default function StudentsTab({ students, loadError, onRetry, onStudentsCh
               ))}
               {filteredStudents.length === 0 && (
                 <tr>
-                  <td colSpan={5} className="px-4 py-8 text-center text-muted text-sm">
+                  <td colSpan={6} className="px-4 py-8 text-center text-muted text-sm">
                     {students.length === 0 ? (
                       <span className="inline-flex flex-col items-center gap-2">
                         <Users size={28} strokeWidth={1.5} className="text-gray-300" />
