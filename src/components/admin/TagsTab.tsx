@@ -195,8 +195,14 @@ export default function TagsTab() {
   }, [categories, displayTags, query, showSelectedOnly, selected]);
 
   const flatIds = useMemo(
-    () => flattenVisibleIds(visibleRows.map((r) => ({ categoryId: r.category.id, childIds: r.children.map((c) => c.id) }))),
-    [visibleRows]
+    () =>
+      flattenVisibleIds(
+        visibleRows.map((r) => ({
+          categoryId: r.category.id,
+          childIds: collapsed.has(r.category.id) ? [] : r.children.map((c) => c.id),
+        }))
+      ),
+    [visibleRows, collapsed]
   );
 
   const allCollapsed = categories.length > 0 && categories.every((c) => collapsed.has(c.id));
