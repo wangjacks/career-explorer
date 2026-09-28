@@ -118,6 +118,32 @@ describe("按邀请码查班级", () => {
   });
 });
 
+describe("按学号集合批查（#193）", () => {
+  it("getUsersByCodes 一次查出命中学号；空集合不报错返回空数组", () => {
+    const dbPath = makeTmpDb();
+    const adapter = new SqliteAdapter(dbPath);
+    adapter.init();
+
+    adapter.insertUser({ user_code: "202505050101", role: "student", name: "张三" });
+    adapter.insertUser({ user_code: "202505050102", role: "student", name: "李四" });
+    adapter.insertUser({ user_code: "202505050103", role: "student", name: "王五" });
+
+    // 命中 2 条（含名单里重复出现的学号），未命中者静默忽略
+    const found = adapter.getUsersByCodes([
+      "202505050101",
+      "202505050101",
+      "202505050103",
+      "202505050999",
+    ]);
+    expect(found.map((u) => u.user_code).sort()).toEqual(["202505050101", "202505050103"]);
+
+    expect(adapter.getUsersByCodes([])).toEqual([]);
+
+    adapter.close();
+    rmSync(path.dirname(dbPath), { recursive: true, force: true });
+  });
+});
+
 describe("旧标签 Schema 迁移", () => {
   it("将 category 文本迁移为分类记录和 parent_id，保留原标签 ID", () => {
     const dbPath = makeTmpDb();

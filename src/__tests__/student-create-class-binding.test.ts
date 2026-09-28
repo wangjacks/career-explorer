@@ -6,6 +6,7 @@ vi.mock("@/lib/db", () => ({
   getStudents: vi.fn(),
   insertUser: vi.fn(async () => 1),
   getUserByCode: vi.fn(),
+  getUsersByCodes: vi.fn(),
   updateUser: vi.fn(async () => undefined),
   deleteStudents: vi.fn(),
   getClassByName: vi.fn(),
@@ -22,7 +23,14 @@ vi.mock("@/lib/token", () => ({
 }));
 
 import { POST } from "@/app/api/manage/students/route";
-import { insertUser, updateUser, getUserByCode, getClassByName, insertAuditLog } from "@/lib/db";
+import {
+  insertUser,
+  updateUser,
+  getUserByCode,
+  getUsersByCodes,
+  getClassByName,
+  insertAuditLog,
+} from "@/lib/db";
 
 const CLASS_ROW = { id: 7, name: "2025级1班", invitation_code: "abcd1234", created_at: "" };
 
@@ -160,7 +168,7 @@ describe("POST /api/manage/students — 批量导入口径回归（#160）", () 
     vi.mocked(getClassByName).mockImplementation(async (name: string) =>
       name === "2025级1班" ? (CLASS_ROW as never) : (undefined as never)
     );
-    vi.mocked(getUserByCode).mockResolvedValue(undefined as never);
+    vi.mocked(getUsersByCodes).mockResolvedValue([] as never);
 
     const res = await POST(
       postRequest({
@@ -184,9 +192,9 @@ describe("POST /api/manage/students — 批量导入口径回归（#160）", () 
 
   it("批量导入对已分班学生仍按名单改绑（与单条添加只补未分班的口径差异，存量补救依赖此行为）", async () => {
     vi.mocked(getClassByName).mockResolvedValue(CLASS_ROW as never);
-    vi.mocked(getUserByCode).mockResolvedValue(
-      { id: 21, user_code: "202505050203", class_id: 9 } as never
-    );
+    vi.mocked(getUsersByCodes).mockResolvedValue([
+      { id: 21, user_code: "202505050203", class_id: 9 },
+    ] as never);
 
     const res = await POST(
       postRequest({ students: [{ studentId: "202505050203", name: "甲", className: "2025级1班" }] })
@@ -194,5 +202,59 @@ describe("POST /api/manage/students — 批量导入口径回归（#160）", () 
 
     expect(res.status).toBe(200);
     expect(updateUser).toHaveBeenCalledWith(21, { name: "甲", class_id: 7 });
+  });
+
+  it("查库次数与名单行数无关：去重班级名各一次 + 学生一次批查（#193）", async () => {
+    vi.mocked(getClassByName).mockImplementation(async (name: string) =>
+      name === "2025级1班" ? (CLASS_ROW as never) : (undefined as never)
+    );
+    vi.mocked(getUsersByCodes).mockResolvedValue([] as never);
+
+    const res = await POST(
+      postRequest({
+        students: [
+          { studentId: "202505050301", name: "甲", className: "2025级1班" },
+          { studentId: "202505050302", name: "乙", className: "2025级1班" },
+          { studentId: "202505050303", name: "丙", className: "2025级1班" },
+          { studentId: "202505050304", name: "丁", className: "幽灵班" },
+          { studentId: "202505050305", name: "戊", className: "幽灵班" },
+        ],
+      })
+    );
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    // 5 行名单 / 2 个不同班级名 → 班级解析 2 次、学生批查 1 次，且不再逐行查学生
+    expect(getClassByName).toHaveBeenCalledTimes(2);
+    expect(getUsersByCodes).toHaveBeenCalledTimes(1);
+    expect(getUsersByCodes).toHaveBeenCalledWith([
+      "202505050301",
+      "202505050302",
+      "202505050303",
+      "202505050304",
+      "202505050305",
+    ]);
+    expect(getUserByCode).not.toHaveBeenCalled();
+    // 计数与文案保持改动前逐字一致
+    expect(body.message).toBe("导入 5 名学生，其中 2 条因班级不存在未绑定");
+  });
+
+  it("名单内同学号重复出现 → 首次插入、其后按已存在更新（保持改动前逐行查库语义）", async () => {
+    vi.mocked(getClassByName).mockResolvedValue(CLASS_ROW as never);
+    vi.mocked(getUsersByCodes).mockResolvedValue([] as never);
+    vi.mocked(insertUser).mockResolvedValue(31 as never);
+
+    const res = await POST(
+      postRequest({
+        students: [
+          { studentId: "202505050401", name: "甲", className: "2025级1班" },
+          { studentId: "202505050401", name: "甲改", className: "2025级1班" },
+        ],
+      })
+    );
+
+    expect(res.status).toBe(200);
+    expect(insertUser).toHaveBeenCalledTimes(1);
+    expect(updateUser).toHaveBeenCalledWith(31, { name: "甲改", class_id: 7 });
   });
 });

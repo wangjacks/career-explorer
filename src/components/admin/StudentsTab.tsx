@@ -348,9 +348,12 @@ export default function StudentsTab({ students, loadError, onRetry, onStudentsCh
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ studentId: newStudentId, name: newStudentName.trim(), className: newClassName.trim() }),
       });
-      const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data.error || "添加失败");
+      // 响应体可能不是 JSON（网关 502 返回 HTML、代理错误页等）：解析失败不抛引擎
+      // 异常，与 !res.ok 一并回退固定中文文案（#193）
+      const data = await res.json().catch(() => null);
+      if (!res.ok || data === null) {
+        toast.error(data?.error || "添加失败");
+        return;
       }
       // 班级未按预期绑定（#160）：服务端用 unbound / class_skipped 说明原因，以 warning 呈现避免“看起来成功但班级没绑上”
       if (data.unbound || data.class_skipped) toast.warning(data.message || "添加成功，但班级未绑定");
@@ -361,7 +364,9 @@ export default function StudentsTab({ students, loadError, onRetry, onStudentsCh
       onStudentsChanged();
       refreshClasses();
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "添加失败");
+      // 走到这里只剩网络层异常（服务端中文错误文案已在上方返回），统一固定文案
+      console.error("Add student failed:", e);
+      toast.error("添加失败，请稍后重试");
     }
   };
 

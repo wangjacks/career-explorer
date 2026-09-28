@@ -452,6 +452,14 @@ export class SqliteAdapter implements DbAdapter {
       | undefined;
   }
 
+  getUsersByCodes(userCodes: string[]): UserRow[] {
+    if (userCodes.length === 0) return [];
+    const placeholders = userCodes.map(() => "?").join(",");
+    return this.db
+      .prepare(`SELECT * FROM users WHERE user_code IN (${placeholders})`)
+      .all(...userCodes) as UserRow[];
+  }
+
   getUserById(id: number): UserRow | undefined {
     return this.db.prepare("SELECT * FROM users WHERE id = ?").get(id) as UserRow | undefined;
   }

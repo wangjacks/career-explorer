@@ -299,6 +299,7 @@ export interface DbAdapter {
   // users
   insertUser(user: NewUser): Promise<number> | number;
   getUserByCode(userCode: string): Promise<UserRow | undefined> | UserRow | undefined;
+  getUsersByCodes(userCodes: string[]): Promise<UserRow[]> | UserRow[];
   getUserById(id: number): Promise<UserRow | undefined> | UserRow | undefined;
   getAdminUser(): Promise<UserRow | undefined> | UserRow | undefined;
   updateUser(id: number, fields: UserUpdateFields): Promise<void> | void;
@@ -464,6 +465,12 @@ export async function insertUser(user: NewUser): Promise<number> {
 export async function getUserByCode(userCode: string): Promise<UserRow | undefined> {
   const adapter = await ensureInit();
   return Promise.resolve(adapter.getUserByCode(userCode));
+}
+
+/** 按学号集合批查（#193 批量导入）：避免逐行查库 */
+export async function getUsersByCodes(userCodes: string[]): Promise<UserRow[]> {
+  const adapter = await ensureInit();
+  return Promise.resolve(adapter.getUsersByCodes(userCodes));
 }
 
 export async function getUserById(id: number): Promise<UserRow | undefined> {

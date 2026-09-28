@@ -487,6 +487,16 @@ export class MysqlAdapter implements DbAdapter {
     return (rows as UserRow[])[0];
   }
 
+  async getUsersByCodes(userCodes: string[]): Promise<UserRow[]> {
+    if (userCodes.length === 0) return [];
+    const placeholders = userCodes.map(() => "?").join(",");
+    const [rows] = await this.pool.execute(
+      `SELECT * FROM users WHERE user_code IN (${placeholders})`,
+      userCodes
+    );
+    return rows as UserRow[];
+  }
+
   async getUserById(id: number): Promise<UserRow | undefined> {
     const [rows] = await this.pool.execute("SELECT * FROM users WHERE id = ?", [id]);
     return (rows as UserRow[])[0];
