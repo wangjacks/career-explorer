@@ -43,6 +43,7 @@
   --color-focus-ring: var(--color-green-300);
   --color-info: var(--color-blue-500);
   --color-warning: var(--color-amber-500);
+  --color-warning-strong: var(--color-amber-600);
   --color-danger: var(--color-red-500);
   /* 标签三色（三维度色彩编码，>3 类循环取色） */
   --tag-interest: #059669;
