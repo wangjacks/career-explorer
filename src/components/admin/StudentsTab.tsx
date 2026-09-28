@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect, useMemo } from "react";
 import { toast } from "sonner";
-import { ChevronDown, Users } from "lucide-react";
+import { ChevronDown, Download, Users } from "lucide-react";
 import { Field } from "./AdminUI";
 import ConfirmDialog from "./ConfirmDialog";
 import { useEscapeKey } from "@/hooks/useEscapeKey";
@@ -243,6 +243,30 @@ export default function StudentsTab({ students, loadError, onRetry, onStudentsCh
       setSortKey(key);
       setSortDir("asc");
     }
+  };
+
+  const handleExportCsv = () => {
+    const esc = (v: string) => `"${v.replace(/"/g, '""')}"`;
+    const header = [esc("学号"), esc("姓名"), esc("班级"), esc("提交状态"), esc("提交时间")].join(",");
+    const rows = filteredStudents.map((s) =>
+      [
+        esc("'" + s.user_code),
+        esc(s.name),
+        esc(classNameOf(s)),
+        esc(isSubmitted(s.submitted_at) ? "已提交" : "未提交"),
+        esc(formatSubmittedAt(s.submitted_at)),
+      ].join(","),
+    );
+    const csv = "\uFEFF" + [header, ...rows].join("\r\n");
+    const now = new Date();
+    const pad = (n: number) => String(n).padStart(2, "0");
+    const filename = `学生名单_${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}.csv`;
+    const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    a.click();
+    URL.revokeObjectURL(url);
   };
 
   const handleAddStudent = async () => {
@@ -706,6 +730,14 @@ export default function StudentsTab({ students, loadError, onRetry, onStudentsCh
                 清除筛选
               </button>
             )}
+            <button
+              onClick={handleExportCsv}
+              disabled={filteredStudents.length === 0}
+              className="px-3 py-1.5 rounded-lg text-sm font-medium border border-gray-200 dark:border-gray-700 bg-card text-gray-600 dark:text-gray-300 hover:border-gray-300 transition-colors flex items-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              <Download className="w-3.5 h-3.5" />
+              导出名单（{filteredStudents.length}）
+            </button>
             {selectedStudents.size > 0 && (
               <>
                 <button
