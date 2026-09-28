@@ -295,7 +295,7 @@ describe("班级管理与教师账户", () => {
     rmSync(path.dirname(dbPath), { recursive: true, force: true });
   });
 
-  it("getClassByName 区分大小写（#191：trim 后全等，不折叠大小写）", () => {
+  it("getClassByName 为精确匹配：区分大小写、不忽略尾随空格（#191）", () => {
     const dbPath = makeTmpDb();
     const adapter = new SqliteAdapter(dbPath);
     adapter.init();

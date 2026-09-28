@@ -71,6 +71,16 @@ describe("PUT /api/manage/students — 班级绑定契约（#161）", () => {
     expect(updateUser).toHaveBeenCalledWith(STUDENT.id, { class_id: 5 });
   });
 
+  it("班级名首尾空格 → trim 后解析并绑定（#191：与前端即时提示、批量导入同一口径）", async () => {
+    vi.mocked(getClassByName).mockResolvedValue(CLASS_5);
+    const res = await PUT(
+      createPutRequest({ studentId: "202505050101", className: "  2025级1班 " }, await adminCookies())
+    );
+    expect(res.status).toBe(200);
+    expect(getClassByName).toHaveBeenCalledWith("2025级1班");
+    expect(updateUser).toHaveBeenCalledWith(STUDENT.id, { class_id: 5 });
+  });
+
   it("className 为空串 → 解绑为未分班（class_id 写入 null，批量清空的依赖路径）", async () => {
     const res = await PUT(
       createPutRequest({ studentId: "202505050101", className: "" }, await adminCookies())
