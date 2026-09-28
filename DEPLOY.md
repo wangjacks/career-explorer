@@ -110,6 +110,8 @@ npm run build
 
 `APP_PUBLIC_URL` 不带 `NEXT_PUBLIC_` 前缀，不会被 Next.js 构建时内联，在请求时读取。事后补改只需 `pm2 restart career-app`，**无需重新 `npm run build`**。取值规则见 `docs/standards.md` §11。
 
+> **从旧版本升级**：旧变量名 `NEXT_PUBLIC_APP_URL` 自 #196 起**不再被读取**（它在构建期被内联，改配置后重启不生效）。请把 `.env.local` 中的该行改名为 `APP_PUBLIC_URL` 再重启，否则海报接口会持续返回 503（提示「海报基址未配置」）。
+
 ### 可选：对象存储凭据（S3 兼容，#111）
 
 系统默认将学生头像 / 评价词云存入应用服务器本地 `uploads/` 目录，无需任何配置。若需接入云对象存储（腾讯云 COS / 阿里云 OSS / MinIO / AWS S3 等任意 S3 兼容服务），在管理面板「系统设置 → 存储管理」新增后端后，按返回的后端 ID 在 `.env.local` 中配置凭据并重启服务：
@@ -375,7 +377,7 @@ mysql -u root -p career_app -e "UPDATE users SET password_hash='新的hash值' W
 
 **根因**：二维码的域名不能从请求推导。Next.js 未开启 `experimental.trustHostHeader` 时，`request.url` 的主机名取的是进程绑定地址而非 `Host` 头，`next start` 不带 `-H` 时恒为 `localhost`，反向代理转发的真实域名被忽略（机制详见 `docs/standards.md` §11）。自 #148 起生产环境不再静默生成错误域名的海报，而是返回 503 并在弹窗显示具体原因。
 
-**处理**：在 `.env.local` 配置 `APP_PUBLIC_URL` 后重启（该变量不带 `NEXT_PUBLIC_` 前缀，不会被构建时内联，无需重新构建）：
+**处理**：在 `.env.local` 配置 `APP_PUBLIC_URL` 后重启（该变量不带 `NEXT_PUBLIC_` 前缀，不会被构建时内联，无需重新构建）。从旧版本升级的部署请先确认变量名已改名 —— 旧名 `NEXT_PUBLIC_APP_URL` 不再被读取：
 
 ```bash
 cd /var/www/career-app
