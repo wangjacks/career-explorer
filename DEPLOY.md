@@ -99,7 +99,7 @@ JWT_SECRET=一个随机字符串作为JWT签名密钥
 # 可选：Google Fonts 镜像前缀（官方域名访问不畅的环境配置，构建前生效）
 #FONT_CDN_PREFIX=https://fonts.loli.net
 # 必需：站点公网地址（班级邀请海报二维码的链接基址，#102）。填你的域名，不带子路径
-NEXT_PUBLIC_APP_URL=https://your-domain.com
+APP_PUBLIC_URL=https://your-domain.com
 EOF
 
 # 构建生产版本
@@ -108,7 +108,9 @@ npm run build
 
 构建成功后会生成 `.next/` 目录。管理员密码无需在此步配置，将在首次安装引导中设置（见「八、首次安装引导」）。
 
-`NEXT_PUBLIC_APP_URL` 由应用在请求时读取，事后补改只需 `pm2 restart career-app`，**无需重新 `npm run build`**。取值规则见 `docs/standards.md` §11。
+`APP_PUBLIC_URL` 不带 `NEXT_PUBLIC_` 前缀，不会被 Next.js 构建时内联，在请求时读取。事后补改只需 `pm2 restart career-app`，**无需重新 `npm run build`**。取值规则见 `docs/standards.md` §11。
+
+> **从旧版本升级**：旧变量名 `NEXT_PUBLIC_APP_URL` 自 #196 起**不再被读取**（它在构建期被内联，改配置后重启不生效）。请把 `.env.local` 中的该行改名为 `APP_PUBLIC_URL` 再重启，否则海报接口会持续返回 503（提示「海报基址未配置」）。
 
 ### 可选：对象存储凭据（S3 兼容，#111）
 
@@ -321,7 +323,7 @@ curl http://localhost:3000/api/setup/status
 sudo netstat -tlnp | grep -E ':(80|443|3000)'
 ```
 
-再在管理面板「班级管理 → 邀请海报」生成一张海报，确认弹窗「当前生效链接」的域名与 `NEXT_PUBLIC_APP_URL` 一致；弹窗报错见 §十二「邀请海报二维码扫不开 / 指向 localhost」。
+再在管理面板「班级管理 → 邀请海报」生成一张海报，确认弹窗「当前生效链接」的域名与 `APP_PUBLIC_URL` 一致；弹窗报错见 §十二「邀请海报二维码扫不开 / 指向 localhost」。
 
 ## 十二、常见问题
 
@@ -375,7 +377,7 @@ mysql -u root -p career_app -e "UPDATE users SET password_hash='新的hash值' W
 
 **根因**：二维码的域名不能从请求推导。Next.js 未开启 `experimental.trustHostHeader` 时，`request.url` 的主机名取的是进程绑定地址而非 `Host` 头，`next start` 不带 `-H` 时恒为 `localhost`，反向代理转发的真实域名被忽略（机制详见 `docs/standards.md` §11）。自 #148 起生产环境不再静默生成错误域名的海报，而是返回 503 并在弹窗显示具体原因。
 
-**处理**：在 `.env.local` 配置站点公网地址后重启（无需重新构建）：
+**处理**：在 `.env.local` 配置 `APP_PUBLIC_URL` 后重启（该变量不带 `NEXT_PUBLIC_` 前缀，不会被构建时内联，无需重新构建）。从旧版本升级的部署请先确认变量名已改名 —— 旧名 `NEXT_PUBLIC_APP_URL` 不再被读取：
 
 ```bash
 cd /var/www/career-app

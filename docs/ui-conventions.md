@@ -26,7 +26,7 @@
 | 品牌浅底 | `--color-primary-soft` | green-50 | 选中底色、标签浅底 |
 | 焦点环 | `--color-focus-ring` | green-300 | `focus:ring-2 focus:ring-focus-ring` |
 | 信息/批量 | `--color-info` | blue-500 | 批量操作按钮、信息提示 |
-| 警告/凭据 | `--color-warning` | amber-500 | 警告提示、凭据展示、重置密码 |
+| 警告/凭据 | `--color-warning` / `--color-warning-strong` | amber-500 / amber-600 | 警告提示、凭据展示、重置密码（hover 用 strong） |
 | 危险/删除 | `--color-danger` | red-500 | 删除、错误态 |
 
 ### 标签三色（三维度色彩编码，>3 类循环取色）
@@ -76,6 +76,17 @@
 - 面板内尺寸统一 `px-4 py-2 text-sm rounded-lg`；首页/落地页大号 CTA `py-3 rounded-xl` 为特例
 - 禁用态统一 `disabled:opacity-40`（或 50），禁用时保持尺寸不跳动
 - 键盘可达性：交互元素具备可见焦点环；仅图标按钮必须 `aria-label`
+
+## 表单控件
+
+- **班级选择一律使用共享控件** `src/components/admin/ClassSelect.tsx`（受控单选，`combobox` + `listbox` 语义）：
+  - 控件按 `class_id` 选择，提交时由调用方回填班级名，服务端名称解析口径不变；
+  - 面板内**不得出现可自由输入班级名的入口**（`datalist` 自由文本已下线，#192）；
+  - 键盘行为由控件统一实现（↓ / ↑ / Home / End / Enter / Space / Escape；选项不是独立 tab stop），
+    新增入口直接复用即可，不要各写一套 keydown（#194）；
+  - 班级列表加载失败且无缓存时，控件内展示失败态与「重试」，不得把正确班级名误报为不存在。
+- 警告类提示统一用 `--color-warning` / `--color-warning-strong`（如 `bg-warning/10`、`text-warning-strong`），
+  不得硬编码 `bg-amber-50` 一类色值。
 
 ## 图标
 

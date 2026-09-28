@@ -164,6 +164,8 @@
 | `storage_backends` | 存储后端注册表（#111）：内置本地后端（不可删）+ 多个 S3 兼容实例；凭据不入库（走 `.env.local`）；`name` 唯一 | #111 | ✅（不含凭据） |
 | `profile_submissions` | 档案提交历史版本（#95）：`user_id` + `version` + 快照字段（`tags`/`avatar_url`/`evaluation_url`/`storage_id`/`submitted_at`）+ `is_current`；索引 `(user_id, version)`、`(user_id, is_current)` | #95 | ✅ |
 
+**班级名匹配口径（#191）**：`classes.name` 的比较统一为 **trim 后全等、区分大小写**，与前端 JS 全等对齐。`getClassByName()` 在两适配器内部均用 `getClasses()` + JS 全等实现（不依赖 SQL 排序规则），确保 SQLite / MySQL / MariaDB 行为恒等；归一化入口为 `resolveClassByName()`（`src/lib/class-utils.ts`），业务层禁止再写 `WHERE name = ?`。
+
 备份格式 `BackupData`（**version 4**，定义在 `src/lib/db.ts`）：八表全量，其中 `audit_logs` / `configs_profile` / `storage_backends` / `profile_submissions` 为可选字段（旧备份缺失时读取方容忍 `undefined`，`storage_backends` 缺失时保留当前后端表并回填本地后端）；含 `password_hash`，不含上传文件。
 
 ## 文件存储（#111 对象存储）
@@ -195,7 +197,7 @@
 ## 班级邀请海报（#102）
 
 - **入口**：管理/教师面板「班级管理」列表，有权限（admin 全权 / teacher 本人创建）的班级可生成海报；`GET /api/manage/classes/[id]/poster` 返回 PNG（`?download=1` 为附件下载）
-- **生成链路**：`src/lib/invite-poster.ts` 用 `qrcode` 生成二维码 SVG，拼入海报 SVG（班级名称 + 邀请说明 + 品牌配色），再由 `sharp` 栅格化为 600×800 PNG；二维码基址由 `resolvePosterBaseUrl()` 解析——生产环境必须显式配置 `NEXT_PUBLIC_APP_URL`，缺失或非法时接口返回 503 与中文原因、不产出错误域名的海报（#148），仅非生产模式回退请求 origin；成功响应的 `X-Invite-Url` 头把生效链接回给面板核对
+- **生成链路**：`src/lib/invite-poster.ts` 用 `qrcode` 生成二维码 SVG，拼入海报 SVG（班级名称 + 邀请说明 + 品牌配色），再由 `sharp` 栅格化为 600×800 PNG；二维码基址由 `resolvePosterBaseUrl()` 解析——生产环境必须显式配置 `APP_PUBLIC_URL`，缺失或非法时接口返回 503 与中文原因、不产出错误域名的海报（#148），仅非生产模式回退请求 origin；成功响应的 `X-Invite-Url` 头把生效链接回给面板核对
 - **安全边界**：二维码只携带 `/activate?invite=CODE`，激活页仅做表单预填，服务端 `resolveActivation` 仍强制学号 + 姓名 + 班级归属三要素一致；邀请码重置后旧码在数据库即失效，旧海报二维码无法通过校验；海报不含学生个人信息、管理员凭据等敏感数据
 - **文本渲染依赖**：海报中文由服务端系统字体渲染（SVG 多字体回退栈）；Linux 部署须安装中文字体（如 `fonts-noto-cjk`），见 DEPLOY.md
 - **审计**：生成海报计入操作审计（`class:poster`），邀请码本身不落审计日志（#110 凭据类数据不落库）
