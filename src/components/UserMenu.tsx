@@ -22,7 +22,6 @@ const APP_PAGES = new Set([
   "/dashboard/admin",
   "/dashboard/student",
   "/dashboard/teacher",
-  "/form/create-profile",
 ]);
 
 function shouldShowMenu(pathname: string | null): boolean {
