@@ -3,20 +3,23 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { toast } from "sonner";
 import {
-  CheckSquare,
   ChevronDown,
   ChevronRight,
   ChevronUp,
   Download,
   Pencil,
+  Plus,
   Search,
   Trash2,
+  Upload,
 } from "lucide-react";
 import ConfirmDialog from "@/components/admin/ConfirmDialog";
 import { useEscapeKey } from "@/hooks/useEscapeKey";
 import {
   buildTagExportRows,
+  flattenVisibleIds,
   previewTagImport,
+  selectRange,
   summarizeSelection,
   toggleCategorySelection,
   toggleTagSelection,
@@ -75,6 +78,8 @@ export default function TagsTab() {
   const [showSelectedOnly, setShowSelectedOnly] = useState(false);
 
   // 新增 / 编辑
+  const [addOpen, setAddOpen] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
   const [categoryName, setCategoryName] = useState("");
   const [tagName, setTagName] = useState("");
   const [selectedCatId, setSelectedCatId] = useState("");
@@ -91,6 +96,9 @@ export default function TagsTab() {
 
   // 选择与批量操作
   const [selected, setSelected] = useState<Set<number>>(new Set());
+  const anchorIdRef = useRef<number | null>(null);
+  const anchorActionRef = useRef<"select" | "deselect">("select");
+  const selectAllRef = useRef<HTMLInputElement>(null);
   const [deleteTarget, setDeleteTarget] = useState<DeleteTarget | null>(null);
   const [pendingDelete, setPendingDelete] = useState<PendingDelete | null>(null);
   const [moveOpen, setMoveOpen] = useState(false);
@@ -187,6 +195,11 @@ export default function TagsTab() {
     return rows;
   }, [categories, displayTags, query, showSelectedOnly, selected]);
 
+  const flatIds = useMemo(
+    () => flattenVisibleIds(visibleRows.map((r) => ({ categoryId: r.category.id, childIds: r.children.map((c) => c.id) }))),
+    [visibleRows]
+  );
+
   const allCollapsed = categories.length > 0 && categories.every((c) => collapsed.has(c.id));
 
   // ---- 数据加载与基础请求 ----
@@ -222,6 +235,7 @@ export default function TagsTab() {
           method: "DELETE",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ ids }),
+          keepalive: true,
         });
       }
     };
@@ -237,6 +251,15 @@ export default function TagsTab() {
   }, []);
 
   useEscapeKey(moveOpen, () => setMoveOpen(false));
+
+  useEffect(() => {
+    const el = selectAllRef.current;
+    if (!el) return;
+    const total = flatIds.length;
+    const selCount = flatIds.filter((id) => selected.has(id)).length;
+    el.checked = total > 0 && selCount === total;
+    el.indeterminate = selCount > 0 && selCount < total;
+  }, [selected, flatIds]);
 
   const submit = async (body: Record<string, unknown>, successMessage: string) => {
     try {
@@ -313,28 +336,45 @@ export default function TagsTab() {
     setCatOpen(false);
   };
 
-  // ---- 选择（#163：分类级联）----
+  // ---- 选择（#163：分类级联 + Shift+Click 范围选择）----
 
-  const toggleCategory = (categoryId: number) => {
-    setSelected((prev) => toggleCategorySelection(prev, categoryId, childrenOf(categoryId).map((t) => t.id)));
+  const handleCategoryToggle = (categoryId: number, e: React.MouseEvent) => {
+    if (e.shiftKey && anchorIdRef.current !== null) {
+      setSelected((prev) => selectRange(prev, flatIds, anchorIdRef.current!, categoryId, anchorActionRef.current));
+      return;
+    }
+    const childIds = childrenOf(categoryId).map((t) => t.id);
+    const willSelect = !selected.has(categoryId);
+    setSelected((prev) => toggleCategorySelection(prev, categoryId, childIds));
+    anchorIdRef.current = categoryId;
+    anchorActionRef.current = willSelect ? "select" : "deselect";
   };
 
-  const toggleTag = (tag: TagItem) => {
+  const handleTagToggle = (tag: TagItem, e: React.MouseEvent) => {
+    if (e.shiftKey && anchorIdRef.current !== null) {
+      setSelected((prev) => selectRange(prev, flatIds, anchorIdRef.current!, tag.id, anchorActionRef.current));
+      return;
+    }
+    const willSelect = !selected.has(tag.id);
     setSelected((prev) => toggleTagSelection(prev, tag.id, tag.parent_id));
+    anchorIdRef.current = tag.id;
+    anchorActionRef.current = willSelect ? "select" : "deselect";
   };
 
-  const selectVisible = () => {
+  const toggleSelectAllVisible = () => {
+    const allSelected = flatIds.length > 0 && flatIds.every((id) => selected.has(id));
     setSelected((prev) => {
       const next = new Set(prev);
-      for (const row of visibleRows) {
-        next.add(row.category.id);
-        childrenOf(row.category.id).forEach((tag) => next.add(tag.id));
-      }
+      if (allSelected) flatIds.forEach((id) => next.delete(id));
+      else flatIds.forEach((id) => next.add(id));
       return next;
     });
   };
 
-  const clearSelection = () => setSelected(new Set());
+  const clearSelection = () => {
+    setSelected(new Set());
+    anchorIdRef.current = null;
+  };
 
   const toggleCollapse = (categoryId: number) => {
     setCollapsed((prev) => {
@@ -761,7 +801,7 @@ export default function TagsTab() {
         className={`${inputClass} w-full text-left flex items-center justify-between gap-2`}
       >
         <span className={selectedId ? "text-foreground truncate" : "text-muted truncate"}>
-          {selectedId ? filtered.find((c) => c.id === Number(selectedId))?.name || "所属分类" : "所属分类"}
+          {selectedId ? categories.find((c) => c.id === Number(selectedId))?.name || "所属分类" : "所属分类"}
         </span>
         <ChevronDown className={`w-3.5 h-3.5 text-muted transition-transform flex-shrink-0 ${open ? "rotate-180" : ""}`} />
       </button>
@@ -824,7 +864,8 @@ export default function TagsTab() {
   );
 
   return (
-    <div className={`bg-card rounded-xl border border-border-soft p-6 space-y-6 ${draftTags ? "pb-28" : ""}`}>
+    <>
+    <div className="bg-card rounded-xl border border-border-soft p-6 space-y-6">
       {/* 头部：说明 + 导出 / 恢复默认 */}
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
@@ -847,43 +888,29 @@ export default function TagsTab() {
           >
             {restoring ? "恢复中..." : "恢复默认预设"}
           </button>
+          <button
+            onClick={() => setImportOpen((v) => !v)}
+            aria-pressed={importOpen}
+            className={secondaryButton}
+          >
+            <span className="inline-flex items-center gap-1.5">
+              <Upload className="w-3.5 h-3.5" />
+              批量导入
+            </span>
+          </button>
+          <button
+            onClick={() => setAddOpen((v) => !v)}
+            aria-pressed={addOpen}
+            className="flex items-center gap-1.5 px-4 py-2 bg-primary hover:bg-primary-strong text-white text-sm font-medium rounded-lg transition-colors"
+          >
+            <Plus size={16} />
+            新增
+          </button>
         </div>
       </div>
 
-      {/* 工具条：搜索 / 选择 / 折叠 */}
-      <div className="flex flex-wrap items-center gap-2">
-        <div className="relative flex-1 min-w-[12rem]">
-          <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-muted" aria-hidden />
-          <input
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="搜索分类或标签名"
-            aria-label="搜索分类或标签名"
-            className={`${inputClass} w-full pl-8`}
-          />
-        </div>
-        <button onClick={selectVisible} className={secondaryButton} aria-label="全选当前筛选结果">
-          <span className="inline-flex items-center gap-1.5">
-            <CheckSquare className="w-3.5 h-3.5" />
-            全选筛选结果
-          </span>
-        </button>
-        <button onClick={clearSelection} disabled={selected.size === 0} className={secondaryButton}>
-          清空选择
-        </button>
-        <button onClick={toggleAllCollapsed} className={secondaryButton}>
-          {allCollapsed ? "全部展开" : "全部折叠"}
-        </button>
-        <button
-          onClick={() => setShowSelectedOnly((v) => !v)}
-          aria-pressed={showSelectedOnly}
-          className={`${secondaryButton} ${showSelectedOnly ? "ring-2 ring-focus-ring" : ""}`}
-        >
-          仅看已选
-        </button>
-      </div>
-
-      {/* 新增表单 */}
+      {/* 新增表单（点 +新增 内联展开） */}
+      {addOpen && (
       <div className="grid gap-4 md:grid-cols-2">
         <div className="border border-border-soft rounded-lg p-4 space-y-3">
           <h3 className="text-sm font-medium text-foreground">新增一级分类</h3>
@@ -933,8 +960,10 @@ export default function TagsTab() {
           </div>
         </div>
       </div>
+      )}
 
-      {/* 批量导入：粘贴 / 文件 / 拖拽 → 影响面预览 → 确认 */}
+      {/* 批量导入：粘贴 / 文件 / 拖拽 → 影响面预览 → 确认（点 +批量导入 内联展开） */}
+      {importOpen && (
       <div
         onDragOver={(e) => {
           e.preventDefault();
@@ -1026,27 +1055,50 @@ export default function TagsTab() {
           </div>
         )}
       </div>
-
-      {/* 选择操作条：常驻显示已选构成与实际影响行数 */}
-      {selection.affected > 0 && (
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-2 px-4 py-2.5 bg-primary-soft dark:bg-green-900/20 rounded-lg border border-border-soft">
-          <span className="text-sm font-medium text-foreground">已选 {selection.affected} 项</span>
-          <span className="text-xs text-muted">
-            分类 {selection.categories} · 标签 {selection.tags}（删除分类会级联其下标签）
-          </span>
-          <div className="flex flex-wrap items-center gap-2 ml-auto">
-            <button onClick={openMove} className={secondaryButton}>
-              批量移动
-            </button>
-            <button onClick={requestBatchDelete} className={dangerButton}>
-              批量删除
-            </button>
-            <button onClick={clearSelection} className={secondaryButton}>
-              取消选择
-            </button>
-          </div>
-        </div>
       )}
+
+      {/* 搜索行：全宽独立一行 */}
+      <div className="relative">
+        <Search className="w-4 h-4 absolute left-2.5 top-1/2 -translate-y-1/2 text-muted" aria-hidden />
+        <input
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="搜索分类或标签名"
+          aria-label="搜索分类或标签名"
+          className={`${inputClass} w-full pl-8`}
+        />
+      </div>
+
+      {/* 列表头：全选 / 视图控件 / 批量操作（常驻，批量按钮无选择时 disabled） */}
+      <div className="flex flex-wrap items-center gap-2">
+        <label className="flex items-center gap-1.5 text-sm text-foreground cursor-pointer select-none whitespace-nowrap">
+          <input
+            ref={selectAllRef}
+            type="checkbox"
+            onChange={toggleSelectAllVisible}
+            className="w-3.5 h-3.5 accent-brand"
+            aria-label="全选当前筛选结果"
+          />
+          {selection.affected > 0
+            ? `已选 ${selection.affected} / ${flatIds.length} 项（分类 ${selection.categories} · 标签 ${selection.tags}）`
+            : `全选 · 共 ${flatIds.length} 项`}
+        </label>
+        <button onClick={toggleAllCollapsed} className={secondaryButton}>
+          {allCollapsed ? "全部展开" : "全部折叠"}
+        </button>
+        <button
+          onClick={() => setShowSelectedOnly((v) => !v)}
+          aria-pressed={showSelectedOnly}
+          className={`${secondaryButton} ${showSelectedOnly ? "ring-2 ring-focus-ring" : ""}`}
+        >
+          仅看已选
+        </button>
+        <div className="flex items-center gap-2 ml-auto">
+          <button onClick={openMove} disabled={selection.affected === 0} className={secondaryButton}>批量移动</button>
+          <button onClick={requestBatchDelete} disabled={selection.affected === 0} className={dangerButton}>批量删除</button>
+          <button onClick={clearSelection} disabled={selection.affected === 0} className={secondaryButton}>取消选择</button>
+        </div>
+      </div>
 
       {/* 列表 */}
       {loading ? (
@@ -1072,9 +1124,10 @@ export default function TagsTab() {
                       <input
                         type="checkbox"
                         checked={selected.has(category.id)}
-                        onChange={() => toggleCategory(category.id)}
+                        onChange={() => {}}
+                        onClick={(e) => handleCategoryToggle(category.id, e)}
                         aria-label={`选择分类 ${category.name}`}
-                        className="rounded border-gray-300 text-green-500 focus:ring-focus-ring flex-shrink-0"
+                        className="w-3.5 h-3.5 accent-brand flex-shrink-0"
                       />
                       <input
                         autoFocus
@@ -1106,9 +1159,10 @@ export default function TagsTab() {
                       <input
                         type="checkbox"
                         checked={selected.has(category.id)}
-                        onChange={() => toggleCategory(category.id)}
+                        onChange={() => {}}
+                        onClick={(e) => handleCategoryToggle(category.id, e)}
                         aria-label={`选择分类 ${category.name}（含其下 ${allChildren.length} 个标签）`}
-                        className="rounded border-gray-300 text-green-500 focus:ring-focus-ring flex-shrink-0"
+                        className="w-3.5 h-3.5 accent-brand flex-shrink-0"
                       />
                       <span className="flex-1 min-w-0 text-sm font-medium truncate text-foreground">{category.name}</span>
                       <span className="text-xs text-muted flex-shrink-0 hidden sm:inline">
@@ -1135,16 +1189,17 @@ export default function TagsTab() {
                   )}
                 </div>
                 <div className="divide-y divide-gray-100 dark:divide-gray-700/50 rounded-b-lg">
-                  {children.map((tag) => (
+                  {!isCollapsed && children.map((tag) => (
                     <div key={tag.id} className="px-3 py-2 pl-8">
                       {editing?.id === tag.id ? (
                         <div className="flex flex-wrap items-center gap-2">
                           <input
                             type="checkbox"
                             checked={selected.has(tag.id)}
-                            onChange={() => toggleTag(tag)}
+                            onChange={() => {}}
+                            onClick={(e) => handleTagToggle(tag, e)}
                             aria-label={`选择标签 ${tag.name}`}
-                            className="rounded border-gray-300 text-green-500 focus:ring-focus-ring flex-shrink-0"
+                            className="w-3.5 h-3.5 accent-brand flex-shrink-0"
                           />
                           <input
                             autoFocus
@@ -1180,9 +1235,10 @@ export default function TagsTab() {
                           <input
                             type="checkbox"
                             checked={selected.has(tag.id)}
-                            onChange={() => toggleTag(tag)}
+                            onChange={() => {}}
+                            onClick={(e) => handleTagToggle(tag, e)}
                             aria-label={`选择标签 ${tag.name}`}
-                            className="rounded border-gray-300 text-green-500 focus:ring-focus-ring flex-shrink-0"
+                            className="w-3.5 h-3.5 accent-brand flex-shrink-0"
                           />
                           <span className="flex-1 min-w-0 text-sm text-foreground truncate">{tag.name}</span>
                           <SortBtn onClick={() => moveTag(tag, -1)} dir="up" label={`上移标签 ${tag.name}`} />
@@ -1205,9 +1261,9 @@ export default function TagsTab() {
                       )}
                     </div>
                   ))}
-                  {children.length === 0 && (
+                  {(isCollapsed || children.length === 0) && (
                     <p className="px-8 py-3 text-xs text-muted">
-                      {isCollapsed ? "已折叠" : "该分类暂无标签"}
+                      {isCollapsed ? `已折叠（${allChildren.length} 个标签）` : "该分类暂无标签"}
                     </p>
                   )}
                 </div>
@@ -1230,84 +1286,86 @@ export default function TagsTab() {
         </div>
       )}
 
-      {/* 排序草稿浮动 dock：有未保存变更时出现 */}
-      {draftTags && (
-        <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-50 flex items-center gap-3 px-4 py-3 bg-card border border-border-soft rounded-xl shadow-lg animate-[fade-in_0.2s_ease-out]">
-          <span className="text-sm text-foreground">有未保存的排序变更</span>
-          <button onClick={cancelSort} className={secondaryButton}>
-            取消
-          </button>
-          <button onClick={saveSort} disabled={savingSort} className={`${primaryButton} text-sm`}>
-            {savingSort ? "保存中..." : "保存排序"}
-          </button>
-        </div>
-      )}
+    </div>
 
-      {/* 删除确认（单个 / 批量共用） */}
-      <ConfirmDialog
-        open={deleteTarget !== null}
-        title={deleteTarget?.title ?? "删除标签"}
-        message={deleteTarget?.message ?? ""}
-        confirmText="删除"
-        variant="danger"
-        onConfirm={confirmDelete}
-        onCancel={() => setDeleteTarget(null)}
-      />
+    {/* 排序草稿浮动 dock：有未保存变更时出现 */}
+    {draftTags && (
+      <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-50 flex items-center gap-3 px-4 py-3 bg-card border border-border-soft rounded-xl shadow-lg animate-[fade-in_0.2s_ease-out]">
+        <span className="text-sm text-foreground">有未保存的排序变更</span>
+        <button onClick={cancelSort} className={secondaryButton}>
+          取消
+        </button>
+        <button onClick={saveSort} disabled={savingSort} className={`${primaryButton} text-sm`}>
+          {savingSort ? "保存中..." : "保存排序"}
+        </button>
+      </div>
+    )}
 
-      {/* 批量移动 */}
-      {moveOpen && (
+    {/* 删除确认（单个 / 批量共用） */}
+    <ConfirmDialog
+      open={deleteTarget !== null}
+      title={deleteTarget?.title ?? "删除标签"}
+      message={deleteTarget?.message ?? ""}
+      confirmText="删除"
+      variant="danger"
+      onConfirm={confirmDelete}
+      onCancel={() => setDeleteTarget(null)}
+    />
+
+    {/* 批量移动 */}
+    {moveOpen && (
+      <div
+        className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 px-4"
+        onClick={() => setMoveOpen(false)}
+      >
         <div
-          className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 px-4"
-          onClick={() => setMoveOpen(false)}
+          role="dialog"
+          aria-modal="true"
+          aria-label="批量移动到分类"
+          className="bg-card rounded-2xl shadow-xl max-w-sm w-full p-6 space-y-4 animate-[scale-in_0.15s_ease-out]"
+          onClick={(e) => e.stopPropagation()}
         >
-          <div
-            role="dialog"
-            aria-modal="true"
-            aria-label="批量移动到分类"
-            className="bg-card rounded-2xl shadow-xl max-w-sm w-full p-6 space-y-4 animate-[scale-in_0.15s_ease-out]"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <h3 className="font-semibold text-foreground text-lg">批量移动到分类</h3>
-            <p className="text-sm text-muted">
-              将 {selection.tags} 个二级标签移动到目标分类；已选的一级分类不受影响。
-            </p>
-            <label className="block space-y-1">
-              <span className="text-xs text-muted">目标分类</span>
-              <select
-                value={moveTargetId}
-                onChange={(e) => setMoveTargetId(e.target.value)}
-                className={`${inputClass} w-full`}
-              >
-                <option value="">请选择分类</option>
-                {categories.map((category) => (
-                  <option key={category.id} value={category.id}>
-                    {category.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <div className="flex gap-2 pt-1">
-              <button onClick={() => setMoveOpen(false)} className={`${secondaryButton} flex-1 py-2 text-sm`}>
-                取消
-              </button>
-              <button onClick={confirmMove} disabled={moving} className={`${primaryButton} flex-1 py-2`}>
-                {moving ? "移动中..." : "确认移动"}
-              </button>
-            </div>
+          <h3 className="font-semibold text-foreground text-lg">批量移动到分类</h3>
+          <p className="text-sm text-muted">
+            将 {selection.tags} 个二级标签移动到目标分类；已选的一级分类不受影响。
+          </p>
+          <label className="block space-y-1">
+            <span className="text-xs text-muted">目标分类</span>
+            <select
+              value={moveTargetId}
+              onChange={(e) => setMoveTargetId(e.target.value)}
+              className={`${inputClass} w-full`}
+            >
+              <option value="">请选择分类</option>
+              {categories.map((category) => (
+                <option key={category.id} value={category.id}>
+                  {category.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <div className="flex gap-2 pt-1">
+            <button onClick={() => setMoveOpen(false)} className={`${secondaryButton} flex-1 py-2 text-sm`}>
+              取消
+            </button>
+            <button onClick={confirmMove} disabled={moving} className={`${primaryButton} flex-1 py-2`}>
+              {moving ? "移动中..." : "确认移动"}
+            </button>
           </div>
         </div>
-      )}
+      </div>
+    )}
 
-      {/* 恢复默认预设 */}
-      <ConfirmDialog
-        open={restoreOpen}
-        title="恢复默认预设"
-        message="将清空当前所有标签（含自定义）并重置为默认预设。不影响学生已提交的标签数据。确定继续？"
-        confirmText="恢复默认"
-        variant="warning"
-        onConfirm={confirmRestore}
-        onCancel={() => setRestoreOpen(false)}
-      />
-    </div>
+    {/* 恢复默认预设 */}
+    <ConfirmDialog
+      open={restoreOpen}
+      title="恢复默认预设"
+      message="将清空当前所有标签（含自定义）并重置为默认预设。不影响学生已提交的标签数据。确定继续？"
+      confirmText="恢复默认"
+      variant="warning"
+      onConfirm={confirmRestore}
+      onCancel={() => setRestoreOpen(false)}
+    />
+    </>
   );
 }

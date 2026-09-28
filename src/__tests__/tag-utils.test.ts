@@ -7,6 +7,8 @@ import {
   toggleTagSelection,
   previewTagImport,
   buildTagExportRows,
+  flattenVisibleIds,
+  selectRange,
 } from "@/lib/tag-utils";
 import type { TagRow } from "@/lib/db";
 
@@ -196,5 +198,52 @@ describe("孤儿标签（parent_id 指向不存在的分类）", () => {
     expect(summarizeSelection(new Set([2]), withOrphan).affected).toBe(1);
     const { pairs } = buildTagExportRows(withOrphan);
     expect(pairs.flat()).not.toContain("孤儿");
+  });
+});
+
+describe("flattenVisibleIds（#163 Shift+Click 视觉顺序展平）", () => {
+  it("正常层级：分类 → 子标签 → 下一分类", () => {
+    const rows = [
+      { categoryId: 1, childIds: [2, 3] },
+      { categoryId: 4, childIds: [5] },
+    ];
+    expect(flattenVisibleIds(rows)).toEqual([1, 2, 3, 4, 5]);
+  });
+
+  it("空分类：只有分类 ID", () => {
+    expect(flattenVisibleIds([{ categoryId: 1, childIds: [] }])).toEqual([1]);
+  });
+
+  it("空行列表返回空数组", () => {
+    expect(flattenVisibleIds([])).toEqual([]);
+  });
+});
+
+describe("selectRange（#163 Shift+Click 范围选择）", () => {
+  const flat = [1, 2, 3, 4, 5, 6];
+
+  it("anchor 在前、target 在后 → 区间全选", () => {
+    const result = selectRange(new Set(), flat, 2, 5, "select");
+    expect(Array.from(result).sort()).toEqual([2, 3, 4, 5]);
+  });
+
+  it("anchor 在前、target 在后 → 区间全取消", () => {
+    const result = selectRange(new Set([1, 2, 3, 4, 5, 6]), flat, 2, 5, "deselect");
+    expect(Array.from(result).sort()).toEqual([1, 6]);
+  });
+
+  it("反向（target 在 anchor 前面）→ 同样生效", () => {
+    const result = selectRange(new Set(), flat, 5, 2, "select");
+    expect(Array.from(result).sort()).toEqual([2, 3, 4, 5]);
+  });
+
+  it("anchor 不在 flatIds 中 → 退化为单项操作", () => {
+    const result = selectRange(new Set(), flat, 99, 3, "select");
+    expect(Array.from(result)).toEqual([3]);
+  });
+
+  it("anchor 等于 target → 单项操作", () => {
+    const result = selectRange(new Set(), flat, 3, 3, "select");
+    expect(Array.from(result)).toEqual([3]);
   });
 });

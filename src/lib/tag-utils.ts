@@ -207,3 +207,49 @@ export function buildTagExportRows(allTags: TagLike[]): TagExportRows {
   }
   return { pairs, categories: categories.map((category) => [category.name]) };
 }
+
+// ---- Shift+Click 范围选择（#163）----
+
+/** 将可见行展平为视觉顺序 ID 列表：分类 → 其下子标签 → 下一分类 → ... */
+export function flattenVisibleIds(
+  rows: { categoryId: number; childIds: number[] }[]
+): number[] {
+  const ids: number[] = [];
+  for (const row of rows) {
+    ids.push(row.categoryId);
+    for (const childId of row.childIds) {
+      ids.push(childId);
+    }
+  }
+  return ids;
+}
+
+/**
+ * 范围选择：对 flatIds 中 anchorId→targetId 之间（含两端）的所有 ID 执行 action。
+ * anchor 不在 flatIds 中时退化为仅对 targetId 执行 action。
+ */
+export function selectRange(
+  selected: ReadonlySet<number>,
+  flatIds: number[],
+  anchorId: number,
+  targetId: number,
+  action: "select" | "deselect"
+): Set<number> {
+  const next = new Set(selected);
+  const anchorIdx = flatIds.indexOf(anchorId);
+  const targetIdx = flatIds.indexOf(targetId);
+
+  if (anchorIdx === -1 || targetIdx === -1) {
+    if (action === "select") next.add(targetId);
+    else next.delete(targetId);
+    return next;
+  }
+
+  const lo = Math.min(anchorIdx, targetIdx);
+  const hi = Math.max(anchorIdx, targetIdx);
+  for (let i = lo; i <= hi; i++) {
+    if (action === "select") next.add(flatIds[i]);
+    else next.delete(flatIds[i]);
+  }
+  return next;
+}
