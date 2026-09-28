@@ -10,9 +10,11 @@ vi.mock("@/lib/db", () => ({
   insertAuditLog: vi.fn(),
 }));
 
-vi.mock("@/lib/invite-poster", () => ({
-  generateInvitePoster: vi.fn(),
-}));
+// 只隔离 sharp/qrcode 渲染，基址解析与链接拼接保持真实实现（#148 需要验证二者与路由的集成）
+vi.mock("@/lib/invite-poster", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/invite-poster")>();
+  return { ...actual, generateInvitePoster: vi.fn() };
+});
 
 import { GET } from "@/app/api/manage/classes/[id]/poster/route";
 import { getClasses, getTeacherClassPairs, getUserById, insertAuditLog } from "@/lib/db";
@@ -183,6 +185,77 @@ describe("GET /api/manage/classes/[id]/poster — 生成与缓存", () => {
     expect(res.status).toBe(200);
     expect(res.headers.get("Content-Disposition")).toBe(
       `attachment; filename*=UTF-8''${encodeURIComponent("邀请海报-2026级1班.png")}`
+    );
+  });
+});
+
+describe("GET /api/manage/classes/[id]/poster — 基址配置失败（#148）", () => {
+  // 反向代理下 request.url 的 host 是进程绑定地址而非 Host 头，生产环境不能让二维码静默落到 localhost
+  const unconfigured = () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("NEXT_PUBLIC_APP_URL", undefined);
+  };
+
+  it("生产环境未配置基址 → 503 + 中文原因，且不生成海报", async () => {
+    const t = await tokens();
+    unconfigured();
+    const res = await GET(createGetRequest("1", t.admin), createContext("1"));
+    expect(res.status).toBe(503);
+    const body = await res.json();
+    expect(body.error).toContain("NEXT_PUBLIC_APP_URL");
+    expect(generateInvitePoster).not.toHaveBeenCalled();
+  });
+
+  it("生产环境配置非法基址 → 503 并回显具体原因", async () => {
+    const t = await tokens();
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("NEXT_PUBLIC_APP_URL", "career.example.com");
+    const res = await GET(createGetRequest("1", t.admin), createContext("1"));
+    expect(res.status).toBe(503);
+    expect((await res.json()).error).toContain("不是合法 URL");
+  });
+
+  it("基址配置失败 → 审计记录 failed 与海报基址配置错误", async () => {
+    const t = await tokens();
+    unconfigured();
+    await GET(createGetRequest("1", t.admin), createContext("1"));
+    const log = vi.mocked(insertAuditLog).mock.calls[0][0];
+    expect(log.status).toBe("failed");
+    expect(log.error_message).toBe("海报基址配置错误");
+    expect(log.metadata).toBe(JSON.stringify({ failure: "base_url_config" }));
+  });
+
+  it("权限校验先于基址校验：未登录 → 401，教师越权 → 403", async () => {
+    const t = await tokens();
+    unconfigured();
+    const anonymous = await GET(createGetRequest("1"), createContext("1"));
+    expect(anonymous.status).toBe(401);
+
+    vi.mocked(getUserById).mockResolvedValue(TEACHER_USER);
+    vi.mocked(getTeacherClassPairs).mockResolvedValue([pairRow({ class_id: 2 })]);
+    const forbidden = await GET(createGetRequest("1", t.teacher), createContext("1"));
+    expect(forbidden.status).toBe(403);
+    expect(insertAuditLog).not.toHaveBeenCalledWith(
+      expect.objectContaining({ error_message: "海报基址配置错误" })
+    );
+  });
+
+  it("非生产模式未配置基址 → 200，海报回退请求 origin", async () => {
+    const t = await tokens();
+    vi.stubEnv("NODE_ENV", "development");
+    vi.stubEnv("NEXT_PUBLIC_APP_URL", undefined);
+    const res = await GET(createGetRequest("1", t.admin), createContext("1"));
+    expect(res.status).toBe(200);
+    expect(vi.mocked(generateInvitePoster).mock.calls[0][0]).toMatchObject({
+      baseUrl: "http://localhost:3000",
+    });
+  });
+
+  it("成功响应带 X-Invite-Url，与二维码内容一致", async () => {
+    const t = await tokens();
+    const res = await GET(createGetRequest("1", t.admin), createContext("1"));
+    expect(res.headers.get("X-Invite-Url")).toBe(
+      "https://career.example.com/activate?invite=AB23XYZ9"
     );
   });
 });
