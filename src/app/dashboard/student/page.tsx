@@ -294,10 +294,6 @@ export default function StudentDashboardPage() {
 
   const hasSubmitted = !!profile?.submitted_at;
 
-  const goSubmit = () => {
-    router.push("/form/create-profile");
-  };
-
   const startEdit = async () => {
     if (!profile) return;
     setEditTags(profile.tags);
@@ -323,9 +319,14 @@ export default function StudentDashboardPage() {
     setEditTags((prev) => prev.filter((t) => t !== tag));
   };
 
+  // 三项至少一项（#168）：标签 / 头像（虚拟形象）/ 评价词云任一非空即可提交，与服务端校验同口径
+  const hasEditTags = editTags.length > 0;
+  const hasEditAvatar = !!avatarFile || !!profile?.avatar_url;
+  const hasEditEvaluation = !!evaluationFile || !!profile?.evaluation_url;
+
   const requestSave = () => {
-    if (editTags.length === 0) {
-      toast.warning("请至少选择一个标签");
+    if (!hasEditTags && !hasEditAvatar && !hasEditEvaluation) {
+      toast.warning("请至少填写标签、词云图或虚拟形象中的一项");
       return;
     }
     setConfirming(true);
@@ -391,7 +392,7 @@ export default function StudentDashboardPage() {
         existingAvatarUrl: profile!.avatar_url,
         existingEvaluationUrl: profile!.evaluation_url,
       });
-      toast.success("修改已保存");
+      toast.success(hasSubmitted ? "修改已保存" : "档案已提交");
       setEditing(false);
       setAvatarFile(null);
       setEvaluationFile(null);
@@ -613,21 +614,21 @@ export default function StudentDashboardPage() {
                   )}
                 </>
               ) : (
-                /* 从未提交：引导卡 */
+                /* 从未提交：引导卡，点「开始填写」就地进入编辑态（#168 起不再跳转表单页） */
                 <div className="bg-card rounded-xl border border-border-soft p-8 text-center space-y-4">
                   <div className="w-14 h-14 bg-brand rounded-2xl flex items-center justify-center mx-auto">
                     <SquarePen className="w-7 h-7 text-accent" strokeWidth={2} />
                   </div>
                   <div>
                     <h2 className="text-base font-semibold text-foreground">你还没有提交职业探索档案</h2>
-                    <p className="text-sm text-muted mt-1">完成标签选择、头像与评价词云上传，让老师了解你的职业兴趣方向</p>
+                    <p className="text-sm text-muted mt-1">在这里选择标签、上传头像与评价词云，让老师了解你的职业兴趣方向</p>
                   </div>
                   <button
-                    onClick={goSubmit}
+                    onClick={startEdit}
                     disabled={submissionClosed}
                     className="px-6 py-2.5 bg-primary hover:bg-primary-strong disabled:opacity-50 text-white text-sm font-medium rounded-xl transition-colors"
                   >
-                    去提交
+                    开始填写
                   </button>
                   {submissionClosed && (
                     <p className="text-xs text-amber-600 dark:text-amber-400">
@@ -640,7 +641,7 @@ export default function StudentDashboardPage() {
               /* 编辑模式（hero 保留在顶部） */
               <div className="space-y-5">
                 <section className="bg-card rounded-xl border border-border-soft p-5 space-y-4">
-                  <SectionHeader label="修改标签" />
+                  <SectionHeader label={hasSubmitted ? "修改标签" : "选择标签"} />
                   {categories.length === 0 ? (
                     <p className="text-sm text-muted py-4 text-center">标签加载中...</p>
                   ) : (
@@ -691,7 +692,7 @@ export default function StudentDashboardPage() {
                     disabled={saving}
                     className="flex-1 py-3 bg-primary hover:bg-primary-strong disabled:opacity-50 text-white font-medium rounded-xl transition-colors"
                   >
-                    {saving ? "保存中..." : "保存修改"}
+                    {saving ? (hasSubmitted ? "保存中..." : "提交中...") : hasSubmitted ? "保存修改" : "提交档案"}
                   </button>
                 </div>
               </div>
@@ -724,10 +725,14 @@ export default function StudentDashboardPage() {
 
       <ConfirmDialog
         open={confirming}
-        title="确认修改"
-        variant="warning"
-        confirmText="确认保存"
-        message="保存后将覆盖你已提交的档案数据（标签、头像、评价词云），确定继续吗？"
+        title={hasSubmitted ? "确认修改" : "确认提交"}
+        variant={hasSubmitted ? "warning" : "default"}
+        confirmText={hasSubmitted ? "确认保存" : "确认提交"}
+        message={
+          hasSubmitted
+            ? "保存后将覆盖你已提交的档案数据（标签、头像、评价词云），确定继续吗？"
+            : "提交后生成你的职业探索档案，之后仍可在面板内查看和修改，确定提交吗？"
+        }
         onConfirm={confirmSave}
         onCancel={() => setConfirming(false)}
       />
