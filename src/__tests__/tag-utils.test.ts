@@ -70,6 +70,23 @@ describe("toggleCategorySelection（#163 分类级联选择）", () => {
   it("部分选中（仅有子标签）时点击分类补齐为全选", () => {
     expect(Array.from(toggleCategorySelection(new Set([2]), 1, [2, 3])).sort()).toEqual([1, 2, 3]);
   });
+
+  it("无子标签的分类可勾选并再取消", () => {
+    const on = toggleCategorySelection(new Set(), 5, []);
+    expect(Array.from(on)).toEqual([5]);
+    expect(Array.from(toggleCategorySelection(on, 5, []))).toEqual([]);
+  });
+
+  it("父选中后新出现未选子标签，再点父分类应补齐为全选", () => {
+    const s = toggleCategorySelection(new Set(), 1, [2]);
+    const after = toggleCategorySelection(s, 1, [2, 7]);
+    expect(Array.from(after).sort()).toEqual([1, 2, 7]);
+  });
+
+  it("父与全部子标签选中后再点父分类则全部取消", () => {
+    const s = new Set([1, 2, 7]);
+    expect(Array.from(toggleCategorySelection(s, 1, [2, 7]))).toEqual([]);
+  });
 });
 
 describe("toggleTagSelection（#163 二级标签选择）", () => {
@@ -131,6 +148,22 @@ describe("previewTagImport（#163 导入影响面预览）", () => {
     expect(preview.importCount).toBe(1);
     expect(preview.skipCount).toBe(1);
   });
+
+  it("同名标签存在于其它分类时不视为重复（按 parent_id:名称 去重）", () => {
+    const crossCategory: TagRow[] = [
+      { id: 1, name: "兴趣", type: "category", parent_id: null, class_id: 0, category_order: 0, sort_order: 0, active: 1 },
+      { id: 2, name: "阅读", type: "tag", parent_id: 1, class_id: 0, category_order: 0, sort_order: 0, active: 1 },
+      { id: 3, name: "技能", type: "category", parent_id: null, class_id: 0, category_order: 1, sort_order: 0, active: 1 },
+      { id: 4, name: "阅读", type: "tag", parent_id: 3, class_id: 0, category_order: 0, sort_order: 0, active: 1 },
+    ];
+    const p1 = previewTagImport([{ category: "技能", name: "阅读" }], crossCategory);
+    expect(p1.skipCount).toBe(1);
+    const p2 = previewTagImport([{ category: "兴趣", name: "阅读" }], crossCategory);
+    expect(p2.skipCount).toBe(1);
+    const p3 = previewTagImport([{ category: "新分类", name: "阅读" }], crossCategory);
+    expect(p3.importCount).toBe(1);
+    expect(p3.newCategoryCount).toBe(1);
+  });
 });
 
 describe("buildTagExportRows（#163 导出数据）", () => {
@@ -150,5 +183,18 @@ describe("buildTagExportRows（#163 导出数据）", () => {
 
   it("分类清单包含空分类（便于人工核对）", () => {
     expect(buildTagExportRows(withOrder).categories).toEqual([["兴趣"], ["空分类"]]);
+  });
+});
+
+describe("孤儿标签（parent_id 指向不存在的分类）", () => {
+  const withOrphan: TagRow[] = [
+    { id: 1, name: "兴趣", type: "category", parent_id: null, class_id: 0, category_order: 0, sort_order: 0, active: 1 },
+    { id: 2, name: "孤儿", type: "tag", parent_id: 999, class_id: 0, category_order: 0, sort_order: 0, active: 1 },
+  ];
+
+  it("统计计入影响行数，但导出 pairs 中丢失（parent 分类不存在）", () => {
+    expect(summarizeSelection(new Set([2]), withOrphan).affected).toBe(1);
+    const { pairs } = buildTagExportRows(withOrphan);
+    expect(pairs.flat()).not.toContain("孤儿");
   });
 });
