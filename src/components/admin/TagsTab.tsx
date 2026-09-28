@@ -84,7 +84,6 @@ export default function TagsTab() {
   const [tagName, setTagName] = useState("");
   const [selectedCatId, setSelectedCatId] = useState("");
   const [editing, setEditing] = useState<EditingTag | null>(null);
-  const categoryInputRef = useRef<HTMLInputElement>(null);
 
   // 分类选择器（新增标签 / 编辑标签共用一份状态机）
   const [catOpen, setCatOpen] = useState(false);
@@ -769,6 +768,8 @@ export default function TagsTab() {
   const dangerButton = "px-3 py-1 bg-danger hover:bg-red-600 text-white text-xs rounded-lg transition-colors";
   const inputClass =
     "px-3 py-2 border border-border-soft bg-card text-foreground rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-focus-ring";
+  const checkboxClass =
+    "w-4 h-4 accent-brand cursor-pointer flex-shrink-0 transition-transform duration-150 ease-out hover:scale-125 active:scale-90";
 
   const SortBtn = ({ onClick, dir, label }: { onClick: () => void; dir: "up" | "down"; label: string }) => (
     <button
@@ -916,7 +917,7 @@ export default function TagsTab() {
           <h3 className="text-sm font-medium text-foreground">新增一级分类</h3>
           <div className="flex flex-col sm:flex-row gap-2">
             <input
-              ref={categoryInputRef}
+              autoFocus
               value={categoryName}
               onChange={(e) => setCategoryName(e.target.value)}
               placeholder="分类名称"
@@ -1076,7 +1077,7 @@ export default function TagsTab() {
             ref={selectAllRef}
             type="checkbox"
             onChange={toggleSelectAllVisible}
-            className="w-3.5 h-3.5 accent-brand"
+            className={checkboxClass}
             aria-label="全选当前筛选结果"
           />
           {selection.affected > 0
@@ -1127,7 +1128,7 @@ export default function TagsTab() {
                         onChange={() => {}}
                         onClick={(e) => handleCategoryToggle(category.id, e)}
                         aria-label={`选择分类 ${category.name}`}
-                        className="w-3.5 h-3.5 accent-brand flex-shrink-0"
+                        className={checkboxClass}
                       />
                       <input
                         autoFocus
@@ -1162,7 +1163,7 @@ export default function TagsTab() {
                         onChange={() => {}}
                         onClick={(e) => handleCategoryToggle(category.id, e)}
                         aria-label={`选择分类 ${category.name}（含其下 ${allChildren.length} 个标签）`}
-                        className="w-3.5 h-3.5 accent-brand flex-shrink-0"
+                        className={checkboxClass}
                       />
                       <span className="flex-1 min-w-0 text-sm font-medium truncate text-foreground">{category.name}</span>
                       <span className="text-xs text-muted flex-shrink-0 hidden sm:inline">
@@ -1199,7 +1200,7 @@ export default function TagsTab() {
                             onChange={() => {}}
                             onClick={(e) => handleTagToggle(tag, e)}
                             aria-label={`选择标签 ${tag.name}`}
-                            className="w-3.5 h-3.5 accent-brand flex-shrink-0"
+                            className={checkboxClass}
                           />
                           <input
                             autoFocus
@@ -1238,7 +1239,7 @@ export default function TagsTab() {
                             onChange={() => {}}
                             onClick={(e) => handleTagToggle(tag, e)}
                             aria-label={`选择标签 ${tag.name}`}
-                            className="w-3.5 h-3.5 accent-brand flex-shrink-0"
+                            className={checkboxClass}
                           />
                           <span className="flex-1 min-w-0 text-sm text-foreground truncate">{tag.name}</span>
                           <SortBtn onClick={() => moveTag(tag, -1)} dir="up" label={`上移标签 ${tag.name}`} />
@@ -1273,7 +1274,7 @@ export default function TagsTab() {
           {categories.length === 0 && (
             <div className="text-center py-10 space-y-3">
               <p className="text-sm text-muted">还没有分类：先新增一级分类，或在上方批量导入「分类,标签名」</p>
-              <button onClick={() => categoryInputRef.current?.focus()} className={primaryButton}>
+              <button onClick={() => setAddOpen(true)} className={primaryButton}>
                 新增一级分类
               </button>
             </div>
