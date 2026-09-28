@@ -268,7 +268,7 @@ export default function StudentDashboardPage() {
   }, []);
 
   // 加载标签分类（展示态「我的标签」三色分组 + 编辑态复用）+ 自定义标签上限（#94）+ 提交截止状态（#96）
-  const loadCategories = useCallback(async () => {
+  const loadCategories = useCallback(async (): Promise<boolean> => {
     try {
       const res = await fetch("/api/tags");
       const data = await res.json();
@@ -277,9 +277,12 @@ export default function StudentDashboardPage() {
         setMaxCustomTags(typeof data.maxCustomTags === "number" ? data.maxCustomTags : undefined);
         setSubmissionClosed(data.submissionClosed === true);
         setSubmissionDeadline(typeof data.submissionDeadline === "string" ? data.submissionDeadline : null);
+        return true;
       }
+      return false;
     } catch (err) {
       console.error("Failed to load tags:", err);
+      return false;
     }
   }, []);
 
@@ -300,14 +303,12 @@ export default function StudentDashboardPage() {
     setAvatarFile(null);
     setEvaluationFile(null);
     setEditing(true);
-    if (categories.length > 0) return;
-    try {
-      const res = await fetch("/api/tags");
-      const data = await res.json();
-      if (res.ok) setCategories(data.categories || []);
-    } catch (err) {
-      console.error("Failed to load tags:", err);
-      toast.error("标签加载失败");
+    // 分类为空时等待加载（编辑态有「标签加载中...」占位）；已有分类则后台刷新，
+    // 顺带同步提交截止状态（#96）——#168 起面板内提交是唯一入口，不能让截止态陈旧
+    if (categories.length === 0) {
+      if (!(await loadCategories())) toast.error("标签加载失败");
+    } else {
+      void loadCategories();
     }
   };
 
