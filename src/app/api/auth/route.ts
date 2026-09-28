@@ -4,6 +4,7 @@ import { signToken, verifyToken } from "@/lib/token";
 import type { Role } from "@/lib/token";
 import { getUserByCode, getUserById } from "@/lib/db";
 import { getAuditActor, getRequestContext, recordAudit } from "@/lib/audit";
+import { CAPTCHA_REQUIRED_MESSAGE, verifyCaptchaTicket } from "@/lib/captcha";
 
 const COOKIE_OPTIONS = {
   httpOnly: true,
@@ -34,8 +35,49 @@ export async function POST(request: NextRequest) {
       user_agent,
       metadata: { reason },
     });
+  // 人机验证事件（#155）：票据被拒与降级放行均落审计，便于安全分析
+  const captchaAudit = (
+    action: "auth:captcha-failed" | "auth:captcha-degraded",
+    attemptedCode: string,
+    errorMessage: string,
+    metadata: Record<string, unknown>
+  ) =>
+    recordAudit({
+      actor_id: null,
+      actor_user_code: attemptedCode || null,
+      actor_name: null,
+      actor_role: null,
+      action,
+      method: "POST",
+      path: "/api/auth",
+      resource_type: "session",
+      resource_id: null,
+      status: "failed",
+      error_message: errorMessage,
+      ip,
+      user_agent,
+      metadata,
+    });
   try {
-    const { userCode, password } = await request.json();
+    const body = await request.json();
+    const { userCode, password } = body ?? {};
+
+    // 人机验证前置（#155）：票据校验先于查库与密码比对，避免 bcrypt 成为账号枚举的放大面
+    const captcha = await verifyCaptchaTicket(body?.captcha);
+    if (captcha.outcome === "rejected") {
+      void captchaAudit("auth:captcha-failed", String(userCode ?? "").trim(), "人机验证未通过", {
+        reason: captcha.reason,
+        detail: captcha.detail,
+      });
+      return NextResponse.json({ ok: false, error: CAPTCHA_REQUIRED_MESSAGE }, { status: 400 });
+    }
+    if (captcha.outcome === "degraded") {
+      void captchaAudit("auth:captcha-degraded", String(userCode ?? "").trim(), "人机验证降级放行", {
+        reason: captcha.reason,
+        detail: captcha.detail,
+      });
+    }
+
     if (!userCode || !password) {
       void failedAudit("", "参数缺失");
       return NextResponse.json({ ok: false, error: "请输入编号和密码" }, { status: 400 });

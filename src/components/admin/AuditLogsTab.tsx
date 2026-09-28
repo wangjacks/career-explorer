@@ -33,6 +33,7 @@ const PAGE_SIZE = 20;
 /** 动作词汇表（与埋点一致，#110；#95/#118/#117 新增动作同步维护） */
 const ACTIONS = [
   "auth:login", "auth:login-failed", "auth:logout", "auth:activate", "auth:activate-verify",
+  "auth:captcha-failed", "auth:captcha-degraded",
   "student:create", "student:batch-import", "student:update", "student:delete",
   "student:reset-password", "student:batch-password",
   "teacher:create", "teacher:update", "teacher:delete",
