@@ -295,6 +295,20 @@ describe("班级管理与教师账户", () => {
     rmSync(path.dirname(dbPath), { recursive: true, force: true });
   });
 
+  it("getClassByName 区分大小写（#191：trim 后全等，不折叠大小写）", () => {
+    const dbPath = makeTmpDb();
+    const adapter = new SqliteAdapter(dbPath);
+    adapter.init();
+
+    adapter.insertClass("A班", "CASE0001");
+    expect(adapter.getClassByName("A班")?.id).toBe(1);
+    expect(adapter.getClassByName("a班")).toBeUndefined();
+    expect(adapter.getClassByName("A班 ")).toBeUndefined();
+
+    adapter.close();
+    rmSync(path.dirname(dbPath), { recursive: true, force: true });
+  });
+
   it("删班后统计 compare 归入「未分班」分组", () => {
     const dbPath = makeTmpDb();
     const adapter = new SqliteAdapter(dbPath);

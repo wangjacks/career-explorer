@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getStudents, insertUser, getUserByCode, updateUser, deleteStudents, getClassByName } from "@/lib/db";
+import { getStudents, insertUser, getUserByCode, updateUser, deleteStudents } from "@/lib/db";
 import { hashPassword } from "@/lib/auth";
 import { getAuditActor, getRequestContext, recordAudit } from "@/lib/audit";
 import { resolveClassByName } from "@/lib/class-utils";
@@ -161,20 +161,19 @@ export async function PUT(request: NextRequest) {
     const fields: { name?: string; class_id?: number | null; password_hash?: string } = {};
     if (name !== undefined) fields.name = name;
     if (className !== undefined) {
-      if (!className) {
+      const binding = await resolveClassByName(className);
+      if (!binding.provided) {
         fields.class_id = null;
+      } else if (!binding.classId) {
+        void recordAudit({
+          ...actor, action: "student:update", method: "PUT", path: "/api/manage/students",
+          resource_type: "student", resource_id: String(studentId),
+          status: "failed", error_message: "班级不存在", ip, user_agent,
+          metadata: { className: binding.className },
+        });
+        return NextResponse.json({ error: "班级不存在" }, { status: 400 });
       } else {
-        const cls = await getClassByName(className);
-        if (!cls) {
-          void recordAudit({
-            ...actor, action: "student:update", method: "PUT", path: "/api/manage/students",
-            resource_type: "student", resource_id: String(studentId),
-            status: "failed", error_message: "班级不存在", ip, user_agent,
-            metadata: { className },
-          });
-          return NextResponse.json({ error: "班级不存在" }, { status: 400 });
-        }
-        fields.class_id = cls.id;
+        fields.class_id = binding.classId;
       }
     }
     if (password !== undefined) {
