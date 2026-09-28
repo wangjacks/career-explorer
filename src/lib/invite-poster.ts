@@ -12,7 +12,7 @@
  *
  * Issue #148：二维码基址必须是学生手机真能访问的地址。Next 未开启
  * experimental.trustHostHeader 时 request.url 的 host 取进程绑定 hostname 而非
- * Host 头，`next start` 无 -H 时恒为 localhost，故生产环境只认 NEXT_PUBLIC_APP_URL；
+ * Host 头，`next start` 无 -H 时恒为 localhost，故生产环境只认 APP_PUBLIC_URL；
  * Host / X-Forwarded-Host 可被客户端伪造（钓鱼域名会直接印进海报），不作为可信来源。
  */
 
@@ -50,7 +50,7 @@ const UNREACHABLE_HOSTS = new Set(["localhost", "127.0.0.1", "0.0.0.0", "::", "[
 
 /**
  * 校验并归一化基址，错误消息可直接回显给管理员（端点仅 admin/teacher 可达，
- * 且 NEXT_PUBLIC_ 前缀本就是公开值）。只接受协议 + 主机，不接受子路径与凭据。
+ * 且该变量仅服务端读取，不含敏感数据）。只接受协议 + 主机，不接受子路径与凭据。
  */
 function normalizeBaseUrl(raw: string, source: string, rejectUnreachable: boolean): string {
   let url: URL;
@@ -73,7 +73,7 @@ function normalizeBaseUrl(raw: string, source: string, rejectUnreachable: boolea
   }
   if (rejectUnreachable && UNREACHABLE_HOSTS.has(url.hostname)) {
     throw new Error(
-      `${source} 指向本机地址「${url.hostname}」，学生手机无法访问。生产环境请把 NEXT_PUBLIC_APP_URL 配成公网域名后重启服务`
+      `${source} 指向本机地址「${url.hostname}」，学生手机无法访问。生产环境请把 APP_PUBLIC_URL 配成公网域名后重启服务`
     );
   }
   return url.origin;
@@ -81,19 +81,19 @@ function normalizeBaseUrl(raw: string, source: string, rejectUnreachable: boolea
 
 /**
  * 解析海报二维码基址（#148）。
- * 生产环境必须显式配置 NEXT_PUBLIC_APP_URL，缺失即抛错而非静默产出 localhost 二维码；
+ * 生产环境必须显式配置 APP_PUBLIC_URL，缺失即抛错而非静默产出 localhost 二维码；
  * 仅非生产模式回退请求 origin（开发时绑定地址就是 localhost，回退可用）。
  */
 export function resolvePosterBaseUrl(requestOrigin: string): string {
   // 必须在函数体内读取，否则 vi.stubEnv 无法在测试里切换分支
   const isProduction = process.env.NODE_ENV === "production";
-  const configured = (process.env.NEXT_PUBLIC_APP_URL ?? "").trim();
+  const configured = (process.env.APP_PUBLIC_URL ?? "").trim();
 
-  if (configured) return normalizeBaseUrl(configured, "环境变量 NEXT_PUBLIC_APP_URL", isProduction);
+  if (configured) return normalizeBaseUrl(configured, "环境变量 APP_PUBLIC_URL", isProduction);
 
   if (isProduction) {
     throw new Error(
-      "海报基址未配置：生产环境必须在 .env.local 设置 NEXT_PUBLIC_APP_URL（站点公网地址，如 https://career.example.com）并重启服务（该变量运行时读取，无需重新构建）"
+      "海报基址未配置：生产环境必须在 .env.local 设置 APP_PUBLIC_URL（站点公网地址，如 https://career.example.com）并重启服务"
     );
   }
   return normalizeBaseUrl(requestOrigin, "请求来源", false);

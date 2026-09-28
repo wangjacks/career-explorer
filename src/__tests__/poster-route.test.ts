@@ -90,7 +90,7 @@ async function tokens() {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  vi.stubEnv("NEXT_PUBLIC_APP_URL", "https://career.example.com");
+  vi.stubEnv("APP_PUBLIC_URL", "https://career.example.com");
   vi.mocked(generateInvitePoster).mockResolvedValue(PNG_BUFFER);
   vi.mocked(getClasses).mockResolvedValue([classRow()]);
   vi.mocked(getTeacherClassPairs).mockResolvedValue([pairRow()]);
@@ -193,7 +193,7 @@ describe("GET /api/manage/classes/[id]/poster — 基址配置失败（#148）",
   // 反向代理下 request.url 的 host 是进程绑定地址而非 Host 头，生产环境不能让二维码静默落到 localhost
   const unconfigured = () => {
     vi.stubEnv("NODE_ENV", "production");
-    vi.stubEnv("NEXT_PUBLIC_APP_URL", undefined);
+    vi.stubEnv("APP_PUBLIC_URL", undefined);
   };
 
   it("生产环境未配置基址 → 503 + 中文原因，且不生成海报", async () => {
@@ -202,14 +202,14 @@ describe("GET /api/manage/classes/[id]/poster — 基址配置失败（#148）",
     const res = await GET(createGetRequest("1", t.admin), createContext("1"));
     expect(res.status).toBe(503);
     const body = await res.json();
-    expect(body.error).toContain("NEXT_PUBLIC_APP_URL");
+    expect(body.error).toContain("APP_PUBLIC_URL");
     expect(generateInvitePoster).not.toHaveBeenCalled();
   });
 
   it("生产环境配置非法基址 → 503 并回显具体原因", async () => {
     const t = await tokens();
     vi.stubEnv("NODE_ENV", "production");
-    vi.stubEnv("NEXT_PUBLIC_APP_URL", "career.example.com");
+    vi.stubEnv("APP_PUBLIC_URL", "career.example.com");
     const res = await GET(createGetRequest("1", t.admin), createContext("1"));
     expect(res.status).toBe(503);
     expect((await res.json()).error).toContain("不是合法 URL");
@@ -243,7 +243,7 @@ describe("GET /api/manage/classes/[id]/poster — 基址配置失败（#148）",
   it("非生产模式未配置基址 → 200，海报回退请求 origin", async () => {
     const t = await tokens();
     vi.stubEnv("NODE_ENV", "development");
-    vi.stubEnv("NEXT_PUBLIC_APP_URL", undefined);
+    vi.stubEnv("APP_PUBLIC_URL", undefined);
     const res = await GET(createGetRequest("1", t.admin), createContext("1"));
     expect(res.status).toBe(200);
     expect(vi.mocked(generateInvitePoster).mock.calls[0][0]).toMatchObject({
