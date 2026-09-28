@@ -268,21 +268,23 @@ export default function StudentDashboardPage() {
   }, []);
 
   // 加载标签分类（展示态「我的标签」三色分组 + 编辑态复用）+ 自定义标签上限（#94）+ 提交截止状态（#96）
-  const loadCategories = useCallback(async (): Promise<boolean> => {
+  // 返回本次请求实测的截止状态：调用方要按最新值判分支，不能读可能滞后的 state
+  const loadCategories = useCallback(async (): Promise<{ ok: boolean; closed: boolean }> => {
     try {
       const res = await fetch("/api/tags");
       const data = await res.json();
       if (res.ok) {
         setCategories(data.categories || []);
         setMaxCustomTags(typeof data.maxCustomTags === "number" ? data.maxCustomTags : undefined);
-        setSubmissionClosed(data.submissionClosed === true);
+        const closed = data.submissionClosed === true;
+        setSubmissionClosed(closed);
         setSubmissionDeadline(typeof data.submissionDeadline === "string" ? data.submissionDeadline : null);
-        return true;
+        return { ok: true, closed };
       }
-      return false;
+      return { ok: false, closed: false };
     } catch (err) {
       console.error("Failed to load tags:", err);
-      return false;
+      return { ok: false, closed: false };
     }
   }, []);
 
@@ -306,7 +308,8 @@ export default function StudentDashboardPage() {
     // 分类为空时等待加载（编辑态有「标签加载中...」占位）；已有分类则后台刷新，
     // 顺带同步提交截止状态（#96）——#168 起面板内提交是唯一入口，不能让截止态陈旧
     if (categories.length === 0) {
-      if (!(await loadCategories())) toast.error("标签加载失败");
+      const { ok } = await loadCategories();
+      if (!ok) toast.error("标签加载失败");
     } else {
       void loadCategories();
     }
@@ -325,11 +328,19 @@ export default function StudentDashboardPage() {
   const hasEditAvatar = !!avatarFile || !!profile?.avatar_url;
   const hasEditEvaluation = !!evaluationFile || !!profile?.evaluation_url;
 
-  const requestSave = () => {
+  // 保存前重取截止状态（#96/#168）：编辑态可以停留很久，进编辑时同步过的状态会过期。
+  // 过期时保存会先上传图片、再由服务端 403 拦下，留下一份无主上传，学生也要填满一屏才被拒
+  const requestSave = async () => {
     if (!hasEditTags && !hasEditAvatar && !hasEditEvaluation) {
       toast.warning("请至少填写标签、词云图或虚拟形象中的一项");
       return;
     }
+    const { ok, closed } = await loadCategories();
+    if (ok && closed) {
+      toast.error("档案提交已截止，无法保存");
+      return;
+    }
+    // 取不到截止状态时不阻断：服务端 403 仍是最终防线，不因一次请求失败否定学生的输入
     setConfirming(true);
   };
 
@@ -384,7 +395,7 @@ export default function StudentDashboardPage() {
     setConfirming(false);
     setSaving(true);
     try {
-      // 确认保存后才上传图片（取消编辑不产生任何服务端变更）；与档案创建确认页共用提交工具
+      // 确认保存后才上传图片（取消编辑不产生任何服务端变更）
       await submitProfile({
         studentId: profile!.user_code,
         tags: editTags,
@@ -690,12 +701,17 @@ export default function StudentDashboardPage() {
                   </button>
                   <button
                     onClick={requestSave}
-                    disabled={saving}
+                    disabled={saving || submissionClosed}
                     className="flex-1 py-3 bg-primary hover:bg-primary-strong disabled:opacity-50 text-white font-medium rounded-xl transition-colors"
                   >
                     {saving ? (hasSubmitted ? "保存中..." : "提交中...") : hasSubmitted ? "保存修改" : "提交档案"}
                   </button>
                 </div>
+                {submissionClosed && (
+                  <p className="text-xs text-amber-600 dark:text-amber-400 text-center">
+                    档案提交已于 {submissionDeadline} 截止，无法保存
+                  </p>
+                )}
               </div>
             )}
           </div>
