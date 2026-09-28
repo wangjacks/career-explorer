@@ -935,8 +935,8 @@ export class MysqlAdapter implements DbAdapter {
   }
 
   async getClassByName(name: string): Promise<ClassRow | undefined> {
-    const [rows] = await this.pool.execute("SELECT * FROM classes WHERE name = ?", [name]);
-    return (rows as ClassRow[])[0];
+    const classes = await this.getClasses();
+    return classes.find((c) => c.name === name);
   }
 
   async getClassByInviteCode(code: string): Promise<ClassRow | undefined> {

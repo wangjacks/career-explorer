@@ -857,7 +857,7 @@ export class SqliteAdapter implements DbAdapter {
   }
 
   getClassByName(name: string): ClassRow | undefined {
-    return this.db.prepare("SELECT * FROM classes WHERE name = ?").get(name) as ClassRow | undefined;
+    return this.getClasses().find((c) => c.name === name);
   }
 
   getClassByInviteCode(code: string): ClassRow | undefined {
