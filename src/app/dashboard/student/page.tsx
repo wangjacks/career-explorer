@@ -92,7 +92,7 @@ function SectionHeader({
         <span
           className={`px-2 py-0.5 rounded-full text-xs font-medium ${
             marker === "required"
-              ? "bg-red-50 text-red-600 dark:bg-red-900/30 dark:text-red-400"
+              ? "bg-danger-soft text-danger-strong"
               : "bg-gray-100 text-muted dark:bg-gray-800"
           }`}
         >

@@ -13,6 +13,9 @@
   /* 品牌色（暗色下在 .dark 提亮） */
   --brand: #065f46; /* emerald-800 品牌深绿 */
   --accent: #f59e0b; /* amber-500 能量琥珀 */
+  /* 危险色「浅底胶囊」配对（暗色下在 .dark 重写；#208） */
+  --danger-soft: #fef2f2; /* red-50 浅底 */
+  --danger-strong: #b91c1c; /* red-700：浅底上实测 5.9:1（red-600 仅 4.4:1，卡在 AA 边界） */
 }
 
 .dark {
@@ -23,6 +26,9 @@
   --muted: #a8a29e; /* stone-400 暗色次要文本提亮 */
   --brand: #059669; /* emerald-600 暗色提亮，避免深底糊成一片 */
   --accent: #fbbf24; /* amber-400 暗色提亮 */
+  /* 危险色浅底/文字在暗色下换配：深底上要提亮文字、压暗底色 */
+  --danger-soft: rgb(127 29 29 / 0.3); /* red-900/30 暗色浅底 */
+  --danger-strong: #f87171; /* red-400 暗色提亮 */
 }
 
 @theme inline {
@@ -45,6 +51,9 @@
   --color-warning: var(--color-amber-500);
   --color-warning-strong: var(--color-amber-600);
   --color-danger: var(--color-red-500);
+  /* 危险色浅底/强对比配对（引用 :root/.dark 变量，暗色自动重配） */
+  --color-danger-soft: var(--danger-soft);
+  --color-danger-strong: var(--danger-strong);
   /* 标签三色（三维度色彩编码，>3 类循环取色） */
   --tag-interest: #059669;
   --tag-skill: #0284c7;
