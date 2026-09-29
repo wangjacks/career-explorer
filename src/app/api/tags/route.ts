@@ -1,13 +1,25 @@
 import { NextResponse } from "next/server";
-import { getActiveTags, getMaxCustomTags, getSubmissionDeadline, isSubmissionClosed } from "@/lib/db";
+import {
+  getActiveTags,
+  getMaxAvatarSizeMb,
+  getMaxCustomTags,
+  getMaxEvaluationSizeMb,
+  getSubmissionDeadline,
+  isSubmissionClosed,
+} from "@/lib/db";
 
-/** 开放端点：表单/学生面板拉取预设标签 + 自定义标签上限（#94）+ 提交截止状态（#96，服务端计算） */
+/**
+ * 开放端点：表单/学生面板拉取预设标签 + 自定义标签上限（#94）+ 提交截止状态（#96，服务端计算）
+ * + 图片上传体积上限（#206，选图前预检用；服务端校验仍是最终防线）
+ */
 export async function GET() {
   try {
     const tags = await getActiveTags();
     const maxCustomTags = await getMaxCustomTags();
     const submissionDeadline = await getSubmissionDeadline();
     const submissionClosed = await isSubmissionClosed();
+    const maxAvatarSizeMb = await getMaxAvatarSizeMb();
+    const maxEvaluationSizeMb = await getMaxEvaluationSizeMb();
     const categories = tags
       .filter((tag) => tag.type === "category")
       .map((category) => ({
@@ -18,7 +30,14 @@ export async function GET() {
           .filter((tag) => tag.type === "tag" && tag.parent_id === category.id)
           .map((tag) => ({ id: tag.id, name: tag.name, sortOrder: tag.sort_order })),
       }));
-    return NextResponse.json({ categories, maxCustomTags, submissionDeadline, submissionClosed });
+    return NextResponse.json({
+      categories,
+      maxCustomTags,
+      submissionDeadline,
+      submissionClosed,
+      maxAvatarSizeMb,
+      maxEvaluationSizeMb,
+    });
   } catch (err) {
     console.error("Public tags GET error:", err);
     return NextResponse.json({ error: "获取标签失败" }, { status: 500 });
