@@ -239,7 +239,7 @@ export class MysqlAdapter implements DbAdapter {
         created_by_name VARCHAR(100),
         created_by_role VARCHAR(20),
         created_at TEXT NOT NULL,
-        INDEX idx_group_batches_class (class_id, created_at),
+        INDEX idx_group_batches_class (class_id, created_at(19)),
         CONSTRAINT fk_group_batches_class FOREIGN KEY (class_id) REFERENCES classes(id)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
     `);
@@ -1584,6 +1584,20 @@ export class MysqlAdapter implements DbAdapter {
       [userId]
     );
     return (rows as { class_id: number; group_no: number }[])[0];
+  }
+
+  async areStudentsInSameCurrentGroup(userIdA: number, userIdB: number): Promise<boolean> {
+    const [rows] = await this.pool.execute(
+      `SELECT EXISTS (
+         SELECT 1
+         FROM class_group_members a
+         JOIN class_group_members b ON b.group_id = a.group_id
+         WHERE a.user_id = ? AND b.user_id = ?
+       ) AS same`,
+      [userIdA, userIdB]
+    );
+    const row = (rows as { same: number }[])[0];
+    return Number(row?.same ?? 0) > 0;
   }
 
   async backup(): Promise<BackupData> {

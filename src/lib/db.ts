@@ -560,6 +560,11 @@ export interface DbAdapter {
   getStudentGroupRef(
     userId: number
   ): Promise<{ class_id: number; group_no: number } | undefined> | { class_id: number; group_no: number } | undefined;
+  /**
+   * 两人是否同属一个「当前分组」的同一组（#101 同组头像放行判定）。
+   * 单条查询比对 group_id，避免两次读之间落入原子重分组而读到跨批次的组号。
+   */
+  areStudentsInSameCurrentGroup(userIdA: number, userIdB: number): Promise<boolean> | boolean;
 
   backup(): Promise<BackupData> | BackupData;
   restore(data: BackupData): Promise<void> | void;
@@ -1052,6 +1057,14 @@ export async function getStudentGroupRef(
 ): Promise<{ class_id: number; group_no: number } | undefined> {
   const adapter = await ensureInit();
   return Promise.resolve(adapter.getStudentGroupRef(userId));
+}
+
+export async function areStudentsInSameCurrentGroup(
+  userIdA: number,
+  userIdB: number
+): Promise<boolean> {
+  const adapter = await ensureInit();
+  return Promise.resolve(adapter.areStudentsInSameCurrentGroup(userIdA, userIdB));
 }
 
 export async function backup(): Promise<BackupData> {

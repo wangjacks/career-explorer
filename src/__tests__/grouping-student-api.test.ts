@@ -7,6 +7,7 @@ vi.mock("@/lib/db", () => ({
   getProfileSubmissionOwnerByFileUrl: vi.fn(),
   getStorageBackend: vi.fn(),
   getStudentGroupRef: vi.fn(),
+  areStudentsInSameCurrentGroup: vi.fn(),
   getTeacherClassPairs: vi.fn(),
   getStudents: vi.fn(),
   getClassGroups: vi.fn(),
@@ -17,6 +18,7 @@ import { GET as groupGet } from "@/app/api/shared/group/route";
 import { GET as signGet } from "@/app/api/shared/storage-sign/route";
 import {
   getAllSubmitted,
+  areStudentsInSameCurrentGroup,
   getClassGroupMembers,
   getClassGroups,
   getProfileSubmissionOwnerByFileUrl,
@@ -83,6 +85,10 @@ beforeEach(() => {
   vi.mocked(getStorageBackend).mockResolvedValue({ id: 1, type: "local" } as never);
   vi.mocked(getTeacherClassPairs).mockResolvedValue([]);
   vi.mocked(getStudentGroupRef).mockImplementation(async (uid: number) => GROUP_REFS[uid]);
+  vi.mocked(areStudentsInSameCurrentGroup).mockImplementation(async (a: number, b: number) => {
+    const [ra, rb] = [GROUP_REFS[a], GROUP_REFS[b]];
+    return Boolean(ra && rb && ra.class_id === rb.class_id && ra.group_no === rb.group_no);
+  });
   vi.mocked(getClassGroups).mockResolvedValue([
     { id: 11, class_id: CLASS_ID, group_no: 1, created_at: "" },
     { id: 12, class_id: CLASS_ID, group_no: 2, created_at: "" },
@@ -108,6 +114,20 @@ describe("GET /api/shared/group — 学生端本组名单（#101）", () => {
 
   it("未分组 → grouped:false 且成员为空", async () => {
     vi.mocked(getStudentGroupRef).mockResolvedValue(undefined);
+    const token = await signToken({ role: "student", uid: 1, name: "甲" });
+    const res = await groupGet(groupRequest(`auth_token=${token}`));
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.grouped).toBe(false);
+    expect(body.members).toEqual([]);
+  });
+
+  it("组号引用与成员行不一致（两次读之间被原子重分组）→ 按未分组返回，不泄露他组名单", async () => {
+    // 本人引用仍指向 1 组，但成员行已是重分组后的另一批人（1 组里已无本人）
+    vi.mocked(getClassGroupMembers).mockResolvedValue([
+      { id: 1, group_id: 11, user_id: 2, created_at: "" },
+      { id: 2, group_id: 11, user_id: 3, created_at: "" },
+    ] as ClassGroupMemberRow[]);
     const token = await signToken({ role: "student", uid: 1, name: "甲" });
     const res = await groupGet(groupRequest(`auth_token=${token}`));
     expect(res.status).toBe(200);

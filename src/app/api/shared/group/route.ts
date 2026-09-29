@@ -36,6 +36,11 @@ export async function GET(request: NextRequest) {
     }
 
     const memberIds = new Set(links.filter((l) => l.group_id === target.id).map((l) => l.user_id));
+    // 归属自证：上面的组号引用是先前读到的，期间若发生原子重分组，组号可能已被复用给另一批人；
+    // 请求者不在这一组成员里就按「未分组」返回，绝不把别人的小组名单给他
+    if (!memberIds.has(result.uid)) {
+      return NextResponse.json({ grouped: false, groupNo: null, memberCount: 0, members: [] });
+    }
     const memberRows = students
       .filter((s) => memberIds.has(s.id))
       .sort((a, b) => (a.user_code < b.user_code ? -1 : a.user_code > b.user_code ? 1 : a.id - b.id));

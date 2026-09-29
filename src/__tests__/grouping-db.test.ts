@@ -244,6 +244,25 @@ describe("分组五表与适配器方法（#101）", () => {
     adapter.close();
   });
 
+  it("areStudentsInSameCurrentGroup：同组为真，跨组/跨班/未分组为假", () => {
+    const adapter = makeAdapter();
+    const a = seedClass(adapter, "A", 3);
+    const b = seedClass(adapter, "B", 2);
+    adapter.replaceClassGrouping(a.classId, [
+      { group_no: 1, user_ids: [a.ids[0], a.ids[1]] },
+      { group_no: 2, user_ids: [a.ids[2]] },
+    ]);
+    // B 班也用组号 1：跨班比较只能按 group_id 判定，按组号会误放行
+    adapter.replaceClassGrouping(b.classId, [{ group_no: 1, user_ids: [b.ids[0], b.ids[1]] }]);
+
+    expect(adapter.areStudentsInSameCurrentGroup(a.ids[0], a.ids[1])).toBe(true);
+    expect(adapter.areStudentsInSameCurrentGroup(a.ids[1], a.ids[0])).toBe(true);
+    expect(adapter.areStudentsInSameCurrentGroup(a.ids[0], a.ids[2])).toBe(false);
+    expect(adapter.areStudentsInSameCurrentGroup(a.ids[0], b.ids[0])).toBe(false);
+    expect(adapter.areStudentsInSameCurrentGroup(a.ids[0], 999)).toBe(false);
+    adapter.close();
+  });
+
   it("删学生：清掉当前成员行，但历史批次保留快照", () => {
     const adapter = makeAdapter();
     const { classId, ids, codes } = seedClass(adapter, "A", 2);

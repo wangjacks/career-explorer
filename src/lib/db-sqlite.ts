@@ -1421,6 +1421,20 @@ export class SqliteAdapter implements DbAdapter {
       .get(userId) as { class_id: number; group_no: number } | undefined;
   }
 
+  areStudentsInSameCurrentGroup(userIdA: number, userIdB: number): boolean {
+    const row = this.db
+      .prepare(
+        `SELECT EXISTS (
+           SELECT 1
+           FROM class_group_members a
+           JOIN class_group_members b ON b.group_id = a.group_id
+           WHERE a.user_id = ? AND b.user_id = ?
+         ) AS same`
+      )
+      .get(userIdA, userIdB) as { same: number };
+    return row.same === 1;
+  }
+
   backup(): BackupData {
     const users = this.db.prepare("SELECT * FROM users ORDER BY id").all() as UserRow[];
     const classes = this.db.prepare("SELECT * FROM classes ORDER BY id").all() as ClassRow[];
