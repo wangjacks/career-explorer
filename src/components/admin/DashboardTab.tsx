@@ -5,6 +5,8 @@ import {
   ResponsiveContainer,
   AreaChart,
   Area,
+  LineChart,
+  Line,
   XAxis,
   YAxis,
   CartesianGrid,
@@ -35,6 +37,12 @@ interface CompareItem {
   submitted: number;
 }
 
+/** 与 /api/manage/stats/class-trends 的响应对齐（时间 × 班级交叉维度） */
+interface ClassTrendSeries {
+  keys: string[];
+  points: { date: string; counts: Record<string, number> }[];
+}
+
 /** 数据绿：与品牌深翡翠同族，两种主题下都够对比（容器底为白/暗卡片） */
 const DATA_GREEN = "#059669";
 /** 大屏面板：固定深翡翠渐变，不随主题翻转，故面板内的前景色也固定（浅色下避开发灰的绿） */
@@ -49,10 +57,18 @@ const TAG_COLORS: Record<string, string> = {
   性格: "#f59e0b",
 };
 const FALLBACK_COLORS = ["#8b5cf6", "#0d9488", "#94a3b8", "#64748b"];
+/** 分班多序列配色：8 色循环，两种主题下都够对比 */
+const SERIES_COLORS = ["#059669", "#0284c7", "#f59e0b", "#8b5cf6", "#e11d48", "#0d9488", "#7c3aed", "#b45309"];
 /** 点名册条超过此人数退化为按比例轨，避免上千个 DOM 节点 */
 const ROSTER_MARK_CAP = 200;
 
 const DAY_OPTIONS = [7, 14, 30, 60] as const;
+
+/** 趋势分组：全校合计（面积图）与按班级分层（多序列折线）共用同一个时间窗口 */
+const TREND_GROUP_OPTIONS = [
+  { value: "total", label: "全校" },
+  { value: "class", label: "按班级" },
+] as const;
 
 /** recharts 的 payload 条目类型较宽（name/dataKey 可为 string|number，dataKey 还可能是函数），
     这里只取本页图表用到的字段，取值时统一转字符串 */
@@ -174,6 +190,8 @@ export default function DashboardTab() {
   const [distribution, setDistribution] = useState<DistributionItem[]>([]);
   const [compare, setCompare] = useState<CompareItem[]>([]);
   const [trendDays, setTrendDays] = useState(30);
+  const [trendGroup, setTrendGroup] = useState<"total" | "class">("total");
+  const [classTrend, setClassTrend] = useState<ClassTrendSeries | null>(null);
   const [firstLoading, setFirstLoading] = useState(true);
   const [trendPending, setTrendPending] = useState(false);
   const [activeTag, setActiveTag] = useState<string | null>(null);
@@ -183,16 +201,22 @@ export default function DashboardTab() {
   // 三个数据源各自记在途与失败：切换天数只重取趋势，若共用一个 loading，整块组件会退回
   // 「加载中」再重建（观感等同整页刷新），失败标记也会互相覆盖
   const trendRequest = useRef(0);
-  const fetchTrends = useCallback(async (days: number) => {
+  const fetchTrendData = useCallback(async (days: number, group: "total" | "class") => {
     const request = ++trendRequest.current;
     setTrendPending(true);
     try {
-      const res = await fetch(`/api/manage/stats/trends?days=${days}`);
+      const url =
+        group === "class"
+          ? `/api/manage/stats/class-trends?days=${days}`
+          : `/api/manage/stats/trends?days=${days}`;
+      const res = await fetch(url);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
-      // 连点天数会并发多个请求，晚到的旧窗口结果必须丢弃，否则图上曲线与选中的天数不一致
+      // 连点天数或切换分组会并发多个请求，晚到的旧口径结果必须丢弃，
+      // 否则图上曲线与选中的天数 / 分组对不上
       if (request !== trendRequest.current) return;
-      setTrends(data);
+      if (group === "class") setClassTrend(data);
+      else setTrends(data);
       setErrors((e) => ({ ...e, trends: false }));
     } catch (err) {
       console.error("Trends load error:", err);
@@ -229,26 +253,26 @@ export default function DashboardTab() {
   /* eslint-disable react-hooks/set-state-in-effect -- 首屏数据拉取与依赖变更时重取 */
   // 首屏一次拉齐三份，也只有这一次整屏加载态
   useEffect(() => {
-    Promise.all([fetchTrends(trendDays), fetchDistribution(), fetchCompare()]).then(() =>
+    Promise.all([fetchTrendData(trendDays, trendGroup), fetchDistribution(), fetchCompare()]).then(() =>
       setFirstLoading(false)
     );
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- 仅首屏，用默认天数
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 仅首屏，用默认天数与默认分组
   }, []);
 
-  // 天数变化只重取趋势；首屏那次已由上面的 effect 拉过，故跳过本 effect 的首次运行
+  // 天数或分组变化只重取趋势；首屏那次已由上面的 effect 拉过，故跳过本 effect 的首次运行
   const trendsLoaded = useRef(false);
   useEffect(() => {
     if (!trendsLoaded.current) {
       trendsLoaded.current = true;
       return;
     }
-    fetchTrends(trendDays);
-  }, [trendDays, fetchTrends]);
+    fetchTrendData(trendDays, trendGroup);
+  }, [trendDays, trendGroup, fetchTrendData]);
   /* eslint-enable react-hooks/set-state-in-effect */
 
   // 重试：只重取失败/过期的数据源，已在屏的数据不动
   const reload = () => {
-    fetchTrends(trendDays);
+    fetchTrendData(trendDays, trendGroup);
     fetchDistribution();
     fetchCompare();
   };
@@ -309,6 +333,137 @@ export default function DashboardTab() {
   const activeDist = distChart.find((d) => d.category === activeTag) ?? null;
 
   const trendTotal = trends.reduce((sum, t) => sum + t.count, 0);
+
+  // 分班多序列：recharts 要求每个分组是数据项的顶层数值字段，故把 counts 摊平
+  const classSeries = useMemo(
+    () => (classTrend?.points ?? []).map((p) => ({ date: p.date, ...p.counts })),
+    [classTrend]
+  );
+  const classKeys = classTrend?.keys ?? [];
+  const classTrendHasData = classKeys.some((key) =>
+    (classTrend?.points ?? []).some((p) => (p.counts[key] ?? 0) > 0)
+  );
+  const classTrendTotal = (classTrend?.points ?? []).reduce(
+    (sum, p) => sum + Object.values(p.counts).reduce((s, v) => s + v, 0),
+    0
+  );
+
+  /** 趋势图：全校合计画面积图，按班级画多序列折线 + 自绘图例（recharts 自带图例的暗色文字不可控） */
+  const renderTrendChart = () => {
+    if (trendGroup === "class") {
+      if (!classTrendHasData) {
+        return (
+          <ChartEmpty
+            icon={<TrendingUp className="h-6 w-6" strokeWidth={1.5} />}
+            title="所选窗口内还没有提交记录"
+            hint="把趋势天数调大一些，或确认学生是否已开始填写档案。"
+          />
+        );
+      }
+      return (
+        <>
+          <ul className="mb-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted">
+            {classKeys.map((key, i) => (
+              <li key={key} className="inline-flex items-center gap-1.5">
+                <span
+                  className="h-2 w-2 flex-shrink-0 rounded-full"
+                  style={{ background: SERIES_COLORS[i % SERIES_COLORS.length] }}
+                />
+                {key}
+              </li>
+            ))}
+          </ul>
+          {/* 高度 220 + 图例约 20，与合计模式（240）的卡片高度对齐 */}
+          <ResponsiveContainer width="100%" height={220}>
+            <LineChart data={classSeries} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
+              <CartesianGrid vertical={false} stroke="currentColor" strokeOpacity={0.14} />
+              <XAxis
+                dataKey="date"
+                tick={{ fontSize: 11, fontFamily: MONO, fill: "currentColor" }}
+                tickLine={false}
+                axisLine={false}
+                minTickGap={24}
+                tickFormatter={(v: string) => v.slice(5)}
+              />
+              <YAxis
+                tick={{ fontSize: 11, fontFamily: MONO, fill: "currentColor" }}
+                tickLine={false}
+                axisLine={false}
+                allowDecimals={false}
+                width={32}
+              />
+              <Tooltip
+                cursor={{ stroke: "currentColor", strokeOpacity: 0.25 }}
+                content={(p) => <ChartTooltip {...p} unit=" 人" labelPrefix="日期 " />}
+              />
+              {classKeys.map((key, i) => (
+                <Line
+                  key={key}
+                  type="monotone"
+                  dataKey={key}
+                  name={key}
+                  stroke={SERIES_COLORS[i % SERIES_COLORS.length]}
+                  strokeWidth={2}
+                  dot={false}
+                  activeDot={{ r: 4 }}
+                />
+              ))}
+            </LineChart>
+          </ResponsiveContainer>
+        </>
+      );
+    }
+    if (!trends.some((t) => t.count > 0)) {
+      return (
+        <ChartEmpty
+          icon={<TrendingUp className="h-6 w-6" strokeWidth={1.5} />}
+          title="所选窗口内还没有提交记录"
+          hint="把趋势天数调大一些，或确认学生是否已开始填写档案。"
+        />
+      );
+    }
+    return (
+      <ResponsiveContainer width="100%" height={240}>
+        <AreaChart data={trends} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
+          <defs>
+            <linearGradient id="dashTrendFill" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor={DATA_GREEN} stopOpacity={0.28} />
+              <stop offset="100%" stopColor={DATA_GREEN} stopOpacity={0} />
+            </linearGradient>
+          </defs>
+          <CartesianGrid vertical={false} stroke="currentColor" strokeOpacity={0.14} />
+          <XAxis
+            dataKey="date"
+            tick={{ fontSize: 11, fontFamily: MONO, fill: "currentColor" }}
+            tickLine={false}
+            axisLine={false}
+            minTickGap={24}
+            tickFormatter={(v: string) => v.slice(5)}
+          />
+          <YAxis
+            tick={{ fontSize: 11, fontFamily: MONO, fill: "currentColor" }}
+            tickLine={false}
+            axisLine={false}
+            allowDecimals={false}
+            width={32}
+          />
+          <Tooltip
+            cursor={{ stroke: "currentColor", strokeOpacity: 0.25 }}
+            content={(p) => <ChartTooltip {...p} unit=" 人" name="提交人数" labelPrefix="日期 " />}
+          />
+          <Area
+            type="monotone"
+            dataKey="count"
+            stroke={DATA_GREEN}
+            strokeWidth={2}
+            fill="url(#dashTrendFill)"
+            dot={false}
+            activeDot={{ r: 4 }}
+          />
+        </AreaChart>
+      </ResponsiveContainer>
+    );
+  };
 
   if (firstLoading) {
     return (
@@ -419,16 +574,26 @@ export default function DashboardTab() {
         <div className="rounded-xl border border-border-soft bg-card p-5 lg:col-span-7">
           <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
             <div>
-              <p className="text-[11px] font-medium tracking-[0.2em] text-muted">时间窗口</p>
-              <h3 className="mt-1 text-sm font-semibold text-foreground">提交趋势（单位：人数）</h3>
+              <p className="text-[11px] font-medium tracking-[0.2em] text-muted">
+                时间 {trendGroup === "class" ? "× 班级" : "窗口"}
+              </p>
+              <h3 className="mt-1 text-sm font-semibold text-foreground">
+                {trendGroup === "class" ? "各班提交趋势" : "提交趋势"}（单位：人数）
+              </h3>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               {trendPending && (
                 <span role="status" className="flex items-center gap-1 text-[11px] text-muted">
                   <Loader2 className="h-3 w-3 animate-spin" />
                   更新中
                 </span>
               )}
+              <Segmented
+                label="趋势分组"
+                options={TREND_GROUP_OPTIONS}
+                value={trendGroup}
+                onChange={setTrendGroup}
+              />
               <Segmented
                 label="趋势天数"
                 options={DAY_OPTIONS.map((d) => ({ value: d, label: `${d}天` }))}
@@ -438,57 +603,9 @@ export default function DashboardTab() {
             </div>
           </div>
           <div className="text-muted" aria-busy={trendPending}>
-            {/* 失败态要压过旧数据：天数变了以后，留在屏上的上一窗口曲线与选中的天数并不对应；
+            {/* 失败态要压过旧数据：天数或分组变了以后，留在屏上的上一窗口曲线与选中的口径并不对应；
                 补零后长度恒等于 trendDays，故空态判据是「窗口内是否有提交」而非数组长度 */}
-            {errors.trends ? (
-              <ChartFailed />
-            ) : trends.some((t) => t.count > 0) ? (
-              <ResponsiveContainer width="100%" height={240}>
-                <AreaChart data={trends} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
-                  <defs>
-                    <linearGradient id="dashTrendFill" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="0%" stopColor={DATA_GREEN} stopOpacity={0.28} />
-                      <stop offset="100%" stopColor={DATA_GREEN} stopOpacity={0} />
-                    </linearGradient>
-                  </defs>
-                  <CartesianGrid vertical={false} stroke="currentColor" strokeOpacity={0.14} />
-                  <XAxis
-                    dataKey="date"
-                    tick={{ fontSize: 11, fontFamily: MONO, fill: "currentColor" }}
-                    tickLine={false}
-                    axisLine={false}
-                    minTickGap={24}
-                    tickFormatter={(v: string) => v.slice(5)}
-                  />
-                  <YAxis
-                    tick={{ fontSize: 11, fontFamily: MONO, fill: "currentColor" }}
-                    tickLine={false}
-                    axisLine={false}
-                    allowDecimals={false}
-                    width={32}
-                  />
-                  <Tooltip
-                    cursor={{ stroke: "currentColor", strokeOpacity: 0.25 }}
-                    content={(p) => <ChartTooltip {...p} unit=" 人" name="提交人数" labelPrefix="日期 " />}
-                  />
-                  <Area
-                    type="monotone"
-                    dataKey="count"
-                    stroke={DATA_GREEN}
-                    strokeWidth={2}
-                    fill="url(#dashTrendFill)"
-                    dot={false}
-                    activeDot={{ r: 4 }}
-                  />
-                </AreaChart>
-              </ResponsiveContainer>
-            ) : (
-              <ChartEmpty
-                icon={<TrendingUp className="h-6 w-6" strokeWidth={1.5} />}
-                title="所选窗口内还没有提交记录"
-                hint="把趋势天数调大一些，或确认学生是否已开始填写档案。"
-              />
-            )}
+            {errors.trends ? <ChartFailed /> : renderTrendChart()}
           </div>
           <p className="mt-3 border-t border-border-soft pt-3 text-xs text-muted">
             {errors.trends ? (
@@ -496,7 +613,10 @@ export default function DashboardTab() {
             ) : (
               <>
                 近 {trendDays} 天共{" "}
-                <span className="font-mono tabular-nums text-foreground">{trendTotal}</span> 人提交
+                <span className="font-mono tabular-nums text-foreground">
+                  {trendGroup === "class" ? classTrendTotal : trendTotal}
+                </span>{" "}
+                人提交
               </>
             )}
           </p>

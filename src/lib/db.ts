@@ -180,6 +180,12 @@ export interface CompareStat {
   submitted: number;
 }
 
+/** 按班级分层的提交趋势（#165）：keys 为分组名，points 为窗口内逐日多序列（已补齐 0） */
+export interface ClassTrendSeries {
+  keys: string[];
+  points: { date: string; counts: Record<string, number> }[];
+}
+
 export interface BackupData {
   version: number;
   sourceType: string;
@@ -357,6 +363,8 @@ export interface DbAdapter {
   // stats
   getStats(): Promise<Stats> | Stats;
   getTrends(days: number): Promise<TrendPoint[]> | TrendPoint[];
+  /** 按班级分层的趋势（#165）：时间 × 班级交叉维度 */
+  getTrendsByClass(days: number): Promise<ClassTrendSeries> | ClassTrendSeries;
   /** 按班级分组统计在册/已提交（#165） */
   getCompareByClass(): Promise<CompareStat[]> | CompareStat[];
 
@@ -601,6 +609,11 @@ export async function getStats(): Promise<Stats> {
 export async function getTrends(days: number): Promise<TrendPoint[]> {
   const adapter = await ensureInit();
   return Promise.resolve(adapter.getTrends(days));
+}
+
+export async function getTrendsByClass(days: number): Promise<ClassTrendSeries> {
+  const adapter = await ensureInit();
+  return Promise.resolve(adapter.getTrendsByClass(days));
 }
 
 export async function getCompareByClass(): Promise<CompareStat[]> {

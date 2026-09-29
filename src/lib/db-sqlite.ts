@@ -28,8 +28,9 @@ import type {
   MediaFileRef,
   TrendPoint,
   CompareStat,
+  ClassTrendSeries,
 } from "./db";
-import { fillTrendSeries, shiftDate } from "./stats-utils";
+import { fillGroupedTrend, fillTrendSeries, shiftDate } from "./stats-utils";
 
 function getNow(): string {
   return new Date().toLocaleString("sv-SE", { timeZone: "Asia/Shanghai" });
@@ -758,6 +759,25 @@ export class SqliteAdapter implements DbAdapter {
       .all(start, end) as { d: string; c: number }[];
     return fillTrendSeries(
       rows.map((r) => ({ date: r.d, count: r.c })),
+      start,
+      days
+    );
+  }
+
+  getTrendsByClass(days: number): ClassTrendSeries {
+    const start = shiftDate(getToday(), -(days - 1));
+    const end = shiftDate(getToday(), 1);
+    // ORDER BY k, d 让分组名按 SQL 排序稳定输出，凑不出「一会儿这个颜色一会儿那个」
+    const rows = this.db
+      .prepare(
+        `SELECT DATE(u.submitted_at) as d, COALESCE(c.name, '未分班') as k, COUNT(*) as c
+         FROM users u LEFT JOIN classes c ON u.class_id = c.id
+         WHERE u.role = 'student' AND u.submitted_at >= ? AND u.submitted_at < ?
+         GROUP BY d, k ORDER BY k, d`
+      )
+      .all(start, end) as { d: string; k: string; c: number }[];
+    return fillGroupedTrend(
+      rows.map((r) => ({ date: r.d, key: r.k, count: r.c })),
       start,
       days
     );

@@ -3,6 +3,7 @@ import {
   DEFAULT_TREND_DAYS,
   MAX_TREND_DAYS,
   buildDateRange,
+  fillGroupedTrend,
   fillTrendSeries,
   formatRateText,
   normalizeTrendDays,
@@ -104,6 +105,65 @@ describe("fillTrendSeries", () => {
     );
     expect(series.map((t) => t.count)).toEqual([0, 5]);
     expect(fillTrendSeries([], "2026-09-29", 3).every((t) => t.count === 0)).toBe(true);
+  });
+});
+
+describe("fillGroupedTrend", () => {
+  it("每个分组在窗口内都补齐为等长的 N 个点", () => {
+    const series = fillGroupedTrend(
+      [
+        { date: "2026-09-28", key: "一班", count: 2 },
+        { date: "2026-09-30", key: "二班", count: 5 },
+      ],
+      "2026-09-28",
+      3
+    );
+    expect(series.keys).toEqual(["一班", "二班"]);
+    expect(series.points).toEqual([
+      { date: "2026-09-28", counts: { 一班: 2, 二班: 0 } },
+      { date: "2026-09-29", counts: { 一班: 0, 二班: 0 } },
+      { date: "2026-09-30", counts: { 一班: 0, 二班: 5 } },
+    ]);
+  });
+
+  it("「未分班」固定排末尾，其余保持传入顺序", () => {
+    const series = fillGroupedTrend(
+      [
+        { date: "2026-09-29", key: "未分班", count: 1 },
+        { date: "2026-09-29", key: "一班", count: 1 },
+        { date: "2026-09-29", key: "二班", count: 1 },
+      ],
+      "2026-09-29",
+      1
+    );
+    expect(series.keys).toEqual(["一班", "二班", "未分班"]);
+  });
+
+  it("同「日期 + 分组」累加，轴外数据丢弃", () => {
+    const series = fillGroupedTrend(
+      [
+        { date: "2026-09-29", key: "一班", count: 2 },
+        { date: "2026-09-29", key: "一班", count: 3 },
+        { date: "2026-09-27", key: "一班", count: 9 },
+        { date: "2026-10-05", key: "一班", count: 9 },
+      ],
+      "2026-09-28",
+      2
+    );
+    expect(series.keys).toEqual(["一班"]);
+    expect(series.points).toEqual([
+      { date: "2026-09-28", counts: { 一班: 0 } },
+      { date: "2026-09-29", counts: { 一班: 5 } },
+    ]);
+  });
+
+  it("空结果是「无分组 + 每天空计数」，不是空数组", () => {
+    const series = fillGroupedTrend([], "2026-09-28", 2);
+    expect(series.keys).toEqual([]);
+    expect(series.points).toEqual([
+      { date: "2026-09-28", counts: {} },
+      { date: "2026-09-29", counts: {} },
+    ]);
   });
 });
 

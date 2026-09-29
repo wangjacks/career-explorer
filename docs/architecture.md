@@ -120,9 +120,10 @@
 | `/api/manage/export` | GET / POST | 全方法 | Excel/CSV 导出（XLSX 支持原生单元格图片与浮动图片双模式，默认单元格图片） |
 | `/api/manage/export-images` | GET | 全方法 | 图片打包导出（ZIP） |
 | `/api/manage/stats` | GET | 仅 GET | 统计汇总 |
-| `/api/manage/stats/compare` | GET | 仅 GET | 班级/维度对比 |
+| `/api/manage/stats/compare` | GET | 仅 GET | 班级对比：每班在册 / 已提交 / 提交率（#165） |
 | `/api/manage/stats/distribution` | GET | 仅 GET | 标签分布 |
-| `/api/manage/stats/trends` | GET | 仅 GET | 提交趋势 |
+| `/api/manage/stats/trends` | GET | 仅 GET | 提交趋势（全校合计，缺日补 0） |
+| `/api/manage/stats/class-trends` | GET | 仅 GET | 按班级分层的提交趋势（#165，时间 × 班级交叉维度） |
 | `/api/manage/profiles` | GET / DELETE | GET + DELETE | 档案列表 / 清除档案字段 |
 | `/api/manage/profiles/submissions` | GET | GET | 管理端查看学生提交历史（#95）：admin 全量、teacher 仅管辖班级 |
 | `/api/manage/profiles/submissions/exceeding` | GET | GET | 超出版本上限的学生列表（#95） |

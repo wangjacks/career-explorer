@@ -27,8 +27,9 @@ import type {
   MediaFileRef,
   TrendPoint,
   CompareStat,
+  ClassTrendSeries,
 } from "./db";
-import { fillTrendSeries, shiftDate } from "./stats-utils";
+import { fillGroupedTrend, fillTrendSeries, shiftDate } from "./stats-utils";
 
 function getNow(): string {
   return new Date().toLocaleString("sv-SE", { timeZone: "Asia/Shanghai" });
@@ -840,6 +841,28 @@ export class MysqlAdapter implements DbAdapter {
     );
     return fillTrendSeries(
       (rows as { d: string; c: number }[]).map((r) => ({ date: String(r.d), count: Number(r.c) })),
+      start,
+      days
+    );
+  }
+
+  async getTrendsByClass(days: number): Promise<ClassTrendSeries> {
+    const start = shiftDate(getToday(), -(days - 1));
+    const end = shiftDate(getToday(), 1);
+    // ORDER BY k, d 让分组名按 SQL 排序稳定输出，凑不出「一会儿这个颜色一会儿那个」
+    const [rows] = await this.pool.execute(
+      `SELECT DATE(u.submitted_at) as d, COALESCE(c.name, '未分班') as k, COUNT(*) as c
+       FROM users u LEFT JOIN classes c ON u.class_id = c.id
+       WHERE u.role = 'student' AND u.submitted_at >= ? AND u.submitted_at < ?
+       GROUP BY d, k ORDER BY k, d`,
+      [start, end]
+    );
+    return fillGroupedTrend(
+      (rows as { d: string; k: string; c: unknown }[]).map((r) => ({
+        date: String(r.d),
+        key: r.k,
+        count: Number(r.c),
+      })),
       start,
       days
     );
