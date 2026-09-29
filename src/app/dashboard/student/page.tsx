@@ -213,6 +213,8 @@ export default function StudentDashboardPage() {
   const [evaluationFile, setEvaluationFile] = useState<File | null>(null);
   const [confirming, setConfirming] = useState(false);
   const [saving, setSaving] = useState(false);
+  // 保存前重取截止状态的进行中标记：其间禁用保存与取消，避免出现「已取消却弹出确认框」
+  const [checkingDeadline, setCheckingDeadline] = useState(false);
 
   // 通览态图片放大预览
   const [lightbox, setLightbox] = useState<string | null>(null);
@@ -268,18 +270,23 @@ export default function StudentDashboardPage() {
   }, []);
 
   // 加载标签分类（展示态「我的标签」三色分组 + 编辑态复用）+ 自定义标签上限（#94）+ 提交截止状态（#96）
-  const loadCategories = useCallback(async () => {
+  // 返回本次请求实测的截止状态：调用方要按最新值判分支，不能读可能滞后的 state
+  const loadCategories = useCallback(async (): Promise<{ ok: boolean; closed: boolean }> => {
     try {
       const res = await fetch("/api/tags");
       const data = await res.json();
       if (res.ok) {
         setCategories(data.categories || []);
         setMaxCustomTags(typeof data.maxCustomTags === "number" ? data.maxCustomTags : undefined);
-        setSubmissionClosed(data.submissionClosed === true);
+        const closed = data.submissionClosed === true;
+        setSubmissionClosed(closed);
         setSubmissionDeadline(typeof data.submissionDeadline === "string" ? data.submissionDeadline : null);
+        return { ok: true, closed };
       }
+      return { ok: false, closed: false };
     } catch (err) {
       console.error("Failed to load tags:", err);
+      return { ok: false, closed: false };
     }
   }, []);
 
@@ -294,24 +301,19 @@ export default function StudentDashboardPage() {
 
   const hasSubmitted = !!profile?.submitted_at;
 
-  const goSubmit = () => {
-    router.push("/form/create-profile");
-  };
-
   const startEdit = async () => {
     if (!profile) return;
     setEditTags(profile.tags);
     setAvatarFile(null);
     setEvaluationFile(null);
     setEditing(true);
-    if (categories.length > 0) return;
-    try {
-      const res = await fetch("/api/tags");
-      const data = await res.json();
-      if (res.ok) setCategories(data.categories || []);
-    } catch (err) {
-      console.error("Failed to load tags:", err);
-      toast.error("标签加载失败");
+    // 分类为空时等待加载（编辑态有「标签加载中...」占位）；已有分类则后台刷新，
+    // 顺带同步提交截止状态（#96）——#168 起面板内提交是唯一入口，不能让截止态陈旧
+    if (categories.length === 0) {
+      const { ok } = await loadCategories();
+      if (!ok) toast.error("标签加载失败");
+    } else {
+      void loadCategories();
     }
   };
 
@@ -323,11 +325,29 @@ export default function StudentDashboardPage() {
     setEditTags((prev) => prev.filter((t) => t !== tag));
   };
 
-  const requestSave = () => {
-    if (editTags.length === 0) {
-      toast.warning("请至少选择一个标签");
+  // 三项至少一项（#168）：标签 / 头像（虚拟形象）/ 评价词云任一非空即可提交，与服务端校验同口径
+  const hasEditTags = editTags.length > 0;
+  const hasEditAvatar = !!avatarFile || !!profile?.avatar_url;
+  const hasEditEvaluation = !!evaluationFile || !!profile?.evaluation_url;
+
+  // 保存前重取截止状态（#96/#168）：编辑态可以停留很久，进编辑时同步过的状态会过期。
+  // 过期时保存会先上传图片、再由服务端 403 拦下，留下一份无主上传，学生也要填满一屏才被拒
+  const requestSave = async () => {
+    if (!hasEditTags && !hasEditAvatar && !hasEditEvaluation) {
+      toast.warning("请至少填写标签、词云图或虚拟形象中的一项");
       return;
     }
+    setCheckingDeadline(true);
+    try {
+      const { ok, closed } = await loadCategories();
+      if (ok && closed) {
+        toast.error("档案提交已截止，无法保存");
+        return;
+      }
+    } finally {
+      setCheckingDeadline(false);
+    }
+    // 取不到截止状态时不阻断：服务端 403 仍是最终防线，不因一次请求失败否定学生的输入
     setConfirming(true);
   };
 
@@ -382,7 +402,7 @@ export default function StudentDashboardPage() {
     setConfirming(false);
     setSaving(true);
     try {
-      // 确认保存后才上传图片（取消编辑不产生任何服务端变更）；与档案创建确认页共用提交工具
+      // 确认保存后才上传图片（取消编辑不产生任何服务端变更）
       await submitProfile({
         studentId: profile!.user_code,
         tags: editTags,
@@ -391,7 +411,7 @@ export default function StudentDashboardPage() {
         existingAvatarUrl: profile!.avatar_url,
         existingEvaluationUrl: profile!.evaluation_url,
       });
-      toast.success("修改已保存");
+      toast.success(hasSubmitted ? "修改已保存" : "档案已提交");
       setEditing(false);
       setAvatarFile(null);
       setEvaluationFile(null);
@@ -613,21 +633,21 @@ export default function StudentDashboardPage() {
                   )}
                 </>
               ) : (
-                /* 从未提交：引导卡 */
+                /* 从未提交：引导卡，点「开始填写」就地进入编辑态（#168 起不再跳转表单页） */
                 <div className="bg-card rounded-xl border border-border-soft p-8 text-center space-y-4">
                   <div className="w-14 h-14 bg-brand rounded-2xl flex items-center justify-center mx-auto">
                     <SquarePen className="w-7 h-7 text-accent" strokeWidth={2} />
                   </div>
                   <div>
                     <h2 className="text-base font-semibold text-foreground">你还没有提交职业探索档案</h2>
-                    <p className="text-sm text-muted mt-1">完成标签选择、头像与评价词云上传，让老师了解你的职业兴趣方向</p>
+                    <p className="text-sm text-muted mt-1">在这里选择标签、上传头像与评价词云，让老师了解你的职业兴趣方向</p>
                   </div>
                   <button
-                    onClick={goSubmit}
+                    onClick={startEdit}
                     disabled={submissionClosed}
                     className="px-6 py-2.5 bg-primary hover:bg-primary-strong disabled:opacity-50 text-white text-sm font-medium rounded-xl transition-colors"
                   >
-                    去提交
+                    开始填写
                   </button>
                   {submissionClosed && (
                     <p className="text-xs text-amber-600 dark:text-amber-400">
@@ -640,7 +660,7 @@ export default function StudentDashboardPage() {
               /* 编辑模式（hero 保留在顶部） */
               <div className="space-y-5">
                 <section className="bg-card rounded-xl border border-border-soft p-5 space-y-4">
-                  <SectionHeader label="修改标签" />
+                  <SectionHeader label={hasSubmitted ? "修改标签" : "选择标签"} />
                   {categories.length === 0 ? (
                     <p className="text-sm text-muted py-4 text-center">标签加载中...</p>
                   ) : (
@@ -681,19 +701,32 @@ export default function StudentDashboardPage() {
                 <div className="flex gap-3">
                   <button
                     onClick={() => setEditing(false)}
-                    disabled={saving}
+                    disabled={saving || checkingDeadline}
                     className="flex-1 py-3 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 disabled:opacity-50 text-gray-700 dark:text-gray-200 font-medium rounded-xl transition-colors"
                   >
                     取消
                   </button>
                   <button
                     onClick={requestSave}
-                    disabled={saving}
+                    disabled={saving || checkingDeadline || submissionClosed}
                     className="flex-1 py-3 bg-primary hover:bg-primary-strong disabled:opacity-50 text-white font-medium rounded-xl transition-colors"
                   >
-                    {saving ? "保存中..." : "保存修改"}
+                    {saving
+                      ? hasSubmitted
+                        ? "保存中..."
+                        : "提交中..."
+                      : checkingDeadline
+                        ? "检查中..."
+                        : hasSubmitted
+                          ? "保存修改"
+                          : "提交档案"}
                   </button>
                 </div>
+                {submissionClosed && (
+                  <p className="text-xs text-amber-600 dark:text-amber-400 text-center">
+                    档案提交已于 {submissionDeadline} 截止，无法保存
+                  </p>
+                )}
               </div>
             )}
           </div>
@@ -724,10 +757,14 @@ export default function StudentDashboardPage() {
 
       <ConfirmDialog
         open={confirming}
-        title="确认修改"
-        variant="warning"
-        confirmText="确认保存"
-        message="保存后将覆盖你已提交的档案数据（标签、头像、评价词云），确定继续吗？"
+        title={hasSubmitted ? "确认修改" : "确认提交"}
+        variant={hasSubmitted ? "warning" : "default"}
+        confirmText={hasSubmitted ? "确认保存" : "确认提交"}
+        message={
+          hasSubmitted
+            ? "保存后将覆盖你已提交的档案数据（标签、头像、评价词云），确定继续吗？"
+            : "提交后生成你的职业探索档案，之后仍可在面板内查看和修改，确定提交吗？"
+        }
         onConfirm={confirmSave}
         onCancel={() => setConfirming(false)}
       />

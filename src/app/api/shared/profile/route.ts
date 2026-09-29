@@ -109,6 +109,9 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "不支持指定学号，档案保存仅限本人操作" }, { status: 400 });
     }
     const { tags, avatarUrl, evaluationUrl } = body;
+    if (tags !== undefined && !Array.isArray(tags)) {
+      return NextResponse.json({ error: "标签格式不正确" }, { status: 400 });
+    }
     const studentId = currentUser.user_code;
 
     // 文件所在后端（#111）：以上传响应回传的 id 为准（验证存在）；未重选图片不传 → 保留当前记录值；非法值 → 默认后端
@@ -123,15 +126,16 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "存储后端未初始化" }, { status: 500 });
     }
 
-    if (!Array.isArray(tags) || tags.length === 0) {
-      return NextResponse.json({ error: "标签不能为空" }, { status: 400 });
+    // #168：三项至少一项——标签 / 虚拟形象 / 评价词云任一非空即可保存，全空才拒绝；
+    // 标签允许为空数组（只上传图片的档案同样有效），未传或非字符串的图片字段按空处理
+    const names = normalizeTagNames(tags ?? []);
+    const avatar = typeof avatarUrl === "string" ? avatarUrl : "";
+    const evaluation = typeof evaluationUrl === "string" ? evaluationUrl : "";
+    if (names.length === 0 && avatar.length === 0 && evaluation.length === 0) {
+      return NextResponse.json({ error: "请至少填写标签、词云图或虚拟形象中的一项" }, { status: 400 });
     }
 
     // #94：标签文本直存（预设 + 自定义），入库前规范化；自定义部分受配置上限约束（后端二次校验）
-    const names = normalizeTagNames(tags as unknown[]);
-    if (names.length === 0) {
-      return NextResponse.json({ error: "标签不能为空" }, { status: 400 });
-    }
     if (names.some((n) => n.length > MAX_TAG_NAME_LENGTH)) {
       return NextResponse.json({ error: `标签名称不能超过 ${MAX_TAG_NAME_LENGTH} 字` }, { status: 400 });
     }
@@ -149,8 +153,8 @@ export async function POST(request: NextRequest) {
     const { version } = await submitProfileWithVersion(
       studentId,
       JSON.stringify(names),
-      avatarUrl || "",
-      evaluationUrl || "",
+      avatar,
+      evaluation,
       storageId
     );
     // 档案提交/修改审计（#110）：仅记标签计数，不记标签内容（学生数据不重复入库）
@@ -159,7 +163,7 @@ export async function POST(request: NextRequest) {
       action: "profile:submit", method: "POST", path: "/api/shared/profile",
       resource_type: "profile", resource_id: studentId,
       status: "success", error_message: null, ip, user_agent,
-      metadata: { tagCount: names.length, hasAvatar: Boolean(avatarUrl), hasEvaluation: Boolean(evaluationUrl), version },
+      metadata: { tagCount: names.length, hasAvatar: Boolean(avatar), hasEvaluation: Boolean(evaluation), version },
     });
     return NextResponse.json({ message: "保存成功", version });
   } catch (err) {
