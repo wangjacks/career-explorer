@@ -4,7 +4,7 @@ import { mkdtempSync, rmSync, existsSync } from "fs";
 import { tmpdir } from "os";
 import path from "path";
 import { SqliteAdapter } from "../lib/db-sqlite";
-import { normalizeBackupTags } from "../lib/db";
+import { BATCH_QUERY_CHUNK_SIZE, chunkArray, normalizeBackupTags } from "../lib/db";
 
 function makeTmpDb(): string {
   const dir = mkdtempSync(path.join(tmpdir(), "career-test-"));
@@ -141,6 +141,39 @@ describe("按学号集合批查（#193）", () => {
 
     adapter.close();
     rmSync(path.dirname(dbPath), { recursive: true, force: true });
+  });
+
+  it("名单远大于单条 SQL 参数上限时按分片查询，不报错且跨片结果完整（#193 边界）", () => {
+    const dbPath = makeTmpDb();
+    const adapter = new SqliteAdapter(dbPath);
+    adapter.init();
+
+    // 规模超过单条 SQL 的绑定参数上限（SQLite 旧构建 999 / 新构建 32766，
+    // MySQL 65535）：不分片时这条查询会直接抛错，整个导入变 500
+    const total = BATCH_QUERY_CHUNK_SIZE * 70 + 13;
+    const codes = Array.from({ length: total }, (_, i) => String(100000000000 + i));
+    // 首行落在第一片，另一行落在第二片首行（分片边界）
+    const firstCode = codes[0];
+    const boundaryCode = codes[BATCH_QUERY_CHUNK_SIZE];
+    adapter.insertUser({ user_code: firstCode, role: "student", name: "甲" });
+    adapter.insertUser({ user_code: boundaryCode, role: "student", name: "乙" });
+
+    const found = adapter.getUsersByCodes(codes);
+
+    expect(found.map((u) => u.user_code).sort()).toEqual([firstCode, boundaryCode].sort());
+
+    adapter.close();
+    rmSync(path.dirname(dbPath), { recursive: true, force: true });
+  });
+});
+
+describe("chunkArray（批查分片工具）", () => {
+  it("按固定大小切分，末尾余数单独成片；空数组返回空", () => {
+    expect(chunkArray([1, 2, 3, 4, 5], 2)).toEqual([[1, 2], [3, 4], [5]]);
+    expect(chunkArray([1, 2], 2)).toEqual([[1, 2]]);
+    expect(chunkArray([])).toEqual([]);
+    expect(chunkArray(["a"])).toEqual([["a"]]);
+    expect(BATCH_QUERY_CHUNK_SIZE).toBe(500);
   });
 });
 

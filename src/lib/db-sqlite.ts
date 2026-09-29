@@ -3,7 +3,7 @@ import { mkdirSync, readFileSync, existsSync } from "fs";
 import { tmpdir } from "os";
 import path from "path";
 import { tagCategories } from "./tagData";
-import { normalizeBackupTags, DEFAULT_MAX_CUSTOM_TAGS, DEFAULT_MAX_PROFILE_SUBMISSIONS, MAX_PROFILE_SUBMISSIONS_KEY, DEFAULT_MEDIA_ORPHAN_RETENTION_DAYS, MEDIA_ORPHAN_RETENTION_KEY } from "./db";
+import { normalizeBackupTags, chunkArray, DEFAULT_MAX_CUSTOM_TAGS, DEFAULT_MAX_PROFILE_SUBMISSIONS, MAX_PROFILE_SUBMISSIONS_KEY, DEFAULT_MEDIA_ORPHAN_RETENTION_DAYS, MEDIA_ORPHAN_RETENTION_KEY } from "./db";
 import type {
   UserRow,
   TagRow,
@@ -454,10 +454,18 @@ export class SqliteAdapter implements DbAdapter {
 
   getUsersByCodes(userCodes: string[]): UserRow[] {
     if (userCodes.length === 0) return [];
-    const placeholders = userCodes.map(() => "?").join(",");
-    return this.db
-      .prepare(`SELECT * FROM users WHERE user_code IN (${placeholders})`)
-      .all(...userCodes) as UserRow[];
+    // 去重后分片查询（#193）：避免同一学号跨片出现时返回重复行，
+    // 并保证单条 SQL 的绑定参数数量不超过引擎上限
+    const rows: UserRow[] = [];
+    for (const chunk of chunkArray([...new Set(userCodes)])) {
+      const placeholders = chunk.map(() => "?").join(",");
+      rows.push(
+        ...(this.db
+          .prepare(`SELECT * FROM users WHERE user_code IN (${placeholders})`)
+          .all(...chunk) as UserRow[])
+      );
+    }
+    return rows;
   }
 
   getUserById(id: number): UserRow | undefined {

@@ -2,6 +2,22 @@ import { getConfig } from "./db-config";
 import { MysqlAdapter } from "./db-mysql";
 import { SqliteAdapter } from "./db-sqlite";
 
+/**
+ * 批查分片大小（#193）：单条 SQL 的绑定参数数量有引擎上限——SQLite 旧构建为
+ * 999（新构建 32766），MySQL 为 65535。批量导入的学号数量随名单规模增长，
+ * 因此按 500 分片查询，远低于所有上限，也避免构造超长 IN 列表。
+ */
+export const BATCH_QUERY_CHUNK_SIZE = 500;
+
+/** 按固定大小切分数组（批查分片用，最后一片可短于 size） */
+export function chunkArray<T>(items: T[], size: number = BATCH_QUERY_CHUNK_SIZE): T[][] {
+  const chunks: T[][] = [];
+  for (let i = 0; i < items.length; i += size) {
+    chunks.push(items.slice(i, i + size));
+  }
+  return chunks;
+}
+
 export interface UserRow {
   id: number;
   user_code: string;
