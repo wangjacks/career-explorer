@@ -80,6 +80,19 @@ body {
   }
 }
 
+/* 数据大屏点名册条：逐格点亮（点名册逐人点到的意象）。逐格延迟由内联 animation-delay 给，
+   总时长封顶 400ms；减少动效偏好下由下面这条全局规则一并关停 */
+@keyframes roster-tick {
+  from {
+    opacity: 0;
+    transform: translateY(3px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
 /* 主页 hero 指南针：浮现 + 旋转一圈（非匀速 easeOutExpo）→ 上滑到位 */
 @keyframes hero-compass {
   0% {
@@ -137,6 +150,7 @@ body {
   *::before,
   *::after {
     animation-duration: 0.01ms !important;
+    animation-delay: 0s !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
   }
