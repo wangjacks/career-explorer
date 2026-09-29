@@ -73,18 +73,30 @@ function ProgressRing({ completion }: { completion: number }) {
 }
 
 /** 分区小标（eyebrow）：琥珀竖条为纯装饰（琥珀不承载小字）；done 省略则不显示角标 */
-function SectionHeader({ label, done, required }: { label: string; done?: boolean; required?: boolean }) {
+function SectionHeader({
+  label,
+  done,
+  marker,
+}: {
+  label: string;
+  done?: boolean;
+  /** 填写要求标识：编辑态的两组输入各标一种，两者都要可见（#208） */
+  marker?: "required" | "optional";
+}) {
   return (
     <div className="flex items-center gap-2">
       <span className="w-1 h-4 rounded-full bg-accent" aria-hidden />
       <h2 className="text-sm font-semibold text-foreground">
         {label}
-        {/* 必填标记：星号供快速扫读，sr-only 文本供读屏（#208） */}
-        {required && (
-          <>
-            <span className="text-red-500 ml-0.5" aria-hidden>*</span>
-            <span className="sr-only">（必填）</span>
-          </>
+        {/* 「必填 / 选填」用可见文字而非仅星号：星号只表意不达意，读屏与扫读都要能直读（#208） */}
+        {marker && (
+          <span
+            className={`ml-1 text-xs font-normal ${
+              marker === "required" ? "text-danger" : "text-muted"
+            }`}
+          >
+            {marker === "required" ? "必填" : "选填"}
+          </span>
         )}
       </h2>
       {done !== undefined && (
@@ -667,7 +679,7 @@ export default function StudentDashboardPage() {
               /* 编辑模式（hero 保留在顶部） */
               <div className="space-y-5">
                 <section className="bg-card rounded-xl border border-border-soft p-5 space-y-4">
-                  <SectionHeader label={hasSubmitted ? "修改标签" : "选择标签"} required />
+                  <SectionHeader label={hasSubmitted ? "修改标签" : "选择标签"} marker="required" />
                   {categories.length === 0 ? (
                     <p className="text-sm text-muted py-4 text-center">标签加载中...</p>
                   ) : (
@@ -682,7 +694,7 @@ export default function StudentDashboardPage() {
                 </section>
 
                 <section className="bg-card rounded-xl border border-border-soft p-5 space-y-4">
-                  <SectionHeader label="头像与评价词云" />
+                  <SectionHeader label="头像与评价词云" marker="optional" />
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
                     <div className="space-y-2">
                       <p className="text-xs text-muted">头像</p>
