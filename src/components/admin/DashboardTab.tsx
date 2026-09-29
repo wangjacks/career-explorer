@@ -165,6 +165,7 @@ export default function DashboardTab() {
   const [trendDays, setTrendDays] = useState(30);
   const [firstLoading, setFirstLoading] = useState(true);
   const [trendPending, setTrendPending] = useState(false);
+  const [activeTag, setActiveTag] = useState<string | null>(null);
   const [errors, setErrors] = useState({ trends: false, distribution: false, compare: false });
   const loadError = errors.trends || errors.distribution || errors.compare;
 
@@ -293,6 +294,8 @@ export default function DashboardTab() {
   }, [distribution]);
   const tagTotal = distChart.reduce((sum, d) => sum + d.count, 0);
   const tagMax = distChart[0]?.count ?? 1;
+  // 环形图与右侧列表共用的悬停读数：图上去掉 Tooltip 后，单维度数值由中心固定显示
+  const activeDist = distChart.find((d) => d.category === activeTag) ?? null;
 
   const trendTotal = trends.reduce((sum, t) => sum + t.count, 0);
 
@@ -483,9 +486,14 @@ export default function DashboardTab() {
           </div>
           {distChart.length > 0 ? (
             <div className="flex flex-col items-center gap-5 sm:flex-row">
-              <div className="relative h-[168px] w-[168px] flex-shrink-0 text-muted">
+              <div
+                className="relative h-[168px] w-[168px] flex-shrink-0 text-muted"
+                onMouseLeave={() => setActiveTag(null)}
+              >
                 <ResponsiveContainer width="100%" height="100%">
                   <PieChart>
+                    {/* 不给环形图挂 Tooltip：recharts 的饼图 Tooltip 锚在每个扇区的中点上，
+                        跨扇区时会一跳一跳；数值本来就在右侧列表里，改为悬停时中心固定读数 */}
                     <Pie
                       data={distChart}
                       dataKey="count"
@@ -496,22 +504,36 @@ export default function DashboardTab() {
                       outerRadius={78}
                       paddingAngle={2}
                       stroke="none"
+                      onMouseEnter={(_, index) => setActiveTag(distChart[index]?.category ?? null)}
                     >
                       {distChart.map((item) => (
-                        <Cell key={item.category} fill={item.color} />
+                        <Cell
+                          key={item.category}
+                          fill={item.color}
+                          fillOpacity={activeTag && activeTag !== item.category ? 0.3 : 1}
+                        />
                       ))}
                     </Pie>
-                    <Tooltip content={(p) => <ChartTooltip {...p} unit=" 次" />} />
                   </PieChart>
                 </ResponsiveContainer>
                 <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
-                  <span className="font-mono text-2xl font-bold tabular-nums text-foreground">{tagTotal}</span>
-                  <span className="text-[11px] text-muted">标签次数</span>
+                  <span className="font-mono text-2xl font-bold tabular-nums text-foreground">
+                    {activeDist ? activeDist.count : tagTotal}
+                  </span>
+                  <span className="max-w-[92px] truncate text-[11px] text-muted" title={activeDist?.category}>
+                    {activeDist ? activeDist.category : "标签次数"}
+                  </span>
                 </div>
               </div>
-              <ul className="w-full min-w-0 flex-1 space-y-2">
+              <ul className="w-full min-w-0 flex-1 space-y-1" onMouseLeave={() => setActiveTag(null)}>
                 {distChart.map((item) => (
-                  <li key={item.category} className="flex items-center gap-2 text-xs">
+                  <li
+                    key={item.category}
+                    onMouseEnter={() => setActiveTag(item.category)}
+                    className={`flex items-center gap-2 rounded-md px-1 py-0.5 text-xs transition-colors ${
+                      activeTag === item.category ? "bg-gray-100 dark:bg-gray-800" : ""
+                    }`}
+                  >
                     <span className="h-2 w-2 flex-shrink-0 rounded-full" style={{ background: item.color }} />
                     <span className="w-14 flex-shrink-0 truncate text-foreground" title={item.category}>
                       {item.category}
