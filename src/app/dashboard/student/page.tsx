@@ -86,19 +86,19 @@ function SectionHeader({
   return (
     <div className="flex items-center gap-2">
       <span className="w-1 h-4 rounded-full bg-accent" aria-hidden />
-      <h2 className="text-sm font-semibold text-foreground">
-        {label}
-        {/* 「必填 / 选填」用可见文字而非仅星号：星号只表意不达意，读屏与扫读都要能直读（#208） */}
-        {marker && (
-          <span
-            className={`ml-1 text-xs font-normal ${
-              marker === "required" ? "text-danger" : "text-muted"
-            }`}
-          >
-            {marker === "required" ? "必填" : "选填"}
-          </span>
-        )}
-      </h2>
+      <h2 className="text-sm font-semibold text-foreground">{label}</h2>
+      {/* 「必填 / 选填」做成胶囊与右侧的完成度角标同形：文字直读，不用只表意的星号（#208） */}
+      {marker && (
+        <span
+          className={`px-2 py-0.5 rounded-full text-xs font-medium ${
+            marker === "required"
+              ? "bg-red-50 text-red-600 dark:bg-red-900/30 dark:text-red-400"
+              : "bg-gray-100 text-muted dark:bg-gray-800"
+          }`}
+        >
+          {marker === "required" ? "必填" : "选填"}
+        </span>
+      )}
       {done !== undefined && (
         <span
           className={`ml-auto px-2 py-0.5 rounded-full text-xs font-medium ${
