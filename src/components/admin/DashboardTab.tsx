@@ -580,6 +580,8 @@ export default function DashboardTab() {
               <h3 className="mt-1 text-sm font-semibold text-foreground">
                 {trendGroup === "class" ? "各班提交趋势" : "提交趋势"}（单位：人数）
               </h3>
+              {/* 作用域写在这里：天数与分组只重取本图，另外两块图恒定全量（#165 验收第三条） */}
+              <p className="mt-0.5 text-[11px] text-muted/70">趋势天数与分组仅作用于本图</p>
             </div>
             <div className="flex flex-wrap items-center gap-2">
               {trendPending && (
@@ -627,6 +629,7 @@ export default function DashboardTab() {
           <div className="mb-4">
             <p className="text-[11px] font-medium tracking-[0.2em] text-muted">标签维度</p>
             <h3 className="mt-1 text-sm font-semibold text-foreground">标签分类分布（单位：标签次数）</h3>
+            <p className="mt-0.5 text-[11px] text-muted/70">全量口径，不随趋势天数与分组变化</p>
           </div>
           {distChart.length > 0 ? (
             <div className="flex flex-col items-center gap-5 sm:flex-row">
@@ -714,6 +717,7 @@ export default function DashboardTab() {
             <h3 className="mt-1 text-sm font-semibold text-foreground">
               班级对比（单位：人数，柱高 = 总人数）
             </h3>
+            <p className="mt-0.5 text-[11px] text-muted/70">全量口径，不随趋势天数与分组变化</p>
           </div>
           {compareChart.length > 0 ? (
             <div className="text-muted">
