@@ -25,7 +25,9 @@ import type {
   ProfileSubmissionExceedRow,
   ProfileSubmissionFileOwner,
   MediaFileRef,
+  TrendPoint,
 } from "./db";
+import { fillTrendSeries, shiftDate } from "./stats-utils";
 
 function getNow(): string {
   return new Date().toLocaleString("sv-SE", { timeZone: "Asia/Shanghai" });
@@ -826,17 +828,20 @@ export class MysqlAdapter implements DbAdapter {
     return { total, today: todayCount, uniqueTags, topTags };
   }
 
-  async getTrends(days: number): Promise<{ date: string; count: number }[]> {
-    const since = new Date(Date.now() - days * 86400000).toLocaleDateString("sv-SE", {
-      timeZone: "Asia/Shanghai",
-    });
+  async getTrends(days: number): Promise<TrendPoint[]> {
+    const start = shiftDate(getToday(), -(days - 1));
+    const end = shiftDate(getToday(), 1);
     const [rows] = await this.pool.execute(
       `SELECT DATE(submitted_at) as d, COUNT(*) as c FROM users
-       WHERE role = 'student' AND submitted_at >= ?
+       WHERE role = 'student' AND submitted_at >= ? AND submitted_at < ?
        GROUP BY DATE(submitted_at) ORDER BY d`,
-      [since]
+      [start, end]
     );
-    return (rows as { d: string; c: number }[]).map((r) => ({ date: String(r.d), count: Number(r.c) }));
+    return fillTrendSeries(
+      (rows as { d: string; c: number }[]).map((r) => ({ date: String(r.d), count: Number(r.c) })),
+      start,
+      days
+    );
   }
 
   async getCompareBy(by: "class" | "segment"): Promise<{ key: string; count: number }[]> {

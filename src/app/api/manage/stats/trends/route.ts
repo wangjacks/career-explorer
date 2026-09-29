@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getTrends } from "@/lib/db";
+import { normalizeTrendDays } from "@/lib/stats-utils";
 
 export async function GET(request: NextRequest) {
   try {
-    const days = Number(request.nextUrl.searchParams.get("days") || "30");
+    const days = normalizeTrendDays(request.nextUrl.searchParams.get("days") ?? "30");
     const trends = await getTrends(days);
     return NextResponse.json(trends);
   } catch (err) {

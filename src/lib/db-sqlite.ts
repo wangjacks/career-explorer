@@ -26,7 +26,9 @@ import type {
   ProfileSubmissionExceedRow,
   ProfileSubmissionFileOwner,
   MediaFileRef,
+  TrendPoint,
 } from "./db";
+import { fillTrendSeries, shiftDate } from "./stats-utils";
 
 function getNow(): string {
   return new Date().toLocaleString("sv-SE", { timeZone: "Asia/Shanghai" });
@@ -743,18 +745,21 @@ export class SqliteAdapter implements DbAdapter {
     return { total, today: todayCount, uniqueTags, topTags };
   }
 
-  getTrends(days: number): { date: string; count: number }[] {
-    const since = new Date(Date.now() - days * 86400000).toLocaleDateString("sv-SE", {
-      timeZone: "Asia/Shanghai",
-    });
+  getTrends(days: number): TrendPoint[] {
+    const start = shiftDate(getToday(), -(days - 1));
+    const end = shiftDate(getToday(), 1);
     const rows = this.db
       .prepare(
         `SELECT DATE(submitted_at) as d, COUNT(*) as c FROM users
-         WHERE role = 'student' AND submitted_at >= ?
+         WHERE role = 'student' AND submitted_at >= ? AND submitted_at < ?
          GROUP BY DATE(submitted_at) ORDER BY d`
       )
-      .all(since) as { d: string; c: number }[];
-    return rows.map((r) => ({ date: r.d, count: r.c }));
+      .all(start, end) as { d: string; c: number }[];
+    return fillTrendSeries(
+      rows.map((r) => ({ date: r.d, count: r.c })),
+      start,
+      days
+    );
   }
 
   getCompareBy(by: "class" | "segment"): { key: string; count: number }[] {

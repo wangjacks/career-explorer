@@ -167,6 +167,12 @@ export interface Stats {
   topTags: { tag: string; count: number }[];
 }
 
+/** 提交趋势的单日点（#165）：窗口内每天一个点，无提交为 0 */
+export interface TrendPoint {
+  date: string;
+  count: number;
+}
+
 export interface BackupData {
   version: number;
   sourceType: string;
@@ -343,7 +349,7 @@ export interface DbAdapter {
 
   // stats
   getStats(): Promise<Stats> | Stats;
-  getTrends(days: number): Promise<{ date: string; count: number }[]> | { date: string; count: number }[];
+  getTrends(days: number): Promise<TrendPoint[]> | TrendPoint[];
   getCompareBy(by: "class" | "segment"): Promise<{ key: string; count: number }[]> | { key: string; count: number }[];
 
   // tags & classes
@@ -584,7 +590,7 @@ export async function getStats(): Promise<Stats> {
   return Promise.resolve(adapter.getStats());
 }
 
-export async function getTrends(days: number): Promise<{ date: string; count: number }[]> {
+export async function getTrends(days: number): Promise<TrendPoint[]> {
   const adapter = await ensureInit();
   return Promise.resolve(adapter.getTrends(days));
 }

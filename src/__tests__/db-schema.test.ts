@@ -255,9 +255,12 @@ describe("提交流程", () => {
     expect(stats.uniqueTags).toBe(2);
     expect(stats.topTags.map((t) => t.tag).sort()).toEqual(["设计", "音乐"]);
 
+    // 补零后点数等于天数，今天以外的日期为 0（#165）
+    const today = new Date().toLocaleDateString("sv-SE", { timeZone: "Asia/Shanghai" });
     const trends = adapter.getTrends(7);
-    expect(trends.length).toBe(1);
-    expect(trends[0].count).toBe(1);
+    expect(trends).toHaveLength(7);
+    expect(trends[6]).toEqual({ date: today, count: 1 });
+    expect(trends.slice(0, 6).every((t) => t.count === 0)).toBe(true);
 
     const byClass = adapter.getCompareBy("class");
     expect(byClass).toEqual([{ key: "未分班", count: 1 }]);
