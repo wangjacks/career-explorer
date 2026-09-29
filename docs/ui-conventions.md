@@ -28,6 +28,8 @@
 | 信息/批量 | `--color-info` | blue-500 | 批量操作按钮、信息提示 |
 | 警告/凭据 | `--color-warning` / `--color-warning-strong` | amber-500 / amber-600 | 警告提示、凭据展示、重置密码（hover 用 strong） |
 | 危险/删除 | `--color-danger` | red-500 | 删除、错误态 |
+| 危险浅底 | `--color-danger-soft` | red-50 / 暗色 `red-900/30` | 危险语义的浅底胶囊、错误提示底色 |
+| 危险强对比 | `--color-danger-strong` | red-700 / 暗色 `red-400` | 浅底上的危险小字（`--color-danger` 为 red-500，浅底仅 3.1:1、不达 AA；实测 red-700 浅底 5.9:1、暗色 6.1:1） |
 
 ### 标签三色（三维度色彩编码，>3 类循环取色）
 
