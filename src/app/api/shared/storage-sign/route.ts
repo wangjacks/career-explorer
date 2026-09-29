@@ -3,11 +3,18 @@ import {
   getAllSubmitted,
   getProfileSubmissionOwnerByFileUrl,
   getStorageBackend,
+  getStudentGroupRef,
   getTeacherClassPairs,
 } from "@/lib/db";
 import { verifyToken } from "@/lib/token";
 import { createStorage } from "@/lib/storage";
 import { getSourceKey, isThumbnailKey } from "@/lib/thumbnail-utils";
+
+/** 两个学生是否在同一「当前分组」的同一组内（#101 头像放行判定） */
+async function isSameCurrentGroup(uidA: number, uidB: number): Promise<boolean> {
+  const [a, b] = await Promise.all([getStudentGroupRef(uidA), getStudentGroupRef(uidB)]);
+  return Boolean(a && b && a.class_id === b.class_id && a.group_no === b.group_no);
+}
 
 /**
  * 文件访问地址签发（#111，私有读写模式）：
@@ -48,6 +55,13 @@ export async function GET(request: NextRequest) {
     let ownerId: number | null = owner?.id ?? null;
     let ownerClassId: number | null = owner?.class_id ?? null;
     let ownerStorageId: number | null = owner?.storage_id ?? null;
+    // #101：分组后同组同学要能看头像，放行必须区分「命中的是头像还是词云」——
+    // 词云含他人评价、敏感度不同，不在放行范围内；历史快照路径无法区分字段，按最保守处理（null → 不放行）
+    const matchedField: "avatar" | "evaluation" | null = owner
+      ? owner.avatar_url === sourceUrl
+        ? "avatar"
+        : "evaluation"
+      : null;
     if (!owner) {
       // #95：当前档案已更新的历史快照文件只存在于 profile_submissions，反查归属（含快照当时的后端）
       const hist = await getProfileSubmissionOwnerByFileUrl(sourceUrl);
@@ -64,7 +78,13 @@ export async function GET(request: NextRequest) {
     // 权限校验：学生仅限本人；教师仅限管辖班级；管理员全量
     if (result.role === "student") {
       if (ownerId !== result.uid) {
-        return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+        // #101：放行范围严格限定为「**当前分组的同组成员** 且 **命中字段是头像**」；
+        // 词云、非同组同学一律 403——不为这个功能放宽既有的「学生仅限本人」边界
+        const sameGroupAvatar =
+          matchedField === "avatar" && (await isSameCurrentGroup(result.uid, ownerId));
+        if (!sameGroupAvatar) {
+          return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+        }
       }
     } else if (result.role === "teacher") {
       const pairs = await getTeacherClassPairs();
