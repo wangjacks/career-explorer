@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useMemo, type ReactNode } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef, type ReactNode } from "react";
 import {
   ResponsiveContainer,
   AreaChart,
@@ -163,34 +163,83 @@ export default function DashboardTab() {
   const [distribution, setDistribution] = useState<DistributionItem[]>([]);
   const [compare, setCompare] = useState<CompareItem[]>([]);
   const [trendDays, setTrendDays] = useState(30);
-  const [loading, setLoading] = useState(true);
-  const [loadError, setLoadError] = useState(false);
+  const [firstLoading, setFirstLoading] = useState(true);
+  const [trendPending, setTrendPending] = useState(false);
+  const [errors, setErrors] = useState({ trends: false, distribution: false, compare: false });
+  const loadError = errors.trends || errors.distribution || errors.compare;
 
-  const loadData = useCallback(async () => {
-    setLoading(true);
-    setLoadError(false);
+  // 三个数据源各自记在途与失败：切换天数只重取趋势，若共用一个 loading，整块组件会退回
+  // 「加载中」再重建（观感等同整页刷新），失败标记也会互相覆盖
+  const trendRequest = useRef(0);
+  const fetchTrends = useCallback(async (days: number) => {
+    const request = ++trendRequest.current;
+    setTrendPending(true);
     try {
-      const [tRes, dRes, cRes] = await Promise.all([
-        fetch(`/api/manage/stats/trends?days=${trendDays}`),
-        fetch("/api/manage/stats/distribution"),
-        fetch("/api/manage/stats/compare"),
-      ]);
-      if (tRes.ok) setTrends(await tRes.json());
-      if (dRes.ok) setDistribution(await dRes.json());
-      if (cRes.ok) setCompare(await cRes.json());
-      setLoadError(!(tRes.ok && dRes.ok && cRes.ok));
+      const res = await fetch(`/api/manage/stats/trends?days=${days}`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      // 连点天数会并发多个请求，晚到的旧窗口结果必须丢弃，否则图上曲线与选中的天数不一致
+      if (request !== trendRequest.current) return;
+      setTrends(data);
+      setErrors((e) => ({ ...e, trends: false }));
     } catch (err) {
-      console.error("Dashboard load error:", err);
-      setLoadError(true);
+      console.error("Trends load error:", err);
+      if (request === trendRequest.current) setErrors((e) => ({ ...e, trends: true }));
+    } finally {
+      if (request === trendRequest.current) setTrendPending(false);
     }
-    setLoading(false);
-  }, [trendDays]);
+  }, []);
 
-  /* eslint-disable react-hooks/set-state-in-effect -- data fetch on deps change */
+  const fetchDistribution = useCallback(async () => {
+    try {
+      const res = await fetch("/api/manage/stats/distribution");
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      setDistribution(await res.json());
+      setErrors((e) => ({ ...e, distribution: false }));
+    } catch (err) {
+      console.error("Distribution load error:", err);
+      setErrors((e) => ({ ...e, distribution: true }));
+    }
+  }, []);
+
+  const fetchCompare = useCallback(async () => {
+    try {
+      const res = await fetch("/api/manage/stats/compare");
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      setCompare(await res.json());
+      setErrors((e) => ({ ...e, compare: false }));
+    } catch (err) {
+      console.error("Compare load error:", err);
+      setErrors((e) => ({ ...e, compare: true }));
+    }
+  }, []);
+
+  /* eslint-disable react-hooks/set-state-in-effect -- 首屏数据拉取与依赖变更时重取 */
+  // 首屏一次拉齐三份，也只有这一次整屏加载态
   useEffect(() => {
-    loadData();
-  }, [loadData]);
+    Promise.all([fetchTrends(trendDays), fetchDistribution(), fetchCompare()]).then(() =>
+      setFirstLoading(false)
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 仅首屏，用默认天数
+  }, []);
+
+  // 天数变化只重取趋势；首屏那次已由上面的 effect 拉过，故跳过本 effect 的首次运行
+  const trendsLoaded = useRef(false);
+  useEffect(() => {
+    if (!trendsLoaded.current) {
+      trendsLoaded.current = true;
+      return;
+    }
+    fetchTrends(trendDays);
+  }, [trendDays, fetchTrends]);
   /* eslint-enable react-hooks/set-state-in-effect */
+
+  // 重试：只重取失败/过期的数据源，已在屏的数据不动
+  const reload = () => {
+    fetchTrends(trendDays);
+    fetchDistribution();
+    fetchCompare();
+  };
 
   // 在册 / 已提交 / 未提交 / 提交率：由已拉取的 compare 求和，口径与「数据概览」的总提交数同源
   const totals = useMemo(() => {
@@ -247,7 +296,7 @@ export default function DashboardTab() {
 
   const trendTotal = trends.reduce((sum, t) => sum + t.count, 0);
 
-  if (loading) {
+  if (firstLoading) {
     return (
       <div className="flex items-center justify-center gap-2 py-16 text-muted">
         <Loader2 className="h-4 w-4 animate-spin" />
@@ -262,7 +311,7 @@ export default function DashboardTab() {
         <div className="flex items-center justify-between rounded-xl border border-red-200 bg-red-50 px-4 py-3 dark:border-red-800 dark:bg-red-900/20">
           <p className="text-sm text-red-600 dark:text-red-400">部分数据加载失败，图表可能不完整</p>
           <button
-            onClick={loadData}
+            onClick={reload}
             className="rounded-lg bg-danger px-3 py-1 text-sm text-white transition-colors hover:bg-red-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
           >
             重试
@@ -355,14 +404,22 @@ export default function DashboardTab() {
               <p className="text-[11px] font-medium tracking-[0.2em] text-muted">时间窗口</p>
               <h3 className="mt-1 text-sm font-semibold text-foreground">提交趋势（单位：人数）</h3>
             </div>
-            <Segmented
-              label="趋势天数"
-              options={DAY_OPTIONS.map((d) => ({ value: d, label: `${d}天` }))}
-              value={trendDays}
-              onChange={setTrendDays}
-            />
+            <div className="flex items-center gap-2">
+              {trendPending && (
+                <span role="status" className="flex items-center gap-1 text-[11px] text-muted">
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                  更新中
+                </span>
+              )}
+              <Segmented
+                label="趋势天数"
+                options={DAY_OPTIONS.map((d) => ({ value: d, label: `${d}天` }))}
+                value={trendDays}
+                onChange={setTrendDays}
+              />
+            </div>
           </div>
-          <div className="text-muted">
+          <div className="text-muted" aria-busy={trendPending}>
             {/* 补零后长度恒等于 trendDays，判据改为「窗口内是否有提交」，全 0 时交给空态 */}
             {trends.some((t) => t.count > 0) ? (
               <ResponsiveContainer width="100%" height={240}>
