@@ -129,8 +129,9 @@ export default function DashboardTab() {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Trends Line Chart */}
         <div className="bg-card rounded-xl border border-border-soft p-5">
-          <h3 className="font-semibold text-foreground mb-4">提交趋势（近{trendDays}天）</h3>
-          {trends.length > 0 ? (
+          <h3 className="font-semibold text-foreground mb-4">提交趋势（近{trendDays}天，单位：人数）</h3>
+          {/* 补零后长度恒等于 trendDays，判据改为「窗口内是否有提交」，全 0 时交给空态 */}
+          {trends.some((t) => t.count > 0) ? (
             <ResponsiveContainer width="100%" height={260}>
               <LineChart data={trends}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
@@ -142,7 +143,7 @@ export default function DashboardTab() {
                 <YAxis tick={{ fontSize: 11 }} allowDecimals={false} />
                 <Tooltip
                   labelFormatter={(v) => `日期: ${v}`}
-                  formatter={(value) => [`${value} 条`, "提交数"]}
+                  formatter={(value) => [`${value} 人`, "提交人数"]}
                 />
                 <Line
                   type="monotone"
@@ -161,7 +162,7 @@ export default function DashboardTab() {
 
         {/* Distribution Pie Chart */}
         <div className="bg-card rounded-xl border border-border-soft p-5">
-          <h3 className="font-semibold text-foreground mb-4">标签分类分布</h3>
+          <h3 className="font-semibold text-foreground mb-4">标签分类分布（单位：标签次数）</h3>
           {distribution.length > 0 ? (
             <ResponsiveContainer width="100%" height={260}>
               <PieChart>
@@ -173,15 +174,13 @@ export default function DashboardTab() {
                   cy="50%"
                   outerRadius={90}
                   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                  label={(props: any) =>
-                    `${props.category} ${((Number(props.percent) || 0) * 100).toFixed(0)}%`
-                  }
+                  label={(props: any) => `${props.category} ${props.count} 次`}
                 >
                   {distribution.map((_, index) => (
                     <Cell key={index} fill={COLORS[index % COLORS.length]} />
                   ))}
                 </Pie>
-                <Tooltip formatter={(value) => [`${value} 个`, "标签数"]} />
+                <Tooltip formatter={(value) => [`${value} 次`, "标签次数"]} />
                 <Legend />
               </PieChart>
             </ResponsiveContainer>
