@@ -213,6 +213,8 @@ export default function StudentDashboardPage() {
   const [evaluationFile, setEvaluationFile] = useState<File | null>(null);
   const [confirming, setConfirming] = useState(false);
   const [saving, setSaving] = useState(false);
+  // 保存前重取截止状态的进行中标记：其间禁用保存与取消，避免出现「已取消却弹出确认框」
+  const [checkingDeadline, setCheckingDeadline] = useState(false);
 
   // 通览态图片放大预览
   const [lightbox, setLightbox] = useState<string | null>(null);
@@ -335,10 +337,15 @@ export default function StudentDashboardPage() {
       toast.warning("请至少填写标签、词云图或虚拟形象中的一项");
       return;
     }
-    const { ok, closed } = await loadCategories();
-    if (ok && closed) {
-      toast.error("档案提交已截止，无法保存");
-      return;
+    setCheckingDeadline(true);
+    try {
+      const { ok, closed } = await loadCategories();
+      if (ok && closed) {
+        toast.error("档案提交已截止，无法保存");
+        return;
+      }
+    } finally {
+      setCheckingDeadline(false);
     }
     // 取不到截止状态时不阻断：服务端 403 仍是最终防线，不因一次请求失败否定学生的输入
     setConfirming(true);
@@ -694,17 +701,25 @@ export default function StudentDashboardPage() {
                 <div className="flex gap-3">
                   <button
                     onClick={() => setEditing(false)}
-                    disabled={saving}
+                    disabled={saving || checkingDeadline}
                     className="flex-1 py-3 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 disabled:opacity-50 text-gray-700 dark:text-gray-200 font-medium rounded-xl transition-colors"
                   >
                     取消
                   </button>
                   <button
                     onClick={requestSave}
-                    disabled={saving || submissionClosed}
+                    disabled={saving || checkingDeadline || submissionClosed}
                     className="flex-1 py-3 bg-primary hover:bg-primary-strong disabled:opacity-50 text-white font-medium rounded-xl transition-colors"
                   >
-                    {saving ? (hasSubmitted ? "保存中..." : "提交中...") : hasSubmitted ? "保存修改" : "提交档案"}
+                    {saving
+                      ? hasSubmitted
+                        ? "保存中..."
+                        : "提交中..."
+                      : checkingDeadline
+                        ? "检查中..."
+                        : hasSubmitted
+                          ? "保存修改"
+                          : "提交档案"}
                   </button>
                 </div>
                 {submissionClosed && (
