@@ -357,7 +357,8 @@ export interface DbAdapter {
   // stats
   getStats(): Promise<Stats> | Stats;
   getTrends(days: number): Promise<TrendPoint[]> | TrendPoint[];
-  getCompareBy(by: "class" | "segment"): Promise<CompareStat[]> | CompareStat[];
+  /** 按班级分组统计在册/已提交（#165） */
+  getCompareByClass(): Promise<CompareStat[]> | CompareStat[];
 
   // tags & classes
   getTags(): Promise<TagRow[]> | TagRow[];
@@ -602,9 +603,9 @@ export async function getTrends(days: number): Promise<TrendPoint[]> {
   return Promise.resolve(adapter.getTrends(days));
 }
 
-export async function getCompareBy(by: "class" | "segment"): Promise<CompareStat[]> {
+export async function getCompareByClass(): Promise<CompareStat[]> {
   const adapter = await ensureInit();
-  return Promise.resolve(adapter.getCompareBy(by));
+  return Promise.resolve(adapter.getCompareByClass());
 }
 
 export async function getTags(): Promise<TagRow[]> {

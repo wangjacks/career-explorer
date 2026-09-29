@@ -53,10 +53,6 @@ const FALLBACK_COLORS = ["#8b5cf6", "#0d9488", "#94a3b8", "#64748b"];
 const ROSTER_MARK_CAP = 200;
 
 const DAY_OPTIONS = [7, 14, 30, 60] as const;
-const DIMENSION_OPTIONS = [
-  { value: "class" as const, label: "班级" },
-  { value: "segment" as const, label: "年级/院系" },
-];
 
 /** recharts 的 payload 条目类型较宽（name/dataKey 可为 string|number，dataKey 还可能是函数），
     这里只取本页图表用到的字段，取值时统一转字符串 */
@@ -166,7 +162,6 @@ export default function DashboardTab() {
   const [trends, setTrends] = useState<TrendItem[]>([]);
   const [distribution, setDistribution] = useState<DistributionItem[]>([]);
   const [compare, setCompare] = useState<CompareItem[]>([]);
-  const [compareBy, setCompareBy] = useState<"class" | "segment">("class");
   const [trendDays, setTrendDays] = useState(30);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
@@ -178,7 +173,7 @@ export default function DashboardTab() {
       const [tRes, dRes, cRes] = await Promise.all([
         fetch(`/api/manage/stats/trends?days=${trendDays}`),
         fetch("/api/manage/stats/distribution"),
-        fetch(`/api/manage/stats/compare?by=${compareBy}`),
+        fetch("/api/manage/stats/compare"),
       ]);
       if (tRes.ok) setTrends(await tRes.json());
       if (dRes.ok) setDistribution(await dRes.json());
@@ -189,7 +184,7 @@ export default function DashboardTab() {
       setLoadError(true);
     }
     setLoading(false);
-  }, [trendDays, compareBy]);
+  }, [trendDays]);
 
   /* eslint-disable react-hooks/set-state-in-effect -- data fetch on deps change */
   useEffect(() => {
@@ -489,19 +484,11 @@ export default function DashboardTab() {
 
         {/* 对比 */}
         <div className="rounded-xl border border-border-soft bg-card p-5 lg:col-span-12">
-          <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <p className="text-[11px] font-medium tracking-[0.2em] text-muted">分组对比</p>
-              <h3 className="mt-1 text-sm font-semibold text-foreground">
-                {compareBy === "class" ? "班级" : "年级/院系"}对比（单位：人数，柱高 = 总人数）
-              </h3>
-            </div>
-            <Segmented
-              label="对比维度"
-              options={DIMENSION_OPTIONS}
-              value={compareBy}
-              onChange={setCompareBy}
-            />
+          <div className="mb-3">
+            <p className="text-[11px] font-medium tracking-[0.2em] text-muted">分组对比</p>
+            <h3 className="mt-1 text-sm font-semibold text-foreground">
+              班级对比（单位：人数，柱高 = 总人数）
+            </h3>
           </div>
           {compareChart.length > 0 ? (
             <div className="text-muted">

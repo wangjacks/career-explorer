@@ -262,7 +262,7 @@ describe("提交流程", () => {
     expect(trends[6]).toEqual({ date: today, count: 1 });
     expect(trends.slice(0, 6).every((t) => t.count === 0)).toBe(true);
 
-    const byClass = adapter.getCompareBy("class");
+    const byClass = adapter.getCompareByClass();
     expect(byClass).toEqual([{ key: "未分班", total: 1, submitted: 1 }]);
 
     // 备份 / 恢复
@@ -320,10 +320,10 @@ describe("班级管理与教师账户", () => {
     const classId = adapter.insertClass("一班", "BBBB2222");
     adapter.insertUser({ user_code: "202505050102", role: "student", name: "李四", class_id: classId });
     adapter.upsertSubmission("202505050102", "[]", "/a.png", "/w.png", adapter.getDefaultStorageBackend()!.id);
-    expect(adapter.getCompareBy("class")).toEqual([{ key: "一班", total: 1, submitted: 1 }]);
+    expect(adapter.getCompareByClass()).toEqual([{ key: "一班", total: 1, submitted: 1 }]);
 
     adapter.deleteClass(classId);
-    expect(adapter.getCompareBy("class")).toEqual([{ key: "未分班", total: 1, submitted: 1 }]);
+    expect(adapter.getCompareByClass()).toEqual([{ key: "未分班", total: 1, submitted: 1 }]);
 
     adapter.close();
     rmSync(path.dirname(dbPath), { recursive: true, force: true });
@@ -340,7 +340,7 @@ describe("班级管理与教师账户", () => {
     adapter.insertUser({ user_code: "202505050103", role: "student", name: "王五" });
     adapter.upsertSubmission("202505050101", "[]", "/a.png", "/w.png", adapter.getDefaultStorageBackend()!.id);
 
-    expect(adapter.getCompareBy("class")).toEqual(
+    expect(adapter.getCompareByClass()).toEqual(
       expect.arrayContaining([
         { key: "一班", total: 2, submitted: 1 },
         { key: "未分班", total: 1, submitted: 0 },

@@ -763,26 +763,14 @@ export class SqliteAdapter implements DbAdapter {
     );
   }
 
-  getCompareBy(by: "class" | "segment"): CompareStat[] {
+  getCompareByClass(): CompareStat[] {
     // 分母口径：按 users 分组统计在册学生，不按提交过滤，故零提交班级也可见
-    if (by === "class") {
-      const rows = this.db
-        .prepare(
-          `SELECT COALESCE(c.name, '未分班') as k, COUNT(*) as total,
-                  SUM(CASE WHEN u.submitted_at IS NOT NULL THEN 1 ELSE 0 END) as submitted
-           FROM users u LEFT JOIN classes c ON u.class_id = c.id
-           WHERE u.role = 'student'
-           GROUP BY k ORDER BY k`
-        )
-        .all() as { k: string; total: number; submitted: number }[];
-      return rows.map((r) => ({ key: r.k, total: r.total, submitted: r.submitted }));
-    }
     const rows = this.db
       .prepare(
-        `SELECT SUBSTR(user_code, 1, 4) as k, COUNT(*) as total,
-                SUM(CASE WHEN submitted_at IS NOT NULL THEN 1 ELSE 0 END) as submitted
-         FROM users
-         WHERE role = 'student'
+        `SELECT COALESCE(c.name, '未分班') as k, COUNT(*) as total,
+                SUM(CASE WHEN u.submitted_at IS NOT NULL THEN 1 ELSE 0 END) as submitted
+         FROM users u LEFT JOIN classes c ON u.class_id = c.id
+         WHERE u.role = 'student'
          GROUP BY k ORDER BY k`
       )
       .all() as { k: string; total: number; submitted: number }[];
