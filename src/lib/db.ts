@@ -186,6 +186,93 @@ export interface ClassTrendSeries {
   points: { date: string; counts: Record<string, number> }[];
 }
 
+/* ---------- 分组（#101） ---------- */
+
+/** class_groups 行：当前分组里的一个组（允许空组，手工调整时会出现） */
+export interface ClassGroupRow {
+  id: number;
+  class_id: number;
+  group_no: number;
+  created_at: string;
+}
+
+/** class_group_members 行：当前分组的成员归属 */
+export interface ClassGroupMemberRow {
+  id: number;
+  group_id: number;
+  user_id: number;
+  created_at: string;
+}
+
+/** 覆盖当前分组的入参：组号 + 成员（成员只需 user_id，展示字段由路由用班级名单拼装） */
+export interface ClassGroupingInput {
+  group_no: number;
+  user_ids: number[];
+}
+
+/** group_batches 行：一次自动分组的批次头（历史归档，只追加） */
+export interface GroupBatchRow {
+  id: number;
+  class_id: number;
+  /** 本次使用的策略名（算法标识） */
+  strategy: string;
+  /** 本次用到的特征源（JSON 文本：key / kind / weight）——新增数据源只需扩充这一列 */
+  feature_sources: string | null;
+  /** 目标组容量（每组上限） */
+  group_size: number;
+  student_count: number;
+  /** 有特征的学生数（本期即「有标签人数」） */
+  tagged_count: number;
+  /** 指标快照（JSON 文本；标签会随时间变，故质量指标必须快照） */
+  metrics: string | null;
+  created_by_id: number | null;
+  created_by_name: string | null;
+  created_by_role: string | null;
+  created_at: string;
+}
+
+/** group_batch_groups 行：批次内的一个组 */
+export interface GroupBatchGroupRow {
+  id: number;
+  batch_id: number;
+  group_no: number;
+  /** 组内平均相似度快照 */
+  cohesion: number | null;
+  member_count: number;
+  created_at: string;
+}
+
+/** group_batch_members 行：批次某组的成员（姓名/学号为快照，账号删除后历史仍可读） */
+export interface GroupBatchMemberRow {
+  id: number;
+  /** 冗余批次号：用于在库层保证「同批次一个学生只出现一次」 */
+  batch_id: number;
+  group_id: number;
+  user_id: number;
+  user_code: string | null;
+  name: string | null;
+  created_at: string;
+}
+
+/** 追加一个历史批次的入参（头 + 组 + 成员，由适配器在同一事务内写入） */
+export interface NewGroupBatchInput {
+  classId: number;
+  strategy: string;
+  featureSources: string;
+  groupSize: number;
+  studentCount: number;
+  taggedCount: number;
+  metrics: string;
+  actorId: number | null;
+  actorName: string | null;
+  actorRole: string | null;
+  groups: {
+    groupNo: number;
+    cohesion: number | null;
+    members: { userId: number; userCode: string | null; name: string | null }[];
+  }[];
+}
+
 export interface BackupData {
   version: number;
   sourceType: string;
@@ -202,6 +289,16 @@ export interface BackupData {
   storage_backends?: StorageBackendRow[];
   /** 档案提交历史版本（#95；旧备份可能缺失，读取方容忍 undefined） */
   profile_submissions?: ProfileSubmissionRow[];
+  /** 当前分组：组（#101；旧备份可能缺失，读取方容忍 undefined） */
+  class_groups?: ClassGroupRow[];
+  /** 当前分组：成员归属（#101；旧备份可能缺失） */
+  class_group_members?: ClassGroupMemberRow[];
+  /** 历史批次头（#101；旧备份可能缺失） */
+  group_batches?: GroupBatchRow[];
+  /** 历史批次内的组（#101；旧备份可能缺失） */
+  group_batch_groups?: GroupBatchGroupRow[];
+  /** 历史批次的成员快照（#101；旧备份可能缺失） */
+  group_batch_members?: GroupBatchMemberRow[];
 }
 
 /** configs_profile 表行 */
@@ -426,6 +523,34 @@ export interface DbAdapter {
   queryAuditLogs(
     filters: AuditLogFilters
   ): Promise<{ rows: AuditLogRow[]; total: number }> | { rows: AuditLogRow[]; total: number };
+
+  // grouping（#101：当前分组可写；历史批次只追加）
+  /** 读某班当前分组的组（含空组） */
+  getClassGroups(classId: number): Promise<ClassGroupRow[]> | ClassGroupRow[];
+  /** 读某班当前分组的成员归属（与班级名单在路由层拼装，避免适配器做多表 join） */
+  getClassGroupMembers(classId: number): Promise<ClassGroupMemberRow[]> | ClassGroupMemberRow[];
+  /** 事务：整体覆盖某班当前分组（自动分组 / 导入 / 清空共用；空数组 = 清空） */
+  replaceClassGrouping(classId: number, groups: ClassGroupingInput[]): Promise<void> | void;
+  /** 建一个空组（组号由调用方给出，唯一约束保证不与既有冲突） */
+  insertGroupEntry(classId: number, groupNo: number): Promise<void> | void;
+  /** 删除一个空的组（非空由调用方先校验；本方法只删组行，不动成员） */
+  deleteGroupEntry(classId: number, groupNo: number): Promise<void> | void;
+  /** 把成员移到本班的另一个组（目标组必须已存在） */
+  moveGroupMember(classId: number, userId: number, toGroupNo: number): Promise<void> | void;
+  /** 事务：追加一个历史批次（头 + 组 + 成员），返回批次 id */
+  insertGroupBatch(input: NewGroupBatchInput): Promise<number> | number;
+  /** 按班列历史批次（新→旧） */
+  getGroupBatches(classId: number): Promise<GroupBatchRow[]> | GroupBatchRow[];
+  /** 读批次明细（头 + 组 + 成员） */
+  getGroupBatchDetail(
+    batchId: number
+  ):
+    | Promise<{ batch: GroupBatchRow | undefined; groups: GroupBatchGroupRow[]; members: GroupBatchMemberRow[] }>
+    | { batch: GroupBatchRow | undefined; groups: GroupBatchGroupRow[]; members: GroupBatchMemberRow[] };
+  /** 学生端：本人当前所在的组（无分组或未入组返回 undefined） */
+  getStudentGroupRef(
+    userId: number
+  ): Promise<{ class_id: number; group_no: number } | undefined> | { class_id: number; group_no: number } | undefined;
 
   backup(): Promise<BackupData> | BackupData;
   restore(data: BackupData): Promise<void> | void;
@@ -851,6 +976,64 @@ export async function isSubmissionClosed(): Promise<boolean> {
   // 服务端统一按 Asia/Shanghai 计算，不依赖客户端时钟
   const now = new Date().toLocaleString("sv-SE", { timeZone: "Asia/Shanghai" }).slice(0, 16);
   return isAfterDeadline(now, deadline);
+}
+
+/* ---------- 分组（#101） ---------- */
+
+export async function getClassGroups(classId: number): Promise<ClassGroupRow[]> {
+  const adapter = await ensureInit();
+  return Promise.resolve(adapter.getClassGroups(classId));
+}
+
+export async function getClassGroupMembers(classId: number): Promise<ClassGroupMemberRow[]> {
+  const adapter = await ensureInit();
+  return Promise.resolve(adapter.getClassGroupMembers(classId));
+}
+
+export async function replaceClassGrouping(classId: number, groups: ClassGroupingInput[]): Promise<void> {
+  const adapter = await ensureInit();
+  return Promise.resolve(adapter.replaceClassGrouping(classId, groups));
+}
+
+export async function insertGroupEntry(classId: number, groupNo: number): Promise<void> {
+  const adapter = await ensureInit();
+  return Promise.resolve(adapter.insertGroupEntry(classId, groupNo));
+}
+
+export async function deleteGroupEntry(classId: number, groupNo: number): Promise<void> {
+  const adapter = await ensureInit();
+  return Promise.resolve(adapter.deleteGroupEntry(classId, groupNo));
+}
+
+export async function moveGroupMember(classId: number, userId: number, toGroupNo: number): Promise<void> {
+  const adapter = await ensureInit();
+  return Promise.resolve(adapter.moveGroupMember(classId, userId, toGroupNo));
+}
+
+export async function insertGroupBatch(input: NewGroupBatchInput): Promise<number> {
+  const adapter = await ensureInit();
+  return Promise.resolve(adapter.insertGroupBatch(input));
+}
+
+export async function getGroupBatches(classId: number): Promise<GroupBatchRow[]> {
+  const adapter = await ensureInit();
+  return Promise.resolve(adapter.getGroupBatches(classId));
+}
+
+export async function getGroupBatchDetail(batchId: number): Promise<{
+  batch: GroupBatchRow | undefined;
+  groups: GroupBatchGroupRow[];
+  members: GroupBatchMemberRow[];
+}> {
+  const adapter = await ensureInit();
+  return Promise.resolve(adapter.getGroupBatchDetail(batchId));
+}
+
+export async function getStudentGroupRef(
+  userId: number
+): Promise<{ class_id: number; group_no: number } | undefined> {
+  const adapter = await ensureInit();
+  return Promise.resolve(adapter.getStudentGroupRef(userId));
 }
 
 export async function backup(): Promise<BackupData> {

@@ -327,7 +327,7 @@ describe("备份恢复集成（#95）", () => {
     adapter.submitProfileWithVersion("202505050101", "[2]", "/a2.png", "/w2.png", storageId);
 
     const data = adapter.backup();
-    expect(data.version).toBe(4);
+    expect(data.version).toBe(5); // #101 起含分组五表
     expect(data.profile_submissions).toHaveLength(2);
     expect(data.profile_submissions![0]).toMatchObject({ user_id: studentId, version: 1, is_current: 0 });
     expect(data.profile_submissions![1]).toMatchObject({ user_id: studentId, version: 2, is_current: 1 });

@@ -26,6 +26,13 @@ import type {
   ProfileSubmissionExceedRow,
   ProfileSubmissionFileOwner,
   MediaFileRef,
+  ClassGroupRow,
+  ClassGroupMemberRow,
+  ClassGroupingInput,
+  GroupBatchRow,
+  GroupBatchGroupRow,
+  GroupBatchMemberRow,
+  NewGroupBatchInput,
   TrendPoint,
   CompareStat,
   ClassTrendSeries,
@@ -175,6 +182,97 @@ export class SqliteAdapter implements DbAdapter {
     this.seedTags();
     this.migrateLegacy();
     this.migrateProfileSubmissions();
+    this.migrateGroupSchema();
+  }
+
+  /**
+   * 分组五表（#101）：**当前分组（可写）与历史批次（只追加）物理分离**。
+   * 当前侧刻意不用 is_current —— 手工调整直接改、自动分组整体覆盖，避免「改一下就要存版本」的负担；
+   * 历史侧只存自动分组的结果，故成员的姓名/学号做快照（账号删除后仍可读）。
+   */
+  private migrateGroupSchema(): void {
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS class_groups (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        class_id INTEGER NOT NULL REFERENCES classes(id),
+        group_no INTEGER NOT NULL,
+        created_at TEXT NOT NULL,
+        UNIQUE(class_id, group_no)
+      )
+    `);
+    // user_id 全局唯一：一个学生同时只能属于一个当前组（转班/删人时必须清理旧行，否则此处会拦住并报错）
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS class_group_members (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        group_id INTEGER NOT NULL REFERENCES class_groups(id),
+        user_id INTEGER NOT NULL REFERENCES users(id),
+        created_at TEXT NOT NULL,
+        UNIQUE(user_id),
+        UNIQUE(group_id, user_id)
+      )
+    `);
+    // feature_sources：本次用到的特征源（key/kind/weight）。新增数据源只需扩充这一列，不动其余结构
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS group_batches (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        class_id INTEGER NOT NULL REFERENCES classes(id),
+        strategy TEXT NOT NULL,
+        feature_sources TEXT,
+        group_size INTEGER NOT NULL,
+        student_count INTEGER NOT NULL,
+        tagged_count INTEGER NOT NULL,
+        metrics TEXT,
+        created_by_id INTEGER,
+        created_by_name TEXT,
+        created_by_role TEXT,
+        created_at TEXT NOT NULL
+      )
+    `);
+    // cohesion 为组内平均相似度的**快照**：标签会随时间变，事后算不出当时的质量
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS group_batch_groups (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        batch_id INTEGER NOT NULL REFERENCES group_batches(id),
+        group_no INTEGER NOT NULL,
+        cohesion REAL,
+        member_count INTEGER NOT NULL,
+        created_at TEXT NOT NULL,
+        UNIQUE(batch_id, group_no)
+      )
+    `);
+    // 刻意**不加** user_id 外键：历史批次要保留已删/已转出学生的快照（姓名/学号），
+    // 加外键会让删除学生失败，与「历史只追加、永久保留」冲突
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS group_batch_members (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        batch_id INTEGER NOT NULL REFERENCES group_batches(id),
+        group_id INTEGER NOT NULL REFERENCES group_batch_groups(id),
+        user_id INTEGER NOT NULL,
+        user_code TEXT,
+        name TEXT,
+        created_at TEXT NOT NULL,
+        UNIQUE(batch_id, user_id)
+      )
+    `);
+    this.db.exec(`CREATE INDEX IF NOT EXISTS idx_class_groups_class ON class_groups(class_id)`);
+    this.db.exec(
+      `CREATE INDEX IF NOT EXISTS idx_class_group_members_group ON class_group_members(group_id)`
+    );
+    this.db.exec(
+      `CREATE INDEX IF NOT EXISTS idx_class_group_members_user ON class_group_members(user_id)`
+    );
+    this.db.exec(
+      `CREATE INDEX IF NOT EXISTS idx_group_batches_class ON group_batches(class_id, created_at)`
+    );
+    this.db.exec(
+      `CREATE INDEX IF NOT EXISTS idx_group_batch_groups_batch ON group_batch_groups(batch_id)`
+    );
+    this.db.exec(
+      `CREATE INDEX IF NOT EXISTS idx_group_batch_members_batch ON group_batch_members(batch_id)`
+    );
+    this.db.exec(
+      `CREATE INDEX IF NOT EXISTS idx_group_batch_members_user ON group_batch_members(user_id)`
+    );
   }
 
   /**
@@ -467,6 +565,16 @@ export class SqliteAdapter implements DbAdapter {
   }
 
   updateUser(id: number, fields: UserUpdateFields): void {
+    // 分组（#101）：**转班**时先摘掉旧班的当前分组归属。
+    // 不清理会撞 class_group_members 的 UNIQUE(user_id)，且学生会同时出现在两个班的名单里
+    if (fields.class_id !== undefined) {
+      const current = this.db.prepare("SELECT class_id FROM users WHERE id = ?").get(id) as
+        | { class_id: number | null }
+        | undefined;
+      if (current && current.class_id !== fields.class_id) {
+        this.db.prepare("DELETE FROM class_group_members WHERE user_id = ?").run(id);
+      }
+    }
     const sets: string[] = [];
     const values: (string | number | null)[] = [];
     if (fields.name !== undefined) {
@@ -489,10 +597,18 @@ export class SqliteAdapter implements DbAdapter {
   deleteStudents(userCodes: string[]): number {
     if (userCodes.length === 0) return 0;
     const placeholders = userCodes.map(() => "?").join(",");
-    const result = this.db
-      .prepare(`DELETE FROM users WHERE role = 'student' AND user_code IN (${placeholders})`)
-      .run(...userCodes);
-    return result.changes;
+    const tx = this.db.transaction(() => {
+      // 分组（#101）：只清「当前分组」的成员行；历史批次保留快照（姓名/学号冗余，账号删除后仍可读）
+      this.db
+        .prepare(
+          `DELETE FROM class_group_members WHERE user_id IN (SELECT id FROM users WHERE user_code IN (${placeholders}))`
+        )
+        .run(...userCodes);
+      return this.db
+        .prepare(`DELETE FROM users WHERE role = 'student' AND user_code IN (${placeholders})`)
+        .run(...userCodes).changes;
+    });
+    return tx();
   }
 
   getStudents(): UserRow[] {
@@ -907,6 +1023,24 @@ export class SqliteAdapter implements DbAdapter {
   deleteClass(id: number): void {
     // 外键级联不可依赖（未启用 PRAGMA foreign_keys），事务内显式清理关联数据
     const tx = this.db.transaction((classId: number) => {
+      // 分组（#101）：当前分组与历史批次一并清理（分类消失后它们没有归属方）；子→父顺序
+      this.db
+        .prepare(
+          "DELETE FROM group_batch_members WHERE batch_id IN (SELECT id FROM group_batches WHERE class_id = ?)"
+        )
+        .run(classId);
+      this.db
+        .prepare(
+          "DELETE FROM group_batch_groups WHERE batch_id IN (SELECT id FROM group_batches WHERE class_id = ?)"
+        )
+        .run(classId);
+      this.db.prepare("DELETE FROM group_batches WHERE class_id = ?").run(classId);
+      this.db
+        .prepare(
+          "DELETE FROM class_group_members WHERE group_id IN (SELECT id FROM class_groups WHERE class_id = ?)"
+        )
+        .run(classId);
+      this.db.prepare("DELETE FROM class_groups WHERE class_id = ?").run(classId);
       this.db.prepare("UPDATE users SET class_id = NULL WHERE class_id = ?").run(classId);
       this.db.prepare("DELETE FROM teacher_classes WHERE class_id = ?").run(classId);
       this.db.prepare("DELETE FROM classes WHERE id = ?").run(classId);
@@ -1114,6 +1248,158 @@ export class SqliteAdapter implements DbAdapter {
     return { rows, total };
   }
 
+  /* ---------- 分组（#101） ---------- */
+
+  getClassGroups(classId: number): ClassGroupRow[] {
+    return this.db
+      .prepare("SELECT * FROM class_groups WHERE class_id = ? ORDER BY group_no")
+      .all(classId) as ClassGroupRow[];
+  }
+
+  getClassGroupMembers(classId: number): ClassGroupMemberRow[] {
+    return this.db
+      .prepare(
+        `SELECT m.* FROM class_group_members m
+         JOIN class_groups g ON g.id = m.group_id
+         WHERE g.class_id = ? ORDER BY m.id`
+      )
+      .all(classId) as ClassGroupMemberRow[];
+  }
+
+  replaceClassGrouping(classId: number, groups: ClassGroupingInput[]): void {
+    const tx = this.db.transaction(() => {
+      // 先删成员再删组（成员引用组）；等价于「清空该班当前分组」
+      this.db
+        .prepare(
+          "DELETE FROM class_group_members WHERE group_id IN (SELECT id FROM class_groups WHERE class_id = ?)"
+        )
+        .run(classId);
+      this.db.prepare("DELETE FROM class_groups WHERE class_id = ?").run(classId);
+      const insertGroup = this.db.prepare(
+        "INSERT INTO class_groups (class_id, group_no, created_at) VALUES (?, ?, ?)"
+      );
+      const insertMember = this.db.prepare(
+        "INSERT INTO class_group_members (group_id, user_id, created_at) VALUES (?, ?, ?)"
+      );
+      const now = getNow();
+      for (const g of groups) {
+        const info = insertGroup.run(classId, g.group_no, now);
+        const groupId = Number(info.lastInsertRowid);
+        for (const userId of g.user_ids) insertMember.run(groupId, userId, now);
+      }
+    });
+    tx();
+  }
+
+  insertGroupEntry(classId: number, groupNo: number): void {
+    this.db
+      .prepare("INSERT INTO class_groups (class_id, group_no, created_at) VALUES (?, ?, ?)")
+      .run(classId, groupNo, getNow());
+  }
+
+  deleteGroupEntry(classId: number, groupNo: number): void {
+    this.db.prepare("DELETE FROM class_groups WHERE class_id = ? AND group_no = ?").run(classId, groupNo);
+  }
+
+  moveGroupMember(classId: number, userId: number, toGroupNo: number): void {
+    const target = this.db
+      .prepare("SELECT id FROM class_groups WHERE class_id = ? AND group_no = ?")
+      .get(classId, toGroupNo) as { id: number } | undefined;
+    if (!target) throw new Error("目标组不存在");
+    const current = this.db
+      .prepare(
+        `SELECT m.id FROM class_group_members m JOIN class_groups g ON g.id = m.group_id
+         WHERE g.class_id = ? AND m.user_id = ?`
+      )
+      .get(classId, userId) as { id: number } | undefined;
+    if (current) {
+      this.db.prepare("UPDATE class_group_members SET group_id = ? WHERE id = ?").run(target.id, current.id);
+      return;
+    }
+    // 未在任何组（新转入的学生等）：直接插入目标组
+    this.db
+      .prepare("INSERT INTO class_group_members (group_id, user_id, created_at) VALUES (?, ?, ?)")
+      .run(target.id, userId, getNow());
+  }
+
+  insertGroupBatch(input: NewGroupBatchInput): number {
+    let batchId = 0;
+    const tx = this.db.transaction(() => {
+      const info = this.db
+        .prepare(
+          `INSERT INTO group_batches
+             (class_id, strategy, feature_sources, group_size, student_count, tagged_count, metrics,
+              created_by_id, created_by_name, created_by_role, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        )
+        .run(
+          input.classId,
+          input.strategy,
+          input.featureSources,
+          input.groupSize,
+          input.studentCount,
+          input.taggedCount,
+          input.metrics,
+          input.actorId,
+          input.actorName,
+          input.actorRole,
+          getNow()
+        );
+      batchId = Number(info.lastInsertRowid);
+      const insertGroup = this.db.prepare(
+        `INSERT INTO group_batch_groups (batch_id, group_no, cohesion, member_count, created_at)
+         VALUES (?, ?, ?, ?, ?)`
+      );
+      const insertMember = this.db.prepare(
+        `INSERT INTO group_batch_members (batch_id, group_id, user_id, user_code, name, created_at)
+         VALUES (?, ?, ?, ?, ?, ?)`
+      );
+      const now = getNow();
+      for (const g of input.groups) {
+        const gInfo = insertGroup.run(batchId, g.groupNo, g.cohesion, g.members.length, now);
+        const groupId = Number(gInfo.lastInsertRowid);
+        for (const m of g.members) {
+          insertMember.run(batchId, groupId, m.userId, m.userCode, m.name, now);
+        }
+      }
+    });
+    tx();
+    return batchId;
+  }
+
+  getGroupBatches(classId: number): GroupBatchRow[] {
+    return this.db
+      .prepare("SELECT * FROM group_batches WHERE class_id = ? ORDER BY id DESC")
+      .all(classId) as GroupBatchRow[];
+  }
+
+  getGroupBatchDetail(batchId: number): {
+    batch: GroupBatchRow | undefined;
+    groups: GroupBatchGroupRow[];
+    members: GroupBatchMemberRow[];
+  } {
+    const batch = this.db.prepare("SELECT * FROM group_batches WHERE id = ?").get(batchId) as
+      | GroupBatchRow
+      | undefined;
+    const groups = this.db
+      .prepare("SELECT * FROM group_batch_groups WHERE batch_id = ? ORDER BY group_no")
+      .all(batchId) as GroupBatchGroupRow[];
+    const members = this.db
+      .prepare("SELECT * FROM group_batch_members WHERE batch_id = ? ORDER BY id")
+      .all(batchId) as GroupBatchMemberRow[];
+    return { batch, groups, members };
+  }
+
+  getStudentGroupRef(userId: number): { class_id: number; group_no: number } | undefined {
+    return this.db
+      .prepare(
+        `SELECT g.class_id AS class_id, g.group_no AS group_no
+         FROM class_group_members m JOIN class_groups g ON g.id = m.group_id
+         WHERE m.user_id = ?`
+      )
+      .get(userId) as { class_id: number; group_no: number } | undefined;
+  }
+
   backup(): BackupData {
     const users = this.db.prepare("SELECT * FROM users ORDER BY id").all() as UserRow[];
     const classes = this.db.prepare("SELECT * FROM classes ORDER BY id").all() as ClassRow[];
@@ -1136,8 +1422,19 @@ export class SqliteAdapter implements DbAdapter {
     const profileSubmissions = this.db
       .prepare("SELECT * FROM profile_submissions ORDER BY id")
       .all() as ProfileSubmissionRow[];
+    const classGroups = this.db.prepare("SELECT * FROM class_groups ORDER BY id").all() as ClassGroupRow[];
+    const classGroupMembers = this.db
+      .prepare("SELECT * FROM class_group_members ORDER BY id")
+      .all() as ClassGroupMemberRow[];
+    const groupBatches = this.db.prepare("SELECT * FROM group_batches ORDER BY id").all() as GroupBatchRow[];
+    const groupBatchGroups = this.db
+      .prepare("SELECT * FROM group_batch_groups ORDER BY id")
+      .all() as GroupBatchGroupRow[];
+    const groupBatchMembers = this.db
+      .prepare("SELECT * FROM group_batch_members ORDER BY id")
+      .all() as GroupBatchMemberRow[];
     return {
-      version: 4,
+      version: 5,
       sourceType: "sqlite",
       createdAt: new Date().toISOString(),
       users,
@@ -1148,6 +1445,11 @@ export class SqliteAdapter implements DbAdapter {
       configs_profile: configs,
       storage_backends: storageBackends,
       profile_submissions: profileSubmissions,
+      class_groups: classGroups,
+      class_group_members: classGroupMembers,
+      group_batches: groupBatches,
+      group_batch_groups: groupBatchGroups,
+      group_batch_members: groupBatchMembers,
     };
   }
 
@@ -1158,6 +1460,7 @@ export class SqliteAdapter implements DbAdapter {
     try {
     const restoreTx = this.db.transaction((d: BackupData) => {
       const tags = normalizeBackupTags(d.tags);
+      // 分组（#101）不在这里删：与 profile_submissions 同口径——**含此字段才整体替换，旧备份保留不动**
       this.db.exec("DELETE FROM teacher_classes");
       this.db.exec("DELETE FROM users");
       this.db.exec("DELETE FROM classes");
@@ -1313,6 +1616,78 @@ export class SqliteAdapter implements DbAdapter {
               p.is_current ?? 0
             );
           }
+        }
+      }
+      // 分组恢复（#101；**含此字段才整体替换，旧备份保留当前分组不动**）
+      // 当前侧与历史侧各自成对处理，避免出现「删了组却留着成员」的半截状态
+      if (Array.isArray(d.class_groups)) {
+        this.db.exec("DELETE FROM class_group_members");
+        this.db.exec("DELETE FROM class_groups");
+        const stmt = this.db.prepare(
+          `INSERT INTO class_groups (id, class_id, group_no, created_at) VALUES (?, ?, ?, ?)`
+        );
+        for (const g of d.class_groups) stmt.run(g.id, g.class_id, g.group_no, g.created_at ?? getNow());
+        const memberStmt = this.db.prepare(
+          `INSERT INTO class_group_members (id, group_id, user_id, created_at) VALUES (?, ?, ?, ?)`
+        );
+        for (const m of d.class_group_members ?? []) {
+          memberStmt.run(m.id, m.group_id, m.user_id, m.created_at ?? getNow());
+        }
+      }
+      if (Array.isArray(d.group_batches)) {
+        this.db.exec("DELETE FROM group_batch_members");
+        this.db.exec("DELETE FROM group_batch_groups");
+        this.db.exec("DELETE FROM group_batches");
+        const batchStmt = this.db.prepare(
+          `INSERT INTO group_batches
+             (id, class_id, strategy, feature_sources, group_size, student_count, tagged_count, metrics,
+              created_by_id, created_by_name, created_by_role, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        );
+        for (const b of d.group_batches) {
+          batchStmt.run(
+            b.id,
+            b.class_id,
+            b.strategy,
+            b.feature_sources ?? null,
+            b.group_size ?? 5,
+            b.student_count ?? 0,
+            b.tagged_count ?? 0,
+            b.metrics ?? null,
+            b.created_by_id ?? null,
+            b.created_by_name ?? null,
+            b.created_by_role ?? null,
+            b.created_at ?? getNow()
+          );
+        }
+        const groupStmt = this.db.prepare(
+          `INSERT INTO group_batch_groups (id, batch_id, group_no, cohesion, member_count, created_at)
+           VALUES (?, ?, ?, ?, ?, ?)`
+        );
+        for (const g of d.group_batch_groups ?? []) {
+          groupStmt.run(
+            g.id,
+            g.batch_id,
+            g.group_no,
+            g.cohesion ?? null,
+            g.member_count ?? 0,
+            g.created_at ?? getNow()
+          );
+        }
+        const memberStmt = this.db.prepare(
+          `INSERT INTO group_batch_members (id, batch_id, group_id, user_id, user_code, name, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?)`
+        );
+        for (const m of d.group_batch_members ?? []) {
+          memberStmt.run(
+            m.id,
+            m.batch_id,
+            m.group_id,
+            m.user_id,
+            m.user_code ?? null,
+            m.name ?? null,
+            m.created_at ?? getNow()
+          );
         }
       }
     });
