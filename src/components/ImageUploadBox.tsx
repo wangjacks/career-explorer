@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { Image as ImageIcon } from "lucide-react";
 import { toast } from "sonner";
 import { safeImageUrl } from "@/lib/sanitize";
+import { validateImageFile } from "@/lib/upload-utils";
 
 interface ImageUploadBoxProps {
   /** 已有图片 URL（经 safeImageUrl 校验后展示） */
@@ -11,6 +12,8 @@ interface ImageUploadBoxProps {
   /** 预览框宽高比：square 头像 / wide 评价词云 */
   aspect?: "square" | "wide";
   emptyHint?: string;
+  /** 该资源的体积上限（MB，随 /api/tags 下发）；缺省时跳过预检 */
+  maxSizeMb?: number;
   /** 选图/清除时回调 File（未上传；确认真实保存时才由调用方上传） */
   onFileSelected: (file: File | null) => void;
 }
@@ -19,11 +22,13 @@ interface ImageUploadBoxProps {
  * 图片上传框：点击选图 + 本地预览。
  * 采用延迟上传设计——选图只做本地预览并透出 File，
  * 由调用方在用户确认保存时才真正上传，取消编辑则不产生任何服务端变更。
+ * 选图时按 validateImageFile 做类型与体积预检（#206）：超限当场提示，不白等一次往返。
  */
 export default function ImageUploadBox({
   initialUrl,
   aspect = "square",
   emptyHint = "点击上传图片",
+  maxSizeMb,
   onFileSelected,
 }: ImageUploadBoxProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -43,8 +48,11 @@ export default function ImageUploadBox({
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    if (!file.type.startsWith("image/")) {
-      toast.error("请选择图片文件");
+    // 类型与体积统一走纯函数（可单测）：不可识别的类型（HEIC 在部分浏览器是空 type）
+    // 与超限都在这里拦下，不必等上传往返被服务端拒绝
+    const check = validateImageFile(file, maxSizeMb);
+    if (!check.ok) {
+      toast.error(check.message);
       return;
     }
     const objectUrl = URL.createObjectURL(file);
