@@ -595,32 +595,44 @@ export class MysqlAdapter implements DbAdapter {
   }
 
   async updateUser(id: number, fields: UserUpdateFields): Promise<void> {
-    // 分组（#101）：**转班**时先摘掉旧班的当前分组归属。
-    // 不清理会撞 class_group_members 的 UNIQUE(user_id)，且学生会同时出现在两个班的名单里
-    if (fields.class_id !== undefined) {
-      const [currentRows] = await this.pool.execute("SELECT class_id FROM users WHERE id = ?", [id]);
-      const current = (currentRows as { class_id: number | null }[])[0];
-      if (current && current.class_id !== fields.class_id) {
-        await this.pool.execute("DELETE FROM class_group_members WHERE user_id = ?", [id]);
+    // 摘除旧班归属与改 users 必须同事务：分两步写中途失败会留下「人已换班、成员行还挂在旧班」的脏归属
+    const conn = await this.pool.getConnection();
+    try {
+      await conn.beginTransaction();
+      // 分组（#101）：**转班**时先摘掉旧班的当前分组归属。
+      // 不清理会撞 class_group_members 的 UNIQUE(user_id)，且学生会同时出现在两个班的名单里
+      if (fields.class_id !== undefined) {
+        const [currentRows] = await conn.execute("SELECT class_id FROM users WHERE id = ?", [id]);
+        const current = (currentRows as { class_id: number | null }[])[0];
+        if (current && current.class_id !== fields.class_id) {
+          await conn.execute("DELETE FROM class_group_members WHERE user_id = ?", [id]);
+        }
       }
+      const sets: string[] = [];
+      const values: (string | number | null)[] = [];
+      if (fields.name !== undefined) {
+        sets.push("name = ?");
+        values.push(fields.name);
+      }
+      if (fields.class_id !== undefined) {
+        sets.push("class_id = ?");
+        values.push(fields.class_id);
+      }
+      if (fields.password_hash !== undefined) {
+        sets.push("password_hash = ?");
+        values.push(fields.password_hash);
+      }
+      if (sets.length > 0) {
+        values.push(id);
+        await conn.execute(`UPDATE users SET ${sets.join(", ")} WHERE id = ?`, values);
+      }
+      await conn.commit();
+    } catch (err) {
+      await conn.rollback();
+      throw err;
+    } finally {
+      conn.release();
     }
-    const sets: string[] = [];
-    const values: (string | number | null)[] = [];
-    if (fields.name !== undefined) {
-      sets.push("name = ?");
-      values.push(fields.name);
-    }
-    if (fields.class_id !== undefined) {
-      sets.push("class_id = ?");
-      values.push(fields.class_id);
-    }
-    if (fields.password_hash !== undefined) {
-      sets.push("password_hash = ?");
-      values.push(fields.password_hash);
-    }
-    if (sets.length === 0) return;
-    values.push(id);
-    await this.pool.execute(`UPDATE users SET ${sets.join(", ")} WHERE id = ?`, values);
   }
 
   async deleteStudents(userCodes: string[]): Promise<number> {
@@ -1645,7 +1657,13 @@ export class MysqlAdapter implements DbAdapter {
       // 恢复期间关闭外键约束（全量 DELETE + INSERT 顺序可能违反 REFERENCES）
       await conn.execute("SET FOREIGN_KEY_CHECKS = 0");
       const tags = normalizeBackupTags(data.tags);
-      // 分组（#101）不在这里删：与 profile_submissions 同口径——**含此字段才整体替换，旧备份保留不动**
+      // 分组（#101）五表一律先清空：users / classes 是整表替换的，旧备份不含分组字段时若保留现状，
+      // 成员行会指向不存在或已换班的学生（恢复期间 FK 关闭，库不会拦），所以「无字段 = 恢复后未分组」
+      await conn.execute("DELETE FROM class_group_members");
+      await conn.execute("DELETE FROM class_groups");
+      await conn.execute("DELETE FROM group_batch_members");
+      await conn.execute("DELETE FROM group_batch_groups");
+      await conn.execute("DELETE FROM group_batches");
       await conn.execute("DELETE FROM teacher_classes");
       await conn.execute("DELETE FROM users");
       await conn.execute("DELETE FROM classes");
@@ -1805,11 +1823,9 @@ export class MysqlAdapter implements DbAdapter {
           );
         }
       }
-      // 分组恢复（#101；**含此字段才整体替换，旧备份保留当前分组不动**）
+      // 分组恢复（#101；**含此字段才回填，旧备份恢复后即为未分组**——上面已统一清空）
       // 当前侧与历史侧各自成对处理，避免出现「删了组却留着成员」的半截状态
       if (Array.isArray(data.class_groups)) {
-        await conn.execute("DELETE FROM class_group_members");
-        await conn.execute("DELETE FROM class_groups");
         if (data.class_groups.length > 0) {
           const values = data.class_groups.map((g) => [
             g.id,
@@ -1836,9 +1852,6 @@ export class MysqlAdapter implements DbAdapter {
         }
       }
       if (Array.isArray(data.group_batches)) {
-        await conn.execute("DELETE FROM group_batch_members");
-        await conn.execute("DELETE FROM group_batch_groups");
-        await conn.execute("DELETE FROM group_batches");
         if (data.group_batches.length > 0) {
           const values = data.group_batches.map((b) => [
             b.id,
@@ -1896,6 +1909,12 @@ export class MysqlAdapter implements DbAdapter {
       await conn.commit();
     } catch (err) {
       await conn.rollback();
+      try {
+        // 失败路径也要复位：连接归还池后若仍停在 FOREIGN_KEY_CHECKS=0，后续写操作会失去外键保护
+        await conn.execute("SET FOREIGN_KEY_CHECKS = 1");
+      } catch (resetErr) {
+        console.error("Restore foreign key reset failed:", resetErr);
+      }
       throw err;
     } finally {
       conn.release();

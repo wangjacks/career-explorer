@@ -326,7 +326,7 @@ describe("分组五表与适配器方法（#101）", () => {
     adapter.close();
   });
 
-  it("备份含分组五表；恢复后回填；旧备份（无这些字段）可恢复且不动现有分组", () => {
+  it("备份含分组五表；恢复后回填；旧备份（无这些字段）恢复后为未分组", () => {
     const adapter = makeAdapter();
     const { classId, ids, codes } = seedClass(adapter, "A", 2);
     adapter.replaceClassGrouping(classId, [{ group_no: 1, user_ids: ids }]);
@@ -352,7 +352,7 @@ describe("分组五表与适配器方法（#101）", () => {
     expect(adapter.getClassGroupMembers(classId).length).toBe(2);
     expect(adapter.getGroupBatchDetail(adapter.getGroupBatches(classId)[0].id).groups[0].cohesion).toBe(0.3);
 
-    // 旧备份：删掉分组字段后恢复，应保留当前分组数据不被清空
+    // 旧备份没有分组字段：users / classes 是整表替换的，留着旧分组行就是留下指向已不存在学生的归属
     const legacy = { ...dump } as BackupData;
     delete legacy.class_groups;
     delete legacy.class_group_members;
@@ -360,8 +360,34 @@ describe("分组五表与适配器方法（#101）", () => {
     delete legacy.group_batch_groups;
     delete legacy.group_batch_members;
     adapter.restore(legacy);
-    expect(adapter.getClassGroups(classId).length).toBe(1);
-    expect(adapter.getClassGroupMembers(classId).length).toBe(2);
+    expect(adapter.getClassGroups(classId)).toEqual([]);
+    expect(adapter.getClassGroupMembers(classId)).toEqual([]);
+    expect(adapter.getGroupBatches(classId)).toEqual([]);
+    adapter.close();
+  });
+
+  it("旧备份的名单已变化：恢复后不会残留幽灵成员行", () => {
+    const adapter = makeAdapter();
+    const { classId, ids } = seedClass(adapter, "A", 3);
+    adapter.replaceClassGrouping(classId, [{ group_no: 1, user_ids: ids }]);
+    const dump = adapter.backup();
+    // 模拟「这份备份之后名单里少了一个人」的旧档：缺分组字段 + users 已不含丙
+    const legacy = {
+      ...dump,
+      users: dump.users.filter((u) => u.id !== ids[2]),
+    } as BackupData;
+    delete legacy.class_groups;
+    delete legacy.class_group_members;
+    delete legacy.group_batches;
+    delete legacy.group_batch_groups;
+    delete legacy.group_batch_members;
+
+    adapter.restore(legacy);
+    const members = adapter.getClassGroupMembers(classId);
+    expect(members).toEqual([]);
+    // 关键：不会有成员行的 user_id 落在恢复后的名单之外
+    const alive = new Set(legacy.users.map((u) => u.id));
+    expect(members.filter((m) => !alive.has(m.user_id))).toEqual([]);
     adapter.close();
   });
 

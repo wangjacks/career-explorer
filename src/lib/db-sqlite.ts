@@ -565,33 +565,37 @@ export class SqliteAdapter implements DbAdapter {
   }
 
   updateUser(id: number, fields: UserUpdateFields): void {
-    // 分组（#101）：**转班**时先摘掉旧班的当前分组归属。
-    // 不清理会撞 class_group_members 的 UNIQUE(user_id)，且学生会同时出现在两个班的名单里
-    if (fields.class_id !== undefined) {
-      const current = this.db.prepare("SELECT class_id FROM users WHERE id = ?").get(id) as
-        | { class_id: number | null }
-        | undefined;
-      if (current && current.class_id !== fields.class_id) {
-        this.db.prepare("DELETE FROM class_group_members WHERE user_id = ?").run(id);
+    // 摘除旧班归属与改 users 必须同事务：分两步写中途失败会留下「人已换班、成员行还挂在旧班」的脏归属
+    const tx = this.db.transaction(() => {
+      // 分组（#101）：**转班**时先摘掉旧班的当前分组归属。
+      // 不清理会撞 class_group_members 的 UNIQUE(user_id)，且学生会同时出现在两个班的名单里
+      if (fields.class_id !== undefined) {
+        const current = this.db.prepare("SELECT class_id FROM users WHERE id = ?").get(id) as
+          | { class_id: number | null }
+          | undefined;
+        if (current && current.class_id !== fields.class_id) {
+          this.db.prepare("DELETE FROM class_group_members WHERE user_id = ?").run(id);
+        }
       }
-    }
-    const sets: string[] = [];
-    const values: (string | number | null)[] = [];
-    if (fields.name !== undefined) {
-      sets.push("name = ?");
-      values.push(fields.name);
-    }
-    if (fields.class_id !== undefined) {
-      sets.push("class_id = ?");
-      values.push(fields.class_id);
-    }
-    if (fields.password_hash !== undefined) {
-      sets.push("password_hash = ?");
-      values.push(fields.password_hash);
-    }
-    if (sets.length === 0) return;
-    values.push(id);
-    this.db.prepare(`UPDATE users SET ${sets.join(", ")} WHERE id = ?`).run(...values);
+      const sets: string[] = [];
+      const values: (string | number | null)[] = [];
+      if (fields.name !== undefined) {
+        sets.push("name = ?");
+        values.push(fields.name);
+      }
+      if (fields.class_id !== undefined) {
+        sets.push("class_id = ?");
+        values.push(fields.class_id);
+      }
+      if (fields.password_hash !== undefined) {
+        sets.push("password_hash = ?");
+        values.push(fields.password_hash);
+      }
+      if (sets.length === 0) return;
+      values.push(id);
+      this.db.prepare(`UPDATE users SET ${sets.join(", ")} WHERE id = ?`).run(...values);
+    });
+    tx();
   }
 
   deleteStudents(userCodes: string[]): number {
@@ -1495,7 +1499,13 @@ export class SqliteAdapter implements DbAdapter {
     try {
     const restoreTx = this.db.transaction((d: BackupData) => {
       const tags = normalizeBackupTags(d.tags);
-      // 分组（#101）不在这里删：与 profile_submissions 同口径——**含此字段才整体替换，旧备份保留不动**
+      // 分组（#101）五表一律先清空：users / classes 是整表替换的，旧备份不含分组字段时若保留现状，
+      // 成员行会指向不存在或已换班的学生（恢复期间 FK 关闭，库不会拦），所以「无字段 = 恢复后未分组」
+      this.db.exec("DELETE FROM class_group_members");
+      this.db.exec("DELETE FROM class_groups");
+      this.db.exec("DELETE FROM group_batch_members");
+      this.db.exec("DELETE FROM group_batch_groups");
+      this.db.exec("DELETE FROM group_batches");
       this.db.exec("DELETE FROM teacher_classes");
       this.db.exec("DELETE FROM users");
       this.db.exec("DELETE FROM classes");
@@ -1653,11 +1663,9 @@ export class SqliteAdapter implements DbAdapter {
           }
         }
       }
-      // 分组恢复（#101；**含此字段才整体替换，旧备份保留当前分组不动**）
+      // 分组恢复（#101；**含此字段才回填，旧备份恢复后即为未分组**——上面已统一清空）
       // 当前侧与历史侧各自成对处理，避免出现「删了组却留着成员」的半截状态
       if (Array.isArray(d.class_groups)) {
-        this.db.exec("DELETE FROM class_group_members");
-        this.db.exec("DELETE FROM class_groups");
         const stmt = this.db.prepare(
           `INSERT INTO class_groups (id, class_id, group_no, created_at) VALUES (?, ?, ?, ?)`
         );
@@ -1670,9 +1678,6 @@ export class SqliteAdapter implements DbAdapter {
         }
       }
       if (Array.isArray(d.group_batches)) {
-        this.db.exec("DELETE FROM group_batch_members");
-        this.db.exec("DELETE FROM group_batch_groups");
-        this.db.exec("DELETE FROM group_batches");
         const batchStmt = this.db.prepare(
           `INSERT INTO group_batches
              (id, class_id, strategy, feature_sources, group_size, student_count, tagged_count, metrics,
