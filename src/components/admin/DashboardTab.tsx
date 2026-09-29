@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import {
   ResponsiveContainer,
   LineChart,
@@ -15,7 +15,9 @@ import {
   Pie,
   Cell,
   Legend,
+  LabelList,
 } from "recharts";
+import { formatRateText } from "@/lib/stats-utils";
 
 interface TrendItem {
   date: string;
@@ -29,7 +31,8 @@ interface DistributionItem {
 
 interface CompareItem {
   key: string;
-  count: number;
+  total: number;
+  submitted: number;
 }
 
 const COLORS = ["#22c55e", "#3b82f6", "#f59e0b", "#ef4444", "#8b5cf6", "#ec4899"];
@@ -68,6 +71,20 @@ export default function DashboardTab() {
     loadData();
   }, [loadData]);
   /* eslint-enable react-hooks/set-state-in-effect */
+
+  // 对比图数据：拆出未提交段以便堆叠，提交率作为柱顶标签；「未分班」排到末尾（与班级概览行序一致）
+  const compareChart = useMemo(
+    () =>
+      [...compare]
+        .sort((a, b) => Number(a.key === "未分班") - Number(b.key === "未分班"))
+        .map((item) => ({
+          key: item.key,
+          submitted: item.submitted,
+          unsubmitted: Math.max(0, item.total - item.submitted),
+          rateLabel: formatRateText(item.submitted, item.total, 1),
+        })),
+    [compare]
+  );
 
   if (loading) {
     return <div className="text-center py-12 text-muted">加载中...</div>;
@@ -192,18 +209,21 @@ export default function DashboardTab() {
         {/* Compare Bar Chart */}
         <div className="bg-card rounded-xl border border-border-soft p-5 lg:col-span-2">
           <h3 className="font-semibold text-foreground mb-4">
-            {compareBy === "class" ? "班级" : "年级/院系"}对比
+            {compareBy === "class" ? "班级" : "年级/院系"}对比（单位：人数，柱高 = 总人数）
           </h3>
-          {compare.length > 0 ? (
+          {compareChart.length > 0 ? (
             <ResponsiveContainer width="100%" height={300}>
-              <BarChart data={compare}>
+              <BarChart data={compareChart}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
                 <XAxis dataKey="key" tick={{ fontSize: 11 }} />
                 <YAxis tick={{ fontSize: 11 }} allowDecimals={false} />
-                <Tooltip
-                  formatter={(value) => [`${value} 条`, "提交数"]}
-                />
-                <Bar dataKey="count" fill="#3b82f6" radius={[4, 4, 0, 0]} />
+                <Tooltip formatter={(value, name) => [`${value} 人`, name]} />
+                <Legend />
+                <Bar dataKey="submitted" name="已提交" stackId="total" fill="#22c55e" />
+                {/* 标签挂在「未提交」段：柱顶即堆叠顶，零高度段同样落在柱顶 */}
+                <Bar dataKey="unsubmitted" name="未提交" stackId="total" fill="#cbd5e1" radius={[4, 4, 0, 0]}>
+                  <LabelList dataKey="rateLabel" position="top" fontSize={11} fill="#6b7280" />
+                </Bar>
               </BarChart>
             </ResponsiveContainer>
           ) : (

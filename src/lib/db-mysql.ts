@@ -26,6 +26,7 @@ import type {
   ProfileSubmissionFileOwner,
   MediaFileRef,
   TrendPoint,
+  CompareStat,
 } from "./db";
 import { fillTrendSeries, shiftDate } from "./stats-utils";
 
@@ -844,22 +845,34 @@ export class MysqlAdapter implements DbAdapter {
     );
   }
 
-  async getCompareBy(by: "class" | "segment"): Promise<{ key: string; count: number }[]> {
+  async getCompareBy(by: "class" | "segment"): Promise<CompareStat[]> {
+    // 分母口径：按 users 分组统计在册学生，不按提交过滤，故零提交班级也可见
     if (by === "class") {
       const [rows] = await this.pool.execute(
-        `SELECT COALESCE(c.name, '未分班') as k, COUNT(*) as c
+        `SELECT COALESCE(c.name, '未分班') as k, COUNT(*) as total,
+                SUM(CASE WHEN u.submitted_at IS NOT NULL THEN 1 ELSE 0 END) as submitted
          FROM users u LEFT JOIN classes c ON u.class_id = c.id
-         WHERE u.role = 'student' AND u.submitted_at IS NOT NULL
+         WHERE u.role = 'student'
          GROUP BY k ORDER BY k`
       );
-      return (rows as { k: string; c: number }[]).map((r) => ({ key: r.k, count: Number(r.c) }));
+      return (rows as { k: string; total: unknown; submitted: unknown }[]).map((r) => ({
+        key: r.k,
+        total: Number(r.total),
+        submitted: Number(r.submitted ?? 0),
+      }));
     }
     const [rows] = await this.pool.execute(
-      `SELECT LEFT(user_code, 4) as k, COUNT(*) as c FROM users
-       WHERE role = 'student' AND submitted_at IS NOT NULL
+      `SELECT LEFT(user_code, 4) as k, COUNT(*) as total,
+              SUM(CASE WHEN submitted_at IS NOT NULL THEN 1 ELSE 0 END) as submitted
+       FROM users
+       WHERE role = 'student'
        GROUP BY k ORDER BY k`
     );
-    return (rows as { k: string; c: number }[]).map((r) => ({ key: r.k, count: Number(r.c) }));
+    return (rows as { k: string; total: unknown; submitted: unknown }[]).map((r) => ({
+      key: r.k,
+      total: Number(r.total),
+      submitted: Number(r.submitted ?? 0),
+    }));
   }
 
   // tags & classes

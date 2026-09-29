@@ -173,6 +173,13 @@ export interface TrendPoint {
   count: number;
 }
 
+/** 分组对比项（#165）：total 为该组在册学生数，submitted 为其中已提交数 */
+export interface CompareStat {
+  key: string;
+  total: number;
+  submitted: number;
+}
+
 export interface BackupData {
   version: number;
   sourceType: string;
@@ -350,7 +357,7 @@ export interface DbAdapter {
   // stats
   getStats(): Promise<Stats> | Stats;
   getTrends(days: number): Promise<TrendPoint[]> | TrendPoint[];
-  getCompareBy(by: "class" | "segment"): Promise<{ key: string; count: number }[]> | { key: string; count: number }[];
+  getCompareBy(by: "class" | "segment"): Promise<CompareStat[]> | CompareStat[];
 
   // tags & classes
   getTags(): Promise<TagRow[]> | TagRow[];
@@ -595,7 +602,7 @@ export async function getTrends(days: number): Promise<TrendPoint[]> {
   return Promise.resolve(adapter.getTrends(days));
 }
 
-export async function getCompareBy(by: "class" | "segment"): Promise<{ key: string; count: number }[]> {
+export async function getCompareBy(by: "class" | "segment"): Promise<CompareStat[]> {
   const adapter = await ensureInit();
   return Promise.resolve(adapter.getCompareBy(by));
 }

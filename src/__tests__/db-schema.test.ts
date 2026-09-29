@@ -263,7 +263,7 @@ describe("提交流程", () => {
     expect(trends.slice(0, 6).every((t) => t.count === 0)).toBe(true);
 
     const byClass = adapter.getCompareBy("class");
-    expect(byClass).toEqual([{ key: "未分班", count: 1 }]);
+    expect(byClass).toEqual([{ key: "未分班", total: 1, submitted: 1 }]);
 
     // 备份 / 恢复
     const data = adapter.backup();
@@ -320,10 +320,32 @@ describe("班级管理与教师账户", () => {
     const classId = adapter.insertClass("一班", "BBBB2222");
     adapter.insertUser({ user_code: "202505050102", role: "student", name: "李四", class_id: classId });
     adapter.upsertSubmission("202505050102", "[]", "/a.png", "/w.png", adapter.getDefaultStorageBackend()!.id);
-    expect(adapter.getCompareBy("class")).toEqual([{ key: "一班", count: 1 }]);
+    expect(adapter.getCompareBy("class")).toEqual([{ key: "一班", total: 1, submitted: 1 }]);
 
     adapter.deleteClass(classId);
-    expect(adapter.getCompareBy("class")).toEqual([{ key: "未分班", count: 1 }]);
+    expect(adapter.getCompareBy("class")).toEqual([{ key: "未分班", total: 1, submitted: 1 }]);
+
+    adapter.close();
+    rmSync(path.dirname(dbPath), { recursive: true, force: true });
+  });
+
+  it("compare 带分母：零提交班级仍出现（#165）", () => {
+    const dbPath = makeTmpDb();
+    const adapter = new SqliteAdapter(dbPath);
+    adapter.init();
+
+    const classId = adapter.insertClass("一班", "EEEE6666");
+    adapter.insertUser({ user_code: "202505050101", role: "student", name: "张三", class_id: classId });
+    adapter.insertUser({ user_code: "202505050102", role: "student", name: "李四", class_id: classId });
+    adapter.insertUser({ user_code: "202505050103", role: "student", name: "王五" });
+    adapter.upsertSubmission("202505050101", "[]", "/a.png", "/w.png", adapter.getDefaultStorageBackend()!.id);
+
+    expect(adapter.getCompareBy("class")).toEqual(
+      expect.arrayContaining([
+        { key: "一班", total: 2, submitted: 1 },
+        { key: "未分班", total: 1, submitted: 0 },
+      ])
+    );
 
     adapter.close();
     rmSync(path.dirname(dbPath), { recursive: true, force: true });
