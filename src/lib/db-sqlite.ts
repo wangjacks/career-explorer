@@ -1266,29 +1266,95 @@ export class SqliteAdapter implements DbAdapter {
       .all(classId) as ClassGroupMemberRow[];
   }
 
-  replaceClassGrouping(classId: number, groups: ClassGroupingInput[]): void {
-    const tx = this.db.transaction(() => {
-      // 先删成员再删组（成员引用组）；等价于「清空该班当前分组」
-      this.db
-        .prepare(
-          "DELETE FROM class_group_members WHERE group_id IN (SELECT id FROM class_groups WHERE class_id = ?)"
-        )
-        .run(classId);
-      this.db.prepare("DELETE FROM class_groups WHERE class_id = ?").run(classId);
-      const insertGroup = this.db.prepare(
-        "INSERT INTO class_groups (class_id, group_no, created_at) VALUES (?, ?, ?)"
+  /** 事务体内的写入：清空该班当前分组并写入新分组（供单独调用与「覆盖 + 归档」组合复用） */
+  private writeClassGrouping(classId: number, groups: ClassGroupingInput[]): void {
+    // 先删成员再删组（成员引用组）；等价于「清空该班当前分组」
+    this.db
+      .prepare(
+        "DELETE FROM class_group_members WHERE group_id IN (SELECT id FROM class_groups WHERE class_id = ?)"
+      )
+      .run(classId);
+    this.db.prepare("DELETE FROM class_groups WHERE class_id = ?").run(classId);
+    const insertGroup = this.db.prepare(
+      "INSERT INTO class_groups (class_id, group_no, created_at) VALUES (?, ?, ?)"
+    );
+    const insertMember = this.db.prepare(
+      "INSERT INTO class_group_members (group_id, user_id, created_at) VALUES (?, ?, ?)"
+    );
+    const now = getNow();
+    for (const g of groups) {
+      const info = insertGroup.run(classId, g.group_no, now);
+      const groupId = Number(info.lastInsertRowid);
+      for (const userId of g.user_ids) insertMember.run(groupId, userId, now);
+    }
+  }
+
+  /** 事务体内的写入：追加一个历史批次（头 + 组 + 成员），返回批次 id */
+  private writeGroupBatch(input: NewGroupBatchInput): number {
+    const info = this.db
+      .prepare(
+        `INSERT INTO group_batches
+           (class_id, strategy, feature_sources, group_size, student_count, tagged_count, metrics,
+            created_by_id, created_by_name, created_by_role, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      )
+      .run(
+        input.classId,
+        input.strategy,
+        input.featureSources,
+        input.groupSize,
+        input.studentCount,
+        input.taggedCount,
+        input.metrics,
+        input.actorId,
+        input.actorName,
+        input.actorRole,
+        getNow()
       );
-      const insertMember = this.db.prepare(
-        "INSERT INTO class_group_members (group_id, user_id, created_at) VALUES (?, ?, ?)"
-      );
-      const now = getNow();
-      for (const g of groups) {
-        const info = insertGroup.run(classId, g.group_no, now);
-        const groupId = Number(info.lastInsertRowid);
-        for (const userId of g.user_ids) insertMember.run(groupId, userId, now);
+    const batchId = Number(info.lastInsertRowid);
+    const insertGroup = this.db.prepare(
+      `INSERT INTO group_batch_groups (batch_id, group_no, cohesion, member_count, created_at)
+       VALUES (?, ?, ?, ?, ?)`
+    );
+    const insertMember = this.db.prepare(
+      `INSERT INTO group_batch_members (batch_id, group_id, user_id, user_code, name, created_at)
+       VALUES (?, ?, ?, ?, ?, ?)`
+    );
+    const now = getNow();
+    for (const g of input.groups) {
+      const gInfo = insertGroup.run(batchId, g.groupNo, g.cohesion, g.members.length, now);
+      const groupId = Number(gInfo.lastInsertRowid);
+      for (const m of g.members) {
+        insertMember.run(batchId, groupId, m.userId, m.userCode, m.name, now);
       }
-    });
-    tx();
+    }
+    return batchId;
+  }
+
+  replaceClassGrouping(classId: number, groups: ClassGroupingInput[]): void {
+    this.db.transaction(() => this.writeClassGrouping(classId, groups))();
+  }
+
+  insertGroupBatch(input: NewGroupBatchInput): number {
+    let batchId = 0;
+    this.db.transaction(() => {
+      batchId = this.writeGroupBatch(input);
+    })();
+    return batchId;
+  }
+
+  /** 自动分组落库：**同一事务**内「覆盖当前分组 + 追加历史批次」，避免出现无归档的当前态 */
+  applyGroupingResult(
+    classId: number,
+    groups: ClassGroupingInput[],
+    batch: NewGroupBatchInput
+  ): number {
+    let batchId = 0;
+    this.db.transaction(() => {
+      this.writeClassGrouping(classId, groups);
+      batchId = this.writeGroupBatch(batch);
+    })();
+    return batchId;
   }
 
   insertGroupEntry(classId: number, groupNo: number): void {
@@ -1320,51 +1386,6 @@ export class SqliteAdapter implements DbAdapter {
     this.db
       .prepare("INSERT INTO class_group_members (group_id, user_id, created_at) VALUES (?, ?, ?)")
       .run(target.id, userId, getNow());
-  }
-
-  insertGroupBatch(input: NewGroupBatchInput): number {
-    let batchId = 0;
-    const tx = this.db.transaction(() => {
-      const info = this.db
-        .prepare(
-          `INSERT INTO group_batches
-             (class_id, strategy, feature_sources, group_size, student_count, tagged_count, metrics,
-              created_by_id, created_by_name, created_by_role, created_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-        )
-        .run(
-          input.classId,
-          input.strategy,
-          input.featureSources,
-          input.groupSize,
-          input.studentCount,
-          input.taggedCount,
-          input.metrics,
-          input.actorId,
-          input.actorName,
-          input.actorRole,
-          getNow()
-        );
-      batchId = Number(info.lastInsertRowid);
-      const insertGroup = this.db.prepare(
-        `INSERT INTO group_batch_groups (batch_id, group_no, cohesion, member_count, created_at)
-         VALUES (?, ?, ?, ?, ?)`
-      );
-      const insertMember = this.db.prepare(
-        `INSERT INTO group_batch_members (batch_id, group_id, user_id, user_code, name, created_at)
-         VALUES (?, ?, ?, ?, ?, ?)`
-      );
-      const now = getNow();
-      for (const g of input.groups) {
-        const gInfo = insertGroup.run(batchId, g.groupNo, g.cohesion, g.members.length, now);
-        const groupId = Number(gInfo.lastInsertRowid);
-        for (const m of g.members) {
-          insertMember.run(batchId, groupId, m.userId, m.userCode, m.name, now);
-        }
-      }
-    });
-    tx();
-    return batchId;
   }
 
   getGroupBatches(classId: number): GroupBatchRow[] {

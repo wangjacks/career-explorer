@@ -90,6 +90,35 @@ export function hasValue(value: FeatureValue, kind: FeatureKind): boolean {
   return typeof value === "string" && value.length > 0;
 }
 
+/**
+ * 供界面展示的「按源的文本标签」：源无关——新增数据源后界面自动多出一组标签，
+ * 不需要为每个源写渲染分支。
+ */
+export function featureLabels(
+  vector: FeatureVector,
+  sources: FeatureSourceDef[] = FEATURE_SOURCES
+): Record<string, string[]> {
+  const out: Record<string, string[]> = {};
+  for (const s of sources) {
+    const value = vector.values[s.key];
+    if (!hasValue(value, s.kind)) {
+      out[s.key] = [];
+    } else if (Array.isArray(value)) {
+      out[s.key] = [...value];
+    } else {
+      out[s.key] = [String(value)];
+    }
+  }
+  return out;
+}
+
+/** 源的展示元信息（key / 文案 / 类型），供界面渲染分组依据 */
+export function describeSourceMeta(
+  sources: FeatureSourceDef[] = FEATURE_SOURCES
+): { key: string; label: string; kind: FeatureKind }[] {
+  return sources.map((s) => ({ key: s.key, label: s.label, kind: s.kind }));
+}
+
 /** 覆盖率：有该源值的学生数 / 参与人数 */
 export function countCovered(
   vectors: FeatureVector[],

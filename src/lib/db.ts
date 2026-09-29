@@ -539,6 +539,15 @@ export interface DbAdapter {
   moveGroupMember(classId: number, userId: number, toGroupNo: number): Promise<void> | void;
   /** 事务：追加一个历史批次（头 + 组 + 成员），返回批次 id */
   insertGroupBatch(input: NewGroupBatchInput): Promise<number> | number;
+  /**
+   * 自动分组落库：**同一事务**内「覆盖当前分组 + 追加历史批次」。
+   * 拆成两次调用会在中途失败时留下「当前已覆盖但没有归档」的不一致态。
+   */
+  applyGroupingResult(
+    classId: number,
+    groups: ClassGroupingInput[],
+    batch: NewGroupBatchInput
+  ): Promise<number> | number;
   /** 按班列历史批次（新→旧） */
   getGroupBatches(classId: number): Promise<GroupBatchRow[]> | GroupBatchRow[];
   /** 读批次明细（头 + 组 + 成员） */
@@ -1013,6 +1022,15 @@ export async function moveGroupMember(classId: number, userId: number, toGroupNo
 export async function insertGroupBatch(input: NewGroupBatchInput): Promise<number> {
   const adapter = await ensureInit();
   return Promise.resolve(adapter.insertGroupBatch(input));
+}
+
+export async function applyGroupingResult(
+  classId: number,
+  groups: ClassGroupingInput[],
+  batch: NewGroupBatchInput
+): Promise<number> {
+  const adapter = await ensureInit();
+  return Promise.resolve(adapter.applyGroupingResult(classId, groups, batch));
 }
 
 export async function getGroupBatches(classId: number): Promise<GroupBatchRow[]> {

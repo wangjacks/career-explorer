@@ -1387,31 +1387,117 @@ export class MysqlAdapter implements DbAdapter {
     return rows as ClassGroupMemberRow[];
   }
 
+  /** 事务体内：清空该班当前分组并写入新分组（供单独调用与「覆盖 + 归档」组合复用） */
+  private async writeClassGrouping(
+    conn: mysql.PoolConnection,
+    classId: number,
+    groups: ClassGroupingInput[]
+  ): Promise<void> {
+    // 先删成员再删组（成员引用组）；等价于「清空该班当前分组」
+    await conn.execute(
+      "DELETE m FROM class_group_members m JOIN class_groups g ON g.id = m.group_id WHERE g.class_id = ?",
+      [classId]
+    );
+    await conn.execute("DELETE FROM class_groups WHERE class_id = ?", [classId]);
+    const now = getNow();
+    for (const g of groups) {
+      const [info] = await conn.execute(
+        "INSERT INTO class_groups (class_id, group_no, created_at) VALUES (?, ?, ?)",
+        [classId, g.group_no, now]
+      );
+      const groupId = (info as { insertId: number }).insertId;
+      for (const userId of g.user_ids) {
+        await conn.execute(
+          "INSERT INTO class_group_members (group_id, user_id, created_at) VALUES (?, ?, ?)",
+          [groupId, userId, now]
+        );
+      }
+    }
+  }
+
+  /** 事务体内：追加一个历史批次（头 + 组 + 成员），返回批次 id */
+  private async writeGroupBatch(conn: mysql.PoolConnection, input: NewGroupBatchInput): Promise<number> {
+    const now = getNow();
+    const [info] = await conn.execute(
+      `INSERT INTO group_batches
+         (class_id, strategy, feature_sources, group_size, student_count, tagged_count, metrics,
+          created_by_id, created_by_name, created_by_role, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        input.classId,
+        input.strategy,
+        input.featureSources,
+        input.groupSize,
+        input.studentCount,
+        input.taggedCount,
+        input.metrics,
+        input.actorId,
+        input.actorName,
+        input.actorRole,
+        now,
+      ]
+    );
+    const batchId = (info as { insertId: number }).insertId;
+    for (const g of input.groups) {
+      const [gInfo] = await conn.execute(
+        `INSERT INTO group_batch_groups (batch_id, group_no, cohesion, member_count, created_at)
+         VALUES (?, ?, ?, ?, ?)`,
+        [batchId, g.groupNo, g.cohesion, g.members.length, now]
+      );
+      const groupId = (gInfo as { insertId: number }).insertId;
+      for (const m of g.members) {
+        await conn.execute(
+          `INSERT INTO group_batch_members (batch_id, group_id, user_id, user_code, name, created_at)
+           VALUES (?, ?, ?, ?, ?, ?)`,
+          [batchId, groupId, m.userId, m.userCode, m.name, now]
+        );
+      }
+    }
+    return batchId;
+  }
+
   async replaceClassGrouping(classId: number, groups: ClassGroupingInput[]): Promise<void> {
     const conn = await this.pool.getConnection();
     try {
       await conn.beginTransaction();
-      // 先删成员再删组（成员引用组）；等价于「清空该班当前分组」
-      await conn.execute(
-        "DELETE m FROM class_group_members m JOIN class_groups g ON g.id = m.group_id WHERE g.class_id = ?",
-        [classId]
-      );
-      await conn.execute("DELETE FROM class_groups WHERE class_id = ?", [classId]);
-      const now = getNow();
-      for (const g of groups) {
-        const [info] = await conn.execute(
-          "INSERT INTO class_groups (class_id, group_no, created_at) VALUES (?, ?, ?)",
-          [classId, g.group_no, now]
-        );
-        const groupId = (info as { insertId: number }).insertId;
-        for (const userId of g.user_ids) {
-          await conn.execute(
-            "INSERT INTO class_group_members (group_id, user_id, created_at) VALUES (?, ?, ?)",
-            [groupId, userId, now]
-          );
-        }
-      }
+      await this.writeClassGrouping(conn, classId, groups);
       await conn.commit();
+    } catch (err) {
+      await conn.rollback();
+      throw err;
+    } finally {
+      conn.release();
+    }
+  }
+
+  async insertGroupBatch(input: NewGroupBatchInput): Promise<number> {
+    const conn = await this.pool.getConnection();
+    try {
+      await conn.beginTransaction();
+      const batchId = await this.writeGroupBatch(conn, input);
+      await conn.commit();
+      return batchId;
+    } catch (err) {
+      await conn.rollback();
+      throw err;
+    } finally {
+      conn.release();
+    }
+  }
+
+  /** 自动分组落库：**同一事务**内「覆盖当前分组 + 追加历史批次」，避免出现无归档的当前态 */
+  async applyGroupingResult(
+    classId: number,
+    groups: ClassGroupingInput[],
+    batch: NewGroupBatchInput
+  ): Promise<number> {
+    const conn = await this.pool.getConnection();
+    try {
+      await conn.beginTransaction();
+      await this.writeClassGrouping(conn, classId, groups);
+      const batchId = await this.writeGroupBatch(conn, batch);
+      await conn.commit();
+      return batchId;
     } catch (err) {
       await conn.rollback();
       throw err;
@@ -1459,56 +1545,6 @@ export class MysqlAdapter implements DbAdapter {
       "INSERT INTO class_group_members (group_id, user_id, created_at) VALUES (?, ?, ?)",
       [target.id, userId, getNow()]
     );
-  }
-
-  async insertGroupBatch(input: NewGroupBatchInput): Promise<number> {
-    const conn = await this.pool.getConnection();
-    try {
-      await conn.beginTransaction();
-      const now = getNow();
-      const [info] = await conn.execute(
-        `INSERT INTO group_batches
-           (class_id, strategy, feature_sources, group_size, student_count, tagged_count, metrics,
-            created_by_id, created_by_name, created_by_role, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [
-          input.classId,
-          input.strategy,
-          input.featureSources,
-          input.groupSize,
-          input.studentCount,
-          input.taggedCount,
-          input.metrics,
-          input.actorId,
-          input.actorName,
-          input.actorRole,
-          now,
-        ]
-      );
-      const batchId = (info as { insertId: number }).insertId;
-      for (const g of input.groups) {
-        const [gInfo] = await conn.execute(
-          `INSERT INTO group_batch_groups (batch_id, group_no, cohesion, member_count, created_at)
-           VALUES (?, ?, ?, ?, ?)`,
-          [batchId, g.groupNo, g.cohesion, g.members.length, now]
-        );
-        const groupId = (gInfo as { insertId: number }).insertId;
-        for (const m of g.members) {
-          await conn.execute(
-            `INSERT INTO group_batch_members (batch_id, group_id, user_id, user_code, name, created_at)
-             VALUES (?, ?, ?, ?, ?, ?)`,
-            [batchId, groupId, m.userId, m.userCode, m.name, now]
-          );
-        }
-      }
-      await conn.commit();
-      return batchId;
-    } catch (err) {
-      await conn.rollback();
-      throw err;
-    } finally {
-      conn.release();
-    }
   }
 
   async getGroupBatches(classId: number): Promise<GroupBatchRow[]> {
