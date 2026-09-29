@@ -348,9 +348,10 @@ export default function DashboardTab() {
 
   const trendTotal = trends.reduce((sum, t) => sum + t.count, 0);
 
-  // 分班多序列：recharts 要求每个分组是数据项的顶层数值字段，故把 counts 摊平
+  // 分班多序列：recharts 要求每个分组是数据项的顶层数值字段，故把 counts 摊平。
+  // 班级名是用户输入，counts 里若真有名为 date 的键会覆盖 X 轴的日期字段，故 date 写在最后
   const classSeries = useMemo(
-    () => (classTrend?.points ?? []).map((p) => ({ date: p.date, ...p.counts })),
+    () => (classTrend?.points ?? []).map((p) => ({ ...p.counts, date: p.date })),
     [classTrend]
   );
   const classKeys = classTrend?.keys ?? [];
@@ -650,6 +651,9 @@ export default function DashboardTab() {
             <h3 className="mt-1 text-sm font-semibold text-foreground">标签分类分布（单位：标签次数）</h3>
             <p className="mt-0.5 text-[11px] text-muted/70">全量口径，不随趋势天数与分组变化</p>
           </div>
+          {/* 与趋势卡刻意相反：这块与对比图都没有会影响口径的控件，重取失败时留在屏上的旧图仍然成立，
+              换成失败态反而丢掉有用信息；失败与否由顶部横幅「部分数据加载失败」负责说明。
+              故这里的判据是「屏上有没有数据」在前，失败态只兜住「从未取到数据」 */}
           {distChart.length > 0 ? (
             <div className="flex flex-col items-center gap-5 sm:flex-row">
               <div
@@ -738,6 +742,7 @@ export default function DashboardTab() {
             </h3>
             <p className="mt-0.5 text-[11px] text-muted/70">全量口径，不随趋势天数与分组变化</p>
           </div>
+          {/* 保留旧图、失败态只兜「从未取到数据」：理由同标签分布卡的注释 */}
           {compareChart.length > 0 ? (
             <div className="text-muted">
               <div className="mb-3 flex flex-wrap items-center gap-4 text-xs">

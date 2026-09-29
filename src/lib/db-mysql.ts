@@ -860,7 +860,7 @@ export class MysqlAdapter implements DbAdapter {
     return fillGroupedTrend(
       (rows as { d: string; k: string; c: unknown }[]).map((r) => ({
         date: String(r.d),
-        key: r.k,
+        key: String(r.k),
         count: Number(r.c),
       })),
       start,
@@ -878,7 +878,7 @@ export class MysqlAdapter implements DbAdapter {
        GROUP BY k ORDER BY k`
     );
     return (rows as { k: string; total: unknown; submitted: unknown }[]).map((r) => ({
-      key: r.k,
+      key: String(r.k),
       total: Number(r.total),
       submitted: Number(r.submitted ?? 0),
     }));

@@ -63,6 +63,9 @@ export interface GroupedTrend {
 /**
  * 稀疏的「日期 × 分组」结果 → 连续多序列：与 fillTrendSeries 同口径补齐，
  * 保证多序列折线每条都有等长的 N 个点（缺日期的序列会整段断开）。
+ *
+ * 前置约定：rows 已按窗口过滤（适配器的 WHERE 负责）。keys 取自全部入参行，
+ * 只在窗口外出现的分组会留下一条全 0 线——生产路径不满足该前提时须自行先筛。
  */
 export function fillGroupedTrend(
   rows: readonly { date: string; key: string; count: number }[],
