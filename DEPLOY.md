@@ -201,8 +201,10 @@ server {
     listen 80;
     server_name your-domain.com www.your-domain.com;
 
-    # 上传文件大小限制
-    client_max_body_size 10M;
+    # 上传文件大小限制：必须 ≥ 应用「上传大小上限」可配最大值（管理面板设置，1-20MB）
+    # 再加 multipart 信封开销。应用侧把上限改到 20MB 时，这里须同步调大，否则
+    # 边界请求会被 Nginx 直接拒绝（返回 413 HTML，应用侧收不到也记不到审计）。
+    client_max_body_size 24M;
 
     location / {
         proxy_pass http://127.0.0.1:3000;
@@ -339,7 +341,13 @@ sudo netstat -tlnp | grep 3000
 
 ### 上传文件 413 错误
 
-在 Nginx 配置中调大 `client_max_body_size`，默认 1M。
+`413 Request Entity Too Large` 由 Nginx 直接返回，**应用侧不会收到请求、也不会留下审计记录**，因此管理端审计页查不到，只能从这里排查：
+
+1. Nginx 返回的响应体是 **HTML 页面而不是 JSON**（学生端会把它翻译成「图片过大，服务器拒绝接收，请压缩后重试」）。
+2. `client_max_body_size` 的 **http 级默认值只有 1M**，只在 `server` 或 `location` 里覆盖才生效；本项目的示例值见 §六「创建站点配置」（当前 24M）。
+3. 上传链路上**每一跳都要放同样的值**：Nginx 之外还有 CDN / 云负载均衡 / 网关时，任一层偏小都会在到达应用前截断。
+4. 改完用 `sudo nginx -t && sudo systemctl reload nginx` 生效。
+5. 应用侧会自行拒绝超过「上传大小上限」的请求（返回 JSON 文案，并写入审计）。排查「到底是哪一层拒绝的」时，管理面板「审计日志」按动作 `upload:rejected` / `upload:failed` 筛选：这里有记录＝应用侧拒绝（含 `sizeBytes` / `mime` / `limitMb` 线索），没有记录但学生仍失败＝上游代理拒绝（回到第 1-4 步）。
 
 ### MySQL 连接失败
 
