@@ -134,7 +134,18 @@ export async function POST(request: NextRequest) {
     // 写入当前默认存储后端（#111），并返回文件所在后端 id 供档案保存记录路由
     const backend = await getDefaultStorageBackend();
     if (!backend) {
-      return NextResponse.json({ error: "存储后端未初始化" }, { status: 500 });
+      // 与下方 catch 同口径：配置类故障也必须留痕，否则「后端未初始化」这条
+      // 最该被运维看到的失败反而查不到（#206 的审计要求覆盖全部失败出口）
+      const message = "存储后端未初始化";
+      auditUploadFailure(request, {
+        action: "upload:failed",
+        message,
+        prefix,
+        file,
+        limitMb,
+        claimedStudentId: studentId,
+      });
+      return NextResponse.json({ error: message }, { status: 500 });
     }
     const key = generateObjectKey(prefix, studentId);
 

@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
+  UPLOAD_FAILED_MESSAGE,
   UPLOAD_NETWORK_ERROR_MESSAGE,
   UPLOAD_UNSUPPORTED_FORMAT_MESSAGE,
   isUnsupportedFormatError,
@@ -34,21 +35,20 @@ describe("mapUploadFailure", () => {
     }
   });
 
-  it("拿不到原因时按状态码兜底，且不回显 HTML", () => {
+  it("拿不到原因时走通用兜底，不回显 HTML 也不暴露状态码", () => {
     const msg = mapUploadFailure(500, "<html><body>Internal Server Error</body></html>");
-    expect(msg).toBe("图片上传失败（HTTP 500），请稍后重试");
+    expect(msg).toBe(UPLOAD_FAILED_MESSAGE);
     expect(msg).not.toContain("<");
+    // #206 验收：非 JSON 响应只给可行动文案，状态码留给 Network 与审计
+    expect(msg).not.toMatch(/HTTP|[45]\d{2}/);
   });
 
   it("空正文 / 非对象 JSON / 缺 error 字段都走兜底", () => {
-    expect(mapUploadFailure(500, "")).toBe("图片上传失败（HTTP 500），请稍后重试");
-    expect(mapUploadFailure(500, "null")).toBe("图片上传失败（HTTP 500），请稍后重试");
-    expect(mapUploadFailure(500, JSON.stringify({ message: "nope" }))).toBe(
-      "图片上传失败（HTTP 500），请稍后重试"
-    );
-    expect(mapUploadFailure(400, JSON.stringify({ error: "" }))).toBe(
-      "图片上传失败（HTTP 400），请稍后重试"
-    );
+    expect(mapUploadFailure(500, "")).toBe(UPLOAD_FAILED_MESSAGE);
+    expect(mapUploadFailure(500, "null")).toBe(UPLOAD_FAILED_MESSAGE);
+    expect(mapUploadFailure(500, JSON.stringify({ message: "nope" }))).toBe(UPLOAD_FAILED_MESSAGE);
+    expect(mapUploadFailure(400, JSON.stringify({ error: "" }))).toBe(UPLOAD_FAILED_MESSAGE);
+    expect(mapUploadFailure(520, "<html>origin unreachable</html>")).toBe(UPLOAD_FAILED_MESSAGE);
   });
 
   it("网络层文案是独立常量", () => {

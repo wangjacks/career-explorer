@@ -31,13 +31,15 @@ function parseServerError(bodyText: string): string | null {
  * 优先用服务端 error 原文：服务端文案已是可行动口径（如「图片大小不能超过 5MB」）。
  * 反向代理 / 网关会在应用之前拦截，返回的是 HTML 而非 JSON，那里没有 error 字段，
  * 只能按状态码给出等价口径——但**不把代理配置细节写进学生提示**，那些进审计与 DEPLOY。
+ * 兜底同样**不回显状态码**（#206 验收：非 JSON 响应只给可行动文案）：状态码是给运维
+ * 定位用的，学生看到 `HTTP 520` 既无法行动也不知所措；原文取证走 Network 与审计。
  */
 export function mapUploadFailure(status: number, bodyText: string): string {
   const fromServer = parseServerError(bodyText);
   if (fromServer) return fromServer;
   if (status === 413) return "图片过大，服务器拒绝接收，请压缩后重试";
   if (status === 502 || status === 503 || status === 504) return "上传服务暂时不可用，请稍后重试";
-  return `图片上传失败（HTTP ${status}），请稍后重试`;
+  return UPLOAD_FAILED_MESSAGE;
 }
 
 /** 选图前校验只用到这两个字段（File 天然满足，测试可直接构造字面量） */

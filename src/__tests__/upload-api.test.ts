@@ -152,6 +152,32 @@ describe("POST /api/upload — 体积与格式（#206）", () => {
     expect(JSON.stringify(log)).not.toContain("passwd");
   });
 
+  it("存储后端未初始化 → 500，配置类故障同样留审计", async () => {
+    vi.mocked(getDefaultStorageBackend).mockResolvedValue(undefined);
+    // 必须是一张能被 sharp 解码的真图：否则会先落到解码失败的 catch 分支
+    const jpeg = await sharp({
+      create: { width: 4, height: 4, channels: 3, background: { r: 1, g: 2, b: 3 } },
+    })
+      .jpeg()
+      .toBuffer();
+    const req = createUploadRequest({
+      file: toFile(jpeg, "a.jpg", "image/jpeg"),
+      prefix: "avatar",
+      studentId: "202505050101",
+    });
+
+    const res = await POST(req);
+    expect(res.status).toBe(500);
+    expect((await res.json()).error).toBe("存储后端未初始化");
+
+    await flushAudit();
+    const log = firstAudit();
+    expect(log.action).toBe("upload:failed");
+    expect(log.error_message).toBe("存储后端未初始化");
+    expect(log.resource_id).toBe("202505050101");
+    expect(log.metadata.prefix).toBe("avatar");
+  });
+
   it("成功上传 → 200，不写失败审计", async () => {
     vi.mocked(getDefaultStorageBackend).mockResolvedValue({
       id: 2,

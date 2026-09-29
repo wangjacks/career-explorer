@@ -47,6 +47,10 @@ export default function ImageUploadBox({
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
+    // 立即清空 input 的值：不清空时浏览器对「再次选中同一个文件」不再触发 change，
+    // 于是「被预检拦下后按同名文件重试」和「重新选择原图」都会毫无反应。
+    // File 对象已捕获，清空 value 不影响本次使用。
+    e.target.value = "";
     if (!file) return;
     // 类型与体积统一走纯函数（可单测）：不可识别的类型（HEIC 在部分浏览器是空 type）
     // 与超限都在这里拦下，不必等上传往返被服务端拒绝
