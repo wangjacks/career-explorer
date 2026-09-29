@@ -185,6 +185,20 @@ function ChartFailed({ height = 240 }: { height?: number }) {
   );
 }
 
+/** 首次取数态：与空态同样不能混用——「还没到」和「确实没有」是两件事 */
+function ChartLoading({ height = 240, hint }: { height?: number; hint: string }) {
+  return (
+    <div
+      role="status"
+      className="flex flex-col items-center justify-center gap-2 text-center"
+      style={{ height }}
+    >
+      <Loader2 className="h-5 w-5 animate-spin text-muted/60" />
+      <p className="text-xs text-muted/70">{hint}</p>
+    </div>
+  );
+}
+
 export default function DashboardTab() {
   const [trends, setTrends] = useState<TrendItem[]>([]);
   const [distribution, setDistribution] = useState<DistributionItem[]>([]);
@@ -351,6 +365,11 @@ export default function DashboardTab() {
   /** 趋势图：全校合计画面积图，按班级画多序列折线 + 自绘图例（recharts 自带图例的暗色文字不可控） */
   const renderTrendChart = () => {
     if (trendGroup === "class") {
+      // 首次切到「按班级」时还没有任何响应，此时 keys 为空不等于「窗口内没有提交」，
+      // 交空白态会把在途请求说成业务结论（失败态已由外层 errors.trends 拦在前面）
+      if (classTrend === null) {
+        return <ChartLoading hint="正在按班级拆分…" />;
+      }
       if (!classTrendHasData) {
         return (
           <ChartEmpty
