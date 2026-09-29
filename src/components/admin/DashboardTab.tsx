@@ -16,7 +16,7 @@ import {
   Cell,
   LabelList,
 } from "recharts";
-import { Loader2, TrendingUp, PieChart as PieChartIcon, BarChart3 } from "lucide-react";
+import { Loader2, TrendingUp, PieChart as PieChartIcon, BarChart3, TriangleAlert } from "lucide-react";
 import { formatRateText } from "@/lib/stats-utils";
 
 interface TrendItem {
@@ -154,6 +154,17 @@ function ChartEmpty({ icon, title, hint, height = 240 }: { icon: ReactNode; titl
       <span className="text-muted/50">{icon}</span>
       <p className="text-sm text-muted">{title}</p>
       <p className="max-w-xs text-xs text-muted/70">{hint}</p>
+    </div>
+  );
+}
+
+/** 拉取失败态：绝不能沿用空态文案——那会把「请求失败」说成「本来就没有数据」 */
+function ChartFailed({ height = 240 }: { height?: number }) {
+  return (
+    <div className="flex flex-col items-center justify-center gap-2 text-center" style={{ height }}>
+      <TriangleAlert className="h-6 w-6 text-danger/70" strokeWidth={1.5} />
+      <p className="text-sm text-muted">数据加载失败</p>
+      <p className="max-w-xs text-xs text-muted/70">点上方横幅的「重试」重新获取。</p>
     </div>
   );
 }
@@ -325,12 +336,16 @@ export default function DashboardTab() {
       {/* 提交进度大屏：在册学生即主体，每人一格 */}
       <section className="overflow-hidden rounded-2xl shadow-lg" style={{ backgroundImage: HERO_FACE }}>
         <div className="px-6 py-6 sm:px-8 sm:py-7">
-          <p className="text-[11px] font-medium tracking-[0.2em] text-emerald-100/85">提交进度</p>
+          <p className="text-[11px] font-medium tracking-[0.2em] text-emerald-100/85">全校提交进度</p>
 
           {totals.enrolled === 0 ? (
-            <p className="mt-6 text-sm text-emerald-100/90">
-              还没有在册学生，导入学生名单后这里会显示提交进度。
-            </p>
+            errors.compare ? (
+              <p className="mt-6 text-sm text-amber-200">提交进度加载失败，点上方横幅的「重试」重新获取。</p>
+            ) : (
+              <p className="mt-6 text-sm text-emerald-100/90">
+                还没有在册学生，导入学生名单后这里会显示提交进度。
+              </p>
+            )
           ) : (
             <div className="mt-5 flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
               <div className="flex flex-wrap items-end gap-x-8 gap-y-4">
@@ -423,8 +438,11 @@ export default function DashboardTab() {
             </div>
           </div>
           <div className="text-muted" aria-busy={trendPending}>
-            {/* 补零后长度恒等于 trendDays，判据改为「窗口内是否有提交」，全 0 时交给空态 */}
-            {trends.some((t) => t.count > 0) ? (
+            {/* 失败态要压过旧数据：天数变了以后，留在屏上的上一窗口曲线与选中的天数并不对应；
+                补零后长度恒等于 trendDays，故空态判据是「窗口内是否有提交」而非数组长度 */}
+            {errors.trends ? (
+              <ChartFailed />
+            ) : trends.some((t) => t.count > 0) ? (
               <ResponsiveContainer width="100%" height={240}>
                 <AreaChart data={trends} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
                   <defs>
@@ -473,8 +491,14 @@ export default function DashboardTab() {
             )}
           </div>
           <p className="mt-3 border-t border-border-soft pt-3 text-xs text-muted">
-            近 {trendDays} 天共{" "}
-            <span className="font-mono tabular-nums text-foreground">{trendTotal}</span> 人提交
+            {errors.trends ? (
+              "趋势数据加载失败，暂不显示本窗口合计"
+            ) : (
+              <>
+                近 {trendDays} 天共{" "}
+                <span className="font-mono tabular-nums text-foreground">{trendTotal}</span> 人提交
+              </>
+            )}
           </p>
         </div>
 
@@ -551,6 +575,8 @@ export default function DashboardTab() {
                 ))}
               </ul>
             </div>
+          ) : errors.distribution ? (
+            <ChartFailed height={168} />
           ) : (
             <ChartEmpty
               height={168}
@@ -640,6 +666,8 @@ export default function DashboardTab() {
                 </BarChart>
               </ResponsiveContainer>
             </div>
+          ) : errors.compare ? (
+            <ChartFailed height={300} />
           ) : (
             <ChartEmpty
               height={300}
