@@ -44,12 +44,13 @@ const ACTIONS = [
   "backup:create", "backup:restore",
   "test-db:run", "profile:submit", "profile:restore", "profile-submission:cleanup",
   "media:query", "media:config-update", "media:cleanup", "media:thumbnail-backfill",
+  "upload:rejected", "upload:failed",
   "audit:query",
 ];
 
 const RESOURCE_TYPES = [
   "session", "student", "teacher", "class", "tag",
-  "db-config", "profile-config", "profile", "profile-submission", "media",
+  "db-config", "profile-config", "profile", "profile-submission", "media", "upload",
   "export", "backup", "db", "audit-log",
 ];
 
