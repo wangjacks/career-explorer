@@ -79,7 +79,7 @@
 
 ### 管理域 `/api/manage/*`（proxy 拦截：admin 全放行，teacher 按声明式权限表）
 
-<!-- 对账：路由清单 `find src/app/api/manage -name route.ts`（共 35 条）；teacher 权限列须与 src/proxy.ts 的 TEACHER_ALLOWED 逐条一致 -->
+<!-- 对账：路由清单 `find src/app/api/manage -name route.ts`（共 36 条）；teacher 权限列须与 src/proxy.ts 的 TEACHER_ALLOWED 逐条一致 -->
 
 **教师禁止（不在 `TEACHER_ALLOWED`，一律 403）**
 
@@ -120,15 +120,18 @@
 | `/api/manage/export` | GET / POST | 全方法 | Excel/CSV 导出（XLSX 支持原生单元格图片与浮动图片双模式，默认单元格图片） |
 | `/api/manage/export-images` | GET | 全方法 | 图片打包导出（ZIP） |
 | `/api/manage/stats` | GET | 仅 GET | 统计汇总 |
-| `/api/manage/stats/compare` | GET | 仅 GET | 班级/维度对比 |
+| `/api/manage/stats/compare` | GET | 仅 GET | 班级对比：每班在册 / 已提交 / 提交率（#165） |
 | `/api/manage/stats/distribution` | GET | 仅 GET | 标签分布 |
-| `/api/manage/stats/trends` | GET | 仅 GET | 提交趋势 |
+| `/api/manage/stats/trends` | GET | 仅 GET | 提交趋势（全校合计，缺日补 0） |
+| `/api/manage/stats/class-trends` | GET | 仅 GET | 按班级分层的提交趋势（#165，时间 × 班级交叉维度） |
 | `/api/manage/profiles` | GET / DELETE | GET + DELETE | 档案列表 / 清除档案字段 |
 | `/api/manage/profiles/submissions` | GET | GET | 管理端查看学生提交历史（#95）：admin 全量、teacher 仅管辖班级 |
 | `/api/manage/profiles/submissions/exceeding` | GET | GET | 超出版本上限的学生列表（#95） |
 | `/api/manage/audit-logs` | GET | 仅 GET | 操作审计只读查询（#110；教师强制限本人记录，查询自身也被审计） |
 
 > 前缀匹配特性：`/api/manage/export` 覆盖 `export-images`；`/api/manage/profiles` 的 GET+DELETE 覆盖 submissions 子路由的 GET，但 `submissions/cleanup` 是 POST，教师被拒。
+>
+> 数据范围：`/api/manage/stats/*` 只做角色放行，不按班级裁剪，教师与管理员读到同一份全校数据（#165 的决策，界面已在面板标题与各卡片标注，非缺陷）。
 
 ### 共享域 `/api/shared/*`（不进 proxy，路由自鉴权）
 

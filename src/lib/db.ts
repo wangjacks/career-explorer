@@ -167,6 +167,25 @@ export interface Stats {
   topTags: { tag: string; count: number }[];
 }
 
+/** 提交趋势的单日点（#165）：窗口内每天一个点，无提交为 0 */
+export interface TrendPoint {
+  date: string;
+  count: number;
+}
+
+/** 分组对比项（#165）：total 为该组在册学生数，submitted 为其中已提交数 */
+export interface CompareStat {
+  key: string;
+  total: number;
+  submitted: number;
+}
+
+/** 按班级分层的提交趋势（#165）：keys 为分组名，points 为窗口内逐日多序列（已补齐 0） */
+export interface ClassTrendSeries {
+  keys: string[];
+  points: { date: string; counts: Record<string, number> }[];
+}
+
 export interface BackupData {
   version: number;
   sourceType: string;
@@ -343,8 +362,11 @@ export interface DbAdapter {
 
   // stats
   getStats(): Promise<Stats> | Stats;
-  getTrends(days: number): Promise<{ date: string; count: number }[]> | { date: string; count: number }[];
-  getCompareBy(by: "class" | "segment"): Promise<{ key: string; count: number }[]> | { key: string; count: number }[];
+  getTrends(days: number): Promise<TrendPoint[]> | TrendPoint[];
+  /** 按班级分层的趋势（#165）：时间 × 班级交叉维度 */
+  getTrendsByClass(days: number): Promise<ClassTrendSeries> | ClassTrendSeries;
+  /** 按班级分组统计在册/已提交（#165） */
+  getCompareByClass(): Promise<CompareStat[]> | CompareStat[];
 
   // tags & classes
   getTags(): Promise<TagRow[]> | TagRow[];
@@ -584,14 +606,19 @@ export async function getStats(): Promise<Stats> {
   return Promise.resolve(adapter.getStats());
 }
 
-export async function getTrends(days: number): Promise<{ date: string; count: number }[]> {
+export async function getTrends(days: number): Promise<TrendPoint[]> {
   const adapter = await ensureInit();
   return Promise.resolve(adapter.getTrends(days));
 }
 
-export async function getCompareBy(by: "class" | "segment"): Promise<{ key: string; count: number }[]> {
+export async function getTrendsByClass(days: number): Promise<ClassTrendSeries> {
   const adapter = await ensureInit();
-  return Promise.resolve(adapter.getCompareBy(by));
+  return Promise.resolve(adapter.getTrendsByClass(days));
+}
+
+export async function getCompareByClass(): Promise<CompareStat[]> {
+  const adapter = await ensureInit();
+  return Promise.resolve(adapter.getCompareByClass());
 }
 
 export async function getTags(): Promise<TagRow[]> {

@@ -255,12 +255,15 @@ describe("提交流程", () => {
     expect(stats.uniqueTags).toBe(2);
     expect(stats.topTags.map((t) => t.tag).sort()).toEqual(["设计", "音乐"]);
 
+    // 补零后点数等于天数，今天以外的日期为 0（#165）
+    const today = new Date().toLocaleDateString("sv-SE", { timeZone: "Asia/Shanghai" });
     const trends = adapter.getTrends(7);
-    expect(trends.length).toBe(1);
-    expect(trends[0].count).toBe(1);
+    expect(trends).toHaveLength(7);
+    expect(trends[6]).toEqual({ date: today, count: 1 });
+    expect(trends.slice(0, 6).every((t) => t.count === 0)).toBe(true);
 
-    const byClass = adapter.getCompareBy("class");
-    expect(byClass).toEqual([{ key: "未分班", count: 1 }]);
+    const byClass = adapter.getCompareByClass();
+    expect(byClass).toEqual([{ key: "未分班", total: 1, submitted: 1 }]);
 
     // 备份 / 恢复
     const data = adapter.backup();
@@ -317,10 +320,57 @@ describe("班级管理与教师账户", () => {
     const classId = adapter.insertClass("一班", "BBBB2222");
     adapter.insertUser({ user_code: "202505050102", role: "student", name: "李四", class_id: classId });
     adapter.upsertSubmission("202505050102", "[]", "/a.png", "/w.png", adapter.getDefaultStorageBackend()!.id);
-    expect(adapter.getCompareBy("class")).toEqual([{ key: "一班", count: 1 }]);
+    expect(adapter.getCompareByClass()).toEqual([{ key: "一班", total: 1, submitted: 1 }]);
 
     adapter.deleteClass(classId);
-    expect(adapter.getCompareBy("class")).toEqual([{ key: "未分班", count: 1 }]);
+    expect(adapter.getCompareByClass()).toEqual([{ key: "未分班", total: 1, submitted: 1 }]);
+
+    adapter.close();
+    rmSync(path.dirname(dbPath), { recursive: true, force: true });
+  });
+
+  it("compare 带分母：零提交班级仍出现（#165）", () => {
+    const dbPath = makeTmpDb();
+    const adapter = new SqliteAdapter(dbPath);
+    adapter.init();
+
+    const classId = adapter.insertClass("一班", "EEEE6666");
+    adapter.insertUser({ user_code: "202505050101", role: "student", name: "张三", class_id: classId });
+    adapter.insertUser({ user_code: "202505050102", role: "student", name: "李四", class_id: classId });
+    adapter.insertUser({ user_code: "202505050103", role: "student", name: "王五" });
+    adapter.upsertSubmission("202505050101", "[]", "/a.png", "/w.png", adapter.getDefaultStorageBackend()!.id);
+
+    expect(adapter.getCompareByClass()).toEqual(
+      expect.arrayContaining([
+        { key: "一班", total: 2, submitted: 1 },
+        { key: "未分班", total: 1, submitted: 0 },
+      ])
+    );
+
+    adapter.close();
+    rmSync(path.dirname(dbPath), { recursive: true, force: true });
+  });
+
+  it("分班趋势：按班分层补零，仅出现在册当天有提交的班级（#165）", () => {
+    const dbPath = makeTmpDb();
+    const adapter = new SqliteAdapter(dbPath);
+    adapter.init();
+
+    const classId = adapter.insertClass("一班", "HHHH8888");
+    adapter.insertUser({ user_code: "202505050101", role: "student", name: "张三", class_id: classId });
+    adapter.insertUser({ user_code: "202505050102", role: "student", name: "李四", class_id: classId });
+    adapter.insertUser({ user_code: "202505050103", role: "student", name: "王五" });
+    const backendId = adapter.getDefaultStorageBackend()!.id;
+    adapter.upsertSubmission("202505050101", "[]", "/a.png", "/w.png", backendId);
+    adapter.upsertSubmission("202505050102", "[]", "/b.png", "/w.png", backendId);
+
+    const series = adapter.getTrendsByClass(3);
+    const today = new Date().toLocaleDateString("sv-SE", { timeZone: "Asia/Shanghai" });
+    // 未提交的「未分班」不进趋势（与 compare 的口径相反：compare 要显分母，趋势只画有曲线的班）
+    expect(series.keys).toEqual(["一班"]);
+    expect(series.points).toHaveLength(3);
+    expect(series.points[2]).toEqual({ date: today, counts: { 一班: 2 } });
+    expect(series.points.slice(0, 2).every((p) => p.counts["一班"] === 0)).toBe(true);
 
     adapter.close();
     rmSync(path.dirname(dbPath), { recursive: true, force: true });

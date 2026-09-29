@@ -26,7 +26,11 @@ import type {
   ProfileSubmissionExceedRow,
   ProfileSubmissionFileOwner,
   MediaFileRef,
+  TrendPoint,
+  CompareStat,
+  ClassTrendSeries,
 } from "./db";
+import { fillGroupedTrend, fillTrendSeries, shiftDate } from "./stats-utils";
 
 function getNow(): string {
   return new Date().toLocaleString("sv-SE", { timeZone: "Asia/Shanghai" });
@@ -743,40 +747,54 @@ export class SqliteAdapter implements DbAdapter {
     return { total, today: todayCount, uniqueTags, topTags };
   }
 
-  getTrends(days: number): { date: string; count: number }[] {
-    const since = new Date(Date.now() - days * 86400000).toLocaleDateString("sv-SE", {
-      timeZone: "Asia/Shanghai",
-    });
+  getTrends(days: number): TrendPoint[] {
+    const start = shiftDate(getToday(), -(days - 1));
+    const end = shiftDate(getToday(), 1);
     const rows = this.db
       .prepare(
         `SELECT DATE(submitted_at) as d, COUNT(*) as c FROM users
-         WHERE role = 'student' AND submitted_at >= ?
+         WHERE role = 'student' AND submitted_at >= ? AND submitted_at < ?
          GROUP BY DATE(submitted_at) ORDER BY d`
       )
-      .all(since) as { d: string; c: number }[];
-    return rows.map((r) => ({ date: r.d, count: r.c }));
+      .all(start, end) as { d: string; c: number }[];
+    return fillTrendSeries(
+      rows.map((r) => ({ date: r.d, count: r.c })),
+      start,
+      days
+    );
   }
 
-  getCompareBy(by: "class" | "segment"): { key: string; count: number }[] {
-    if (by === "class") {
-      const rows = this.db
-        .prepare(
-          `SELECT COALESCE(c.name, '未分班') as k, COUNT(*) as c
-           FROM users u LEFT JOIN classes c ON u.class_id = c.id
-           WHERE u.role = 'student' AND u.submitted_at IS NOT NULL
-           GROUP BY k ORDER BY k`
-        )
-        .all() as { k: string; c: number }[];
-      return rows.map((r) => ({ key: r.k, count: r.c }));
-    }
+  getTrendsByClass(days: number): ClassTrendSeries {
+    const start = shiftDate(getToday(), -(days - 1));
+    const end = shiftDate(getToday(), 1);
+    // ORDER BY k, d 让分组名按 SQL 排序稳定输出，凑不出「一会儿这个颜色一会儿那个」
     const rows = this.db
       .prepare(
-        `SELECT SUBSTR(user_code, 1, 4) as k, COUNT(*) as c FROM users
-         WHERE role = 'student' AND submitted_at IS NOT NULL
+        `SELECT DATE(u.submitted_at) as d, COALESCE(c.name, '未分班') as k, COUNT(*) as c
+         FROM users u LEFT JOIN classes c ON u.class_id = c.id
+         WHERE u.role = 'student' AND u.submitted_at >= ? AND u.submitted_at < ?
+         GROUP BY d, k ORDER BY k, d`
+      )
+      .all(start, end) as { d: string; k: string; c: number }[];
+    return fillGroupedTrend(
+      rows.map((r) => ({ date: r.d, key: r.k, count: r.c })),
+      start,
+      days
+    );
+  }
+
+  getCompareByClass(): CompareStat[] {
+    // 分母口径：按 users 分组统计在册学生，不按提交过滤，故零提交班级也可见
+    const rows = this.db
+      .prepare(
+        `SELECT COALESCE(c.name, '未分班') as k, COUNT(*) as total,
+                SUM(CASE WHEN u.submitted_at IS NOT NULL THEN 1 ELSE 0 END) as submitted
+         FROM users u LEFT JOIN classes c ON u.class_id = c.id
+         WHERE u.role = 'student'
          GROUP BY k ORDER BY k`
       )
-      .all() as { k: string; c: number }[];
-    return rows.map((r) => ({ key: r.k, count: r.c }));
+      .all() as { k: string; total: number; submitted: number }[];
+    return rows.map((r) => ({ key: r.k, total: r.total, submitted: r.submitted }));
   }
 
   // tags & classes
