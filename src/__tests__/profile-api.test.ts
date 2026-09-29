@@ -171,7 +171,7 @@ describe("POST /api/shared/profile — 提交时限强制拦截（#96）", () =>
   });
 });
 
-describe("POST /api/shared/profile — 三项至少一项（#168）", () => {
+describe("POST /api/shared/profile — 标签必填、图片选填（#208）", () => {
   const mockSaveable = async () => {
     const token = await signToken({ role: "student", uid: 7, name: "测试学生" });
     vi.mocked(getUserById).mockResolvedValue(STUDENT_USER);
@@ -182,14 +182,14 @@ describe("POST /api/shared/profile — 三项至少一项（#168）", () => {
     return token;
   };
 
-  it("标签、头像、评价词云全空 → 400 拒绝，数据库未写入", async () => {
+  it("标签为空数组、图片齐全 → 400 拒绝，数据库未写入", async () => {
     const token = await mockSaveable();
     const res = await POST(
-      createPostRequest({ tags: [], avatarUrl: "", evaluationUrl: "" }, { auth_token: token })
+      createPostRequest({ tags: [], avatarUrl: "/a.png", evaluationUrl: "/e.png" }, { auth_token: token })
     );
     expect(res.status).toBe(400);
     const body = await res.json();
-    expect(body.error).toBe("请至少填写标签、词云图或虚拟形象中的一项");
+    expect(body.error).toBe("请至少选择一个标签");
     expect(submitProfileWithVersion).not.toHaveBeenCalled();
   });
 
@@ -198,7 +198,7 @@ describe("POST /api/shared/profile — 三项至少一项（#168）", () => {
     const res = await POST(createPostRequest({}, { auth_token: token }));
     expect(res.status).toBe(400);
     const body = await res.json();
-    expect(body.error).toBe("请至少填写标签、词云图或虚拟形象中的一项");
+    expect(body.error).toBe("请至少选择一个标签");
     expect(submitProfileWithVersion).not.toHaveBeenCalled();
   });
 
@@ -220,31 +220,50 @@ describe("POST /api/shared/profile — 三项至少一项（#168）", () => {
     expect(submitProfileWithVersion).toHaveBeenCalledWith("202505050102", JSON.stringify(["阅读"]), "", "", 1);
   });
 
-  it("仅头像（tags 为空数组）→ 200，标签直存空数组", async () => {
+  it("仅头像、无标签 → 400（#208 反转了「三项至少一项」）", async () => {
     const token = await mockSaveable();
     const res = await POST(
       createPostRequest({ tags: [], avatarUrl: "/a.png" }, { auth_token: token })
     );
-    expect(res.status).toBe(200);
-    expect(submitProfileWithVersion).toHaveBeenCalledWith("202505050102", "[]", "/a.png", "", 1);
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toBe("请至少选择一个标签");
+    expect(submitProfileWithVersion).not.toHaveBeenCalled();
   });
 
-  it("仅评价词云（tags 为空数组）→ 200，标签直存空数组", async () => {
+  it("仅评价词云、无标签 → 400", async () => {
     const token = await mockSaveable();
     const res = await POST(
       createPostRequest({ tags: [], evaluationUrl: "/e.png" }, { auth_token: token })
     );
-    expect(res.status).toBe(200);
-    expect(submitProfileWithVersion).toHaveBeenCalledWith("202505050102", "[]", "", "/e.png", 1);
+    expect(res.status).toBe(400);
+    expect(submitProfileWithVersion).not.toHaveBeenCalled();
   });
 
-  it("标签仅空白字符 + 头像 → 200，规范化后按无标签保存", async () => {
+  it("标签仅空白字符且带图片 → 规范化后视为无标签，400", async () => {
     const token = await mockSaveable();
     const res = await POST(
       createPostRequest({ tags: ["  "], avatarUrl: "/a.png" }, { auth_token: token })
     );
+    expect(res.status).toBe(400);
+    expect(submitProfileWithVersion).not.toHaveBeenCalled();
+  });
+
+  it("标签 + 两张图片 → 200，图片为选填且一并落库", async () => {
+    const token = await mockSaveable();
+    const res = await POST(
+      createPostRequest(
+        { tags: ["阅读"], avatarUrl: "/a.png", evaluationUrl: "/e.png" },
+        { auth_token: token }
+      )
+    );
     expect(res.status).toBe(200);
-    expect(submitProfileWithVersion).toHaveBeenCalledWith("202505050102", "[]", "/a.png", "", 1);
+    expect(submitProfileWithVersion).toHaveBeenCalledWith(
+      "202505050102",
+      JSON.stringify(["阅读"]),
+      "/a.png",
+      "/e.png",
+      1
+    );
   });
 });
 

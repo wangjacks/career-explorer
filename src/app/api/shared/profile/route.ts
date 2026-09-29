@@ -126,13 +126,13 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "存储后端未初始化" }, { status: 500 });
     }
 
-    // #168：三项至少一项——标签 / 虚拟形象 / 评价词云任一非空即可保存，全空才拒绝；
-    // 标签允许为空数组（只上传图片的档案同样有效），未传或非字符串的图片字段按空处理
+    // #208：标签必填——标签是职业探索的核心数据（图片仅作补充），空标签一律拒绝；
+    // 未传或非字符串的图片字段按空处理（图片可选填）
     const names = normalizeTagNames(tags ?? []);
     const avatar = typeof avatarUrl === "string" ? avatarUrl : "";
     const evaluation = typeof evaluationUrl === "string" ? evaluationUrl : "";
-    if (names.length === 0 && avatar.length === 0 && evaluation.length === 0) {
-      return NextResponse.json({ error: "请至少填写标签、词云图或虚拟形象中的一项" }, { status: 400 });
+    if (names.length === 0) {
+      return NextResponse.json({ error: "请至少选择一个标签" }, { status: 400 });
     }
 
     // #94：标签文本直存（预设 + 自定义），入库前规范化；自定义部分受配置上限约束（后端二次校验）

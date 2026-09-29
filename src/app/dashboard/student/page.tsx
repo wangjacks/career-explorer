@@ -73,11 +73,20 @@ function ProgressRing({ completion }: { completion: number }) {
 }
 
 /** 分区小标（eyebrow）：琥珀竖条为纯装饰（琥珀不承载小字）；done 省略则不显示角标 */
-function SectionHeader({ label, done }: { label: string; done?: boolean }) {
+function SectionHeader({ label, done, required }: { label: string; done?: boolean; required?: boolean }) {
   return (
     <div className="flex items-center gap-2">
       <span className="w-1 h-4 rounded-full bg-accent" aria-hidden />
-      <h2 className="text-sm font-semibold text-foreground">{label}</h2>
+      <h2 className="text-sm font-semibold text-foreground">
+        {label}
+        {/* 必填标记：星号供快速扫读，sr-only 文本供读屏（#208） */}
+        {required && (
+          <>
+            <span className="text-red-500 ml-0.5" aria-hidden>*</span>
+            <span className="sr-only">（必填）</span>
+          </>
+        )}
+      </h2>
       {done !== undefined && (
         <span
           className={`ml-auto px-2 py-0.5 rounded-full text-xs font-medium ${
@@ -325,16 +334,14 @@ export default function StudentDashboardPage() {
     setEditTags((prev) => prev.filter((t) => t !== tag));
   };
 
-  // 三项至少一项（#168）：标签 / 头像（虚拟形象）/ 评价词云任一非空即可提交，与服务端校验同口径
+  // #208：标签必填——标签是职业探索的核心数据，图片（虚拟形象 / 评价词云）可选填；与服务端同口径
   const hasEditTags = editTags.length > 0;
-  const hasEditAvatar = !!avatarFile || !!profile?.avatar_url;
-  const hasEditEvaluation = !!evaluationFile || !!profile?.evaluation_url;
 
   // 保存前重取截止状态（#96/#168）：编辑态可以停留很久，进编辑时同步过的状态会过期。
   // 过期时保存会先上传图片、再由服务端 403 拦下，留下一份无主上传，学生也要填满一屏才被拒
   const requestSave = async () => {
-    if (!hasEditTags && !hasEditAvatar && !hasEditEvaluation) {
-      toast.warning("请至少填写标签、词云图或虚拟形象中的一项");
+    if (!hasEditTags) {
+      toast.warning("请至少选择一个标签");
       return;
     }
     setCheckingDeadline(true);
@@ -640,7 +647,7 @@ export default function StudentDashboardPage() {
                   </div>
                   <div>
                     <h2 className="text-base font-semibold text-foreground">你还没有提交职业探索档案</h2>
-                    <p className="text-sm text-muted mt-1">在这里选择标签、上传头像与评价词云，让老师了解你的职业兴趣方向</p>
+                    <p className="text-sm text-muted mt-1">先选好兴趣标签（必填），头像与评价词云可选填，让老师了解你的职业兴趣方向</p>
                   </div>
                   <button
                     onClick={startEdit}
@@ -660,7 +667,7 @@ export default function StudentDashboardPage() {
               /* 编辑模式（hero 保留在顶部） */
               <div className="space-y-5">
                 <section className="bg-card rounded-xl border border-border-soft p-5 space-y-4">
-                  <SectionHeader label={hasSubmitted ? "修改标签" : "选择标签"} />
+                  <SectionHeader label={hasSubmitted ? "修改标签" : "选择标签"} required />
                   {categories.length === 0 ? (
                     <p className="text-sm text-muted py-4 text-center">标签加载中...</p>
                   ) : (
