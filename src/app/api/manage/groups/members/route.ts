@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getStudentGroupRef, moveGroupMember } from "@/lib/db";
+import { getStudentGroupRef, getUserById, moveGroupMember } from "@/lib/db";
 import { getRequestContext, recordAudit } from "@/lib/audit";
 import { getSession, canModifyClass } from "../../classes/helpers";
 
@@ -24,11 +24,16 @@ export async function PATCH(request: NextRequest) {
       return NextResponse.json({ error: "无权调整该班级分组" }, { status: 403 });
     }
 
-    const current = await getStudentGroupRef(userId);
-    if (current && current.class_id !== classId) {
+    // 归属以 users 表为准：只看组引用的话，「还没分组的学生」查不到引用就会被直接插进别班的组，
+    // 传进来的教师 id / 不存在的 id 同样会被放过
+    const target = await getUserById(userId);
+    if (!target || target.role !== "student" || target.class_id !== classId) {
       return NextResponse.json({ error: "该学生不在本班" }, { status: 400 });
     }
-    const fromGroupNo = current ? current.group_no : null;
+
+    const current = await getStudentGroupRef(userId);
+    // 引用指向别班 = 成员行没跟着转班清理（脏数据），此时不把这条幽灵行的组号当作来源
+    const fromGroupNo = current && current.class_id === classId ? current.group_no : null;
     if (fromGroupNo === toGroupNo) {
       return NextResponse.json({ ok: true, moved: false });
     }

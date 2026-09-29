@@ -32,6 +32,7 @@ import {
   getStudents,
   getStudentGroupRef,
   getTeacherClassPairs,
+  getUserById,
   insertAuditLog,
   insertGroupEntry,
   moveGroupMember,
@@ -113,6 +114,8 @@ beforeEach(() => {
   vi.mocked(insertGroupEntry).mockResolvedValue(undefined);
   vi.mocked(deleteGroupEntry).mockResolvedValue(undefined);
   vi.mocked(getStudentGroupRef).mockResolvedValue(undefined);
+  // 换人端点以 users 表的班级归属为准（#14 复核），默认按名册回查
+  vi.mocked(getUserById).mockImplementation(async (id: number) => ROSTER.find((u) => u.id === id));
   vi.mocked(getGroupBatchDetail).mockResolvedValue({ batch: undefined, groups: [], members: [] });
   emptyGrouping();
 });
@@ -262,6 +265,43 @@ describe("PATCH /api/manage/groups/members — 手工换人（#101）", () => {
       jsonRequest({ classId: CLASS_A, userId: 21, toGroupNo: 2 }, `auth_token=${token}`, "PATCH")
     );
     expect(res.status).toBe(400);
+  });
+
+  it("未分组且不在本班 → 400，不会被直接插进本班的组", async () => {
+    const token = await signToken({ role: "admin", uid: 1, name: "管理员" });
+    // getStudentGroupRef 保持默认的 undefined：只看组引用做归属判断时会放过这一例
+    const res = await membersPatch(
+      jsonRequest({ classId: CLASS_A, userId: 21, toGroupNo: 1 }, `auth_token=${token}`, "PATCH")
+    );
+    expect(res.status).toBe(400);
+    expect(moveGroupMember).not.toHaveBeenCalled();
+  });
+
+  it("userId 不是学生或不存在 → 400", async () => {
+    const token = await signToken({ role: "admin", uid: 1, name: "管理员" });
+    vi.mocked(getUserById).mockResolvedValue({ ...student(9, CLASS_A, null), role: "teacher" } as UserRow);
+    let res = await membersPatch(
+      jsonRequest({ classId: CLASS_A, userId: 9, toGroupNo: 1 }, `auth_token=${token}`, "PATCH")
+    );
+    expect(res.status).toBe(400);
+
+    vi.mocked(getUserById).mockResolvedValue(undefined);
+    res = await membersPatch(
+      jsonRequest({ classId: CLASS_A, userId: 12345, toGroupNo: 1 }, `auth_token=${token}`, "PATCH")
+    );
+    expect(res.status).toBe(400);
+    expect(moveGroupMember).not.toHaveBeenCalled();
+  });
+
+  it("成员行指向别班（转班漏清理的脏数据）→ 以 users 为准搬回本班，来源记 null", async () => {
+    const token = await signToken({ role: "admin", uid: 1, name: "管理员" });
+    vi.mocked(getStudentGroupRef).mockResolvedValue({ class_id: CLASS_B, group_no: 2 });
+    const res = await membersPatch(
+      jsonRequest({ classId: CLASS_A, userId: 1, toGroupNo: 2 }, `auth_token=${token}`, "PATCH")
+    );
+    expect(res.status).toBe(200);
+    expect((await res.json()).fromGroupNo).toBe(null);
+    expect(moveGroupMember).toHaveBeenCalledWith(CLASS_A, 1, 2);
   });
 
   it("目标组不存在 → 400（不冒 500）", async () => {
