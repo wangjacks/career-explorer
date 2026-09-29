@@ -303,11 +303,15 @@ function bestSwap(
 ): { g1: number; g2: number; i: number; j: number } | null {
   const n = groups.reduce((sum, g) => sum + g.length, 0);
   if (n === 0) return null;
-  // simToGroup[x][g] = Σ_{y∈g} sim(x,y)（含自身记 0）
+  // simToGroup[x][g] = Σ_{y∈g} sim(x,y)（自身记 0）。
+  // **每个学生对每个组都要算**：delta 公式里的 simToGroup[j][g1] / simToGroup[i][g2] 是跨组项，
+  // 只填「自己所在组」会让它们恒为 0 —— FM 会选错交换，看似在精修其实没优化目标函数。
   const simToGroup: number[][] = Array.from({ length: n }, () => new Array<number>(groups.length).fill(0));
   for (let g = 0; g < groups.length; g++) {
-    for (const x of groups[g]) {
-      for (const y of groups[g]) simToGroup[x][g] += sim[x][y];
+    for (let x = 0; x < n; x++) {
+      let sum = 0;
+      for (const y of groups[g]) sum += sim[x][y];
+      simToGroup[x][g] = sum;
     }
   }
   let best: { g1: number; g2: number; i: number; j: number; delta: number } | null = null;

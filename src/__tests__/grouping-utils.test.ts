@@ -8,9 +8,11 @@ import {
 } from "../lib/grouping-features";
 import {
   GROUP_SIZE_CAP,
+  assignGroups,
   buildGrouping,
   computeGroupSizes,
   computeSimilarities,
+  refineBySwaps,
 } from "../lib/grouping-utils";
 
 /** 造一个学生行；tags 传名称数组（内部序列化成库里的 JSON 文本） */
@@ -261,5 +263,95 @@ describe("特征源可扩展性（#101 §九）", () => {
     const single = buildGrouping(buildFeatureVectors(noScore), [TAGS_SOURCE]);
     expect(withEmpty.metrics.activeSourceKeys).toEqual(["tags"]);
     expect(withEmpty.groups).toEqual(single.groups);
+  });
+});
+
+describe("refineBySwaps（#101 FM 交换精修）", () => {
+  /**
+   * 目标函数在测试侧独立实现，不复用库内的 totalScore：
+   * 两处共用同一段代码时，delta 公式写错也能「自证正确」——Copilot #5 漏掉的正是这种交叉验证。
+   */
+  function scoreOf(groups: number[][], sim: number[][]): number {
+    let total = 0;
+    for (const g of groups) {
+      for (let a = 0; a < g.length; a++) {
+        for (let b = a + 1; b < g.length; b++) total += sim[g[a]][g[b]];
+      }
+    }
+    return total;
+  }
+
+  /** 暴力枚举全部跨组交换：结果里不该再存在单步可提升的交换（FM 的收敛定义） */
+  function hasImprovingSwap(groups: number[][], sim: number[][]): boolean {
+    const base = scoreOf(groups, sim);
+    for (let a = 0; a < groups.length; a++) {
+      for (let b = a + 1; b < groups.length; b++) {
+        for (const i of groups[a]) {
+          for (const j of groups[b]) {
+            const next = groups.map((g, gi) =>
+              gi === a
+                ? g.map((x) => (x === i ? j : x))
+                : gi === b
+                  ? g.map((x) => (x === j ? i : x))
+                  : [...g]
+            );
+            if (scoreOf(next, sim) > base + 1e-9) return true;
+          }
+        }
+      }
+    }
+    return false;
+  }
+
+  /** 固定种子 LCG → 4 个兴趣簇 + 随机噪声标签，使贪心分配必然留下可改进的交换 */
+  function noisyCohort(seed: number, n: number): UserRow[] {
+    let s = seed;
+    const rnd = () => {
+      s = (s * 1103515245 + 12345) % 2147483648;
+      return s / 2147483648;
+    };
+    const clusters = [
+      ["摄影", "旅行"],
+      ["编程", "阅读"],
+      ["音乐", "电影"],
+      ["运动", "绘画"],
+    ];
+    const pool = ["摄影", "旅行", "编程", "阅读", "音乐", "电影", "运动", "绘画", "烹饪", "舞蹈"];
+    return Array.from({ length: n }, (_, k) => {
+      const tags = [...clusters[k % clusters.length]];
+      if (rnd() < 0.4) tags.push(pool[Math.floor(rnd() * pool.length)]);
+      return student(k + 1, tags);
+    });
+  }
+
+  it("结果不劣于贪心、人数守恒，且已无可单步改进的交换（局部最优）", () => {
+    let improved = 0;
+    const fixtures: Array<{ seed: number; n: number }> = [];
+    for (const seed of [1, 7, 13, 29]) for (const n of [9, 10, 12, 15]) fixtures.push({ seed, n });
+
+    for (const { seed, n } of fixtures) {
+      const tag = `seed=${seed} n=${n}`;
+      const vecs = buildFeatureVectors(noisyCohort(seed, n));
+      const sim = computeSimilarities(vecs);
+      const greedy = assignGroups(computeGroupSizes(n), sim, vecs.map(() => true));
+      const refined = refineBySwaps(greedy, sim);
+
+      expect(scoreOf(refined, sim), `${tag} 精修不应变差`).toBeGreaterThanOrEqual(scoreOf(greedy, sim) - 1e-9);
+      expect(refined.map((g) => g.length), `${tag} 组人数不变`).toEqual(greedy.map((g) => g.length));
+      expect(
+        refined.flat().sort((a, b) => a - b),
+        `${tag} 每人恰好出现一次`
+      ).toEqual(Array.from({ length: n }, (_, i) => i));
+      expect(hasImprovingSwap(refined, sim), `${tag} 仍有可改进的交换，说明 delta 没算对`).toBe(false);
+      if (scoreOf(refined, sim) > scoreOf(greedy, sim) + 1e-9) improved += 1;
+    }
+    expect(improved, "至少有一例显示交换确实带来提升，精修不是空转").toBeGreaterThan(0);
+  });
+
+  it("确定性：同一份数据重复精修结果一致", () => {
+    const vecs = buildFeatureVectors(noisyCohort(3, 20));
+    const sim = computeSimilarities(vecs);
+    const greedy = assignGroups(computeGroupSizes(20), sim, vecs.map(() => true));
+    expect(refineBySwaps(greedy, sim)).toEqual(refineBySwaps(greedy, sim));
   });
 });
