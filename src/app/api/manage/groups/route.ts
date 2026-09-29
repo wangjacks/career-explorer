@@ -4,7 +4,14 @@ import { getRequestContext, recordAudit } from "@/lib/audit";
 import { getSession, canModifyClass } from "../classes/helpers";
 import { buildFeatureVectors, describeSources } from "@/lib/grouping-features";
 import { GROUP_SIZE_CAP, GROUPING_STRATEGY, buildGrouping } from "@/lib/grouping-utils";
-import { buildGroupingView, rosterOf } from "./helpers";
+import { actorOf, buildGroupingView, groupFailureWriter, rosterOf } from "./helpers";
+
+const GENERATE_AUDIT = {
+  action: "group:generate",
+  method: "POST",
+  path: "/api/manage/groups",
+  resource_type: "group-batch",
+} as const;
 
 /** GET：读某班当前分组 + 指标 + 与最近一次自动分组的差异（**读不限班级**，教师可查看全校） */
 export async function GET(request: NextRequest) {
@@ -28,22 +35,28 @@ export async function GET(request: NextRequest) {
  */
 export async function POST(request: NextRequest) {
   const { ip, user_agent } = getRequestContext(request);
+  // 覆盖式写操作的失败与被拒也要留痕（AGENTS.md：管理域写操作成败均记）
+  const fail = groupFailureWriter(request, GENERATE_AUDIT);
+  let session: Awaited<ReturnType<typeof getSession>> = null;
   try {
-    const session = await getSession(request);
+    session = await getSession(request);
     if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
     const body = (await request.json()) as { classId?: unknown };
     const classId = Number(body.classId);
     if (!Number.isInteger(classId) || classId <= 0) {
+      fail(session, "缺少或无效的 classId", { classId: body.classId });
       return NextResponse.json({ error: "缺少或无效的 classId" }, { status: 400 });
     }
     // 写操作限教师所带班级（admin 全量）；与班级改名等既有写端点共用同一判定
     if (!(await canModifyClass(session, classId))) {
+      fail(session, "无权对该班级分组", { classId });
       return NextResponse.json({ error: "无权对该班级分组" }, { status: 403 });
     }
 
     const roster = rosterOf(await getStudents(), classId);
     if (roster.length === 0) {
+      fail(session, "该班没有学生，无法分组", { classId });
       return NextResponse.json({ error: "该班没有学生，无法分组" }, { status: 400 });
     }
 
@@ -76,10 +89,13 @@ export async function POST(request: NextRequest) {
 
     const batchId = await applyGroupingResult(classId, groups, batch);
     void recordAudit({
-      actor_id: session.uid ?? null, actor_user_code: null, actor_name: session.name ?? null, actor_role: session.role ?? null,
-      action: "group:generate", method: "POST", path: "/api/manage/groups",
-      resource_type: "group-batch", resource_id: String(batchId),
-      status: "success", error_message: null, ip, user_agent,
+      ...actorOf(session),
+      ...GENERATE_AUDIT,
+      resource_id: String(batchId),
+      status: "success",
+      error_message: null,
+      ip,
+      user_agent,
       metadata: {
         classId,
         groupCount: groups.length,
@@ -96,6 +112,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ ok: true, batchId, view: await buildGroupingView(classId) });
   } catch (err) {
     console.error("Groups POST error:", err);
+    fail(session, err instanceof Error ? err.message : "自动分组失败");
     return NextResponse.json({ error: "自动分组失败" }, { status: 500 });
   }
 }

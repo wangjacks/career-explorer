@@ -126,11 +126,24 @@ describe("POST /api/manage/groups — 触发自动分组（#101）", () => {
     expect(res.status).toBe(401);
   });
 
-  it("教师对非自建班 → 403（写限所带班级）", async () => {
+  it("教师对非自建班 → 403（写限所带班级），且记 group:generate failed", async () => {
     const token = await signToken({ role: "teacher", uid: OTHER_TEACHER_UID, name: "别的老师" });
     const res = await triggerPost(jsonRequest({ classId: CLASS_A }, `auth_token=${token}`));
     expect(res.status).toBe(403);
     expect(applyGroupingResult).not.toHaveBeenCalled();
+
+    await flushAudit();
+    const log = lastAudit();
+    expect(log).toMatchObject({
+      action: "group:generate",
+      resource_type: "group-batch",
+      status: "failed",
+      actor_id: OTHER_TEACHER_UID,
+      actor_role: "teacher",
+      error_message: "无权对该班级分组",
+    });
+    expect(log.resource_id).toBeNull();
+    expect(JSON.parse(String(log.metadata))).toEqual({ classId: CLASS_A });
   });
 
   it("班级无学生 → 400", async () => {
@@ -138,6 +151,17 @@ describe("POST /api/manage/groups — 触发自动分组（#101）", () => {
     vi.mocked(getStudents).mockResolvedValue([]);
     const res = await triggerPost(jsonRequest({ classId: CLASS_A }, `auth_token=${token}`));
     expect(res.status).toBe(400);
+  });
+
+  it("落库失败 → 500，且失败也留审计（AGENTS.md：管理域写操作成败均记）", async () => {
+    const token = await signToken({ role: "admin", uid: 1, name: "管理员" });
+    vi.mocked(applyGroupingResult).mockRejectedValue(new Error("database is locked"));
+    const res = await triggerPost(jsonRequest({ classId: CLASS_A }, `auth_token=${token}`));
+    expect(res.status).toBe(500);
+
+    await flushAudit();
+    const log = lastAudit();
+    expect(log).toMatchObject({ action: "group:generate", status: "failed", error_message: "database is locked" });
   });
 
   it("教师对自己带的班 → 200，且「覆盖 + 归档」走同一个原子方法", async () => {
@@ -256,6 +280,14 @@ describe("PATCH /api/manage/groups/members — 手工换人（#101）", () => {
     );
     expect(res.status).toBe(403);
     expect(moveGroupMember).not.toHaveBeenCalled();
+
+    await flushAudit();
+    expect(lastAudit()).toMatchObject({
+      action: "group:move",
+      status: "failed",
+      actor_id: OTHER_TEACHER_UID,
+      error_message: "无权调整该班级分组",
+    });
   });
 
   it("学生不在本班 → 400", async () => {
@@ -304,7 +336,7 @@ describe("PATCH /api/manage/groups/members — 手工换人（#101）", () => {
     expect(moveGroupMember).toHaveBeenCalledWith(CLASS_A, 1, 2);
   });
 
-  it("目标组不存在 → 400（不冒 500）", async () => {
+  it("目标组不存在 → 400（不冒 500），并记 group:move failed", async () => {
     const token = await signToken({ role: "admin", uid: 1, name: "管理员" });
     vi.mocked(getStudentGroupRef).mockResolvedValue({ class_id: CLASS_A, group_no: 1 });
     vi.mocked(moveGroupMember).mockRejectedValue(new Error("目标组不存在"));
@@ -313,6 +345,11 @@ describe("PATCH /api/manage/groups/members — 手工换人（#101）", () => {
     );
     expect(res.status).toBe(400);
     expect((await res.json()).error).toBe("目标组不存在");
+
+    await flushAudit();
+    const log = lastAudit();
+    expect(log).toMatchObject({ action: "group:move", status: "failed", error_message: "目标组不存在" });
+    expect(JSON.parse(String(log.metadata))).toMatchObject({ classId: CLASS_A, userId: 1, fromGroupNo: 1, toGroupNo: 99 });
   });
 
   it("成功换人 → 200 并记 group:move（含 from/to）", async () => {
@@ -365,13 +402,19 @@ describe("POST/DELETE /api/manage/groups/entries — 建/删组（#101）", () =
     expect(insertGroupEntry).toHaveBeenCalledWith(CLASS_A, 5);
   });
 
-  it("组号已存在 → 409", async () => {
+  it("组号已存在 → 409，并记 group:create failed", async () => {
     const token = await signToken({ role: "admin", uid: 1, name: "管理员" });
     vi.mocked(getClassGroups).mockResolvedValue([
       { id: 11, class_id: CLASS_A, group_no: 2, created_at: "" },
     ] as ClassGroupRow[]);
     const res = await entriesPost(jsonRequest({ classId: CLASS_A, groupNo: 2 }, `auth_token=${token}`));
     expect(res.status).toBe(409);
+    expect(insertGroupEntry).not.toHaveBeenCalled();
+
+    await flushAudit();
+    const log = lastAudit();
+    expect(log).toMatchObject({ action: "group:create", status: "failed", error_message: "第 2 组已存在" });
+    expect(JSON.parse(String(log.metadata))).toEqual({ classId: CLASS_A, groupNo: 2 });
   });
 
   it("删除非空组 → 400（先移人），不落库", async () => {
@@ -385,6 +428,15 @@ describe("POST/DELETE /api/manage/groups/entries — 建/删组（#101）", () =
     const res = await entriesDelete(searchRequest(`classId=${CLASS_A}&groupNo=1`, `auth_token=${token}`, "DELETE"));
     expect(res.status).toBe(400);
     expect(deleteGroupEntry).not.toHaveBeenCalled();
+
+    await flushAudit();
+    const log = lastAudit();
+    expect(log).toMatchObject({
+      action: "group:delete",
+      status: "failed",
+      error_message: "该组还有成员，请先移到其他组",
+    });
+    expect(JSON.parse(String(log.metadata))).toEqual({ classId: CLASS_A, groupNo: 1 });
   });
 
   it("删除空组 → 200 并记 group:delete", async () => {
@@ -404,5 +456,29 @@ describe("POST/DELETE /api/manage/groups/entries — 建/删组（#101）", () =
     const token = await signToken({ role: "admin", uid: 1, name: "管理员" });
     const res = await entriesDelete(searchRequest(`classId=${CLASS_A}&groupNo=7`, `auth_token=${token}`, "DELETE"));
     expect(res.status).toBe(404);
+    expect(deleteGroupEntry).not.toHaveBeenCalled();
+  });
+
+  it("建组落库失败 → 500，且失败落审计", async () => {
+    const token = await signToken({ role: "admin", uid: 1, name: "管理员" });
+    vi.mocked(insertGroupEntry).mockRejectedValue(new Error("disk I/O error"));
+    const res = await entriesPost(jsonRequest({ classId: CLASS_A }, `auth_token=${token}`));
+    expect(res.status).toBe(500);
+
+    await flushAudit();
+    expect(lastAudit()).toMatchObject({ action: "group:create", status: "failed", error_message: "disk I/O error" });
+  });
+
+  it("删组教师越权 → 403，失败审计里带上目标班级与组号", async () => {
+    const token = await signToken({ role: "teacher", uid: OTHER_TEACHER_UID, name: "别的老师" });
+    const res = await entriesDelete(
+      searchRequest(`classId=${CLASS_A}&groupNo=1`, `auth_token=${token}`, "DELETE")
+    );
+    expect(res.status).toBe(403);
+
+    await flushAudit();
+    const log = lastAudit();
+    expect(log).toMatchObject({ action: "group:delete", status: "failed", actor_id: OTHER_TEACHER_UID });
+    expect(JSON.parse(String(log.metadata))).toEqual({ classId: CLASS_A, groupNo: 1 });
   });
 });

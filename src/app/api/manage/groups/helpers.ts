@@ -1,3 +1,4 @@
+import type { NextRequest } from "next/server";
 import type { UserRow } from "@/lib/db";
 import {
   getClassGroupMembers,
@@ -6,6 +7,7 @@ import {
   getGroupBatches,
   getStudents,
 } from "@/lib/db";
+import { getRequestContext, recordAudit, type AuditActor } from "@/lib/audit";
 import {
   FEATURE_SOURCES,
   buildFeatureVectors,
@@ -21,6 +23,42 @@ export function sortRoster(students: UserRow[]): UserRow[] {
     if (a.user_code !== b.user_code) return a.user_code < b.user_code ? -1 : 1;
     return a.id - b.id;
   });
+}
+
+/** getSession() 的会话形状（结构类型，helpers 不依赖认证模块的具体签名） */
+type SessionLike = { uid?: number | null; name?: string | null; role?: string | null } | null | undefined;
+
+/** 会话 → 操作者快照；token 载荷不含 user_code，这里不做额外查库 */
+export function actorOf(session: SessionLike): AuditActor {
+  return {
+    actor_id: session?.uid ?? null,
+    actor_user_code: null,
+    actor_name: session?.name ?? null,
+    actor_role: session?.role ?? null,
+  };
+}
+
+/**
+ * 失败路径的审计写入器（AGENTS.md：管理域写操作成败均记）。
+ * 每个请求建一次，action/method/path/resource_type 固定，调用处只给错误原因与定位信息。
+ */
+export function groupFailureWriter(
+  request: NextRequest,
+  entry: { action: string; method: string; path: string; resource_type: string }
+): (session: SessionLike, error: string, metadata?: unknown) => void {
+  const { ip, user_agent } = getRequestContext(request);
+  return (session, error, metadata = null) => {
+    void recordAudit({
+      ...actorOf(session),
+      ...entry,
+      resource_id: null,
+      status: "failed",
+      error_message: error,
+      ip,
+      user_agent,
+      metadata,
+    });
+  };
 }
 
 export interface GroupMemberView {
