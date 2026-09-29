@@ -31,7 +31,7 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 | `src/app/form/` | 表单列表（标准化测评入口 #168；分步向导与本地草稿已删除，当前数据源为页内空数组，仅渲染空态） |
 | `src/app/api/{auth,setup}/` | 认证与安装端点，天然在 proxy matcher 之外 |
 | `src/app/api/manage/` | 管理域 API，admin + teacher 共用，角色差异由 `proxy.ts` 声明式权限表控制 |
-| `src/app/api/shared/` | 共享域 API，不进 proxy，**路由自鉴权**（档案、提交历史、存储签名） |
+| `src/app/api/shared/` | 共享域 API，不进 proxy，**路由自鉴权**（档案、提交历史、存储签名、本组名单） |
 | `src/app/api/{tags,upload,uploads}/` | 开放端点：标签与配置读取、上传、本地文件静态服务（含路径穿越防护） |
 | `src/components/` | 全站公共组件；子目录 `admin/`（面板 Tab 页命名 `*Tab.tsx`，同目录另有共用 UI 组件如 `AdminUI` / `ConfirmDialog` / `*Table`）、`dashboard/`（管理/教师侧边栏）、`student/`（学生侧边栏） |
 | `src/hooks/` | 客户端自定义 hook，命名一律 `use*.ts` |
@@ -51,7 +51,7 @@ find src/app -name page.tsx && find src/app/api -name route.ts
 
 - 抽象层：`src/lib/db.ts` 定义 `DbAdapter` 接口，**所有数据库操作必须走此接口**，两适配器（`db-mysql.ts` / `db-sqlite.ts`）行为须一致
 - 配置来源：`db-config.json`（运行时文件，gitignored），经 `db-config.ts` 读写；`DbConfig` 含 `type: "mysql" | "sqlite"`、`installed` 标志、连接参数
-- **八张表**（权威定义在两适配器的 `CREATE TABLE`，完整字段与备份口径见 `docs/architecture.md`「数据库」）：
+- **十三张表**（权威定义在两适配器的 `CREATE TABLE`，完整字段与备份口径见 `docs/architecture.md`「数据库」）：
 
 | 表 | 一句话职责 |
 |---|---|
@@ -63,6 +63,8 @@ find src/app -name page.tsx && find src/app/api -name route.ts
 | `audit_logs` | 操作审计（#110），只追加 + 查询，操作者快照冗余 |
 | `storage_backends` | 存储后端注册表（#111），凭据不入库 |
 | `profile_submissions` | 档案提交历史版本（#95），`version` + 快照字段 + `is_current` |
+| `class_groups` / `class_group_members` | **当前**分组（#101）：组与成员，成员表 `user_id` 全局唯一（一人同时只属于一个组，转班/删人必须清理） |
+| `group_batches` / `group_batch_groups` / `group_batch_members` | 分组历史批次（#101）：每次自动分组追加一份不可变归档（策略、特征源、指标、组内聚度、成员姓名学号快照） |
 
 - 学生 `tags` 为**标签名称文本数组**（#94 起，预设 + 自定义直存，与 `tags` 表解耦）
 - 初始化流程：手动访问 `/setup` 配置数据库 + 管理员密码 → 写入 `db-config.json` 与 `users`；安装状态经 `isInstalled()` + `/api/setup/status`
@@ -84,11 +86,12 @@ find src/app -name page.tsx && find src/app/api -name route.ts
 - 会话检测：`GET /api/auth` 返回 `{ ok, role, uid, name }`（httpOnly cookie 前端不可读，必须经 API 检测）；登出 `DELETE /api/auth`
 - 中间件：`proxy.ts` matcher 仅 `/dashboard/admin/:path*` 与 `/api/manage/:path*`；teacher/student 面板不经 proxy，由路由自鉴权
 - 权限模型：`/api/manage/*` admin 全放行；teacher 按 `TEACHER_ALLOWED`（前缀 + 方法，**改代码必须同步改 `docs/architecture.md` 权限表**）；`/api/shared/*` 路由自鉴权；其余 `/api/*` 不拦截
+- 例外：分组（`/api/manage/groups*`）前缀整体放行，**班级归属在路由内判定**——读不限（教师可看全校分组），写限自建班（`canModifyClass`），被拒的写同样落审计
 - 路由设计原则：API 面向资源组织 + 业务域前缀（manage/shared），角色差异收敛于 proxy 权限表，**权限演化不搬路径**（否决过按角色拆分路由的设计）
 - 激活（#93 两步单页）：`POST /api/auth/activate/verify` 核验学号 + 姓名 + 本班邀请码三要素并取回名单姓名 → `POST /api/auth/activate` 设置密码并自动登录；账户须先由教师导入名单预建（无密码）
 - 错误信息不泄露账号存在性：用户不存在与密码错误共用「编号或密码错误」；无 `password_hash` 账户提示「该账户尚未设置密码，请联系管理员」
 - 已登录访问 `/login`、`/activate` 自动重定向到对应角色面板
-- URL 安全：`sanitize.ts` 防 `javascript:` 协议 XSS；`/api/uploads/[...path]` 已加固路径穿越；上传显式拒绝 SVG（防存储型 XSS）；云对象一律经 `/api/shared/storage-sign` 签发 30 分钟限时 URL（签名前按角色 + 班级归属校验）
+- URL 安全：`sanitize.ts` 防 `javascript:` 协议 XSS；`/api/uploads/[...path]` 已加固路径穿越；上传显式拒绝 SVG（防存储型 XSS）；云对象一律经 `/api/shared/storage-sign` 签发 30 分钟限时 URL（签名前按角色 + 班级归属校验；#101 起学生额外可签**同组同学的头像**，词云与其他文件不放行，同组判定为单条查询）
 - 环境变量：清单以 `docs/standards.md` §11 为唯一权威（模板 `.env.example`，两处须同步）；`JWT_SECRET` 未配置会回退到代码内置的不安全默认值
 - 管理员密码：安装引导中配置，bcrypt 哈希存于 `users`（`user_code=10001`）；无自助改密端点，重置方式见 `DEPLOY.md`
 
@@ -117,6 +120,7 @@ find src/app -name page.tsx && find src/app/api -name route.ts
 - 操作审计（#110）：`audit.ts` 提供 `recordAudit`（**失败静默降级，绝不阻断业务**）/ `getAuditActor`（操作者快照）/ `sanitizeMetadata`（敏感键剔除 + 截断 2000 字符）；管理域写操作、认证事件（含登录失败）、档案提交、导出/备份等触点成败均记；查询端点只读，教师强制限本人记录且查询自身也被审计
 - 对象存储（#111）：一切文件读写走 `StorageAdapter`（本地 / S3 兼容双实现），归属后端由记录的 `storage_id` 决定，**切换默认后端不影响存量文件**；前端取访问地址一律经 `useFileUrl` / `StorageImage`，不要自己拼 URL（细节见 `docs/architecture.md`「文件存储」）
 - 媒体治理（#117/#118）：孤儿**不做自动删除**（保留期可配 + 人工确认清理，服务端重扫自证不信任前端）；缩略图生成仅服务端（依赖 sharp），key 派生 `{base}.jpg` → `{base}_thumb.jpg`
+- 课堂分组（#101）：算法是纯函数（`grouping-utils.ts` / `grouping-features.ts`），只认「特征源注册表」，不直接读 `users.tags`——新增数据源只加一条注册项；结果确定性（无随机，按学号升序）；**当前分组与历史批次两套表物理分离**，触发自动分组=覆盖当前 + 追加归档同一事务（口径见 `docs/architecture.md`「课堂分组」）
 - 上传与导出：上传走服务端压缩 + 可配置大小上限 + 唯一命名不覆盖；导出用 ExcelJS（XLSX 默认原生单元格图片，可切浮动图片）+ JSZip 打包图片
 - 面板结构：Tab 式布局，管理/教师面板的 Tab 页命名 `*Tab.tsx`（同目录共用 UI 组件不套用该后缀）；词云为客户端 canvas 组件
 
@@ -137,7 +141,7 @@ find src/app -name page.tsx && find src/app/api -name route.ts
 | 信息 | 权威文件 |
 |---|---|
 | 技术栈全量清单、目录模块划分、路线图 | `docs/overview.md` |
-| 页面/API 路由表、数据库八表、教师权限表、面板导航分组 | `docs/architecture.md` |
+| 页面/API 路由表、数据库十三表、教师权限表、面板导航分组、课堂分组口径 | `docs/architecture.md` |
 | 分支模型、提交/PR/发布规范、环境变量表 | `docs/standards.md` |
 | 色彩 token、组件与交互规范、z-index 层级 | `docs/ui-conventions.md` |
 | Issue 标题/标签/正文/验收标准 | `docs/issue-standard.md` |
