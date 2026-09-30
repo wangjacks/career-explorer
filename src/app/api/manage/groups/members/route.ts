@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getStudentGroupRef, getUserById, moveGroupMember } from "@/lib/db";
 import { getRequestContext, recordAudit } from "@/lib/audit";
 import { getSession, canModifyClass } from "../../classes/helpers";
-import { actorOf, groupFailureWriter } from "../helpers";
+import { actorOf, groupFailureWriter, parseJsonBody } from "../helpers";
 
 const AUDIT = {
   action: "group:move",
@@ -24,7 +24,11 @@ export async function PATCH(request: NextRequest) {
     session = await getSession(request);
     if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-    const body = (await request.json()) as { classId?: unknown; userId?: unknown; toGroupNo?: unknown };
+    const body = await parseJsonBody<{ classId?: unknown; userId?: unknown; toGroupNo?: unknown }>(request);
+    if (!body) {
+      fail(session, "请求体不是合法 JSON");
+      return NextResponse.json({ error: "请求体格式错误" }, { status: 400 });
+    }
     const classId = Number(body.classId);
     const userId = Number(body.userId);
     const toGroupNo = Number(body.toGroupNo);
@@ -46,7 +50,7 @@ export async function PATCH(request: NextRequest) {
     }
 
     const current = await getStudentGroupRef(userId);
-    // 引用指向别班 = 成员行没跟着转班清理（脏数据），此时不把这条幽灵行的组号当作来源
+    // 引用指向别班 = 与名单不一致的脏数据，不把它的组号当作来源（下面的移动按 users 的班级为准）
     const fromGroupNo = current && current.class_id === classId ? current.group_no : null;
     if (fromGroupNo === toGroupNo) {
       return NextResponse.json({ ok: true, moved: false });
@@ -55,10 +59,12 @@ export async function PATCH(request: NextRequest) {
     try {
       await moveGroupMember(classId, userId, toGroupNo);
     } catch (err) {
-      // 目标组不存在（已被删除）等可预期错误 → 400 而不是 500
-      const message = err instanceof Error ? err.message : "移动失败";
-      fail(session, message, { classId, userId, fromGroupNo, toGroupNo });
-      return NextResponse.json({ error: message }, { status: 400 });
+      // 可预期错误（目标组已被删）→ 400 而不是 500
+      const raw = err instanceof Error ? err.message : "";
+      // 只回显我们自己写的那句：驱动报错原文会泄露表名与索引名，且 SQLite / MySQL 文案不同
+      const shown = raw === "目标组不存在" ? raw : "移动失败，请刷新后重试";
+      fail(session, raw || shown, { classId, userId, fromGroupNo, toGroupNo });
+      return NextResponse.json({ error: shown }, { status: 400 });
     }
 
     void recordAudit({

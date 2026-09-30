@@ -5,6 +5,7 @@ import { signToken } from "@/lib/token";
 // 隔离数据库层：端点测试只关心鉴权、归属校验、原子落库与审计
 vi.mock("@/lib/db", () => ({
   getStudents: vi.fn(),
+  getClasses: vi.fn(),
   getClassGroups: vi.fn(),
   getClassGroupMembers: vi.fn(),
   getGroupBatches: vi.fn(),
@@ -27,6 +28,7 @@ import {
   deleteGroupEntry,
   getClassGroupMembers,
   getClassGroups,
+  getClasses,
   getGroupBatchDetail,
   getGroupBatches,
   getStudents,
@@ -105,6 +107,11 @@ function emptyGrouping() {
 beforeEach(() => {
   vi.clearAllMocks();
   vi.mocked(getStudents).mockResolvedValue(ROSTER);
+  // 建组端点会校验班级真实存在（SQLite 外键不生效，否则能建出谁也删不掉的组）
+  vi.mocked(getClasses).mockResolvedValue([
+    { id: CLASS_A, name: "A 班", invitation_code: "CODEA", created_at: "" },
+    { id: CLASS_B, name: "B 班", invitation_code: "CODEB", created_at: "" },
+  ]);
   vi.mocked(getTeacherClassPairs).mockResolvedValue([
     { id: 1, teacher_id: TEACHER_UID, class_id: CLASS_A, created_at: "" },
   ]);
@@ -369,6 +376,22 @@ describe("PATCH /api/manage/groups/members — 手工换人（#101）", () => {
     expect(JSON.parse(String(log.metadata))).toMatchObject({ classId: CLASS_A, userId: 3, fromGroupNo: 1, toGroupNo: 2 });
   });
 
+  it("驱动层报错原文不回显给客户端（表名/索引名只进审计）", async () => {
+    const token = await signToken({ role: "admin", uid: 1, name: "管理员" });
+    vi.mocked(getStudentGroupRef).mockResolvedValue({ class_id: CLASS_A, group_no: 1 });
+    vi.mocked(moveGroupMember).mockRejectedValue(
+      new Error("UNIQUE constraint failed: class_group_members.user_id")
+    );
+    const res = await membersPatch(
+      jsonRequest({ classId: CLASS_A, userId: 3, toGroupNo: 2 }, `auth_token=${token}`, "PATCH")
+    );
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toBe("移动失败，请刷新后重试");
+
+    await flushAudit();
+    expect(String(lastAudit().error_message)).toContain("UNIQUE constraint failed");
+  });
+
   it("移到同一组 → 直接返回未移动，不落库也不记审计", async () => {
     const token = await signToken({ role: "admin", uid: 1, name: "管理员" });
     vi.mocked(getStudentGroupRef).mockResolvedValue({ class_id: CLASS_A, group_no: 2 });
@@ -388,6 +411,39 @@ describe("POST/DELETE /api/manage/groups/entries — 建/删组（#101）", () =
     const res = await entriesPost(jsonRequest({ classId: CLASS_A }, `auth_token=${token}`));
     expect(res.status).toBe(403);
     expect(insertGroupEntry).not.toHaveBeenCalled();
+  });
+
+  it("班级不存在 → 可读的 404 而不是外键报错的 500，并记 failed", async () => {
+    const token = await signToken({ role: "admin", uid: 1, name: "管理员" });
+    const res = await entriesPost(jsonRequest({ classId: 999, groupNo: 1 }, `auth_token=${token}`));
+    expect(res.status).toBe(404);
+    expect(insertGroupEntry).not.toHaveBeenCalled();
+
+    await flushAudit();
+    expect(lastAudit()).toMatchObject({ action: "group:create", status: "failed", error_message: "班级不存在" });
+  });
+
+  it("组号超出手工上限 → 400（MySQL 会因超出 INT 范围报错，两库须同口径）", async () => {
+    const token = await signToken({ role: "admin", uid: 1, name: "管理员" });
+    const res = await entriesPost(jsonRequest({ classId: CLASS_A, groupNo: 100000 }, `auth_token=${token}`));
+    expect(res.status).toBe(400);
+    expect(insertGroupEntry).not.toHaveBeenCalled();
+  });
+
+  it("请求体不是合法 JSON → 400 而不是 500", async () => {
+    const token = await signToken({ role: "admin", uid: 1, name: "管理员" });
+    const res = await triggerPost(
+      new NextRequest(new URL("/api/manage/groups", "http://localhost:3000"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json", cookie: `auth_token=${token}` },
+        body: "{这不是 JSON",
+      })
+    );
+    expect(res.status).toBe(400);
+    expect(applyGroupingResult).not.toHaveBeenCalled();
+
+    await flushAudit();
+    expect(lastAudit()).toMatchObject({ action: "group:generate", status: "failed" });
   });
 
   it("组号缺省时取「最大组号 + 1」", async () => {

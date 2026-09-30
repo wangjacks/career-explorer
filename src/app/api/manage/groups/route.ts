@@ -4,7 +4,13 @@ import { getRequestContext, recordAudit } from "@/lib/audit";
 import { getSession, canModifyClass } from "../classes/helpers";
 import { buildFeatureVectors, describeSources } from "@/lib/grouping-features";
 import { GROUP_SIZE_CAP, GROUPING_STRATEGY, buildGrouping } from "@/lib/grouping-utils";
-import { actorOf, buildGroupingView, groupFailureWriter, rosterOf } from "./helpers";
+import {
+  actorOf,
+  buildGroupingView,
+  groupFailureWriter,
+  parseJsonBody,
+  rosterOf,
+} from "./helpers";
 
 const GENERATE_AUDIT = {
   action: "group:generate",
@@ -42,7 +48,11 @@ export async function POST(request: NextRequest) {
     session = await getSession(request);
     if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-    const body = (await request.json()) as { classId?: unknown };
+    const body = await parseJsonBody<{ classId?: unknown }>(request);
+    if (!body) {
+      fail(session, "请求体不是合法 JSON");
+      return NextResponse.json({ error: "请求体格式错误" }, { status: 400 });
+    }
     const classId = Number(body.classId);
     if (!Number.isInteger(classId) || classId <= 0) {
       fail(session, "缺少或无效的 classId", { classId: body.classId });

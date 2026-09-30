@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { deleteGroupEntry, getClassGroupMembers, getClassGroups, insertGroupEntry } from "@/lib/db";
 import { getRequestContext, recordAudit } from "@/lib/audit";
 import { getSession, canModifyClass } from "../../classes/helpers";
-import { actorOf, groupFailureWriter } from "../helpers";
+import { actorOf, classExists, groupFailureWriter, parseJsonBody, MAX_GROUP_NO } from "../helpers";
 
 const CREATE_AUDIT = {
   action: "group:create",
@@ -27,7 +27,11 @@ export async function POST(request: NextRequest) {
     session = await getSession(request);
     if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-    const body = (await request.json()) as { classId?: unknown; groupNo?: unknown };
+    const body = await parseJsonBody<{ classId?: unknown; groupNo?: unknown }>(request);
+    if (!body) {
+      fail(session, "请求体不是合法 JSON");
+      return NextResponse.json({ error: "请求体格式错误" }, { status: 400 });
+    }
     const classId = Number(body.classId);
     if (!Number.isInteger(classId) || classId <= 0) {
       fail(session, "缺少或无效的 classId", { classId: body.classId, groupNo: body.groupNo });
@@ -37,15 +41,20 @@ export async function POST(request: NextRequest) {
       fail(session, "无权调整该班级分组", { classId, groupNo: body.groupNo });
       return NextResponse.json({ error: "无权调整该班级分组" }, { status: 403 });
     }
+    // 外键在 SQLite 不生效，班级不存在也建得出组——建完谁也列不出、谁也删不掉
+    if (!(await classExists(classId))) {
+      fail(session, "班级不存在", { classId, groupNo: body.groupNo });
+      return NextResponse.json({ error: "班级不存在" }, { status: 404 });
+    }
 
     const nos = (await getClassGroups(classId)).map((g) => g.group_no);
     const groupNo =
       body.groupNo === undefined || body.groupNo === null
         ? (nos.length ? Math.max(...nos) : 0) + 1
         : Number(body.groupNo);
-    if (!Number.isInteger(groupNo) || groupNo <= 0) {
-      fail(session, "组号必须为正整数", { classId, groupNo: body.groupNo });
-      return NextResponse.json({ error: "组号必须为正整数" }, { status: 400 });
+    if (!Number.isInteger(groupNo) || groupNo <= 0 || groupNo > MAX_GROUP_NO) {
+      fail(session, "组号必须为 1 到 " + MAX_GROUP_NO + " 的整数", { classId, groupNo: body.groupNo });
+      return NextResponse.json({ error: `组号必须为 1 到 ${MAX_GROUP_NO} 的整数` }, { status: 400 });
     }
     if (nos.includes(groupNo)) {
       fail(session, `第 ${groupNo} 组已存在`, { classId, groupNo });

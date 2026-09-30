@@ -1,6 +1,7 @@
 import type { NextRequest } from "next/server";
 import type { UserRow } from "@/lib/db";
 import {
+  getClasses,
   getClassGroupMembers,
   getClassGroups,
   getGroupBatchDetail,
@@ -110,6 +111,29 @@ export interface GroupingView {
 /** 该班学生（role=student 且 class_id 命中），已按学号升序 */
 export function rosterOf(students: UserRow[], classId: number): UserRow[] {
   return sortRoster(students.filter((s) => s.role === "student" && s.class_id === classId));
+}
+
+/** 组号上限：一个班不可能有几百组；同时避免超大组号落进 `group_no INT` 的取值范围之外（两库对越界整数的处理不同） */
+export const MAX_GROUP_NO = 999;
+
+/**
+ * 班级是否存在。传一个不存在的 classId 时两库都会因外键被拒，但那只是 500 + 一句驱动原文；
+ * 路由内先查一次，给出可读的 404，并让两库的响应码与文案对齐。
+ */
+export async function classExists(classId: number): Promise<boolean> {
+  return (await getClasses()).some((c) => c.id === classId);
+}
+
+/**
+ * 解析 JSON 请求体；非法 JSON 属客户端错误，按 400 处理而不是冒 500。
+ * （`/api/manage/*` 其余端点沿用「body 解析异常 → 外层 catch → 500」的旧行为，新代码不再复制它。）
+ */
+export async function parseJsonBody<T = Record<string, unknown>>(request: NextRequest): Promise<T | null> {
+  try {
+    return (await request.json()) as T;
+  } catch {
+    return null;
+  }
 }
 
 function memberView(vector: FeatureVector, user: UserRow): GroupMemberView {
