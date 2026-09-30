@@ -41,7 +41,7 @@ export async function POST(request: NextRequest) {
       fail(session, "无权调整该班级分组", { classId, groupNo: body.groupNo });
       return NextResponse.json({ error: "无权调整该班级分组" }, { status: 403 });
     }
-    // 外键在 SQLite 不生效，班级不存在也建得出组——建完谁也列不出、谁也删不掉
+    // 先查班级：否则外键只会把请求顶成 500 + 一句驱动原文（两库原文还不一样）
     if (!(await classExists(classId))) {
       fail(session, "班级不存在", { classId, groupNo: body.groupNo });
       return NextResponse.json({ error: "班级不存在" }, { status: 404 });
