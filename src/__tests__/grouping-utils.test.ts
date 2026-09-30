@@ -11,6 +11,7 @@ import {
   assignGroups,
   buildGrouping,
   computeGroupSizes,
+  computeMetrics,
   computeSimilarities,
   refineBySwaps,
 } from "../lib/grouping-utils";
@@ -252,6 +253,16 @@ describe("特征源可扩展性（#101 §九）", () => {
     expect(described[1]).toMatchObject({ kind: "numeric", weight: 1 });
   });
 
+  it("注册表里全是 weight 0 的源时相似度矩阵不会 NaN（扩展点不能静默退化）", () => {
+    const zeroSources = [{ ...TAGS_SOURCE, weight: 0 }];
+    const users = Array.from({ length: 6 }, (_, k) => student(k + 1, ["编程"]));
+    const result = buildGrouping(buildFeatureVectors(users), zeroSources);
+    expect(result.metrics.overall).toBe(0);
+    expect(Number.isNaN(result.metrics.overall)).toBe(false);
+    expect(result.metrics.cohesion.every((c) => c === null || !Number.isNaN(c))).toBe(true);
+    expect(result.groups.flat().length).toBe(6);
+  });
+
   it("第二源没有数据时被跳过（不会稀释单源相似度）", () => {
     const noScore = users.map((u) => {
       const copy = { ...u } as UserRow & { score?: number };
@@ -265,6 +276,31 @@ describe("特征源可扩展性（#101 §九）", () => {
     expect(withEmpty.groups).toEqual(single.groups);
   });
 });
+
+  it("基线与 overall 用同一批人：分组未覆盖全班时仍可比", () => {
+    // 6 人，但只有 0/1/2/4 进了组（3 号是自动分组之后才转入的）
+    const users = Array.from({ length: 6 }, (_, k) => student(k + 1, k === 3 ? [] : ["编程"]));
+    const vecs = buildFeatureVectors(users);
+    const sim = computeSimilarities(vecs);
+    const groups = [[0, 1], [2, 4]];
+    const metrics = computeMetrics(groups, sim, vecs);
+
+    // 顺次基线若按全班 [0..5] 切，会把没分组的 3 号算进基线、把 5 号挤出去，两个数字不可比
+    expect(metrics.baselines.sequence).toBeCloseTo(sim[0][1] + sim[2][4], 6);
+    expect(metrics.overall).toBeCloseTo(sim[0][1] + sim[2][4], 6);
+  });
+
+  it("注册表里权重全为 0 时相似度是 0 而不是 NaN（扩展点不能静默退化）", () => {
+    const users = Array.from({ length: 6 }, (_, k) => student(k + 1, ["编程"]));
+    const sources = [{ ...TAGS_SOURCE, weight: 0 }];
+    const sim = computeSimilarities(buildFeatureVectors(users), sources);
+    expect(sim.flat().every((v) => v === 0)).toBe(true);
+
+    const result = buildGrouping(buildFeatureVectors(users), sources);
+    expect(Number.isNaN(result.metrics.overall)).toBe(false);
+    expect(result.metrics.overall).toBe(0);
+    expect(result.groups.flat().length).toBe(6);
+  });
 
 describe("refineBySwaps（#101 FM 交换精修）", () => {
   /**

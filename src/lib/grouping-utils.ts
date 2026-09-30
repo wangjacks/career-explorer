@@ -53,6 +53,9 @@ export function computeSimilarities(
   const active = activeSources(vectors, sources);
   if (active.length === 0) return sim;
   const totalWeight = active.reduce((sum, s) => sum + s.weight, 0);
+  // 注册表允许把某源权重设 0（表示「先接上但不参与」）；若参与源权重和为 0，share 会算成 NaN
+  // 并污染整张矩阵、让分配静默退化成按学号切分。这里按「无信号」如实返回全 0。
+  if (!(totalWeight > 0)) return sim;
   for (const source of active) {
     const perSource = similarityForSource(vectors, source);
     const share = source.weight / totalWeight;
@@ -261,6 +264,8 @@ export function assignGroups(sizes: number[], sim: number[][], featured: boolean
  * FM 式交换精修：一轮内连续做「当前最优」的跨组交换（**允许暂时变差**），
  * 记录本轮最优快照，轮末回到该快照；重复到最优不再提升。
  * 只做等量交换 → **组人数不变**，容量约束天然保持。
+ * 每步禁止走回上一步（1 步禁忌）：交换增量的反对称性决定了不加禁忌时行走会在两个状态间
+ * 来回抖动（实测 83.7% 的步是上一步的精确反向），「允许暂时变差」就退化成原地踏步、走不出链。
  */
 export function refineBySwaps(
   input: number[][],
@@ -276,10 +281,12 @@ export function refineBySwaps(
     const startScore = totalScore(groups, sim);
     let bestScore = startScore;
     let bestSnapshot = groups.map((g) => [...g]);
+    let previous: { g1: number; g2: number; i: number; j: number } | null = null;
 
     for (let step = 0; step < stepsPerPass; step++) {
-      const move = bestSwap(groups, sim);
+      const move = bestSwap(groups, sim, previous);
       if (!move) break;
+      previous = move;
       const { g1, g2, i, j } = move;
       groups[g1] = groups[g1].map((x) => (x === i ? j : x));
       groups[g2] = groups[g2].map((x) => (x === j ? i : x));
@@ -296,10 +303,14 @@ export function refineBySwaps(
   return groups;
 }
 
-/** 全量扫描所有跨组交换，返回目标函数增量最大的一个（平局取更小的组号/下标） */
+/**
+ * 全量扫描所有跨组交换，返回目标函数增量最大的一个（平局取更小的组号/下标）。
+ * `forbidden` 为上一步的交换，用于跳过「把 i、j 换回原处」的精确反向。
+ */
 function bestSwap(
   groups: number[][],
-  sim: number[][]
+  sim: number[][],
+  forbidden: { g1: number; g2: number; i: number; j: number } | null = null
 ): { g1: number; g2: number; i: number; j: number } | null {
   const n = groups.reduce((sum, g) => sum + g.length, 0);
   if (n === 0) return null;
@@ -319,6 +330,15 @@ function bestSwap(
     for (let g2 = g1 + 1; g2 < groups.length; g2++) {
       for (const i of groups[g1]) {
         for (const j of groups[g2]) {
+          if (
+            forbidden &&
+            forbidden.g1 === g1 &&
+            forbidden.g2 === g2 &&
+            forbidden.i === j &&
+            forbidden.j === i
+          ) {
+            continue; // 上一步的反向：换了等于没换
+          }
           const delta =
             simToGroup[j][g1] - simToGroup[i][g1] - sim[i][j] + (simToGroup[i][g2] - simToGroup[j][g2] - sim[i][j]);
           if (best === null || delta > best.delta + EPS) {
@@ -387,6 +407,8 @@ export function computeMetrics(
   for (const v of vectors) {
     if (sources.some((s) => hasValue(v.values[s.key], s.kind))) covered += 1;
   }
+  // 共同特征对数 / 总对数按**全班**统计，回答「有没有信号可用」；
+  // overall 与 cohesion 只算组内，回答「分得好不好」——两者分母不同，界面必须分开标注
   let nonZeroPairs = 0;
   for (let i = 0; i < n; i++) {
     for (let j = i + 1; j < n; j++) if (sim[i][j] > 0) nonZeroPairs += 1;
@@ -398,7 +420,9 @@ export function computeMetrics(
 
   // 基线 1：按学号顺序切分；基线 2：固定种子随机（多次取平均，减少偶然性）
   const sizes = groups.map((g) => g.length);
-  const order = Array.from({ length: n }, (_, i) => i);
+  // **基线人群必须与 overall 一致**：读当前分组时班里可能有人还没进任何组（自动分组之后新转入 / 新导入），
+  // 按全班下标切分会把未分组的人算进基线、把真实成员挤出去，两个数字就不可比了
+  const order = [...new Set(groups.flat())].sort((a, b) => a - b);
   const baselineSequence = totalScore(chunk(order, sizes), sim);
   const random = mulberry32(20260930);
   let randomSum = 0;
