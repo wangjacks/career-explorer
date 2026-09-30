@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getStudents, insertUser, getUserByCode, updateUser, deleteStudents } from "@/lib/db";
+import { getStudents, insertUser, getUserByCode, updateUser, deleteStudents, getUsersByCodes } from "@/lib/db";
 import { hashPassword } from "@/lib/auth";
 import { getAuditActor, getRequestContext, recordAudit } from "@/lib/audit";
 import { resolveClassByName } from "@/lib/class-utils";
@@ -83,22 +83,27 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: "没有有效的学生数据" }, { status: 400 });
       }
       let unbound = 0;
+      const studentCodes = [...new Set(valid.map((s: { studentId: string }) => String(s.studentId)))];
+      const existingUsers = await getUsersByCodes(studentCodes);
+      const existingIdByCode = new Map(existingUsers.map((u) => [u.user_code, u.id]));
       for (const s of valid) {
         // 按班级名查 class_id；班级不存在时不绑定并计数（与单条添加共用解析口径）
         const binding = await resolveClassByName(s.className);
         if (binding.provided && binding.classId === null) unbound++;
-        const existing = await getUserByCode(s.studentId);
-        if (existing) {
+        const studentCode = String(s.studentId);
+        const existingId = existingIdByCode.get(studentCode);
+        if (existingId !== undefined) {
           const fields: { name: string; class_id?: number } = { name: s.name };
           if (binding.classId !== null) fields.class_id = binding.classId;
-          await updateUser(existing.id, fields);
+          await updateUser(existingId, fields);
         } else {
-          await insertUser({
+          const newId = await insertUser({
             user_code: s.studentId,
             role: "student",
             name: s.name,
             ...(binding.classId !== null ? { class_id: binding.classId } : {}),
           });
+          existingIdByCode.set(studentCode, newId);
         }
       }
       void recordAudit({
