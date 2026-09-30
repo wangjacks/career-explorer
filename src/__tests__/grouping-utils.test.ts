@@ -3,6 +3,7 @@ import type { UserRow } from "../lib/db";
 import {
   FEATURE_SOURCES,
   buildFeatureVectors,
+  countCovered,
   describeSources,
   type FeatureSourceDef,
 } from "../lib/grouping-features";
@@ -222,6 +223,24 @@ describe("特征源可扩展性（#101 §九）", () => {
     const viaExplicit = buildGrouping(buildFeatureVectors(users, [TAGS_SOURCE]), [TAGS_SOURCE]);
     expect(viaExplicit.groups).toEqual(viaDefault.groups);
     expect(viaExplicit.metrics).toEqual(viaDefault.metrics);
+  });
+
+  it("weight=0 的源不能把「只有它覆盖的人」抬进贪心（不参与=结果完全不变）", () => {
+    // 关键构造：前 4 人只有标签、后 4 人**没有标签但有得分**。
+    // 若 0 权源仍算「参与」，后 4 人就从补位队列被抬进贪心分配，结果会随注册表变动而漂移
+    const mixed: UserRow[] = [
+      ...Array.from({ length: 4 }, (_, k) => student(k + 1, k < 2 ? ["编程"] : ["摄影"])),
+      ...Array.from({ length: 4 }, (_, k) => student(k + 5, [], 20 + k)),
+    ];
+    const sources = [TAGS_SOURCE, numericSource(0)];
+    const vectors = buildFeatureVectors(mixed, sources);
+    // 覆盖率仍按**全部注册源**如实统计（8 人「有特征」），但 0 权源不参与判定
+    expect(countCovered(vectors, sources).covered).toBe(8);
+    const single = buildGrouping(buildFeatureVectors(mixed));
+    const withZero = buildGrouping(vectors, sources);
+    expect(withZero.metrics.activeSourceKeys).toEqual(["tags"]);
+    expect(withZero.groups).toEqual(single.groups);
+    expect(withZero.metrics.overall).toBeCloseTo(single.metrics.overall, 10);
   });
 
   it("注入 weight=0 的第二源 → 结果与单源完全一致（权重真在起作用，不是装饰）", () => {

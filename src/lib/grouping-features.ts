@@ -132,10 +132,18 @@ export function countCovered(
   return { covered, total: vectors.length };
 }
 
-/** 参与计算的源：**至少 2 个学生有值**（否则该源没有区分度，且会把相似度稀释） */
+/**
+ * 参与计算的源：**权重为正** 且 **至少 2 个学生有值**（后者没有区分度，且会把相似度稀释）。
+ * weight 0 是「先接上但不参与」的开关，必须在这里就出局：`buildGrouping` 用本函数的结果判定
+ * 谁算「有特征」，若让 0 权源参与，只被它覆盖的学生会挤进贪心分配而不是走补位队列——
+ * 加入一个不参与的源就改变了分组结果，与「不参与」的契约相反。
+ * （覆盖率另按全部注册源统计，见 `countCovered`，与此处口径互不影响。）
+ */
 export function activeSources(
   vectors: FeatureVector[],
   sources: FeatureSourceDef[] = FEATURE_SOURCES
 ): FeatureSourceDef[] {
-  return sources.filter((s) => vectors.filter((v) => hasValue(v.values[s.key], s.kind)).length >= 2);
+  return sources.filter(
+    (s) => s.weight > 0 && vectors.filter((v) => hasValue(v.values[s.key], s.kind)).length >= 2
+  );
 }
