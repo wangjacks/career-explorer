@@ -24,7 +24,12 @@ export async function PATCH(request: NextRequest) {
     session = await getSession(request);
     if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-    const body = await parseJsonBody<{ classId?: unknown; userId?: unknown; toGroupNo?: unknown }>(request);
+    const body = await parseJsonBody<{
+      classId?: unknown;
+      userId?: unknown;
+      toGroupNo?: unknown;
+      userCode?: unknown;
+    }>(request);
     if (!body) {
       fail(session, "请求体不是合法 JSON");
       return NextResponse.json({ error: "请求体格式错误" }, { status: 400 });
@@ -47,6 +52,13 @@ export async function PATCH(request: NextRequest) {
     if (!target || target.role !== "student" || target.class_id !== classId) {
       fail(session, "该学生不在本班", { classId, userId, toGroupNo });
       return NextResponse.json({ error: "该学生不在本班" }, { status: 400 });
+    }
+
+    // 换人抽屉按学号提交：界面里那一份成员对象可能是打开抽屉之前的旧快照（他人已先被移走），
+    // 以库里的 id 为准再认一次，避免把陈旧 id 当成本班学生写进别的组
+    if (typeof body.userCode === "string" && body.userCode.trim() !== target.user_code) {
+      fail(session, "学生标识与库中不一致", { classId, userId, userCode: body.userCode });
+      return NextResponse.json({ error: "学生信息已变化，请刷新后重试" }, { status: 409 });
     }
 
     const current = await getStudentGroupRef(userId);

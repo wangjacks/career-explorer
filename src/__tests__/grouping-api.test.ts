@@ -276,6 +276,26 @@ describe("GET /api/manage/groups — 读当前分组（读不限）", () => {
     expect(view.latestBatch.createdByName).toBe("张老师");
     expect(view.diffCount).toBe(1);
   });
+
+  it("视图给出「未进组」名单：转入或导入漏填的人不能被静默藏起来", async () => {
+    vi.mocked(getClassGroups).mockResolvedValue([
+      { id: 11, class_id: CLASS_A, group_no: 1, created_at: "" },
+    ] as ClassGroupRow[]);
+    vi.mocked(getClassGroupMembers).mockResolvedValue([
+      { id: 1, group_id: 11, user_id: 1, created_at: "" },
+      { id: 2, group_id: 11, user_id: 2, created_at: "" },
+    ] as ClassGroupMemberRow[]);
+
+    const view = await (await groupsGet(searchRequest(`classId=${CLASS_A}`))).json();
+    // A 班 6 人，只有 1、2 进组
+    expect(view.ungrouped.map((m: { userCode: string }) => m.userCode)).toEqual([
+      "202600000003",
+      "202600000004",
+      "202600000005",
+      "202600000006",
+    ]);
+    expect(view.ungrouped[0]).toMatchObject({ userId: 3, name: "学生3" });
+  });
 });
 
 describe("PATCH /api/manage/groups/members — 手工换人（#101）", () => {
@@ -374,6 +394,38 @@ describe("PATCH /api/manage/groups/members — 手工换人（#101）", () => {
     expect(log.resource_type).toBe("group");
     // recordAudit 会把 metadata 序列化为字符串后再入库
     expect(JSON.parse(String(log.metadata))).toMatchObject({ classId: CLASS_A, userId: 3, fromGroupNo: 1, toGroupNo: 2 });
+  });
+
+  it("界面快照带学号且与库中不符 → 409，不落库（SQLite 删后会复用 id）", async () => {
+    const token = await signToken({ role: "admin", uid: 1, name: "管理员" });
+    vi.mocked(getStudentGroupRef).mockResolvedValue({ class_id: CLASS_A, group_no: 1 });
+    const res = await membersPatch(
+      jsonRequest(
+        { classId: CLASS_A, userId: 3, toGroupNo: 2, userCode: "202600000099" },
+        `auth_token=${token}`,
+        "PATCH"
+      )
+    );
+    expect(res.status).toBe(409);
+    expect((await res.json()).error).toBe("学生信息已变化，请刷新后重试");
+    expect(moveGroupMember).not.toHaveBeenCalled();
+
+    await flushAudit();
+    expect(lastAudit()).toMatchObject({ action: "group:move", status: "failed", error_message: "学生标识与库中不一致" });
+  });
+
+  it("带一致学号 → 照常移动（换人抽屉的提交口径）", async () => {
+    const token = await signToken({ role: "admin", uid: 1, name: "管理员" });
+    vi.mocked(getStudentGroupRef).mockResolvedValue({ class_id: CLASS_A, group_no: 1 });
+    const res = await membersPatch(
+      jsonRequest(
+        { classId: CLASS_A, userId: 3, toGroupNo: 2, userCode: "202600000003" },
+        `auth_token=${token}`,
+        "PATCH"
+      )
+    );
+    expect(res.status).toBe(200);
+    expect(moveGroupMember).toHaveBeenCalledWith(CLASS_A, 3, 2);
   });
 
   it("驱动层报错原文不回显给客户端（表名/索引名只进审计）", async () => {

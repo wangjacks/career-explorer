@@ -3,6 +3,15 @@ import { getClassGroups, getClassGroupMembers, getStudentGroupRef, getStudents }
 import { verifyToken } from "@/lib/token";
 import { FEATURE_SOURCES, buildFeatureVectors, featureLabels } from "@/lib/grouping-features";
 
+/** 未分组时的返回：字段必须与已分组一致，界面不需要为这一分支单独兜底 */
+const NO_GROUP = {
+  grouped: false,
+  groupNo: null,
+  memberCount: 0,
+  sources: FEATURE_SOURCES.map((s) => ({ key: s.key, label: s.label, kind: s.kind })),
+  members: [],
+};
+
 /**
  * GET：学生端读「本人所在小组」的全部成员（#101）。
  * 只返回本组，**不提供遍历班级的接口**——把同组同学的信息暴露面压到最小；
@@ -22,7 +31,7 @@ export async function GET(request: NextRequest) {
 
     const ref = await getStudentGroupRef(result.uid);
     if (!ref) {
-      return NextResponse.json({ grouped: false, groupNo: null, memberCount: 0, members: [] });
+      return NextResponse.json(NO_GROUP);
     }
 
     const [students, groups, links] = await Promise.all([
@@ -32,14 +41,14 @@ export async function GET(request: NextRequest) {
     ]);
     const target = groups.find((g) => g.group_no === ref.group_no);
     if (!target) {
-      return NextResponse.json({ grouped: false, groupNo: null, memberCount: 0, members: [] });
+      return NextResponse.json(NO_GROUP);
     }
 
     const memberIds = new Set(links.filter((l) => l.group_id === target.id).map((l) => l.user_id));
     // 归属自证：上面的组号引用是先前读到的，期间若发生原子重分组，组号可能已被复用给另一批人；
     // 请求者不在这一组成员里就按「未分组」返回，绝不把别人的小组名单给他
     if (!memberIds.has(result.uid)) {
-      return NextResponse.json({ grouped: false, groupNo: null, memberCount: 0, members: [] });
+      return NextResponse.json(NO_GROUP);
     }
     const memberRows = students
       .filter((s) => memberIds.has(s.id))
