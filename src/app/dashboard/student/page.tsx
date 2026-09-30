@@ -273,37 +273,40 @@ function GroupPanel({
     );
   }
 
-  const sourceNames = group.sources.map((s) => s.label).join("、");
+  const sourceNames = (group.sources ?? []).map((s) => s.label).join("、");
   return (
     <section className="bg-card rounded-xl border border-border-soft p-5 space-y-4">
       <div className="flex items-center gap-2 flex-wrap">
         <SectionHeader label="我的小组" />
         <span className="ml-auto text-sm font-semibold text-foreground">
-          第 {group.groupNo} 组 · {group.memberCount} 人
+          {group.groupNo === null ? "本组" : `第 ${group.groupNo} 组`} · {group.memberCount} 人
         </span>
       </div>
       {sourceNames && <p className="text-xs text-muted">按{sourceNames}相似度分组，标签由每位同学自己填写</p>}
       <ul className="space-y-3">
         {group.members.map((m) => {
-          const labels = Object.values(m.featureLabels).flat();
+          // 带上源 key：将来注册第二个特征源后，两个源里的同名标签不会撞 React key
+          const labels = Object.entries(m.featureLabels).flatMap(([source, values]) =>
+            values.map((tag) => ({ key: `${source}:${tag}`, tag }))
+          );
           return (
             <li key={m.userId} className="flex items-start gap-3">
               <TextAvatar name={m.name} avatarUrl={m.avatarUrl} storageId={m.storageId} size="md" />
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 flex-wrap">
-                  <span className="text-sm font-medium text-foreground truncate">{m.name}</span>
+                  <span className="min-w-0 truncate text-sm font-medium text-foreground">{m.name}</span>
                   {m.isMe && (
                     <span className="px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-primary-soft text-primary-strong dark:bg-green-900/30 dark:text-green-300">
                       我
                     </span>
                   )}
-                  <span className="ml-auto font-mono text-xs text-muted">{m.userCode}</span>
+                  <span className="ml-auto flex-shrink-0 font-mono text-xs text-muted">{m.userCode}</span>
                 </div>
                 {labels.length > 0 && (
                   <div className="flex flex-wrap gap-1.5 mt-1.5">
-                    {labels.map((tag) => (
+                    {labels.map(({ key, tag }) => (
                       <span
-                        key={tag}
+                        key={key}
                         className={`px-2 py-0.5 rounded-full text-xs ${tagColorMap.get(tag) ?? TAG_CHIP_COLORS[0]}`}
                       >
                         {tag}
@@ -521,8 +524,13 @@ export default function StudentDashboardPage() {
     try {
       const res = await fetch("/api/shared/group");
       const data = await res.json();
-      if (res.ok) setGroup(data as GroupRoster);
-      else {
+      if (res.status === 401 || res.status === 403) {
+        // 端点回的是英文鉴权原文，直接摊给学生看等于报了个不存在的错误
+        setGroup(null);
+        setGroupError("登录状态已失效，请重新登录");
+      } else if (res.ok) {
+        setGroup(data as GroupRoster);
+      } else {
         setGroup(null);
         setGroupError(data.error || "本组名单加载失败");
       }
@@ -536,11 +544,18 @@ export default function StudentDashboardPage() {
   }, []);
 
   const switchView = (view: StudentViewKey) => {
+    // 编辑态不切走：图片预览与标签输入的一半内容存在于子组件内部状态，
+    // 卸载再回来会显示旧图而 state 里已是新文件，学生按最后一次提示保存就送错了图
+    if (editing && view !== "profile") {
+      toast("请先保存或取消当前编辑");
+      return;
+    }
     setActiveView(view);
     if (view === "history" && historySubmissions.length === 0 && !historyLoading) {
       void loadHistory();
     }
-    if (view === "group" && group === null && !groupLoading) {
+    // 小组名单每次进入都重取：老师可能在学生看页面期间已经分组或重新分组
+    if (view === "group" && !groupLoading) {
       void loadGroup();
     }
   };

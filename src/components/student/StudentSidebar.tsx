@@ -38,6 +38,12 @@ export default function StudentSidebar({
   activeView: StudentViewKey;
   onSelect: (key: StudentViewKey) => void;
 }) {
+  // 只在移动端选完自动收起：桌面是常驻静态栏，收起会把整条导航折叠成 0 宽（与 PanelSidebar 同规则）
+  const handleSelect = (key: StudentViewKey) => {
+    onSelect(key);
+    if (!window.matchMedia("(min-width: 768px)").matches) onClose();
+  };
+
   return (
     <>
       {/* 移动端遮罩：z-30 低于顶栏（z-40），顶栏不被遮暗、可继续点击切换按钮 */}
@@ -49,6 +55,9 @@ export default function StudentSidebar({
         }`}
       />
       <aside
+        // 收起时整棵子树不可聚焦：栏里现在是按钮（#101 之前是纯文本），
+        // 只靠 translate / md:w-0 藏起来的话 Tab 会走进看不见的项
+        inert={!open}
         className={`bg-card border-r border-border-soft transition-all duration-300 ease-out
           fixed top-12 bottom-0 left-0 z-40 w-64
           md:sticky md:top-12 md:bottom-auto md:z-auto md:h-[calc(100dvh-3rem)] md:w-56 md:flex-shrink-0
@@ -82,16 +91,14 @@ export default function StudentSidebar({
                 </span>
               );
             }
-            const active = activeView === item.key;
+            // 历史提交是「我的档案」的子视图：停在档案区时侧边栏仍高亮「我的档案」
+            const active = item.key === "profile" ? activeView !== "group" : activeView === item.key;
             return (
               <button
                 type="button"
                 key={item.label}
                 aria-current={active ? "page" : undefined}
-                onClick={() => {
-                  onSelect(item.key as StudentViewKey);
-                  onClose();
-                }}
+                onClick={() => handleSelect(item.key as StudentViewKey)}
                 className={`w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors text-left ${
                   active
                     ? "bg-primary-soft text-primary-strong dark:bg-green-900/30 dark:text-green-300"
