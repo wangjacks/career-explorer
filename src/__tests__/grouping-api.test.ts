@@ -107,7 +107,7 @@ function emptyGrouping() {
 beforeEach(() => {
   vi.clearAllMocks();
   vi.mocked(getStudents).mockResolvedValue(ROSTER);
-  // 建组端点会校验班级真实存在（SQLite 外键不生效，否则能建出谁也删不掉的组）
+  // 建组端点会先查班级存在：两库都会被外键拦住，这一步是为了给出可读且一致的 404
   vi.mocked(getClasses).mockResolvedValue([
     { id: CLASS_A, name: "A 班", invitation_code: "CODEA", created_at: "" },
     { id: CLASS_B, name: "B 班", invitation_code: "CODEB", created_at: "" },
