@@ -3,9 +3,10 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Toaster, toast } from "sonner";
-import { Compass, SquarePen, X } from "lucide-react";
+import { Compass, SquarePen, UsersRound, X } from "lucide-react";
 import NavigationBar from "@/components/NavigationBar";
-import StudentSidebar from "@/components/student/StudentSidebar";
+import StudentSidebar, { type StudentViewKey } from "@/components/student/StudentSidebar";
+import TextAvatar from "@/components/TextAvatar";
 import ConfirmDialog from "@/components/admin/ConfirmDialog";
 import TagSelector, { type TagCategory, TAG_CHIP_COLORS } from "@/components/TagSelector";
 import ImageUploadBox from "@/components/ImageUploadBox";
@@ -37,6 +38,25 @@ interface SubmissionHistoryItem {
   storage_id: number;
   submitted_at: string;
   is_current: number;
+}
+
+/** 本组名单（#101）：来自 /api/shared/group，只含请求者所在组 */
+interface GroupRosterMember {
+  userId: number;
+  userCode: string;
+  name: string;
+  avatarUrl: string | null;
+  storageId: number;
+  isMe: boolean;
+  featureLabels: Record<string, string[]>;
+}
+
+interface GroupRoster {
+  grouped: boolean;
+  groupNo: number | null;
+  memberCount: number;
+  sources: { key: string; label: string; kind: string }[];
+  members: GroupRosterMember[];
 }
 
 /** 罗盘进度环（signature）：档案完成度 x/3，琥珀弧线随完成度填充 */
@@ -205,6 +225,101 @@ function HistoryItem({
   );
 }
 
+/** 我的小组（#101）：本组成员名单，学生只读 */
+function GroupPanel({
+  group,
+  loading,
+  error,
+  tagColorMap,
+  onRetry,
+}: {
+  group: GroupRoster | null;
+  loading: boolean;
+  error: string | null;
+  tagColorMap: Map<string, string>;
+  onRetry: () => void;
+}) {
+  if (loading && !group) {
+    return (
+      <section className="bg-card rounded-xl border border-border-soft p-5">
+        <p className="text-sm text-muted" role="status">
+          加载中...
+        </p>
+      </section>
+    );
+  }
+  if (error) {
+    return (
+      <section className="bg-card rounded-xl border border-border-soft p-5 space-y-3">
+        <SectionHeader label="我的小组" done={false} />
+        <p className="text-sm text-danger-strong">{error}</p>
+        <button
+          type="button"
+          onClick={onRetry}
+          className="px-4 py-2 bg-primary hover:bg-primary-strong text-white text-sm font-medium rounded-lg transition-colors"
+        >
+          重试
+        </button>
+      </section>
+    );
+  }
+  if (!group || !group.grouped) {
+    return (
+      <section className="bg-card rounded-xl border border-border-soft p-8 text-center space-y-2">
+        <UsersRound className="w-8 h-8 text-muted mx-auto" aria-hidden />
+        <p className="text-sm text-foreground font-medium">老师还没分组</p>
+        <p className="text-xs text-muted">课堂上分组之后回到这里，就能看到本组成员的姓名、学号与标签。</p>
+      </section>
+    );
+  }
+
+  const sourceNames = group.sources.map((s) => s.label).join("、");
+  return (
+    <section className="bg-card rounded-xl border border-border-soft p-5 space-y-4">
+      <div className="flex items-center gap-2 flex-wrap">
+        <SectionHeader label="我的小组" />
+        <span className="ml-auto text-sm font-semibold text-foreground">
+          第 {group.groupNo} 组 · {group.memberCount} 人
+        </span>
+      </div>
+      {sourceNames && <p className="text-xs text-muted">按{sourceNames}相似度分组，标签由每位同学自己填写</p>}
+      <ul className="space-y-3">
+        {group.members.map((m) => {
+          const labels = Object.values(m.featureLabels).flat();
+          return (
+            <li key={m.userId} className="flex items-start gap-3">
+              <TextAvatar name={m.name} avatarUrl={m.avatarUrl} storageId={m.storageId} size="md" />
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-sm font-medium text-foreground truncate">{m.name}</span>
+                  {m.isMe && (
+                    <span className="px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-primary-soft text-primary-strong dark:bg-green-900/30 dark:text-green-300">
+                      我
+                    </span>
+                  )}
+                  <span className="ml-auto font-mono text-xs text-muted">{m.userCode}</span>
+                </div>
+                {labels.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5 mt-1.5">
+                    {labels.map((tag) => (
+                      <span
+                        key={tag}
+                        className={`px-2 py-0.5 rounded-full text-xs ${tagColorMap.get(tag) ?? TAG_CHIP_COLORS[0]}`}
+                      >
+                        {tag}
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </li>
+          );
+        })}
+      </ul>
+    </section>
+  );
+}
+
 /** 学生面板：探索档案 · 罗盘进度——信息通览 + 就地修改 + 预留侧边栏 */
 export default function StudentDashboardPage() {
   const router = useRouter();
@@ -244,9 +359,13 @@ export default function StudentDashboardPage() {
   const [lightbox, setLightbox] = useState<string | null>(null);
 
   // 历史提交版本（#95）：独立 Tab，首次切入时懒加载；恢复生成新版本不回写旧记录
-  const [activeView, setActiveView] = useState<"profile" | "history">("profile");
+  const [activeView, setActiveView] = useState<StudentViewKey>("profile");
   const [historySubmissions, setHistorySubmissions] = useState<SubmissionHistoryItem[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
+  // 我的小组（#101）：侧边栏进入，首次切入时懒加载；未分组与加载失败是两种不同状态
+  const [group, setGroup] = useState<GroupRoster | null>(null);
+  const [groupLoading, setGroupLoading] = useState(false);
+  const [groupError, setGroupError] = useState<string | null>(null);
   const [restoringId, setRestoringId] = useState<number | null>(null);
 
   // 标签三色映射（#95）：历史版本标签按分类着色，与「我的标签」展示态一致；未匹配分类（如已删除标签）兜底第一种颜色
@@ -395,10 +514,34 @@ export default function StudentDashboardPage() {
     }
   }, []);
 
-  const switchView = (view: "profile" | "history") => {
+  // 我的小组（#101）：侧边栏进入，首次切入时懒加载本组名单
+  const loadGroup = useCallback(async () => {
+    setGroupLoading(true);
+    setGroupError(null);
+    try {
+      const res = await fetch("/api/shared/group");
+      const data = await res.json();
+      if (res.ok) setGroup(data as GroupRoster);
+      else {
+        setGroup(null);
+        setGroupError(data.error || "本组名单加载失败");
+      }
+    } catch (err) {
+      console.error("Failed to load group:", err);
+      setGroup(null);
+      setGroupError("本组名单加载失败");
+    } finally {
+      setGroupLoading(false);
+    }
+  }, []);
+
+  const switchView = (view: StudentViewKey) => {
     setActiveView(view);
     if (view === "history" && historySubmissions.length === 0 && !historyLoading) {
       void loadHistory();
+    }
+    if (view === "group" && group === null && !groupLoading) {
+      void loadGroup();
     }
   };
 
@@ -495,7 +638,12 @@ export default function StudentDashboardPage() {
 
       {/* 注意：此 flex 容器不设任何 overflow，避免破坏侧边栏 sticky */}
       <div className="flex">
-        <StudentSidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
+        <StudentSidebar
+          open={sidebarOpen}
+          onClose={() => setSidebarOpen(false)}
+          activeView={activeView}
+          onSelect={switchView}
+        />
 
         <main className="flex-1 min-w-0 px-4 sm:px-6 py-6 animate-[fade-in_0.2s_ease-out]">
           <div className="max-w-3xl mx-auto space-y-5">
@@ -541,7 +689,15 @@ export default function StudentDashboardPage() {
               </div>
             </section>
 
-            {!editing ? (
+            {activeView === "group" ? (
+              <GroupPanel
+                group={group}
+                loading={groupLoading}
+                error={groupError}
+                tagColorMap={tagColorMap}
+                onRetry={() => void loadGroup()}
+              />
+            ) : !editing ? (
               hasSubmitted ? (
                 <>
                   {/* Tab 导航：我的档案 / 历史提交（#95） */}
