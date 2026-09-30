@@ -26,6 +26,7 @@ vi.mock("@/lib/db", () => ({
   getAllSubmitted: vi.fn(),
   getProfileSubmissionOwnerByFileUrl: vi.fn(),
   getTeacherClassPairs: vi.fn(),
+  areStudentsInSameCurrentGroup: vi.fn(),
   getProfileConfigs: vi.fn(),
   setProfileConfig: vi.fn(),
   getMaxCustomTags: vi.fn(),
@@ -64,6 +65,7 @@ import {
   getAllSubmitted,
   getProfileSubmissionOwnerByFileUrl,
   getTeacherClassPairs,
+  areStudentsInSameCurrentGroup,
   setProfileConfig,
   getMaxCustomTags,
   getMaxAvatarSizeMb,
@@ -127,6 +129,8 @@ async function tokens() {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  // 默认「非同组」——放行分支由 grouping-student-api.test.ts 覆盖，这里只验既有边界不变
+  vi.mocked(areStudentsInSameCurrentGroup).mockResolvedValue(false);
   // 审计模块经 insertAuditLog 落库，mock 后不会触碰真实库
   fakeStorage = {
     upload: vi.fn().mockResolvedValue(undefined),
