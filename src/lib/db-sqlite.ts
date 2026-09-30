@@ -1273,6 +1273,7 @@ export class SqliteAdapter implements DbAdapter {
 
   /** 事务体内的写入：清空该班当前分组并写入新分组（供单独调用与「覆盖 + 归档」组合复用） */
   private writeClassGrouping(classId: number, groups: ClassGroupingInput[]): void {
+    this.assertMembersOfClass(classId, groups);
     // 先删成员再删组（成员引用组）；等价于「清空该班当前分组」
     this.db
       .prepare(
@@ -1292,6 +1293,24 @@ export class SqliteAdapter implements DbAdapter {
       const groupId = Number(info.lastInsertRowid);
       for (const userId of g.user_ids) insertMember.run(groupId, userId, now);
     }
+  }
+
+  /**
+   * 事务体内复核：待写入的成员必须仍是本班在读学生。
+   * 名单是**事务之外**读的（路由先 getStudents 再算分组），期间可能有人转班；
+   * 而 `class_group_members.group_id` 的外键只保证组存在、不保证组与学生的班一致，
+   * 少这一步就会让旧班重新占住该生的全局 UNIQUE(user_id)，并把这份过期名单归档进历史。
+   */
+  private assertMembersOfClass(classId: number, groups: ClassGroupingInput[]): void {
+    const ids = [...new Set(groups.flatMap((g) => g.user_ids))];
+    if (ids.length === 0) return;
+    const placeholders = ids.map(() => "?").join(",");
+    const row = this.db
+      .prepare(
+        `SELECT COUNT(*) AS c FROM users WHERE id IN (${placeholders}) AND role = 'student' AND class_id = ?`
+      )
+      .get(...ids, classId) as { c: number };
+    if (row.c !== ids.length) throw new Error("名单在分组期间发生变化，请重新分组");
   }
 
   /** 事务体内的写入：追加一个历史批次（头 + 组 + 成员），返回批次 id */
@@ -1395,12 +1414,12 @@ export class SqliteAdapter implements DbAdapter {
         .prepare("SELECT id FROM class_groups WHERE class_id = ? AND group_no = ?")
         .get(classId, toGroupNo) as { id: number } | undefined;
       if (!target) throw new Error("目标组不存在");
+      // 按 user_id 找，**不限旧组属于哪个班**：路由已确认此生现属 classId，
+      // 若它的成员行还挂在别班的组上（转班遗留的脏归属），必须把它搬回来；
+      // 只查本班就会查不到而行 → 走 INSERT → 撞全局 UNIQUE(user_id) → 「可修复」变成永久失败
       const current = this.db
-        .prepare(
-          `SELECT m.id FROM class_group_members m JOIN class_groups g ON g.id = m.group_id
-           WHERE g.class_id = ? AND m.user_id = ?`
-        )
-        .get(classId, userId) as { id: number } | undefined;
+        .prepare("SELECT id FROM class_group_members WHERE user_id = ?")
+        .get(userId) as { id: number } | undefined;
       if (current) {
         this.db.prepare("UPDATE class_group_members SET group_id = ? WHERE id = ?").run(target.id, current.id);
         return;

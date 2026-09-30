@@ -281,6 +281,53 @@ describe("分组五表与适配器方法（#101）", () => {
     adapter.close();
   });
 
+  it("名单在「读名单」与「落库」之间变化 → 覆盖 + 归档整体拒绝且不留半份", () => {
+    const adapter = makeAdapter();
+    const a = seedClass(adapter, "A", 3);
+    const b = seedClass(adapter, "B", 1);
+    adapter.replaceClassGrouping(a.classId, [{ group_no: 1, user_ids: a.ids }]);
+
+    // 模拟并发：路由已经按旧名单算好分组，落库前 3 号转去了 B 班（转班自身会摘掉他的成员行）
+    adapter.updateUser(a.ids[2], { class_id: b.classId });
+    const groupsBefore = adapter.getClassGroups(a.classId).length;
+    const membersBefore = adapter.getClassGroupMembers(a.classId).length;
+    const staleGroups = [{ group_no: 1, user_ids: a.ids }];
+    const staleBatch = batchInput(a.classId, [
+      a.ids.map((id, i) => ({ userId: id, userCode: a.codes[i], name: `学生${i + 1}` })),
+    ]);
+    expect(() => adapter.applyGroupingResult(a.classId, staleGroups, staleBatch)).toThrow(
+      "名单在分组期间发生变化，请重新分组"
+    );
+    // 事务回滚：既有分组一个都没动（删组与插组都没发生），也没有多出归档批次
+    expect(adapter.getClassGroups(a.classId).length).toBe(groupsBefore);
+    expect(adapter.getClassGroupMembers(a.classId).length).toBe(membersBefore);
+    expect(adapter.getGroupBatches(a.classId)).toEqual([]);
+    adapter.close();
+  });
+
+  it("成员行挂在别班的组上（转班遗留）→ 换人把它搬回本班，而不是撞 UNIQUE 永久失败", () => {
+    const adapter = makeAdapter();
+    const a = seedClass(adapter, "A", 2);
+    const b = seedClass(adapter, "B", 1);
+    adapter.replaceClassGrouping(a.classId, [
+      { group_no: 1, user_ids: [a.ids[0]] },
+      { group_no: 2, user_ids: [a.ids[1]] },
+    ]);
+    adapter.replaceClassGrouping(b.classId, [{ group_no: 1, user_ids: b.ids }]);
+
+    // 造脏归属：A 班 1 号的成员行被挪到 B 班的组上（外键只保证组存在，不管班对不对）
+    const db = (adapter as unknown as { db: Database.Database }).db;
+    const bGroup = db
+      .prepare("SELECT group_id AS id FROM class_group_members WHERE user_id = ?")
+      .get(b.ids[0]) as { id: number };
+    db.prepare("UPDATE class_group_members SET group_id = ? WHERE user_id = ?").run(bGroup.id, a.ids[0]);
+    expect(adapter.getStudentGroupRef(a.ids[0])?.class_id).toBe(b.classId);
+
+    expect(() => adapter.moveGroupMember(a.classId, a.ids[0], 2)).not.toThrow();
+    expect(adapter.getStudentGroupRef(a.ids[0])).toEqual({ class_id: a.classId, group_no: 2 });
+    adapter.close();
+  });
+
   it("删组时组里有人 → 抛出可读原因，且组与成员行都不被改动（检查与删除同事务）", () => {
     const adapter = makeAdapter();
     const { classId, ids } = seedClass(adapter, "A", 2);

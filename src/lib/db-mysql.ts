@@ -1405,6 +1405,17 @@ export class MysqlAdapter implements DbAdapter {
     classId: number,
     groups: ClassGroupingInput[]
   ): Promise<void> {
+    // 事务内复核成员归属（名单是事务之外读的，期间可能有人转班；外键不保证组与学生同班）
+    const ids = [...new Set(groups.flatMap((g) => g.user_ids))];
+    if (ids.length > 0) {
+      const placeholders = ids.map(() => "?").join(",");
+      const [checkRows] = await conn.execute(
+        `SELECT COUNT(*) AS c FROM users WHERE id IN (${placeholders}) AND role = 'student' AND class_id = ?`,
+        [...ids, classId]
+      );
+      const found = Number((checkRows as { c: number | string }[])[0]?.c ?? 0);
+      if (found !== ids.length) throw new Error("名单在分组期间发生变化，请重新分组");
+    }
     // 先删成员再删组（成员引用组）；等价于「清空该班当前分组」
     await conn.execute(
       "DELETE m FROM class_group_members m JOIN class_groups g ON g.id = m.group_id WHERE g.class_id = ?",
@@ -1566,10 +1577,11 @@ export class MysqlAdapter implements DbAdapter {
       );
       const target = (targetRows as { id: number }[])[0];
       if (!target) throw new Error("目标组不存在");
+      // 按 user_id 找，**不限旧组属于哪个班**（同 SQLite 侧）：只查本班会查不到脏归属，
+      // 转而 INSERT 就会撞全局 UNIQUE(user_id)，把「可修复」变成永久失败
       const [currentRows] = await conn.execute(
-        `SELECT m.id FROM class_group_members m JOIN class_groups g ON g.id = m.group_id
-         WHERE g.class_id = ? AND m.user_id = ?`,
-        [classId, userId]
+        "SELECT id FROM class_group_members WHERE user_id = ?",
+        [userId]
       );
       const current = (currentRows as { id: number }[])[0];
       if (current) {
