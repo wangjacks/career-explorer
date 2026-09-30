@@ -1124,7 +1124,7 @@ export class MysqlAdapter implements DbAdapter {
   }
 
   async deleteClass(id: number): Promise<void> {
-    // 建表未定义外键，事务内显式清理关联数据
+    // 外键只写 REFERENCES、没有 ON DELETE CASCADE（拦住删除而非替我级联），事务内显式按子→父清理关联数据
     const conn = await this.pool.getConnection();
     try {
       await conn.beginTransaction();
@@ -1503,6 +1503,8 @@ export class MysqlAdapter implements DbAdapter {
     groups: ClassGroupingInput[],
     batch: NewGroupBatchInput
   ): Promise<number> {
+    // 班级由两个独立参数分别传入：不一致就会「覆盖 A 班、归档成 B 班」，事务本身看不出来
+    if (batch.classId !== classId) throw new Error("归档批次与覆盖的班级不一致");
     const conn = await this.pool.getConnection();
     try {
       await conn.beginTransaction();
@@ -1526,37 +1528,66 @@ export class MysqlAdapter implements DbAdapter {
   }
 
   async deleteGroupEntry(classId: number, groupNo: number): Promise<void> {
-    await this.pool.execute("DELETE FROM class_groups WHERE class_id = ? AND group_no = ?", [
-      classId,
-      groupNo,
-    ]);
+    // 「组空不空」与「删组」必须同事务：路由的预检查是先前的一次读，期间有人被移进来的话，
+    // 直接删组只会被外键拦成 500 + 驱动原文；这里复查后抛出可读原因，与 SQLite 侧完全一致
+    const conn = await this.pool.getConnection();
+    try {
+      await conn.beginTransaction();
+      const [groupRows] = await conn.execute(
+        "SELECT id FROM class_groups WHERE class_id = ? AND group_no = ?",
+        [classId, groupNo]
+      );
+      const target = (groupRows as { id: number }[])[0];
+      if (!target) throw new Error("该组不存在");
+      const [memberRows] = await conn.execute(
+        "SELECT id FROM class_group_members WHERE group_id = ? LIMIT 1",
+        [target.id]
+      );
+      if ((memberRows as unknown[]).length > 0) throw new Error("该组还有成员，请先移到其他组");
+      await conn.execute("DELETE FROM class_groups WHERE id = ?", [target.id]);
+      await conn.commit();
+    } catch (err) {
+      await conn.rollback();
+      throw err;
+    } finally {
+      conn.release();
+    }
   }
 
   async moveGroupMember(classId: number, userId: number, toGroupNo: number): Promise<void> {
-    const [targetRows] = await this.pool.execute(
-      "SELECT id FROM class_groups WHERE class_id = ? AND group_no = ?",
-      [classId, toGroupNo]
-    );
-    const target = (targetRows as { id: number }[])[0];
-    if (!target) throw new Error("目标组不存在");
-    const [currentRows] = await this.pool.execute(
-      `SELECT m.id FROM class_group_members m JOIN class_groups g ON g.id = m.group_id
-       WHERE g.class_id = ? AND m.user_id = ?`,
-      [classId, userId]
-    );
-    const current = (currentRows as { id: number }[])[0];
-    if (current) {
-      await this.pool.execute("UPDATE class_group_members SET group_id = ? WHERE id = ?", [
-        target.id,
-        current.id,
-      ]);
-      return;
+    // 单连接事务：目标组校验与成员改写不能分属两条连接（Pool.execute 每次任取连接），
+    // 否则「查到目标组 → 组被删 → 再写入」这个窗口会随机撞上外键报错，且改到一半无法回滚
+    const conn = await this.pool.getConnection();
+    try {
+      await conn.beginTransaction();
+      const [targetRows] = await conn.execute(
+        "SELECT id FROM class_groups WHERE class_id = ? AND group_no = ?",
+        [classId, toGroupNo]
+      );
+      const target = (targetRows as { id: number }[])[0];
+      if (!target) throw new Error("目标组不存在");
+      const [currentRows] = await conn.execute(
+        `SELECT m.id FROM class_group_members m JOIN class_groups g ON g.id = m.group_id
+         WHERE g.class_id = ? AND m.user_id = ?`,
+        [classId, userId]
+      );
+      const current = (currentRows as { id: number }[])[0];
+      if (current) {
+        await conn.execute("UPDATE class_group_members SET group_id = ? WHERE id = ?", [target.id, current.id]);
+      } else {
+        // 未在任何组（新转入的学生等）：直接插入目标组
+        await conn.execute(
+          "INSERT INTO class_group_members (group_id, user_id, created_at) VALUES (?, ?, ?)",
+          [target.id, userId, getNow()]
+        );
+      }
+      await conn.commit();
+    } catch (err) {
+      await conn.rollback();
+      throw err;
+    } finally {
+      conn.release();
     }
-    // 未在任何组（新转入的学生等）：直接插入目标组
-    await this.pool.execute(
-      "INSERT INTO class_group_members (group_id, user_id, created_at) VALUES (?, ?, ?)",
-      [target.id, userId, getNow()]
-    );
   }
 
   async getGroupBatches(classId: number): Promise<GroupBatchRow[]> {
@@ -1599,6 +1630,7 @@ export class MysqlAdapter implements DbAdapter {
   }
 
   async areStudentsInSameCurrentGroup(userIdA: number, userIdB: number): Promise<boolean> {
+    // 同 group_id 即同班同组（与 SQLite 侧同口径；成员行的 group_id 有外键，不存在死组引用）
     const [rows] = await this.pool.execute(
       `SELECT EXISTS (
          SELECT 1
@@ -1613,41 +1645,55 @@ export class MysqlAdapter implements DbAdapter {
   }
 
   async backup(): Promise<BackupData> {
-    const [users] = await this.pool.execute("SELECT * FROM users ORDER BY id");
-    const [classes] = await this.pool.execute("SELECT * FROM classes ORDER BY id");
-    const [teacherClasses] = await this.pool.execute("SELECT * FROM teacher_classes ORDER BY id");
-    const [tags] = await this.pool.execute(
-      "SELECT id, name, type, parent_id, class_id, category_order, sort_order, active FROM tags ORDER BY id"
-    );
-    const [configs] = await this.pool.execute(
-      "SELECT `key` as `key`, value FROM configs_profile ORDER BY id"
-    );
-    const [auditLogs] = await this.pool.execute("SELECT * FROM audit_logs ORDER BY id");
-    const [storageBackends] = await this.pool.execute("SELECT * FROM storage_backends ORDER BY id");
-    const [profileSubmissions] = await this.pool.execute("SELECT * FROM profile_submissions ORDER BY id");
-    const [classGroups] = await this.pool.execute("SELECT * FROM class_groups ORDER BY id");
-    const [classGroupMembers] = await this.pool.execute("SELECT * FROM class_group_members ORDER BY id");
-    const [groupBatches] = await this.pool.execute("SELECT * FROM group_batches ORDER BY id");
-    const [groupBatchGroups] = await this.pool.execute("SELECT * FROM group_batch_groups ORDER BY id");
-    const [groupBatchMembers] = await this.pool.execute("SELECT * FROM group_batch_members ORDER BY id");
-    return {
-      version: 5,
-      sourceType: "mysql",
-      createdAt: new Date().toISOString(),
-      users: users as UserRow[],
-      classes: classes as ClassRow[],
-      teacher_classes: teacherClasses as BackupData["teacher_classes"],
-      tags: tags as TagRow[],
-      audit_logs: auditLogs as AuditLogRow[],
-      configs_profile: configs as { key: string; value: string }[],
-      storage_backends: storageBackends as StorageBackendRow[],
-      profile_submissions: profileSubmissions as ProfileSubmissionRow[],
-      class_groups: classGroups as ClassGroupRow[],
-      class_group_members: classGroupMembers as ClassGroupMemberRow[],
-      group_batches: groupBatches as GroupBatchRow[],
-      group_batch_groups: groupBatchGroups as GroupBatchGroupRow[],
-      group_batch_members: groupBatchMembers as GroupBatchMemberRow[],
-    };
+    // **单连接 + 一致性快照**：这张表用 pool.execute 逐条读，每次任取连接、各自开隐式事务，
+    // 中途有写入就会读出「成员行引用一个不在本次 users 里的 user_id」这类撕裂备份；
+    // restore 又会关掉外键检查再整表插入，落库时没人拦得住这种不一致。
+    const conn = await this.pool.getConnection();
+    try {
+      await conn.query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ");
+      await conn.query("START TRANSACTION WITH CONSISTENT SNAPSHOT");
+      const [users] = await conn.execute("SELECT * FROM users ORDER BY id");
+      const [classes] = await conn.execute("SELECT * FROM classes ORDER BY id");
+      const [teacherClasses] = await conn.execute("SELECT * FROM teacher_classes ORDER BY id");
+      const [tags] = await conn.execute(
+        "SELECT id, name, type, parent_id, class_id, category_order, sort_order, active FROM tags ORDER BY id"
+      );
+      const [configs] = await conn.execute(
+        "SELECT `key` as `key`, value FROM configs_profile ORDER BY id"
+      );
+      const [auditLogs] = await conn.execute("SELECT * FROM audit_logs ORDER BY id");
+      const [storageBackends] = await conn.execute("SELECT * FROM storage_backends ORDER BY id");
+      const [profileSubmissions] = await conn.execute("SELECT * FROM profile_submissions ORDER BY id");
+      const [classGroups] = await conn.execute("SELECT * FROM class_groups ORDER BY id");
+      const [classGroupMembers] = await conn.execute("SELECT * FROM class_group_members ORDER BY id");
+      const [groupBatches] = await conn.execute("SELECT * FROM group_batches ORDER BY id");
+      const [groupBatchGroups] = await conn.execute("SELECT * FROM group_batch_groups ORDER BY id");
+      const [groupBatchMembers] = await conn.execute("SELECT * FROM group_batch_members ORDER BY id");
+      await conn.commit();
+      return {
+        version: 5,
+        sourceType: "mysql",
+        createdAt: new Date().toISOString(),
+        users: users as UserRow[],
+        classes: classes as ClassRow[],
+        teacher_classes: teacherClasses as BackupData["teacher_classes"],
+        tags: tags as TagRow[],
+        audit_logs: auditLogs as AuditLogRow[],
+        configs_profile: configs as { key: string; value: string }[],
+        storage_backends: storageBackends as StorageBackendRow[],
+        profile_submissions: profileSubmissions as ProfileSubmissionRow[],
+        class_groups: classGroups as ClassGroupRow[],
+        class_group_members: classGroupMembers as ClassGroupMemberRow[],
+        group_batches: groupBatches as GroupBatchRow[],
+        group_batch_groups: groupBatchGroups as GroupBatchGroupRow[],
+        group_batch_members: groupBatchMembers as GroupBatchMemberRow[],
+      };
+    } catch (err) {
+      await conn.rollback();
+      throw err;
+    } finally {
+      conn.release();
+    }
   }
 
   async restore(data: BackupData): Promise<void> {

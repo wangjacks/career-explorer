@@ -263,6 +263,52 @@ describe("分组五表与适配器方法（#101）", () => {
     adapter.close();
   });
 
+  it("SQLite 外键确实生效：孤儿引用一律被拦住，删组不会替我们级联", () => {
+    const adapter = makeAdapter();
+    const { classId, ids } = seedClass(adapter, "A", 2);
+    adapter.insertGroupEntry(classId, 1);
+    const db = (adapter as unknown as { db: Database.Database }).db;
+
+    // 实测事实（曾经被注释写成「未启用 PRAGMA foreign_keys」，据此加的自愈代码是死代码）：
+    // better-sqlite3 默认开启外键，幻影班级与孤儿成员行都写不进去
+    expect(() => adapter.insertGroupEntry(999999, 7)).toThrow(/FOREIGN KEY/);
+    expect(() =>
+      db.prepare("INSERT INTO class_group_members (group_id, user_id, created_at) VALUES (?, ?, ?)").run(999999, ids[0], "x")
+    ).toThrow(/FOREIGN KEY/);
+    // 组里还有人时直接删组同样被拦：所以清理由来必须靠显式代码，删组的守卫也不能省
+    adapter.replaceClassGrouping(classId, [{ group_no: 1, user_ids: ids }]);
+    expect(() => db.prepare("DELETE FROM class_groups WHERE class_id = ?").run(classId)).toThrow(/FOREIGN KEY/);
+    adapter.close();
+  });
+
+  it("删组时组里有人 → 抛出可读原因，且组与成员行都不被改动（检查与删除同事务）", () => {
+    const adapter = makeAdapter();
+    const { classId, ids } = seedClass(adapter, "A", 2);
+    adapter.replaceClassGrouping(classId, [{ group_no: 1, user_ids: ids }]);
+    expect(() => adapter.deleteGroupEntry(classId, 1)).toThrow("该组还有成员，请先移到其他组");
+    expect(adapter.getClassGroups(classId).length).toBe(1);
+    expect(adapter.getClassGroupMembers(classId).length).toBe(2);
+    adapter.close();
+  });
+
+  it("归档批次与覆盖的班级不一致 → 拒绝（防「覆盖 A 班、归档成 B 班」）", () => {
+    const adapter = makeAdapter();
+    const a = seedClass(adapter, "A", 2);
+    const b = seedClass(adapter, "B", 2);
+    const mismatched = batchInput(b.classId, [
+      [
+        { userId: a.ids[0], userCode: a.codes[0], name: "甲" },
+        { userId: a.ids[1], userCode: a.codes[1], name: "乙" },
+      ],
+    ]);
+    expect(() =>
+      adapter.applyGroupingResult(a.classId, [{ group_no: 1, user_ids: a.ids }], mismatched)
+    ).toThrow("归档批次与覆盖的班级不一致");
+    expect(adapter.getClassGroups(a.classId)).toEqual([]);
+    expect(adapter.getGroupBatches(b.classId)).toEqual([]);
+    adapter.close();
+  });
+
   it("删学生：清掉当前成员行，但历史批次保留快照", () => {
     const adapter = makeAdapter();
     const { classId, ids, codes } = seedClass(adapter, "A", 2);

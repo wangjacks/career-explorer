@@ -1025,7 +1025,8 @@ export class SqliteAdapter implements DbAdapter {
   }
 
   deleteClass(id: number): void {
-    // 外键级联不可依赖（未启用 PRAGMA foreign_keys），事务内显式清理关联数据
+    // 建表只写 REFERENCES、没有 ON DELETE CASCADE：外键在这里的作用是「拦住删除」而不是「替我级联」，
+    // 依赖它只会得到 FOREIGN KEY constraint failed，所以事务内按子→父顺序显式清理关联数据
     const tx = this.db.transaction((classId: number) => {
       // 分组（#101）：当前分组与历史批次一并清理（分类消失后它们没有归属方）；子→父顺序
       this.db
@@ -1353,6 +1354,8 @@ export class SqliteAdapter implements DbAdapter {
     groups: ClassGroupingInput[],
     batch: NewGroupBatchInput
   ): number {
+    // 班级由两个独立参数分别传入：不一致就会「覆盖 A 班、归档成 B 班」，且事务本身看不出来
+    if (batch.classId !== classId) throw new Error("归档批次与覆盖的班级不一致");
     let batchId = 0;
     this.db.transaction(() => {
       this.writeClassGrouping(classId, groups);
@@ -1368,28 +1371,46 @@ export class SqliteAdapter implements DbAdapter {
   }
 
   deleteGroupEntry(classId: number, groupNo: number): void {
-    this.db.prepare("DELETE FROM class_groups WHERE class_id = ? AND group_no = ?").run(classId, groupNo);
+    // 「组空不空」与「删组」必须同事务：路由的预检查是先前的一次读，
+    // 期间有人被移进来的话，直接删组会被外键拦住——那只是一句 500 + 驱动原文，
+    // 这里改成在同事务内复查并抛出可读原因（两库响应一致）
+    const tx = this.db.transaction(() => {
+      const target = this.db
+        .prepare("SELECT id FROM class_groups WHERE class_id = ? AND group_no = ?")
+        .get(classId, groupNo) as { id: number } | undefined;
+      if (!target) throw new Error("该组不存在");
+      const member = this.db
+        .prepare("SELECT id FROM class_group_members WHERE group_id = ? LIMIT 1")
+        .get(target.id);
+      if (member) throw new Error("该组还有成员，请先移到其他组");
+      this.db.prepare("DELETE FROM class_groups WHERE id = ?").run(target.id);
+    });
+    tx();
   }
 
   moveGroupMember(classId: number, userId: number, toGroupNo: number): void {
-    const target = this.db
-      .prepare("SELECT id FROM class_groups WHERE class_id = ? AND group_no = ?")
-      .get(classId, toGroupNo) as { id: number } | undefined;
-    if (!target) throw new Error("目标组不存在");
-    const current = this.db
-      .prepare(
-        `SELECT m.id FROM class_group_members m JOIN class_groups g ON g.id = m.group_id
-         WHERE g.class_id = ? AND m.user_id = ?`
-      )
-      .get(classId, userId) as { id: number } | undefined;
-    if (current) {
-      this.db.prepare("UPDATE class_group_members SET group_id = ? WHERE id = ?").run(target.id, current.id);
-      return;
-    }
-    // 未在任何组（新转入的学生等）：直接插入目标组
-    this.db
-      .prepare("INSERT INTO class_group_members (group_id, user_id, created_at) VALUES (?, ?, ?)")
-      .run(target.id, userId, getNow());
+    // 目标组校验与成员改写同事务，避免「查到目标组 → 组被删 → 写入死 group_id」的窗口
+    const tx = this.db.transaction(() => {
+      const target = this.db
+        .prepare("SELECT id FROM class_groups WHERE class_id = ? AND group_no = ?")
+        .get(classId, toGroupNo) as { id: number } | undefined;
+      if (!target) throw new Error("目标组不存在");
+      const current = this.db
+        .prepare(
+          `SELECT m.id FROM class_group_members m JOIN class_groups g ON g.id = m.group_id
+           WHERE g.class_id = ? AND m.user_id = ?`
+        )
+        .get(classId, userId) as { id: number } | undefined;
+      if (current) {
+        this.db.prepare("UPDATE class_group_members SET group_id = ? WHERE id = ?").run(target.id, current.id);
+        return;
+      }
+      // 未在任何组（新转入的学生等）：直接插入目标组
+      this.db
+        .prepare("INSERT INTO class_group_members (group_id, user_id, created_at) VALUES (?, ?, ?)")
+        .run(target.id, userId, getNow());
+    });
+    tx();
   }
 
   getGroupBatches(classId: number): GroupBatchRow[] {
@@ -1426,6 +1447,7 @@ export class SqliteAdapter implements DbAdapter {
   }
 
   areStudentsInSameCurrentGroup(userIdA: number, userIdB: number): boolean {
+    // 同 group_id 即同班同组（组不存在的学生成员行会被外键拦住，无需再 JOIN class_groups）
     const row = this.db
       .prepare(
         `SELECT EXISTS (
@@ -1493,7 +1515,8 @@ export class SqliteAdapter implements DbAdapter {
   }
 
   restore(data: BackupData): void {
-    // 恢复期间显式关闭外键约束（DELETE + INSERT 顺序在 FK 开启时可能违反 REFERENCES）
+    // 恢复期间显式关闭外键约束（DELETE + INSERT 顺序在 FK 开启时可能违反 REFERENCES）——
+    // 这是全流程里唯一能写进不一致引用的窗口，所以缺分组字段的旧备份必须清空五表而不是保留现状
     const fkWasOn = (this.db.pragma("foreign_keys", { simple: true }) as number) === 1;
     if (fkWasOn) this.db.pragma("foreign_keys = OFF");
     try {
