@@ -4,7 +4,7 @@ import { mkdtempSync, rmSync, existsSync } from "fs";
 import { tmpdir } from "os";
 import path from "path";
 import { SqliteAdapter } from "../lib/db-sqlite";
-import { normalizeBackupTags } from "../lib/db";
+import { normalizeBackupTags, BATCH_QUERY_CHUNK_SIZE, chunkArray } from "../lib/db";
 
 function makeTmpDb(): string {
   const dir = mkdtempSync(path.join(tmpdir(), "career-test-"));
@@ -519,5 +519,60 @@ describe("审计日志（#110）", () => {
 
     adapter.close();
     rmSync(path.dirname(dbPath), { recursive: true, force: true });
+  });
+});
+
+describe("按学号集合批查（#193）", () => {
+  it("getUsersByCodes 一次查出命中学号；空集合不报错返回空数组", () => {
+    const dbPath = makeTmpDb();
+    const adapter = new SqliteAdapter(dbPath);
+    adapter.init();
+
+    adapter.insertUser({ user_code: "202505050101", role: "student", name: "张三" });
+    adapter.insertUser({ user_code: "202505050102", role: "student", name: "李四" });
+    adapter.insertUser({ user_code: "202505050103", role: "student", name: "王五" });
+
+    const found = adapter.getUsersByCodes([
+      "202505050101",
+      "202505050101",
+      "202505050103",
+      "202505050999",
+    ]);
+    expect(found.map((u) => u.user_code).sort()).toEqual(["202505050101", "202505050103"]);
+
+    expect(adapter.getUsersByCodes([])).toEqual([]);
+
+    adapter.close();
+    rmSync(path.dirname(dbPath), { recursive: true, force: true });
+  });
+
+  it("名单远大于单条 SQL 参数上限时按分片查询，不报错且跨片结果完整（#193 边界）", () => {
+    const dbPath = makeTmpDb();
+    const adapter = new SqliteAdapter(dbPath);
+    adapter.init();
+
+    const total = BATCH_QUERY_CHUNK_SIZE * 70 + 13;
+    const codes = Array.from({ length: total }, (_, i) => String(100000000000 + i));
+    const firstCode = codes[0];
+    const boundaryCode = codes[BATCH_QUERY_CHUNK_SIZE];
+    adapter.insertUser({ user_code: firstCode, role: "student", name: "甲" });
+    adapter.insertUser({ user_code: boundaryCode, role: "student", name: "乙" });
+
+    const found = adapter.getUsersByCodes(codes);
+
+    expect(found.map((u) => u.user_code).sort()).toEqual([firstCode, boundaryCode].sort());
+
+    adapter.close();
+    rmSync(path.dirname(dbPath), { recursive: true, force: true });
+  });
+});
+
+describe("chunkArray（批查分片工具）", () => {
+  it("按固定大小切分，末尾余数单独成片；空数组返回空", () => {
+    expect(chunkArray([1, 2, 3, 4, 5], 2)).toEqual([[1, 2], [3, 4], [5]]);
+    expect(chunkArray([1, 2], 2)).toEqual([[1, 2]]);
+    expect(chunkArray([])).toEqual([]);
+    expect(chunkArray(["a"])).toEqual([["a"]]);
+    expect(BATCH_QUERY_CHUNK_SIZE).toBe(500);
   });
 });

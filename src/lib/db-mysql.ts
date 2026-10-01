@@ -2,7 +2,7 @@ import mysql from "mysql2/promise";
 import { readFileSync, existsSync } from "fs";
 import path from "path";
 import { tagCategories } from "./tagData";
-import { normalizeBackupTags, DEFAULT_MAX_CUSTOM_TAGS, DEFAULT_MAX_PROFILE_SUBMISSIONS, MAX_PROFILE_SUBMISSIONS_KEY, DEFAULT_MEDIA_ORPHAN_RETENTION_DAYS, MEDIA_ORPHAN_RETENTION_KEY } from "./db";
+import { normalizeBackupTags, DEFAULT_MAX_CUSTOM_TAGS, DEFAULT_MAX_PROFILE_SUBMISSIONS, MAX_PROFILE_SUBMISSIONS_KEY, DEFAULT_MEDIA_ORPHAN_RETENTION_DAYS, MEDIA_ORPHAN_RETENTION_KEY, chunkArray } from "./db";
 import type {
   UserRow,
   TagRow,
@@ -582,6 +582,20 @@ export class MysqlAdapter implements DbAdapter {
   async getUserByCode(userCode: string): Promise<UserRow | undefined> {
     const [rows] = await this.pool.execute("SELECT * FROM users WHERE user_code = ?", [userCode]);
     return (rows as UserRow[])[0];
+  }
+
+  async getUsersByCodes(userCodes: string[]): Promise<UserRow[]> {
+    if (userCodes.length === 0) return [];
+    const rows: UserRow[] = [];
+    for (const chunk of chunkArray([...new Set(userCodes)])) {
+      const placeholders = chunk.map(() => "?").join(",");
+      const [chunkRows] = await this.pool.execute(
+        `SELECT * FROM users WHERE user_code IN (${placeholders})`,
+        chunk
+      );
+      rows.push(...(chunkRows as UserRow[]));
+    }
+    return rows;
   }
 
   async getUserById(id: number): Promise<UserRow | undefined> {

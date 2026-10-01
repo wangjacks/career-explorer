@@ -2,6 +2,22 @@ import { getConfig } from "./db-config";
 import { MysqlAdapter } from "./db-mysql";
 import { SqliteAdapter } from "./db-sqlite";
 
+/**
+ * 批查分片大小（#193）：单条 SQL 的绑定参数数量有引擎上限——SQLite 旧构建为
+ * 999（新构建 32766），MySQL 为 65535。批量导入的学号数量随名单规模增长，
+ * 因此按 500 分片查询，远低于所有上限，也避免构造超长 IN 列表。
+ */
+export const BATCH_QUERY_CHUNK_SIZE = 500;
+
+/** 按固定大小切分数组（批查分片用，最后一片可短于 size） */
+export function chunkArray<T>(items: T[], size: number = BATCH_QUERY_CHUNK_SIZE): T[][] {
+  const chunks: T[][] = [];
+  for (let i = 0; i < items.length; i += size) {
+    chunks.push(items.slice(i, i + size));
+  }
+  return chunks;
+}
+
 export interface UserRow {
   id: number;
   user_code: string;
@@ -415,6 +431,7 @@ export interface DbAdapter {
   // users
   insertUser(user: NewUser): Promise<number> | number;
   getUserByCode(userCode: string): Promise<UserRow | undefined> | UserRow | undefined;
+  getUsersByCodes(userCodes: string[]): Promise<UserRow[]> | UserRow[];
   getUserById(id: number): Promise<UserRow | undefined> | UserRow | undefined;
   getAdminUser(): Promise<UserRow | undefined> | UserRow | undefined;
   updateUser(id: number, fields: UserUpdateFields): Promise<void> | void;
@@ -625,6 +642,12 @@ export async function insertUser(user: NewUser): Promise<number> {
 export async function getUserByCode(userCode: string): Promise<UserRow | undefined> {
   const adapter = await ensureInit();
   return Promise.resolve(adapter.getUserByCode(userCode));
+}
+
+/** 按学号集合批查（#193 批量导入）：避免逐行查库；适配器内部分块，调用方无需限制入参长度 */
+export async function getUsersByCodes(userCodes: string[]): Promise<UserRow[]> {
+  const adapter = await ensureInit();
+  return Promise.resolve(adapter.getUsersByCodes(userCodes));
 }
 
 export async function getUserById(id: number): Promise<UserRow | undefined> {
