@@ -151,6 +151,7 @@
 | `/api/shared/profile/submissions/restore` | POST | 学生恢复历史版本（#95）：截止后 403 → 校验版本归属 → 生成新版本（不回写旧记录）→ 审计 `profile:restore` |
 | `/api/shared/group` | GET | 学生读本组名单（#101）：只返回**本人所在组**的成员（姓名/学号/头像引用/标签），不提供遍历班级的接口；未分组返回 `grouped:false` |
 | `/api/shared/storage-sign` | GET | 文件访问地址签发（#111）：本地后端回显代理路径；云后端按归属记录的 `storage_id` 签发 30 分钟签名 URL；权限校验：学生仅本人与**同组同学的头像**（#101，词云不放行、非同组 403）、教师仅管辖班级、管理员全量 |
+| `/api/shared/assessment/careers` | GET | 本人最新霍兰德结果 → Top-N 推荐职业（#226）：只认会话 uid（显式传别人的 `user_id` 直接 403，非学生 403），`?limit=1–20`，返回推荐列表 + O*NET 署名与快照版本；没完成测评为 404 |
 
 ### 其他开放端点（proxy 之外）
 
@@ -162,9 +163,9 @@
 
 ## 数据库
 
-<!-- 对账：`grep -oE "CREATE TABLE IF NOT EXISTS \`?[a-z_]+" src/lib/db-sqlite.ts src/lib/db-mysql.ts`；两适配器表集合必须一致（当前 16 张） -->
+<!-- 对账：`grep -oE "CREATE TABLE IF NOT EXISTS \`?[a-z_]+" src/lib/db-sqlite.ts src/lib/db-mysql.ts`；两适配器表集合必须一致（当前 17 张） -->
 
-十六张表，SQLite / MySQL 双适配器实现同一 `DbAdapter` 接口（`src/lib/db.ts`）。权威定义在两适配器的 `CREATE TABLE`，本表为索引：
+十七张表，SQLite / MySQL 双适配器实现同一 `DbAdapter` 接口（`src/lib/db.ts`）。权威定义在两适配器的 `CREATE TABLE`，本表为索引：
 
 | 表 | 用途 | 引入 | 纳入备份 |
 |---|---|---|---|
@@ -179,6 +180,7 @@
 | `assessments` | 测评定义（#221）：`code`（唯一，如 `riasec`）、`name`、`question_count`、`dimensions_json`（`[{key,label}]`，顺序即计分与展示顺序）、`scoring_mode`（`typological` 取类型码 / `dimensional` 多维高低分档）、`scale_version`、`attribution`（署名）/ `license_text`（授权与修改声明）/ `disclaimer`（免责声明）、`enabled` | #221 | ✅ |
 | `assessment_questions` | 题库（#221）：`assessment_id` + `question_index`（量表内从 1 开始，`UNIQUE`）+ `prompt` + `dimension`（须是 `dimensions_json` 的 key）+ `reverse_scored` + `version`（题面版本，改动时自增） | #221 | ✅ |
 | `assessment_results` | 作答与结果**快照**（#221）：`user_id` + `assessment_id` + `status`（`in_progress` 草稿 / `completed` 完成）+ `answers_json` + `scores_json` + `type_code`（三字码，dimensional 量表为 NULL）+ `is_current` + `draft_slot`（草稿位：草稿为 1、完成为 NULL，`UNIQUE(user_id, assessment_id, draft_slot)`）+ `started_at` / `updated_at` / `completed_at` | #221 | ✅（学生个人数据） |
+| `onet_occupations` | O*NET 职业库（#226）：`code`（O*NET-SOC，唯一）、`name`（英文 Title）、`name_zh`（首批中文译名，未覆盖为 NULL）、`interest_code`（O*NET 官方兴趣高码 1–3 位）、`interests_json`（六型原始分 1–7）、`job_zone`（1–5）、`education_level`（由 Job Zone 归纳的中文学历）、`cluster`（SOC 大类中文职业群）、`dataset_version` | #226 | ❌（只读参考数据，离线可重灌，避免备份膨胀） |
 
 **课堂分组（#101）五张表 —— 当前态与历史态物理分离**
 
@@ -192,7 +194,9 @@
 
 **班级名匹配口径（#191）**：`classes.name` 的比较统一为 **trim 后全等、区分大小写**，与前端 JS 全等对齐。`getClassByName()` 在两适配器内部均用 `getClasses()` + JS 全等实现（不依赖 SQL 排序规则），确保 SQLite / MySQL / MariaDB 行为恒等；归一化入口为 `resolveClassByName()`（`src/lib/class-utils.ts`），业务层禁止再写 `WHERE name = ?`。
 
-备份格式 `BackupData`（**version 6**，定义在 `src/lib/db.ts`）：十六表全量，其中 `audit_logs` / `configs_profile` / `storage_backends` / `profile_submissions` / 分组五表 / 测评三表为可选字段（旧备份缺失时读取方容忍 `undefined`，`storage_backends` 缺失时保留当前后端表并回填本地后端）；含 `password_hash`，不含上传文件。
+备份格式 `BackupData`（**version 6**，定义在 `src/lib/db.ts`）：十六表全量（`onet_occupations` 是唯一不纳入备份的表），其中 `audit_logs` / `configs_profile` / `storage_backends` / `profile_submissions` / 分组五表 / 测评三表为可选字段（旧备份缺失时读取方容忍 `undefined`，`storage_backends` 缺失时保留当前后端表并回填本地后端）；含 `password_hash`，不含上传文件。
+
+> `onet_occupations`（#226）**不纳入备份**：它是离线快照导出的只读参考数据，重新部署/清表后由 `init()` 按快照重灌即可，没必要让每份备份多背 923 行。
 
 > **分组五表是例外**：`users` / `classes` 是整表替换的，旧备份没有分组字段时若保留现状，成员行会指向已不存在或已换班的学生（恢复期间外键检查关闭，库不会拦）。所以恢复**一律先清空五表**，只有备份带字段才回填——旧备份恢复后即为「未分组」，这是有意为之，与 `profile_submissions` 的「缺字段保留不动」口径不同。
 
@@ -224,6 +228,18 @@
 - **完成动作串行化**：MySQL 侧事务开头 `SELECT ... FOR UPDATE` 锁学生行（与档案归档提交同款做法），否则两个「首次完成」并发时都 UPDATE 到 0 行、再各自插入 `is_current = 1`，当前版本就不唯一了；SQLite 由单写者事务天然串行
 - **个人数据随账号删除**：`deleteStudents` 一并清 `assessment_results`；历史档案快照 `profile_submissions` 仍按 #95 口径保留
 - **授权合规**：`attribution`（署名）/ `license_text`（授权与修改声明）/ `disclaimer`（免责声明）三列随量表下发，作答页与结果页必须展示。O*NET Tools Developer License 要求署名并声明「修改未经 USDOL/ETA 审核、认可或测试」（https://www.onetcenter.org/license_tools.html ）
+
+## 职业库与推荐匹配（#226）
+
+<!-- 对账：数据快照 `src/lib/onet-data.ts`（自动生成）、译名 `src/lib/onet-name-zh.ts`、匹配纯函数 `src/lib/assessment-match.ts`；测试在 `onet-data` / `onet-db` / `assessment-match` / `careers-api`.test.ts -->
+
+- **数据源与版本**：O*NET 数据库 **30.2**（2026-02 发布，CC BY 4.0）。锁这个版本是因为 **30.3 起职业级 Interest 分（`Interests.txt`）已从发布包里移除**，30.2 是最后一个带 RIASEC 六型职业分的版本。发布包里 1016 个职业中有 923 个同时具备六型分与 Job Zone，只收录这 923 个
+- **离线导入**：`scripts/import-onet.mjs <解压后的 O*NET 文本版目录>` 解析 `Interests.txt` / `Occupation Data.txt` / `Job Zones.txt`，生成 `src/lib/onet-data.ts`（元组数组，约 92KB）；运行时不读任何外部文件、不依赖国外 API。中文译名单独维护在 `src/lib/onet-name-zh.ts`（首批 178 个常见职业，覆盖六型与各 Job Zone），重新生成快照不会覆盖译名
+- **入库与重灌**：`onet_occupations` 由 `init()` 幂等灌入，判据是 `configs_profile.onet_seeded_version` + 行数（`needsOnetReseed`，两适配器共用）；快照升级（本文件版本号变化）时**整表重灌**，平时只做两条轻查询就跳过。**不纳入备份**：只读参考数据，清表后重启即恢复
+- **匹配口径**：`assessment-match.ts` 是纯函数——学生六维画像与职业六型分各自在量程内折算到 0–1（学生 0–100、O\*NET 1–7），算余弦相似度，取 Top-N（默认 6、上限 20）；同分按职业 code 升序破平，因此**同输入必然同输出**（无随机、不依赖 locale）。画像优先用结果快照的六维标准分，只有三字码时按 3/2/1 权重构造方向向量兜底；画像全 0 直接返回空列表而不是硬凑
+- **与官方口径对照**：`interest_code` 保存 O\*NET 官方兴趣高码（由发布包的 First/Second/Third Interest High-Point 指标推导，1–3 位，缺失位因并列），单测用它校验「高码首位 = 六型最高分维」，并用 5 个代表性职业做**自匹配回环**（拿职业自己的分当学生画像，必须排进 Top-3 且自身相似度 = 1）
+- **接口**：`GET /api/shared/assessment/careers`，自鉴权（只认会话 uid，显式传别人 `user_id` 403、非学生 403），返回 `careers`（含中文译名 / 学历 / 职业群 / 相似度）、画像来源（`scores` / `typeCode`）、快照版本与 **CC BY 4.0 署名文本**（前端必须展示署名）
+- **已知边界**：职业分是 2026-02 的快照，不随 O\*NET 后续版本自动更新；Job Zone → 学历是归纳口径（如「本科」不是硬性要求）；`name_zh` 未覆盖的职业回退英文名
 
 ## 文件存储（#111 对象存储）
 
