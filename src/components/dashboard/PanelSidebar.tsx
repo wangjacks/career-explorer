@@ -7,6 +7,8 @@ export interface PanelSidebarItem {
   label: string;
   icon?: LucideIcon;
   badge?: string;
+  /** 一句话说明，供面板主页的快捷入口卡片使用（侧边栏不渲染；写教师/管理员看得懂的口语，不用接口名） */
+  description?: string;
 }
 
 export interface PanelSidebarGroup {
