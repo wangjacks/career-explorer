@@ -273,6 +273,83 @@ export interface NewGroupBatchInput {
   }[];
 }
 
+/* ---------- 职业测评（#221：测评定义 / 题库 / 作答结果三表） ---------- */
+
+/** assessments 行：测评定义。题库进库而非写死代码，便于扩充第二套量表与后台维护中文题面 */
+export interface AssessmentRow {
+  id: number;
+  /** 量表标识，如 `riasec`；跨环境稳定的业务主键 */
+  code: string;
+  name: string;
+  question_count: number;
+  /** 维度定义 JSON 文本 `[{ key, label }]`，顺序即展示与计分顺序 */
+  dimensions_json: string;
+  /** `typological`（取类型码，如霍兰德三字码）/ `dimensional`（多维高低分档） */
+  scoring_mode: "typological" | "dimensional";
+  scale_version: string;
+  /** 署名文本：第三方量表（如 O*NET）授权要求，必须随作答与结果下发 */
+  attribution: string;
+  /** 授权条款与「修改未经官方审核」声明 */
+  license_text: string;
+  /** 免责声明：结果是探索参考，不作诊断或录用依据 */
+  disclaimer: string;
+  /** 0/1：是否在学生测评中心可见；下线量表保留数据只改这一列 */
+  enabled: number;
+  created_at: string;
+  updated_at: string;
+}
+
+/** assessment_questions 行：题库（题面 + 计分元数据） */
+export interface AssessmentQuestionRow {
+  id: number;
+  assessment_id: number;
+  /** 作答题号，量表内从 1 开始唯一（唯一约束 `assessment_id + question_index`） */
+  question_index: number;
+  prompt: string;
+  /** 所属维度：必须是该量表 `dimensions_json` 里的某个 key */
+  dimension: string;
+  /** 0/1：反向计分（Mini-IP 全为正向，字段为后续量表预留） */
+  reverse_scored: number;
+  /** 题面版本，题面改动时自增；作答快照另存 answers/scores，历史结果不因此漂移 */
+  version: number;
+  created_at: string;
+}
+
+/** assessment_results 行：一次作答 + 结果快照（快照而非实时计算，学生回看仍是当时的结论） */
+export interface AssessmentResultRow {
+  id: number;
+  user_id: number;
+  assessment_id: number;
+  /** `in_progress` 草稿（同 (user_id, assessment_id) 至多一条）/ `completed` 完成记录（可多条） */
+  status: "in_progress" | "completed";
+  /** 作答 JSON 文本：题号 → 1-5 作答值；草稿即未答全 */
+  answers_json: string;
+  /** 得分 JSON 文本：完成时写入（维度得分快照），草稿为 NULL */
+  scores_json: string | null;
+  /** 类型码（`typological` 模式的三字码，如 `SIA`）；`dimensional` 量表为 NULL */
+  type_code: string | null;
+  /** 0/1：是否为该用户该量表的当前有效完成结果（仅 completed 会置 1） */
+  is_current: number;
+  /**
+   * 草稿位：草稿恒为 1、完成记录恒为 NULL，配合 `UNIQUE(user_id, assessment_id, draft_slot)`
+   * 让「同一学生同一量表至多一条草稿」成为**数据库级**不变量（两库都允许多个 NULL，故完成记录不受限）。
+   */
+  draft_slot: number | null;
+  started_at: string;
+  updated_at: string;
+  /** 完成时间；草稿为 NULL */
+  completed_at: string | null;
+}
+
+/** completeAssessmentResult 入参（计分由调用方用计分引擎算好再落库，数据层不重复实现算法） */
+export interface CompleteAssessmentInput {
+  userId: number;
+  assessmentId: number;
+  answersJson: string;
+  scoresJson: string | null;
+  typeCode: string | null;
+}
+
 export interface BackupData {
   version: number;
   sourceType: string;
@@ -299,6 +376,12 @@ export interface BackupData {
   group_batch_groups?: GroupBatchGroupRow[];
   /** 历史批次的成员快照（#101；旧备份可能缺失，恢复时缺字段一律清空） */
   group_batch_members?: GroupBatchMemberRow[];
+  /** 测评定义（#221；旧备份可能缺失，恢复时保留当前题库不动） */
+  assessments?: AssessmentRow[];
+  /** 题库（#221；旧备份可能缺失） */
+  assessment_questions?: AssessmentQuestionRow[];
+  /** 学生作答与结果快照（#221；旧备份可能缺失。**按 user_id 引用 users，恢复时缺字段一律清空**，口径同 profile_submissions） */
+  assessment_results?: AssessmentResultRow[];
 }
 
 /** configs_profile 表行 */
@@ -566,6 +649,36 @@ export interface DbAdapter {
    */
   areStudentsInSameCurrentGroup(userIdA: number, userIdB: number): Promise<boolean> | boolean;
 
+  // assessments / assessment_questions / assessment_results（#221 职业测评数据层）
+  /** 启用中的测评定义（学生测评中心列表；按 id 稳定排序） */
+  getEnabledAssessments(): Promise<AssessmentRow[]> | AssessmentRow[];
+  /** 按 code 取测评定义（含未启用：后台维护要能读到，启用与否由调用方判定） */
+  getAssessmentByCode(code: string): Promise<AssessmentRow | undefined> | AssessmentRow | undefined;
+  /** 按测评 id 取题库，按题号升序 */
+  getAssessmentQuestions(assessmentId: number): Promise<AssessmentQuestionRow[]> | AssessmentQuestionRow[];
+  /** 按 code 取题库（作答页一次调用拿全量），按题号升序 */
+  getAssessmentQuestionsByCode(code: string): Promise<AssessmentQuestionRow[]> | AssessmentQuestionRow[];
+  /**
+   * 草稿 upsert：同一 (user_id, assessment_id) 至多一条 `in_progress` 记录，返回该行 id。
+   * 幂等——续答只覆盖作答内容，不新增行；唯一性由 `draft_slot` 唯一约束兜住（并发自动保存不会插出第二条）。
+   */
+  upsertAssessmentDraft(userId: number, assessmentId: number, answersJson: string): Promise<number> | number;
+  /** 读草稿（续答）；没有草稿返回 undefined */
+  getAssessmentDraft(userId: number, assessmentId: number): Promise<AssessmentResultRow | undefined> | AssessmentResultRow | undefined;
+  /**
+   * 写完成结果：有草稿则沿用该行翻成 `completed`（保留 `started_at` 并释放草稿位），否则新插入；
+   * 同一事务内把该用户该量表其他完成版本的 `is_current` 置 0，保证当前版本唯一。
+   * @returns 写入（或沿用）的结果行 id
+   */
+  completeAssessmentResult(input: CompleteAssessmentInput): Promise<number> | number;
+  /** 当前有效的完成结果（`is_current=1`）；未完成过返回 undefined */
+  getCurrentAssessmentResult(
+    userId: number,
+    assessmentId: number
+  ): Promise<AssessmentResultRow | undefined> | AssessmentResultRow | undefined;
+  /** 完成记录历史（新→旧，不含草稿），供结果页回看与版本对比 */
+  getAssessmentResults(userId: number, assessmentId: number): Promise<AssessmentResultRow[]> | AssessmentResultRow[];
+
   backup(): Promise<BackupData> | BackupData;
   restore(data: BackupData): Promise<void> | void;
   close(): Promise<void> | void;
@@ -579,6 +692,15 @@ export function randomInviteCode(len = 8): string {
     code += chars[Math.floor(Math.random() * chars.length)];
   }
   return code;
+}
+
+/**
+ * 量表 code 归一化（#221）：SQLite 的 `=` 对 TEXT 区分大小写、MySQL 的默认 collation 不区分，
+ * 直接在 SQL 里比会让两适配器行为分叉（#191 同类教训）。归一化放在边界（写入的种子本身即小写），
+ * 两侧都用它查，行为恒等。
+ */
+export function normalizeAssessmentCode(code: string): string {
+  return code.trim().toLowerCase();
 }
 
 let currentAdapter: DbAdapter | null = null;
@@ -1065,6 +1187,66 @@ export async function areStudentsInSameCurrentGroup(
 ): Promise<boolean> {
   const adapter = await ensureInit();
   return Promise.resolve(adapter.areStudentsInSameCurrentGroup(userIdA, userIdB));
+}
+
+/* ---------- 职业测评（#221） ---------- */
+
+export async function getEnabledAssessments(): Promise<AssessmentRow[]> {
+  const adapter = await ensureInit();
+  return Promise.resolve(adapter.getEnabledAssessments());
+}
+
+export async function getAssessmentByCode(code: string): Promise<AssessmentRow | undefined> {
+  const adapter = await ensureInit();
+  return Promise.resolve(adapter.getAssessmentByCode(code));
+}
+
+export async function getAssessmentQuestions(assessmentId: number): Promise<AssessmentQuestionRow[]> {
+  const adapter = await ensureInit();
+  return Promise.resolve(adapter.getAssessmentQuestions(assessmentId));
+}
+
+export async function getAssessmentQuestionsByCode(code: string): Promise<AssessmentQuestionRow[]> {
+  const adapter = await ensureInit();
+  return Promise.resolve(adapter.getAssessmentQuestionsByCode(code));
+}
+
+export async function upsertAssessmentDraft(
+  userId: number,
+  assessmentId: number,
+  answersJson: string
+): Promise<number> {
+  const adapter = await ensureInit();
+  return Promise.resolve(adapter.upsertAssessmentDraft(userId, assessmentId, answersJson));
+}
+
+export async function getAssessmentDraft(
+  userId: number,
+  assessmentId: number
+): Promise<AssessmentResultRow | undefined> {
+  const adapter = await ensureInit();
+  return Promise.resolve(adapter.getAssessmentDraft(userId, assessmentId));
+}
+
+export async function completeAssessmentResult(input: CompleteAssessmentInput): Promise<number> {
+  const adapter = await ensureInit();
+  return Promise.resolve(adapter.completeAssessmentResult(input));
+}
+
+export async function getCurrentAssessmentResult(
+  userId: number,
+  assessmentId: number
+): Promise<AssessmentResultRow | undefined> {
+  const adapter = await ensureInit();
+  return Promise.resolve(adapter.getCurrentAssessmentResult(userId, assessmentId));
+}
+
+export async function getAssessmentResults(
+  userId: number,
+  assessmentId: number
+): Promise<AssessmentResultRow[]> {
+  const adapter = await ensureInit();
+  return Promise.resolve(adapter.getAssessmentResults(userId, assessmentId));
 }
 
 export async function backup(): Promise<BackupData> {

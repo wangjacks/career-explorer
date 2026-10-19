@@ -23,7 +23,7 @@ import StudentsTab from "@/components/admin/StudentsTab";
 import TeacherHomeTab from "@/components/admin/TeacherHomeTab";
 import OverviewTab from "@/components/admin/OverviewTab";
 import ProfilesTab from "@/components/admin/ProfilesTab";
-import DashboardTab from "@/components/admin/DashboardTab";
+import TeacherDashboardTab from "@/components/admin/TeacherDashboardTab";
 import ExportTab from "@/components/admin/ExportTab";
 import TagsTab from "@/components/admin/TagsTab";
 import ProfileConfigTab from "@/components/admin/ProfileConfigTab";
@@ -171,7 +171,7 @@ export default function TeacherDashboardPage() {
               />
             )}
 
-            {activeTab === "dashboard" && <DashboardTab />}
+            {activeTab === "dashboard" && <TeacherDashboardTab />}
 
             {activeTab === "export" && <ExportTab />}
 
