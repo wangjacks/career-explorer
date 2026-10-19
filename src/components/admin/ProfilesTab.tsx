@@ -7,6 +7,14 @@ import ConfirmDialog from "./ConfirmDialog";
 import { useEscapeKey } from "@/hooks/useEscapeKey";
 import StorageImage from "@/components/StorageImage";
 import { useTagColorMap } from "@/hooks/useTagColorMap";
+import { buildRiasecBars } from "@/lib/assessment-view";
+import { typeColorOf } from "@/lib/assessment-colors";
+import {
+  ASSESSMENT_LEAD_FILTERS,
+  isAssessed,
+  matchesAssessmentLead,
+  type AssessmentLeadFilter,
+} from "@/lib/profile-assessment";
 import type { Stats, PagedData, Profile } from "@/hooks/useAdminAuth";
 
 interface Props {
@@ -38,6 +46,29 @@ function SortIcon({ active, dir }: { active: boolean; dir: SortDir }) {
   );
 }
 
+/** 霍兰德三字码徽章（#234）：底色取首位字母的类型色，文字色按对比度取（见 assessment-colors） */
+function AssessmentCodeBadge({ code }: { code: string }) {
+  const color = typeColorOf(code);
+  return (
+    <span
+      className="inline-block rounded-lg px-2 py-0.5 font-mono text-xs font-semibold"
+      style={{ backgroundColor: color.bar, color: color.chipFg }}
+      title={`霍兰德三字码 ${code}，首位 ${code.trim().slice(0, 1).toUpperCase()} 为主导型`}
+    >
+      {code}
+    </span>
+  );
+}
+
+/** 未测胶囊（#234）：灰态、不出现红叉这类否定式样式 */
+function NotAssessedPill() {
+  return (
+    <span className="inline-block rounded-full bg-gray-100 dark:bg-gray-800 px-2 py-0.5 text-xs text-gray-500 dark:text-gray-400">
+      未测
+    </span>
+  );
+}
+
 /** 已提交档案数据列表：分页、搜索、标签筛选、详情查看、单个/批量删除 */
 export default function ProfilesTab({ loadProfiles, loadStats }: Props) {
   // 标签三色映射（#95）：详情弹窗版本历史标签按分类着色
@@ -53,6 +84,8 @@ export default function ProfilesTab({ loadProfiles, loadStats }: Props) {
   const [confirmDelete, setConfirmDelete] = useState<string[] | null>(null);
   const [sortKey, setSortKey] = useState<ProfilesSortKey>("createdAt");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
+  // 主导型筛选（#234）：与搜索/标签筛选同为「当前页内客户端过滤」，不引入新分页协议
+  const [leadFilter, setLeadFilter] = useState<AssessmentLeadFilter>("all");
   const [tagDropdownOpen, setTagDropdownOpen] = useState(false);
   const [tagSearch, setTagSearch] = useState("");
   const tagDropdownRef = useRef<HTMLDivElement>(null);
@@ -145,15 +178,19 @@ export default function ProfilesTab({ loadProfiles, loadStats }: Props) {
         Array.from(selectedTags).every((tag) => p.tags.includes(tag))
       );
     }
+    // 主导型筛选（#234）：与上面两种筛选同为当前页内过滤，可叠加
+    if (leadFilter !== "all") {
+      list = list.filter((p) => matchesAssessmentLead(p, leadFilter));
+    }
     const sorted = [...list].sort((a, b) => {
       const va = (a[sortKey as keyof Profile] || "") as string;
       const vb = (b[sortKey as keyof Profile] || "") as string;
       const cmp = va.localeCompare(vb, "zh-CN");
       return sortDir === "asc" ? cmp : -cmp;
     });
-    const hasFilter = !!q || selectedTags.size > 0;
+    const hasFilter = !!q || selectedTags.size > 0 || leadFilter !== "all";
     return { ...paged, data: sorted, total: hasFilter ? sorted.length : paged.total };
-  }, [paged, search, selectedTags, sortKey, sortDir]);
+  }, [paged, search, selectedTags, leadFilter, sortKey, sortDir]);
 
   // Close tag dropdown on outside click
   useEffect(() => {
@@ -333,9 +370,37 @@ export default function ProfilesTab({ loadProfiles, loadStats }: Props) {
               <button onClick={() => toggleTag(tag)} className="hover:text-green-900 leading-none">×</button>
             </span>
           ))}
-          {(selectedTags.size > 0 || search) && (
+          {/* 主导型筛选（#234）：全部 / R I A S E C / 未测；与搜索、标签筛选同为当前页内过滤，可叠加 */}
+          <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label="主导型筛选">
+            {ASSESSMENT_LEAD_FILTERS.map(({ value, label }) => {
+              const active = leadFilter === value;
+              return (
+                <button
+                  key={value}
+                  type="button"
+                  aria-pressed={active}
+                  onClick={() => setLeadFilter(value)}
+                  className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-medium transition-colors ${
+                    active
+                      ? "bg-green-50 dark:bg-green-900/30 text-green-700 dark:text-green-300 border-green-200 dark:border-green-800"
+                      : "bg-card text-gray-600 dark:text-gray-300 border-gray-200 dark:border-gray-700 hover:border-gray-300"
+                  }`}
+                >
+                  {value !== "all" && value !== "none" && (
+                    <span
+                      aria-hidden="true"
+                      className="inline-block h-2 w-2 rounded-full"
+                      style={{ backgroundColor: typeColorOf(value).bar }}
+                    />
+                  )}
+                  {label}
+                </button>
+              );
+            })}
+          </div>
+          {(selectedTags.size > 0 || search || leadFilter !== "all") && (
             <button
-              onClick={() => { setSelectedTags(new Set()); setSearch(""); }}
+              onClick={() => { setSelectedTags(new Set()); setSearch(""); setLeadFilter("all"); }}
               className="text-xs text-gray-400 hover:text-gray-600 ml-1 transition-colors"
             >
               清除筛选
@@ -365,6 +430,7 @@ export default function ProfilesTab({ loadProfiles, loadStats }: Props) {
               <th className="px-5 py-3 font-medium">虚拟形象</th>
               <th className="px-5 py-3 font-medium">评价词云</th>
               <th className="px-5 py-3 font-medium">标签</th>
+              <th className="px-5 py-3 font-medium">兴趣测评</th>
               <th aria-sort={sortKey === "createdAt" ? (sortDir === "asc" ? "ascending" : "descending") : "none"} className="px-5 py-3 font-medium">
                 <button type="button" onClick={() => handleSort("createdAt")} className="cursor-pointer select-none">提交时间<SortIcon active={sortKey === "createdAt"} dir={sortDir} /></button>
               </th>
@@ -414,6 +480,13 @@ export default function ProfilesTab({ loadProfiles, loadStats }: Props) {
                     )}
                   </div>
                 </td>
+                <td className="px-5 py-3">
+                  {isAssessed(p) ? (
+                    <AssessmentCodeBadge code={p.assessmentCode as string} />
+                  ) : (
+                    <NotAssessedPill />
+                  )}
+                </td>
                 <td className="px-5 py-3 text-gray-500 text-xs">{p.createdAt}</td>
                 <td className="px-5 py-3">
                   <div className="flex items-center gap-2">
@@ -427,7 +500,7 @@ export default function ProfilesTab({ loadProfiles, loadStats }: Props) {
             ))}
             {filteredData?.data.length === 0 && (
               <tr>
-                <td colSpan={8} className="px-5 py-12 text-center text-gray-400">
+                <td colSpan={9} className="px-5 py-12 text-center text-gray-400">
                   {paged?.data.length === 0 ? "暂无数据" : "无匹配结果"}
                 </td>
               </tr>
@@ -494,6 +567,47 @@ export default function ProfilesTab({ loadProfiles, loadStats }: Props) {
               <div>
                 <p className="text-xs text-muted mb-2">评价词云</p>
                 <StorageImage url={detail.evaluationUrl} storageId={detail.storageId} alt="" className="w-full rounded-xl border border-gray-100" />
+              </div>
+            )}
+
+            {/* 职业兴趣测评（#234）：未测时整块不渲染；条形口径与结果页一致（buildRiasecBars） */}
+            {isAssessed(detail) && (
+              <div className="border-t border-border-soft pt-3" aria-label="职业兴趣测评">
+                <div className="flex items-center justify-between">
+                  <p className="text-sm font-medium text-foreground">职业兴趣测评</p>
+                  <span className="text-[11px] text-muted">{detail.assessmentAt || "完成时间未记录"}</span>
+                </div>
+                <div className="mt-2 flex items-center gap-2">
+                  <AssessmentCodeBadge code={detail.assessmentCode as string} />
+                  <span className="text-[11px] text-muted">霍兰德三字码 · 首位即主导型</span>
+                </div>
+                {(() => {
+                  const bars = buildRiasecBars(detail.assessmentScores ?? [], detail.assessmentCode);
+                  if (bars.length === 0) return null;
+                  return (
+                    <div className="mt-3 space-y-1.5">
+                      {bars.map((bar) => (
+                        <div key={bar.key} className="flex items-center gap-2">
+                          <span className="w-20 flex-shrink-0 text-xs text-muted">
+                            {bar.key} · {bar.label}
+                          </span>
+                          <div className="h-2 flex-1 overflow-hidden rounded-full bg-gray-100 dark:bg-gray-800">
+                            <div
+                              className="h-full rounded-full"
+                              style={{ width: `${bar.percent}%`, backgroundColor: typeColorOf(bar.key).bar }}
+                            />
+                          </div>
+                          <span className="w-8 flex-shrink-0 text-right font-mono text-xs text-muted">
+                            {Math.round(bar.standard)}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  );
+                })()}
+                <p className="mt-2 text-[11px] leading-5 text-muted">
+                  需要重测时，请该生登录后进入「职业测评」重新作答：每次提交都会生成新的当前报告，旧版本保留可查。
+                </p>
               </div>
             )}
 

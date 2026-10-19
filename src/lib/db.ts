@@ -409,6 +409,20 @@ export interface AssessmentRosterRow {
 }
 
 /**
+ * 按用户批查的「当前有效测评结果」（#234 数据列表）：
+ * 只含 `status=completed` 且 `is_current=1` 的轻量字段，**不含作答内容**；
+ * `scores_json` 是计分时的六型标准分快照，调用方按需解析。
+ */
+export interface AssessmentUserResultRow {
+  user_id: number;
+  /** 霍兰德三字码；历史脏数据可能为 NULL */
+  type_code: string | null;
+  completed_at: string;
+  /** 六型标准分快照 JSON（`DimensionScore[]`，与结果页同一份） */
+  scores_json: string;
+}
+
+/**
  * onet_occupations 行（#226）：O*NET 职业库，**离线导入的只读参考数据**。
  * 不进备份（可离线重灌，且体量远大于业务数据），恢复后按种子自愈。
  */
@@ -766,6 +780,14 @@ export interface DbAdapter {
   ): Promise<AssessmentResultRow | undefined> | AssessmentResultRow | undefined;
   /** 完成记录历史（新→旧，不含草稿），供结果页回看与版本对比 */
   getAssessmentResults(userId: number, assessmentId: number): Promise<AssessmentResultRow[]> | AssessmentResultRow[];
+  /**
+   * 按用户集合批查各自的**当前有效**测评结果（#234 数据列表）：只取 completed + is_current，
+   * 适配器内分片，避免名单很长时超 SQL 参数上限。返回顺序不保证，调用方自行建索引。
+   */
+  getCurrentAssessmentResultsByUsers(
+    assessmentId: number,
+    userIds: number[]
+  ): Promise<AssessmentUserResultRow[]> | AssessmentUserResultRow[];
 
   // onet_occupations（#226 O*NET 职业库：离线导入的只读参考数据）
   /** 全部职业（按 code 升序）。匹配在内存里做（余弦），一次读全量比逐条查省事且结果稳定 */
@@ -1369,6 +1391,14 @@ export async function getAssessmentResults(
 ): Promise<AssessmentResultRow[]> {
   const adapter = await ensureInit();
   return Promise.resolve(adapter.getAssessmentResults(userId, assessmentId));
+}
+
+export async function getCurrentAssessmentResultsByUsers(
+  assessmentId: number,
+  userIds: number[]
+): Promise<AssessmentUserResultRow[]> {
+  const adapter = await ensureInit();
+  return Promise.resolve(adapter.getCurrentAssessmentResultsByUsers(assessmentId, userIds));
 }
 
 /** #226：O*NET 职业库全量（按 code 升序），推荐接口在内存里做余弦匹配 */

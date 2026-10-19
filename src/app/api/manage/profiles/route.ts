@@ -1,5 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getSubmittedProfiles, clearSubmissions } from "@/lib/db";
+import {
+  getSubmittedProfiles,
+  clearSubmissions,
+  getAssessmentByCode,
+  getCurrentAssessmentResultsByUsers,
+} from "@/lib/db";
+import { RIASEC_CODE } from "@/lib/assessment-data";
+import { parseScores } from "@/lib/assessment-flow";
 
 export async function GET(request: NextRequest) {
   try {
@@ -9,6 +16,18 @@ export async function GET(request: NextRequest) {
 
     const { rows, total } = await getSubmittedProfiles(page, pageSize);
 
+    // #234：给本页每行补「兴趣测评」字段（列表列 + 详情弹窗条形）。
+    // 只认 status=completed 且 is_current=1 的结果——草稿与历史版本都不算「测过」；
+    // 未测行统一给 none / null，前端据此渲染灰胶囊而不是否定式样式。
+    // 学生端同一份数据来自 `/api/shared/assessment/results`（三字码 + 六型快照口径一致）。
+    const userIds = rows.map((r) => r.id);
+    const assessment = await getAssessmentByCode(RIASEC_CODE);
+    const results =
+      assessment && userIds.length > 0
+        ? await getCurrentAssessmentResultsByUsers(assessment.id, userIds)
+        : [];
+    const resultByUser = new Map(results.map((r) => [r.user_id, r]));
+
     return NextResponse.json({
       data: rows.map((r) => {
         // #94：标签文本直存，原样返回（容忍旧格式）
@@ -17,6 +36,7 @@ export async function GET(request: NextRequest) {
           const parsed = r.tags ? JSON.parse(r.tags) : [];
           tags = Array.isArray(parsed) ? parsed.map((t) => String(t)) : [];
         } catch {}
+        const result = resultByUser.get(r.id);
         return {
           // #95：补充数字 userId，供版本历史等关联查询使用
           userId: r.id,
@@ -27,6 +47,11 @@ export async function GET(request: NextRequest) {
           evaluationUrl: r.evaluation_url,
           storageId: r.storage_id,
           createdAt: r.submitted_at,
+          // #234：已测给三字码 + 完成时间 + 六型快照；未测统一为 none / null
+          assessmentCode: result?.type_code ?? null,
+          assessmentStatus: result ? "completed" : "none",
+          assessmentAt: result?.completed_at ?? null,
+          assessmentScores: result ? parseScores(result.scores_json) : null,
         };
       }),
       total,

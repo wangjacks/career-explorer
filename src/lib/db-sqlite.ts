@@ -49,6 +49,7 @@ import type {
   OnetOccupationRow,
   AssessmentStatsRaw,
   AssessmentRosterRow,
+  AssessmentUserResultRow,
 } from "./db";
 import { fillGroupedTrend, fillTrendSeries, shiftDate } from "./stats-utils";
 
@@ -1860,6 +1861,25 @@ export class SqliteAdapter implements DbAdapter {
          ORDER BY completed_at DESC, id DESC`
       )
       .all(userId, assessmentId) as AssessmentResultRow[];
+  }
+
+  getCurrentAssessmentResultsByUsers(assessmentId: number, userIds: number[]): AssessmentUserResultRow[] {
+    const unique = [...new Set(userIds)];
+    if (unique.length === 0) return [];
+    const rows: AssessmentUserResultRow[] = [];
+    for (const chunk of chunkArray(unique)) {
+      const placeholders = chunk.map(() => "?").join(",");
+      rows.push(
+        ...(this.db
+          .prepare(
+            `SELECT user_id, type_code, completed_at, scores_json FROM assessment_results
+             WHERE assessment_id = ? AND status = 'completed' AND is_current = 1
+               AND user_id IN (${placeholders})`
+          )
+          .all(assessmentId, ...chunk) as AssessmentUserResultRow[])
+      );
+    }
+    return rows;
   }
 
   // onet_occupations（#226 O*NET 职业库：离线导入的只读参考数据）
