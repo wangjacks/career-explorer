@@ -31,32 +31,61 @@ const JARGON = [
   "拆分",
 ];
 
-const SAMPLE_DAYS = [7, 30];
+/**
+ * 每个函数字段的样例入参：按字段真实形状喂参数。
+ * 早先对所有函数统一喂 `(days, byClass)` 之类的入参，会把布尔值塞进数字参数，
+ * 拼出「已交 7 人，全班 false 人，还有 undefined 人没交」这类脏串参与断言（#242 评审 P4）。
+ * 新增函数字段却忘了补样例时会直接抛错，确保收集到的永远是真实文案。
+ */
+const FUNCTION_SAMPLES: Record<string, unknown[][]> = {
+  heroAriaTotals: [[18, 24, 6]],
+  heroMissing: [[6]],
+  trendEyebrow: [[7, false], [30, true]],
+  trendTitle: [[false], [true]],
+  trendSummaryPrefix: [[30]],
+  trendDaysOptionLabel: [[7], [30]],
+  compareTooltipTotals: [[24, "75.0%"]],
+  classLabel: [["未分班"], ["一年二班"]],
+};
 
-/** 收集一份文案表里所有会显示给用户的字符串（函数按样例入参展开） */
+/** 收集一份文案表里所有会显示给用户的字符串 */
 function collectStrings(copy: DashboardCopy): string[] {
   const out: string[] = [];
-  for (const value of Object.values(copy)) {
+  for (const [key, value] of Object.entries(copy)) {
     if (typeof value === "string") {
       out.push(value);
       continue;
     }
     if (typeof value !== "function") continue;
+    const samples = FUNCTION_SAMPLES[key];
+    if (!samples) throw new Error(`函数字段 ${key} 缺少样例入参（FUNCTION_SAMPLES）`);
     const fn = value as unknown as (...args: unknown[]) => string;
-    for (const days of SAMPLE_DAYS) {
-      for (const byClass of [false, true]) {
-        out.push(fn(days, byClass) as string);
-      }
-      out.push(fn(days) as string);
-    }
-    out.push(fn(1, 2, 3), fn(4, 5), fn(6, "75.0%"), fn("未分班"), fn("一年二班"));
+    for (const args of samples) out.push(fn(...args));
   }
   return out.filter((text): text is string => typeof text === "string");
 }
 
-/** 去掉注释后的组件源码：注释写给开发者看，不参与验收 */
+/** 去掉注释后的组件源码：注释写给开发者看，不参与验收。只剥 `/* *\/` 与整行 `//`，
+    避免把字符串里的 `//`（以后文案里出现链接）也吃掉，导致源码扫描失真（#242 评审 P5）。 */
 function stripComments(source: string): string {
-  return source.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/[^\n]*/g, "");
+  return source
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .split(/\r?\n/)
+    .map((line) => (line.trimStart().startsWith("//") ? "" : line))
+    .join("\n");
+}
+
+/** 源码里所有含中文的字符串/模板串字面量（含引号，便于失败信息定位） */
+function cjkLiterals(source: string): string[] {
+  const s = stripComments(source);
+  const literals = new Set<string>();
+  const patterns = [/"(?:[^"\\]|\\.)*"/g, /'(?:[^'\\]|\\.)*'/g, /`(?:[^`\\]|\\.)*`/g];
+  for (const pattern of patterns) {
+    for (const match of s.match(pattern) ?? []) {
+      if (/[\u4e00-\u9fa5]/.test(match)) literals.add(match);
+    }
+  }
+  return [...literals].sort();
 }
 
 function kitSourceWithoutComments(): string {
@@ -78,14 +107,14 @@ describe("TEACHER_DASHBOARD_COPY", () => {
     expect(TEACHER_DASHBOARD_COPY.trendTitle(false)).toBe("提交趋势");
     expect(TEACHER_DASHBOARD_COPY.trendTitle(true)).toBe("各班提交趋势");
     expect(TEACHER_DASHBOARD_COPY.distTitle).toBe("各类标签被提到多少次");
-    expect(TEACHER_DASHBOARD_COPY.compareTitle).toBe("各班完成情况（柱子高度＝全班人数）");
+    expect(TEACHER_DASHBOARD_COPY.compareTitle).toBe("各班完成情况（柱子高度＝人数）");
   });
 
-  it("按 issue 替换表逐条落地", () => {
-    expect(TEACHER_DASHBOARD_COPY.heroSubmittedOfTotal).toBe("已交 / 全班人数");
+  it("按 issue 替换表逐条落地（「全班」按实际数据范围改成「学生总数」，见 #242 评审 P1）", () => {
+    expect(TEACHER_DASHBOARD_COPY.heroSubmittedOfTotal).toBe("已交 / 学生总数");
     expect(TEACHER_DASHBOARD_COPY.heroRateLabel).toBe("交齐比例");
     expect(TEACHER_DASHBOARD_COPY.heroMissing(5)).toBe("还有 5 人没交");
-    expect(TEACHER_DASHBOARD_COPY.heroAllSubmitted).toBe("全班都交齐了");
+    expect(TEACHER_DASHBOARD_COPY.heroAllSubmitted).toBe("所有学生都交齐了");
     expect(TEACHER_DASHBOARD_COPY.heroProgressFailed).toBe("进度没取到，点上面的「重试」再来一次。");
     expect(TEACHER_DASHBOARD_COPY.heroNoStudents).toBe("还没有学生，导入名单后这里会显示提交进度。");
     expect(TEACHER_DASHBOARD_COPY.trendEyebrow(30, false)).toBe("最近 30 天");
@@ -114,9 +143,16 @@ describe("TEACHER_DASHBOARD_COPY", () => {
   });
 
   it("aria-label 仍完整读出人数，只换措辞", () => {
-    expect(TEACHER_DASHBOARD_COPY.heroAriaTotals(18, 24, 6)).toBe("已交 18 人，全班 24 人，还有 6 人没交");
+    expect(TEACHER_DASHBOARD_COPY.heroAriaTotals(18, 24, 6)).toBe("已交 18 人，学生共 24 人，还有 6 人没交");
     for (const number of [18, 24, 6]) {
       expect(TEACHER_DASHBOARD_COPY.heroAriaTotals(18, 24, 6)).toContain(String(number));
+    }
+  });
+
+  it("不把全校数据说成「本班 / 全班」（数据源没有教师范围过滤，#242 评审 P1）", () => {
+    const strings = collectStrings(TEACHER_DASHBOARD_COPY);
+    for (const text of strings) {
+      expect(text, `教师侧文案暗示了班级范围：${text}`).not.toMatch(/全班|本班/);
     }
   });
 
@@ -195,7 +231,7 @@ describe("两份文案表的结构", () => {
     }
   });
 
-  it("两侧共用的文案保持一致（重试按钮、整页加载、趋势合计句式）", () => {
+  it("两侧共用的文案保持一致（重试按钮、整页加载、趋势合计句式、tooltip 单位与日期前缀）", () => {
     expect(TEACHER_DASHBOARD_COPY.retryButton).toBe(ADMIN_DASHBOARD_COPY.retryButton);
     expect(TEACHER_DASHBOARD_COPY.pageLoading).toBe(ADMIN_DASHBOARD_COPY.pageLoading);
     expect(TEACHER_DASHBOARD_COPY.trendPendingNote).toBe(ADMIN_DASHBOARD_COPY.trendPendingNote);
@@ -203,19 +239,21 @@ describe("两份文案表的结构", () => {
     expect(TEACHER_DASHBOARD_COPY.trendSummarySuffix).toBe(ADMIN_DASHBOARD_COPY.trendSummarySuffix);
     expect(TEACHER_DASHBOARD_COPY.trendTooltipSeriesName).toBe(ADMIN_DASHBOARD_COPY.trendTooltipSeriesName);
     expect(TEACHER_DASHBOARD_COPY.distEmptyTitle).toBe(ADMIN_DASHBOARD_COPY.distEmptyTitle);
+    // tooltip 的单位 / 日期前缀与天数按钮文字：两角色同值，但必须都从表里取（组件内不硬编码）
+    expect(TEACHER_DASHBOARD_COPY.tooltipPeopleUnit).toBe(ADMIN_DASHBOARD_COPY.tooltipPeopleUnit);
+    expect(TEACHER_DASHBOARD_COPY.tooltipDatePrefix).toBe(ADMIN_DASHBOARD_COPY.tooltipDatePrefix);
+    expect(TEACHER_DASHBOARD_COPY.trendDaysOptionLabel(7)).toBe("7天");
+    expect(TEACHER_DASHBOARD_COPY.trendDaysOptionLabel(7)).toBe(ADMIN_DASHBOARD_COPY.trendDaysOptionLabel(7));
   });
 });
 
 describe("DashboardKit 的取数与文案解耦", () => {
-  it("组件源码里不再残留任何面向用户的口径词", () => {
-    const source = kitSourceWithoutComments();
-    // 「未分班」是接口返回的数据值，比较与排序都认它，只有展示层经 classLabel 换词，故不在禁用清单里
-    for (const word of JARGON) {
-      expect(source, `DashboardKit 仍有硬编码文案「${word}」`).not.toContain(word);
-    }
-    expect(source).toContain("copy.compareTitle");
-    // 分组按钮的 label 也必须走 copy，否则教师侧按钮会写回「按班级」
-    expect(source).toContain("copy.trendGroupClassLabel");
+  it("组件源码里除数据值外没有任何面向用户的中文字面量", () => {
+    // 「未分班」是接口返回的数据值，比较与排序都认它，只有展示层经 classLabel 换词，故白名单里留着它。
+    // 比「黑名单扫口径词」更硬：以后新增图表时把任何中文文案写回组件，这里都会直接失败（#242 评审 P3）
+    expect(cjkLiterals(readFileSync(join(process.cwd(), "src/components/admin/DashboardKit.tsx"), "utf8"))).toEqual([
+      '"未分班"',
+    ]);
   });
 
   it("四块卡片与失败态都从 copy 取文，缺 copy 会编译不过", () => {
