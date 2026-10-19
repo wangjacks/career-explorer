@@ -1,4 +1,4 @@
-import { formatResultTime } from "./assessment-flow";
+import { MAX_RESULT_VERSIONS, formatResultTime } from "./assessment-flow";
 
 /**
  * 测评中心页（#222）的纯逻辑：把 `GET /api/shared/assessment/results` 的返回归一成
@@ -38,8 +38,12 @@ export interface AssessmentCenterView {
   typeCode: string | null;
   /** 最近一次完成时间（`YYYY-MM-DD HH:mm`；无完成为空串） */
   completedAt: string;
-  /** 历史版本条数（不含当前版本之外的截断，接口最多给 10 条） */
+  /** 已完成版本条数（接口 `history` 含当前版本，最多 `MAX_RESULT_VERSIONS` 条） */
   historyCount: number;
+  /** 版本数是否被接口上限截断：为 true 时页面显示 `10+`，不谎报正好 10 次 */
+  historyCapped: boolean;
+  /** 进行中且题目已全部答完（只差提交）：页面据此把「继续作答」文案换成「去提交」 */
+  draftComplete: boolean;
   /** 量表是否开放；关闭时页面不提供「开始 / 继续作答」入口 */
   enabled: boolean;
 }
@@ -94,6 +98,9 @@ export function deriveAssessmentCenter(payload: AssessmentCenterPayload | null |
     typeCode,
     completedAt,
     historyCount,
+    // 接口至多回传 MAX_RESULT_VERSIONS 条（含当前版本）；正好撞上限时视为可能被截断
+    historyCapped: historyCount >= MAX_RESULT_VERSIONS,
+    draftComplete: inProgress && draftTotal > 0 && draftAnswered >= draftTotal,
     enabled,
   };
 }

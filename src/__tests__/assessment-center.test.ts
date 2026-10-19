@@ -6,6 +6,7 @@ import {
   estimateMinutes,
   progressPercent,
 } from "../lib/assessment-center";
+import { MAX_RESULT_VERSIONS } from "../lib/assessment-flow";
 
 describe("estimateMinutes / progressPercent", () => {
   it("耗时按单题秒数向上取整，最少 1 分钟，题量非法返回 0", () => {
@@ -59,6 +60,39 @@ describe("deriveAssessmentCenter：三种状态分支（#222）", () => {
     expect(view.typeCode).toBe("RIA");
     expect(view.completedAt).toBe("2026-10-19 10:00");
     expect(view.historyCount).toBe(1);
+    expect(view.draftComplete).toBe(false);
+  });
+
+  it("进行中且题目全部答完（只差提交）：draftComplete=true，文案切「去提交」而不是「答到第 30 题」", () => {
+    const view = deriveAssessmentCenter({
+      assessment: ASSESSMENT,
+      current: null,
+      history: [],
+      inProgress: { answered: 30, total: 30 },
+    });
+    expect(view.status).toBe("in-progress");
+    expect(view.draftComplete).toBe(true);
+    expect(view.answered).toBe(30);
+    expect(view.percent).toBe(100);
+  });
+
+  it("结果版本数撞接口上限时标记 historyCapped（页面显示 10+ 而不是谎报 10 次）", () => {
+    const atCap = deriveAssessmentCenter({
+      assessment: ASSESSMENT,
+      current: { typeCode: "SIA", completedAt: "2026-10-20 09:30:00" },
+      history: Array.from({ length: MAX_RESULT_VERSIONS }, (_, i) => ({ id: i + 1 })),
+      inProgress: null,
+    });
+    expect(atCap.historyCount).toBe(MAX_RESULT_VERSIONS);
+    expect(atCap.historyCapped).toBe(true);
+
+    const belowCap = deriveAssessmentCenter({
+      assessment: ASSESSMENT,
+      current: { typeCode: "SIA", completedAt: "2026-10-20 09:30:00" },
+      history: [{ id: 1 }, { id: 2 }],
+      inProgress: null,
+    });
+    expect(belowCap.historyCapped).toBe(false);
   });
 
   it("已完成：有当前结果 → 三字码 + 完成时间（ISO 串裁到分钟）", () => {

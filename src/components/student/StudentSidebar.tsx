@@ -24,6 +24,14 @@ const NAV_ICONS: Record<StudentNavKey, LucideIcon> = {
 export default function StudentSidebar({ open, onClose }: { open: boolean; onClose: () => void }) {
   const pathname = usePathname();
 
+  /**
+   * 点击条目只在**移动端抽屉**里收起侧边栏；桌面端侧边栏是常驻栏，
+   * 导航时收起会闪一下折叠再展开（新页面挂载后又按视口展开），所以桌面不调 onClose。
+   */
+  const closeOnMobile = () => {
+    if (typeof window !== "undefined" && window.matchMedia("(max-width: 767px)").matches) onClose();
+  };
+
   return (
     <>
       {/* 移动端遮罩：z-30 低于顶栏（z-40），顶栏不被遮暗、可继续点击切换按钮 */}
@@ -79,7 +87,7 @@ export default function StudentSidebar({ open, onClose }: { open: boolean; onClo
               <Link
                 key={item.key}
                 href={item.href}
-                onClick={onClose}
+                onClick={closeOnMobile}
                 className="flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-sm text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
               >
                 <Icon size={17} strokeWidth={1.8} />

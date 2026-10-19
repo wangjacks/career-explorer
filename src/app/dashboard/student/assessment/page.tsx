@@ -3,7 +3,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { Toaster } from "sonner";
 import {
   ArrowRight,
   ChevronDown,
@@ -135,6 +134,11 @@ export default function AssessmentCenterPage() {
     setUnavailable(false);
     try {
       const res = await fetch(`/api/shared/assessment/results?code=${encodeURIComponent(RIASEC_CODE)}`);
+      // 会话过期：留在页面上重试只会一直 401，直接回登录页
+      if (res.status === 401) {
+        router.replace("/login");
+        return;
+      }
       const data = await res.json();
       if (res.status === 404) {
         setUnavailable(true);
@@ -149,7 +153,7 @@ export default function AssessmentCenterPage() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [router]);
 
   /* eslint-disable react-hooks/set-state-in-effect -- 会话确认后拉取状态 */
   useEffect(() => {
@@ -173,8 +177,7 @@ export default function AssessmentCenterPage() {
 
   return (
     <div className="min-h-screen bg-background">
-      <Toaster position="top-center" />
-      <NavigationBar title="学生面板" showHome onToggleSidebar={() => setSidebarOpen((v) => !v)} />
+      <NavigationBar title="职业测评" showHome onToggleSidebar={() => setSidebarOpen((v) => !v)} />
 
       {/* 注意：此 flex 容器不设任何 overflow，避免破坏侧边栏 sticky */}
       <div className="flex">
@@ -211,6 +214,7 @@ export default function AssessmentCenterPage() {
                     type="button"
                     onClick={() => setShowTerms((v) => !v)}
                     aria-expanded={showTerms}
+                    aria-controls="assessment-terms"
                     className="ml-auto inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs bg-white/10 text-white/85 border border-white/20 hover:bg-white/20 transition-colors"
                   >
                     测评说明与署名
@@ -223,7 +227,7 @@ export default function AssessmentCenterPage() {
                 )}
               </div>
               {showTerms && hasTerms && (
-                <div className="mt-3 rounded-xl bg-white/10 border border-white/15 p-3 space-y-1.5">
+                <div id="assessment-terms" className="mt-3 rounded-xl bg-white/10 border border-white/15 p-3 space-y-1.5">
                   <p className="text-xs text-white/80 leading-relaxed">{meta?.attribution}</p>
                   <p className="text-xs text-white/70 leading-relaxed">{meta?.licenseText}</p>
                   <p className="text-xs text-white/70 leading-relaxed">{meta?.disclaimer}</p>
@@ -260,7 +264,7 @@ export default function AssessmentCenterPage() {
                         当前未开放
                       </span>
                     )}
-                    {view.enabled && view.status === "completed" && view.typeCode && (
+                    {view.status === "completed" && view.typeCode && (
                       <span className="ml-auto px-2.5 py-0.5 rounded-full text-xs font-semibold bg-primary-soft text-primary-strong dark:bg-green-900/30 dark:text-green-300 tracking-wide">
                         {view.typeCode}
                       </span>
@@ -270,13 +274,17 @@ export default function AssessmentCenterPage() {
                   {view.status === "not-started" && (
                     <>
                       <p className="text-sm text-muted leading-relaxed">
-                        还没有做过职业兴趣测评。全部答完大约需要 {view.estimatedMinutes || "几"} 分钟，作答会自动保存，可以中途退出。
+                        {view.questionCount > 0
+                          ? `还没有做过职业兴趣测评。全部答完大约需要 ${view.estimatedMinutes} 分钟，作答会自动保存，可以中途退出。`
+                          : "还没有做过职业兴趣测评，题库还在准备中。"}
                       </p>
-                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
-                        <Fact icon={ListChecks} label="题量" value={`${view.questionCount} 题`} />
-                        <Fact icon={Timer} label="预计耗时" value={`约 ${view.estimatedMinutes || "—"} 分钟`} />
-                        <Fact icon={Compass} label="结果形式" value="三字码 + 六型分布" />
-                      </div>
+                      {view.questionCount > 0 && (
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                          <Fact icon={ListChecks} label="题量" value={`${view.questionCount} 题`} />
+                          <Fact icon={Timer} label="预计耗时" value={`约 ${view.estimatedMinutes} 分钟`} />
+                          <Fact icon={Compass} label="结果形式" value="三字码 + 六型分布" />
+                        </div>
+                      )}
                       {canStart ? (
                         <Link href={QUIZ_HREF} className={PRIMARY_BUTTON}>
                           <Play size={16} aria-hidden />
@@ -293,14 +301,16 @@ export default function AssessmentCenterPage() {
                   {view.status === "in-progress" && (
                     <>
                       <p className="text-sm text-muted leading-relaxed">
-                        上次答到第 {view.answered} 题就离开了，进度已经保存在服务端，继续作答会从上次的题接着往下。
+                        {view.draftComplete
+                          ? "题目已经全部答完，只差提交了——继续作答可以直接提交并查看结果。"
+                          : `上次答到第 ${view.answered} 题就离开了，进度已经保存在服务端，继续作答会从上次的题接着往下。`}
                       </p>
                       <ProgressTrack view={view} />
                       <div className="flex flex-wrap items-center gap-2.5">
                         {canStart ? (
                           <Link href={QUIZ_HREF} className={PRIMARY_BUTTON}>
                             <Play size={16} aria-hidden />
-                            继续作答
+                            {view.draftComplete ? "去提交" : "继续作答"}
                           </Link>
                         ) : (
                           <p className="text-xs text-muted">测评当前未开放，已答进度会保留。</p>
@@ -323,16 +333,12 @@ export default function AssessmentCenterPage() {
                           : "结果已保存，可在「我的档案」里查看。"}
                       </p>
                       <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
-                        <Fact
-                          icon={Compass}
-                          label="三字码"
-                          value={view.typeCode ?? "已出分"}
-                        />
+                        <Fact icon={Compass} label="三字码" value={view.typeCode ?? "已出分"} />
                         <Fact icon={Timer} label="完成时间" value={view.completedAt || "—"} />
                         <Fact
                           icon={ListChecks}
-                          label="历史版本"
-                          value={view.historyCount > 1 ? `${view.historyCount} 次` : "1 次"}
+                          label="结果版本"
+                          value={`${view.historyCount}${view.historyCapped ? "+" : ""} 次`}
                         />
                       </div>
                       <div className="flex flex-wrap items-center gap-2.5">
