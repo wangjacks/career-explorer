@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   ASSESSMENT_TYPE_COLORS,
   ASSESSMENT_TYPE_FALLBACK_COLOR,
+  NOT_ASSESSED_PILL_COLORS,
   typeColorOf,
 } from "@/lib/assessment-colors";
 import { RIASEC_KEYS } from "@/lib/assessment-match";
@@ -62,5 +63,14 @@ describe("typeColorOf（三字码 / 单字母取色）", () => {
     expect(
       contrastRatio(ASSESSMENT_TYPE_FALLBACK_COLOR.chipFg, ASSESSMENT_TYPE_FALLBACK_COLOR.bar)
     ).toBeGreaterThanOrEqual(4.5);
+  });
+
+  it("「未测」灰胶囊在深浅两套主题下对比度都 ≥ 4.5:1", () => {
+    // 浅色：bg-gray-100 + text-gray-600；深色：dark:bg-gray-800 + text-gray-400
+    // （原来的 text-gray-500 只有 4.39:1，不达 AA，已改深一档）
+    for (const scheme of ["light", "dark"] as const) {
+      const { bg, fg } = NOT_ASSESSED_PILL_COLORS[scheme];
+      expect(contrastRatio(fg, bg), `${scheme} 主题未测胶囊对比度不足`).toBeGreaterThanOrEqual(4.5);
+    }
   });
 });

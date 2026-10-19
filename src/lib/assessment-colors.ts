@@ -31,6 +31,17 @@ export const ASSESSMENT_TYPE_COLORS: Readonly<Record<RiasecKey, AssessmentTypeCo
 export const ASSESSMENT_TYPE_FALLBACK_COLOR: AssessmentTypeColor = { bar: "#6b7280", chipFg: "#ffffff" };
 
 /**
+ * 「未测」灰胶囊配色（浅色 / 深色两套）。
+ *
+ * 组件里的 Tailwind 类与之对应：浅色 `bg-gray-100 text-gray-600`、深色 `dark:bg-gray-800 dark:text-gray-400`。
+ * 单独列出来是为了让单测能锁对比度——`text-gray-500` 配 `bg-gray-100` 只有 4.39:1，不够 WCAG AA。
+ */
+export const NOT_ASSESSED_PILL_COLORS = {
+  light: { bg: "#f3f4f6", fg: "#4b5563" },
+  dark: { bg: "#1f2937", fg: "#9ca3af" },
+} as const;
+
+/**
  * 三字码 / 单字母 → 配色。
  * 取首位字母（三字码的归型依据）；空值、非 RIASEC 字母都走兜底配色，不抛错。
  */

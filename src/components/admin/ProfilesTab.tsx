@@ -9,6 +9,7 @@ import StorageImage from "@/components/StorageImage";
 import { useTagColorMap } from "@/hooks/useTagColorMap";
 import { buildRiasecBars } from "@/lib/assessment-view";
 import { typeColorOf } from "@/lib/assessment-colors";
+import { formatResultTime } from "@/lib/assessment-flow";
 import {
   ASSESSMENT_LEAD_FILTERS,
   hasAssessmentScores,
@@ -61,10 +62,10 @@ function AssessmentCodeBadge({ code }: { code: string }) {
   );
 }
 
-/** 未测胶囊（#234）：灰态、不出现红叉这类否定式样式 */
+/** 未测胶囊（#234）：灰态、不出现红叉这类否定式样式；文字色深一档保证 AA 对比度 */
 function NotAssessedPill() {
   return (
-    <span className="inline-block rounded-full bg-gray-100 dark:bg-gray-800 px-2 py-0.5 text-xs text-gray-500 dark:text-gray-400">
+    <span className="inline-block rounded-full bg-gray-100 dark:bg-gray-800 px-2 py-0.5 text-xs text-gray-600 dark:text-gray-400">
       未测
     </span>
   );
@@ -193,6 +194,10 @@ export default function ProfilesTab({ loadProfiles, loadStats }: Props) {
     return { ...paged, data: sorted, total: hasFilter ? sorted.length : paged.total };
   }, [paged, search, selectedTags, leadFilter, sortKey, sortDir]);
 
+  // 表头全选态：按「当前可见行是否全部已选」判定（只比数量在筛选后会误判）
+  const allVisibleSelected =
+    !!filteredData && filteredData.data.length > 0 && filteredData.data.every((p) => selected.has(p.studentId));
+
   // Close tag dropdown on outside click
   useEffect(() => {
     const handler = (e: MouseEvent) => {
@@ -250,11 +255,17 @@ export default function ProfilesTab({ loadProfiles, loadStats }: Props) {
   const toggleSelectAll = () => {
     if (!filteredData) return;
     const visible = filteredData.data;
-    if (selected.size === visible.length) {
-      setSelected(new Set());
-    } else {
-      setSelected(new Set(visible.map((p) => p.studentId)));
-    }
+    // 以「当前可见行是否全部已选」为准：只按数量比较会在筛选后把别人的选择误判成全选
+    const allVisibleSelected =
+      visible.length > 0 && visible.every((p) => selected.has(p.studentId));
+    setSelected((prev) => {
+      const next = new Set(prev);
+      for (const p of visible) {
+        if (allVisibleSelected) next.delete(p.studentId);
+        else next.add(p.studentId);
+      }
+      return next;
+    });
   };
 
   // 加载版本历史（#95）：首次展开详情弹窗时拉取；序号 guard 防旧响应覆盖新选择
@@ -380,6 +391,8 @@ export default function ProfilesTab({ loadProfiles, loadStats }: Props) {
                   key={value}
                   type="button"
                   aria-pressed={active}
+                  // 可见文本只有单字母，读屏需要更完整的名字（R 型之类不出现「型」字）
+                  aria-label={value === "all" ? "全部测评状态" : value === "none" ? "未测" : `主导型 ${label}`}
                   onClick={() => setLeadFilter(value)}
                   className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-medium transition-colors ${
                     active
@@ -417,7 +430,7 @@ export default function ProfilesTab({ loadProfiles, loadStats }: Props) {
                 <input
                   type="checkbox"
                   aria-label="全选档案"
-                  checked={filteredData ? selected.size === filteredData.data.length && filteredData.data.length > 0 : false}
+                  checked={allVisibleSelected}
                   onChange={toggleSelectAll}
                   className="rounded border-gray-300"
                 />
@@ -576,7 +589,9 @@ export default function ProfilesTab({ loadProfiles, loadStats }: Props) {
               <div className="border-t border-border-soft pt-3" role="group" aria-label="职业兴趣测评">
                 <div className="flex items-center justify-between">
                   <p className="text-sm font-medium text-foreground">职业兴趣测评</p>
-                  <span className="text-[11px] text-muted">{detail.assessmentAt || "完成时间未记录"}</span>
+                  <span className="text-[11px] text-muted">
+                    {formatResultTime(detail.assessmentAt) || "完成时间未记录"}
+                  </span>
                 </div>
                 <div className="mt-2 flex items-center gap-2">
                   <AssessmentCodeBadge code={detail.assessmentCode as string} />
@@ -588,8 +603,13 @@ export default function ProfilesTab({ loadProfiles, loadStats }: Props) {
                     <div className="mt-3 space-y-1.5">
                       {bars.map((bar) => (
                         <div key={bar.key} className="flex items-center gap-2">
-                          <span className="w-20 flex-shrink-0 text-xs text-muted">
+                          <span className="w-24 flex-shrink-0 text-xs text-muted">
                             {bar.key} · {bar.label}
+                            {bar.isTop && (
+                              <span className="ml-1 rounded bg-green-50 px-1 py-0.5 text-[9px] text-green-600 dark:bg-green-900/30 dark:text-green-400">
+                                主要
+                              </span>
+                            )}
                           </span>
                           <div className="h-2 flex-1 overflow-hidden rounded-full bg-gray-100 dark:bg-gray-800">
                             <div
@@ -597,8 +617,9 @@ export default function ProfilesTab({ loadProfiles, loadStats }: Props) {
                               style={{ width: `${bar.percent}%`, backgroundColor: typeColorOf(bar.key).bar }}
                             />
                           </div>
-                          <span className="w-8 flex-shrink-0 text-right font-mono text-xs text-muted">
-                            {Math.round(bar.standard)}
+                          {/* 与学生端报告一致：保留一位小数，而不是四舍五入成整数 */}
+                          <span className="w-10 flex-shrink-0 text-right font-mono text-xs text-muted">
+                            {bar.standard.toFixed(1)}
                           </span>
                         </div>
                       ))}
