@@ -5,9 +5,10 @@ import { tagCategories } from "./tagData";
 import { ASSESSMENT_SEEDS, getQuestionSeeds, validateAssessmentSeed } from "./assessment-data";
 import { ONET_DATASET_VERSION } from "./onet-data";
 import { getOnetOccupationSeeds, needsOnetReseed, ONET_SEED_MARKER_KEY } from "./onet";
-import { normalizeBackupTags, normalizeAssessmentCode, DEFAULT_MAX_CUSTOM_TAGS, DEFAULT_MAX_PROFILE_SUBMISSIONS, MAX_PROFILE_SUBMISSIONS_KEY, DEFAULT_MEDIA_ORPHAN_RETENTION_DAYS, MEDIA_ORPHAN_RETENTION_KEY } from "./db";
+import { normalizeBackupTags, normalizeAssessmentCode, DEFAULT_MAX_CUSTOM_TAGS, DEFAULT_MAX_PROFILE_SUBMISSIONS, MAX_PROFILE_SUBMISSIONS_KEY, DEFAULT_MEDIA_ORPHAN_RETENTION_DAYS, MEDIA_ORPHAN_RETENTION_KEY, chunkArray } from "./db";
 import type {
   UserRow,
+  UserCodeRef,
   TagRow,
   ClassRow,
   TeacherClassRow,
@@ -855,6 +856,21 @@ export class MysqlAdapter implements DbAdapter {
   async getUserByCode(userCode: string): Promise<UserRow | undefined> {
     const [rows] = await this.pool.execute("SELECT * FROM users WHERE user_code = ?", [userCode]);
     return (rows as UserRow[])[0];
+  }
+
+  async getUsersByCodes(userCodes: string[]): Promise<UserCodeRef[]> {
+    if (userCodes.length === 0) return [];
+    const rows: UserCodeRef[] = [];
+    for (const chunk of chunkArray([...new Set(userCodes)])) {
+      const placeholders = chunk.map(() => "?").join(",");
+      // 只取标识与班级归属：批量导入不需要整行（尤其不把 password_hash 带进内存）
+      const [chunkRows] = await this.pool.execute(
+        `SELECT id, user_code, class_id FROM users WHERE user_code IN (${placeholders})`,
+        chunk
+      );
+      rows.push(...(chunkRows as UserCodeRef[]));
+    }
+    return rows;
   }
 
   async getUserById(id: number): Promise<UserRow | undefined> {
