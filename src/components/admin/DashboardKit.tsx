@@ -374,7 +374,9 @@ export function TrendCard({
               />
               <Tooltip
                 cursor={{ stroke: "currentColor", strokeOpacity: 0.25 }}
-                content={(p) => <ChartTooltip {...p} unit=" 人" labelPrefix="日期 " />}
+                content={(p) => (
+                  <ChartTooltip {...p} unit={copy.tooltipPeopleUnit} labelPrefix={copy.tooltipDatePrefix} />
+                )}
               />
               {classKeys.map((key, i) => (
                 <Line
@@ -429,7 +431,14 @@ export function TrendCard({
           />
           <Tooltip
             cursor={{ stroke: "currentColor", strokeOpacity: 0.25 }}
-            content={(p) => <ChartTooltip {...p} unit=" 人" name={copy.trendTooltipSeriesName} labelPrefix="日期 " />}
+            content={(p) => (
+              <ChartTooltip
+                {...p}
+                unit={copy.tooltipPeopleUnit}
+                name={copy.trendTooltipSeriesName}
+                labelPrefix={copy.tooltipDatePrefix}
+              />
+            )}
           />
           <Area
             type="monotone"
@@ -474,7 +483,7 @@ export function TrendCard({
           />
           <Segmented
             label={copy.trendDaysAriaLabel}
-            options={DAY_OPTIONS.map((d) => ({ value: d, label: `${d}天` }))}
+            options={DAY_OPTIONS.map((d) => ({ value: d, label: copy.trendDaysOptionLabel(d) }))}
             value={trendDays}
             onChange={setTrendDays}
           />
@@ -633,17 +642,19 @@ export function CompareCard({
   copy: DashboardCopy;
 }) {
   // 对比图：拆出未提交段以便堆叠，提交率作柱顶标签；「未分班」排末尾（与班级概览行序一致）
+  // `label` 是展示名：X 轴与 tooltip 都用它，否则轴上是「还没分班」、悬停读数是「未分班」，
+  // 同一组两个名字（#242 评审 P2）。排序仍在映射前按接口原值进行。
   const compareChart = useMemo(
     () =>
       [...compare]
         .sort((a, b) => Number(a.key === "未分班") - Number(b.key === "未分班"))
         .map((item) => ({
-          key: item.key,
+          label: copy.classLabel(item.key),
           submitted: item.submitted,
           unsubmitted: Math.max(0, item.total - item.submitted),
           rateLabel: formatRateText(item.submitted, item.total, 1),
         })),
-    [compare]
+    [compare, copy]
   );
 
   return (
@@ -671,15 +682,12 @@ export function CompareCard({
             <BarChart data={compareChart} margin={{ top: 20, right: 8, bottom: 0, left: 0 }}>
               <CartesianGrid vertical={false} stroke="currentColor" strokeOpacity={0.14} />
               <XAxis
-                dataKey="key"
+                dataKey="label"
                 tick={{ fontSize: 11, fill: "currentColor" }}
                 tickLine={false}
                 axisLine={false}
                 minTickGap={8}
-                tickFormatter={(v: string) => {
-                  const label = copy.classLabel(v);
-                  return label.length > 6 ? `${label.slice(0, 6)}…` : label;
-                }}
+                tickFormatter={(v: string) => (v.length > 6 ? `${v.slice(0, 6)}…` : v)}
               />
               <YAxis
                 tick={{ fontSize: 11, fontFamily: MONO, fill: "currentColor" }}
@@ -693,7 +701,7 @@ export function CompareCard({
                 content={(p) => (
                   <ChartTooltip
                     {...p}
-                    unit=" 人"
+                    unit={copy.tooltipPeopleUnit}
                     extra={(rows) => {
                       const picked = (key: string) =>
                         Number(rows.find((r) => String(r.dataKey) === key)?.value ?? 0);
