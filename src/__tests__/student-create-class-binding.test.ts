@@ -3,21 +3,25 @@ import { NextRequest } from "next/server";
 
 // 隔离数据库层：本组用例只关注班级绑定口径（#160）
 vi.mock("@/lib/db", () => ({
-  getStudents: vi.fn(),
+  getStudents: vi.fn(async () => []),
   insertUser: vi.fn(async () => 1),
   getUserByCode: vi.fn(),
   updateUser: vi.fn(async () => undefined),
   deleteStudents: vi.fn(),
   getClassByName: vi.fn(),
   insertAuditLog: vi.fn(async () => undefined),
+  // WriteGuard 经 getAuditActor / writableClassIds 使用
+  getUserById: vi.fn(async () => ({ user_code: "10001", name: "管理员", role: "admin" })),
+  getTeacherClassPairs: vi.fn(async () => []),
 }));
 
 vi.mock("@/lib/auth", () => ({
   hashPassword: vi.fn(async () => "hashed"),
 }));
 
+// 管理员会话：班级归属闸门（#171）对 admin 不受限，本组用例锁定的是 #160 的绑定口径
 vi.mock("@/lib/token", () => ({
-  verifyToken: vi.fn(async () => ({ valid: false })),
+  verifyToken: vi.fn(async () => ({ valid: true, role: "admin", uid: 1, name: "管理员" })),
   signToken: vi.fn(async () => "token"),
 }));
 
@@ -29,7 +33,7 @@ const CLASS_ROW = { id: 7, name: "2025级1班", invitation_code: "abcd1234", cre
 function postRequest(body: unknown): NextRequest {
   return new NextRequest(new URL("/api/manage/students", "http://localhost:3000"), {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", cookie: "auth_token=admin-token" },
     body: JSON.stringify(body),
   });
 }

@@ -21,7 +21,10 @@ const FILTER_OPTIONS: { value: RosterFilter; label: string }[] = [
 
 interface ClassRosterDialogProps {
   open: boolean;
-  className: string;
+  /** 接口分组键（比较与取数仍认原值，如「未分班」） */
+  classKey: string;
+  /** 展示名（教师侧可把「未分班」换成「还没分班」） */
+  displayName: string;
   onClose: () => void;
 }
 
@@ -29,7 +32,7 @@ interface ClassRosterDialogProps {
  * 班级名册弹窗（#217）：dialog 语义 + Escape 关闭 + Tab 焦点捕获/关闭后还原。
  * 桌面居中 70vh，窄屏退化为全屏抽屉；表头固定、列表内滚动。
  */
-export default function ClassRosterDialog({ open, className, onClose }: ClassRosterDialogProps) {
+export default function ClassRosterDialog({ open, classKey, displayName, onClose }: ClassRosterDialogProps) {
   const titleId = useId();
   const panelRef = useRef<HTMLDivElement>(null);
   const [students, setStudents] = useState<RosterStudent[] | null>(null);
@@ -41,7 +44,7 @@ export default function ClassRosterDialog({ open, className, onClose }: ClassRos
 
   /* eslint-disable react-hooks/set-state-in-effect -- 打开/重试时重置并拉取名册 */
   useEffect(() => {
-    if (!open || !className) return;
+    if (!open || !classKey) return;
     const controller = new AbortController();
     setStudents(null);
     setLoading(true);
@@ -49,7 +52,7 @@ export default function ClassRosterDialog({ open, className, onClose }: ClassRos
     setFilter("all");
     setQuery("");
 
-    fetch(`/api/manage/stats/class-roster?class=${encodeURIComponent(className)}`, {
+    fetch(`/api/manage/stats/class-roster?class=${encodeURIComponent(classKey)}`, {
       signal: controller.signal,
     })
       .then((res) => {
@@ -69,7 +72,7 @@ export default function ClassRosterDialog({ open, className, onClose }: ClassRos
       });
 
     return () => controller.abort();
-  }, [open, className, reloadKey]);
+  }, [open, classKey, reloadKey]);
   /* eslint-enable react-hooks/set-state-in-effect */
 
   // 焦点捕获、背景滚动锁与关闭后的焦点还原；与 ConfirmDialog 的弹窗范式一致。
@@ -138,7 +141,7 @@ export default function ClassRosterDialog({ open, className, onClose }: ClassRos
           <div className="flex items-start gap-3">
             <div className="min-w-0 flex-1">
               <h2 id={titleId} className="truncate text-base font-semibold text-foreground">
-                {className || "班级名册"}
+                {displayName || "班级名册"}
               </h2>
               <p className="mt-0.5 text-xs text-muted">
                 {loading

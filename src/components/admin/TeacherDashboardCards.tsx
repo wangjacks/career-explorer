@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import { Compass, School } from "lucide-react";
 import { ChartEmpty, ChartFailed } from "@/components/admin/DashboardKit";
 import ClassRosterDialog from "@/components/admin/ClassRosterDialog";
+import { TEACHER_DASHBOARD_COPY } from "@/lib/dashboard-copy";
 import {
   buildClassSubmissionRows,
   type CompareItem,
@@ -45,56 +46,60 @@ export function ClassSubmissionCard({
       {rows.length > 0 ? (
         <>
           <ul className="max-h-[280px] space-y-1 overflow-y-auto pr-1">
-            {rows.map((row) => (
-              <li
-                key={row.key}
-                className="rounded-lg px-2 py-2 transition-colors hover:bg-gray-50 dark:hover:bg-gray-800/50"
-              >
-                <div className="flex items-center gap-3">
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-baseline gap-2">
-                      <span
-                        className="truncate text-sm font-medium text-foreground"
-                        title={row.key}
-                      >
-                        {row.key}
-                      </span>
-                      <span className="ml-auto shrink-0 font-mono text-xs tabular-nums text-muted">
-                        {row.submitted}/{row.total}
-                      </span>
-                      <span className="w-12 shrink-0 text-right font-mono text-xs font-medium tabular-nums text-foreground">
-                        {row.rateText}
-                      </span>
-                    </div>
-                    <div
-                      role="img"
-                      aria-label={`${row.key}提交率 ${row.rateText}`}
-                      className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-gray-100 dark:bg-gray-800"
-                    >
+            {rows.map((row) => {
+              // 排序与接口仍认原值；「未分班」只在展示层换成教师口语
+              const label = TEACHER_DASHBOARD_COPY.classLabel(row.key);
+              return (
+                <li
+                  key={row.key}
+                  className="rounded-lg px-2 py-2 transition-colors hover:bg-gray-50 dark:hover:bg-gray-800/50"
+                >
+                  <div className="flex items-center gap-3">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-baseline gap-2">
+                        <span
+                          className="truncate text-sm font-medium text-foreground"
+                          title={label}
+                        >
+                          {label}
+                        </span>
+                        <span className="ml-auto shrink-0 font-mono text-xs tabular-nums text-muted">
+                          {row.submitted}/{row.total}
+                        </span>
+                        <span className="w-12 shrink-0 text-right font-mono text-xs font-medium tabular-nums text-foreground">
+                          {row.rateText}
+                        </span>
+                      </div>
                       <div
-                        className="h-full rounded-full bg-primary"
-                        style={{ width: `${row.rate * 100}%` }}
-                      />
+                        role="img"
+                        aria-label={`${label}提交率 ${row.rateText}`}
+                        className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-gray-100 dark:bg-gray-800"
+                      >
+                        <div
+                          className="h-full rounded-full bg-primary"
+                          style={{ width: `${row.rate * 100}%` }}
+                        />
+                      </div>
                     </div>
+                    <button
+                      type="button"
+                      onClick={() => setOpenClass(row.key)}
+                      aria-label={`查看${label}名册`}
+                      className="shrink-0 rounded-lg border border-border-soft px-2.5 py-1 text-[11px] font-medium text-primary transition-colors hover:bg-primary/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
+                    >
+                      具体查看
+                    </button>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => setOpenClass(row.key)}
-                    aria-label={`查看${row.key}名册`}
-                    className="shrink-0 rounded-lg border border-border-soft px-2.5 py-1 text-[11px] font-medium text-primary transition-colors hover:bg-primary/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
-                  >
-                    具体查看
-                  </button>
-                </div>
-              </li>
-            ))}
+                </li>
+              );
+            })}
           </ul>
           <p className="mt-3 border-t border-border-soft pt-3 text-[11px] text-muted/70">
             提交率 = 已提交 / 在册，与上方全校总览同源。
           </p>
         </>
       ) : compareFailed ? (
-        <ChartFailed height={240} />
+        <ChartFailed height={240} copy={TEACHER_DASHBOARD_COPY} />
       ) : (
         <ChartEmpty
           height={240}
@@ -106,7 +111,8 @@ export function ClassSubmissionCard({
 
       <ClassRosterDialog
         open={openClass !== null}
-        className={openClass ?? ""}
+        classKey={openClass ?? ""}
+        displayName={openClass ? TEACHER_DASHBOARD_COPY.classLabel(openClass) : ""}
         onClose={() => setOpenClass(null)}
       />
     </div>

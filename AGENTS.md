@@ -88,6 +88,8 @@ find src/app -name page.tsx && find src/app/api -name route.ts
 - 中间件：`proxy.ts` matcher 仅 `/dashboard/admin/:path*` 与 `/api/manage/:path*`；teacher/student 面板不经 proxy，由路由自鉴权
 - 权限模型：`/api/manage/*` admin 全放行；teacher 按 `TEACHER_ALLOWED`（前缀 + 方法，**改代码必须同步改 `docs/architecture.md` 权限表**）；`/api/shared/*` 路由自鉴权；其余 `/api/*` 不拦截
 - 例外：分组（`/api/manage/groups*`）前缀整体放行，**班级归属在路由内判定**——读不限（教师可看全校分组），写限自建班（`canModifyClass`），被拒的写同样落审计
+- 例外：学生写入（`/api/manage/students*`）前缀整体放行，**归属由路由内 `WriteGuard` 判定**（#171）——学生以其 `class_id` 在教师关联班级内为准，未分班学生只有管理员可写，批量操作任一行越界即整批拒绝；读不限（教师可看全校名单）
+- 边界：全站生效的配置写入只归管理员（#171）——预设标签（`/api/manage/tags*`）与 `profile-config` 对教师收敛为仅 GET，教师面板相应 Tab 以 `readOnly` 呈现
 - 路由设计原则：API 面向资源组织 + 业务域前缀（manage/shared），角色差异收敛于 proxy 权限表，**权限演化不搬路径**（否决过按角色拆分路由的设计）
 - 激活（#93 两步单页）：`POST /api/auth/activate/verify` 核验学号 + 姓名 + 本班邀请码三要素并取回名单姓名 → `POST /api/auth/activate` 设置密码并自动登录；账户须先由教师导入名单预建（无密码）
 - 错误信息不泄露账号存在性：用户不存在与密码错误共用「编号或密码错误」；无 `password_hash` 账户提示「该账户尚未设置密码，请联系管理员」

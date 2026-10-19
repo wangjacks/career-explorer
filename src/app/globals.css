@@ -12,6 +12,7 @@
   --muted: #78716c; /* stone-500 次要文本 */
   /* 品牌色（暗色下在 .dark 提亮） */
   --brand: #065f46; /* emerald-800 品牌深绿 */
+  --brand-deep: #065f46; /* emerald-800 hero 深底，保证白字小字对比度 */
   --accent: #f59e0b; /* amber-500 能量琥珀 */
   /* 危险色「浅底胶囊」配对（暗色下在 .dark 重写；#208） */
   --danger-soft: #fef2f2; /* red-50 浅底 */
@@ -25,6 +26,7 @@
   --border-soft: #2a3833; /* 暗边框 */
   --muted: #a8a29e; /* stone-400 暗色次要文本提亮 */
   --brand: #059669; /* emerald-600 暗色提亮，避免深底糊成一片 */
+  --brand-deep: #047857; /* emerald-700 hero 深底：白字 5.48:1，不用随品牌色提亮 */
   --accent: #fbbf24; /* amber-400 暗色提亮 */
   /* 危险色浅底/文字在暗色下换配：深底上要提亮文字、压暗底色 */
   --danger-soft: rgb(127 29 29 / 0.3); /* red-900/30 暗色浅底 */
@@ -41,6 +43,7 @@
   --font-mono: ui-monospace, "SF Mono", "Cascadia Mono", Consolas, monospace;
   /* 品牌色 token（引用 :root/.dark 变量，暗色自动提亮） */
   --color-brand: var(--brand);
+  --color-brand-deep: var(--brand-deep);
   --color-accent: var(--accent);
   /* 语义色 token（约束增量代码；存量 green-* 硬编码不强制迁移，见 docs/ui-conventions.md） */
   --color-primary: var(--color-green-600);

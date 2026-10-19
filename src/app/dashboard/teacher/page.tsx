@@ -205,9 +205,9 @@ export default function TeacherDashboardPage() {
 
             {activeTab === "classes" && <ClassesTab mode="teacher" teacherUid={session.uid} />}
 
-            {activeTab === "tags" && <TagsTab />}
+            {activeTab === "tags" && <TagsTab readOnly />}
 
-            {activeTab === "profile-config" && <ProfileConfigTab />}
+            {activeTab === "profile-config" && <ProfileConfigTab readOnly />}
 
             {activeTab === "audit-logs" && <AuditLogsTab mode="teacher" />}
           </div>

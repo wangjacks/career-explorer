@@ -36,11 +36,11 @@ import type {
   TrendPoint,
   CompareStat,
   ClassTrendSeries,
+  ClassRosterRow,
   AssessmentRow,
   AssessmentQuestionRow,
   AssessmentResultRow,
   CompleteAssessmentInput,
-  ClassRosterRow,
 } from "./db";
 import { fillGroupedTrend, fillTrendSeries, shiftDate } from "./stats-utils";
 
@@ -2060,13 +2060,15 @@ export class MysqlAdapter implements DbAdapter {
       // 恢复期间关闭外键约束（全量 DELETE + INSERT 顺序可能违反 REFERENCES）
       await conn.execute("SET FOREIGN_KEY_CHECKS = 0");
       const tags = normalizeBackupTags(data.tags);
-      // 分组（#101）五表一律先清空：users / classes 是整表替换的，旧备份不含分组字段时若保留现状，
-      // 成员行会指向不存在或已换班的学生（恢复期间 FK 关闭，库不会拦），所以「无字段 = 恢复后未分组」
+      // 凡按 user_id / class_id 引用 users / classes 的持久表，恢复时一律无条件先清空：这两张表整表替换且按原 id 重插，
+      // 旧备份缺字段时若保留现状，行会指向已不存在、或已被别人占用的 id（恢复期间 FK 关闭，库不会拦，事后开启也不回溯校验）。
+      // 所以「缺字段 = 恢复后该功能无数据」，不是「保留不动」——#101 分组五表、#95 档案历史版本同此口径
       await conn.execute("DELETE FROM class_group_members");
       await conn.execute("DELETE FROM class_groups");
       await conn.execute("DELETE FROM group_batch_members");
       await conn.execute("DELETE FROM group_batch_groups");
       await conn.execute("DELETE FROM group_batches");
+      await conn.execute("DELETE FROM profile_submissions");
       await conn.execute("DELETE FROM teacher_classes");
       await conn.execute("DELETE FROM users");
       await conn.execute("DELETE FROM classes");
@@ -2204,9 +2206,8 @@ export class MysqlAdapter implements DbAdapter {
           );
         }
       }
-      // 档案提交历史版本恢复（#95；旧备份无此字段时保留当前记录不动）
+      // 档案提交历史版本恢复（#95；**含此字段才回填，旧备份恢复后即为无历史版本**——上面已统一清空）
       if (Array.isArray(data.profile_submissions)) {
-        await conn.execute("DELETE FROM profile_submissions");
         if (data.profile_submissions.length > 0) {
           const values = data.profile_submissions.map((p) => [
             p.id,

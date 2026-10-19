@@ -5,9 +5,9 @@ import { toast } from "sonner";
 
 /**
  * 档案功能设置（#94/#96/#111/#95）：承载「自定义标签数量上限」「档案提交截止时间」「上传大小上限」与「历史版本上限」，
- * 保存后即时生效。
+ * 保存后即时生效。这些配置对全站学生生效，写入只归管理员（#171），教师面板以 `readOnly` 查看。
  */
-export default function ProfileConfigTab() {
+export default function ProfileConfigTab({ readOnly = false }: { readOnly?: boolean }) {
   const [maxCustomTags, setMaxCustomTags] = useState(6);
   /** datetime-local 输入值（`YYYY-MM-DDTHH:mm`）；空串 = 不限制 */
   const [deadline, setDeadline] = useState("");
@@ -87,12 +87,17 @@ export default function ProfileConfigTab() {
     }
   };
 
+  /** 教师面板只读（#171）：这些配置对全站学生生效，写入只归管理员 */
+  const inputDisabled = !loaded || readOnly;
+
   return (
     <div className="bg-card rounded-xl border border-border-soft p-6 space-y-6">
       <div>
         <h2 className="font-semibold text-foreground">功能设置</h2>
         <p className="text-xs text-muted mt-1">
-          档案创建相关的功能配置，保存后即时生效。
+          {readOnly
+            ? "档案创建相关的功能配置，对全站学生生效，由管理员维护；此处仅供查看。"
+            : "档案创建相关的功能配置，保存后即时生效。"}
         </p>
       </div>
 
@@ -117,7 +122,7 @@ export default function ProfileConfigTab() {
               min={1}
               max={20}
               value={maxCustomTags}
-              disabled={!loaded}
+              disabled={inputDisabled}
               onChange={(e) => setMaxCustomTags(Number(e.target.value))}
               className="w-24 px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg text-sm bg-card text-foreground focus:outline-none focus:ring-2 focus:ring-focus-ring"
             />
@@ -133,11 +138,11 @@ export default function ProfileConfigTab() {
               id="submission-deadline"
               type="datetime-local"
               value={deadline}
-              disabled={!loaded}
+              disabled={inputDisabled}
               onChange={(e) => setDeadline(e.target.value)}
               className="px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg text-sm bg-card text-foreground focus:outline-none focus:ring-2 focus:ring-focus-ring"
             />
-            {deadline && (
+            {deadline && !readOnly && (
               <button
                 onClick={() => handleSave("")}
                 disabled={saving || !loaded}
@@ -162,7 +167,7 @@ export default function ProfileConfigTab() {
               min={1}
               max={20}
               value={maxAvatarSizeMb}
-              disabled={!loaded}
+              disabled={inputDisabled}
               onChange={(e) => setMaxAvatarSizeMb(Number(e.target.value))}
               className="w-24 px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg text-sm bg-card text-foreground focus:outline-none focus:ring-2 focus:ring-focus-ring"
             />
@@ -179,7 +184,7 @@ export default function ProfileConfigTab() {
               min={1}
               max={20}
               value={maxEvaluationSizeMb}
-              disabled={!loaded}
+              disabled={inputDisabled}
               onChange={(e) => setMaxEvaluationSizeMb(Number(e.target.value))}
               className="w-24 px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg text-sm bg-card text-foreground focus:outline-none focus:ring-2 focus:ring-focus-ring"
             />
@@ -197,22 +202,24 @@ export default function ProfileConfigTab() {
               min={1}
               max={100}
               value={maxProfileSubmissions}
-              disabled={!loaded}
+              disabled={inputDisabled}
               onChange={(e) => setMaxProfileSubmissions(Number(e.target.value))}
               className="w-24 px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg text-sm bg-card text-foreground focus:outline-none focus:ring-2 focus:ring-focus-ring"
             />
             <span className="text-xs text-muted">1-100，超出后自动保留最近版本</span>
           </div>
 
-          <div>
-            <button
-              onClick={() => handleSave()}
-              disabled={saving || !loaded}
-              className="px-6 py-2 bg-primary hover:bg-primary-strong disabled:opacity-50 text-white text-sm font-medium rounded-lg transition-colors"
-            >
-              {saving ? "保存中..." : "保存"}
-            </button>
-          </div>
+          {!readOnly && (
+            <div>
+              <button
+                onClick={() => handleSave()}
+                disabled={saving || !loaded}
+                className="px-6 py-2 bg-primary hover:bg-primary-strong disabled:opacity-50 text-white text-sm font-medium rounded-lg transition-colors"
+              >
+                {saving ? "保存中..." : "保存"}
+              </button>
+            </div>
+          )}
         </div>
       )}
     </div>
