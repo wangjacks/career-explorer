@@ -67,8 +67,9 @@ const UNDO_WINDOW_MS = 6000;
  * - 层级：分类可折叠、可全部展开/收起；标签可直接移动到其它分类
  * - 批量：批量移动 / 批量删除；删除统一确认弹窗 + 6 秒撤销窗口
  * - 导入导出：导入前预览影响面（新建分类 / 将跳过），并支持导出 XLSX 回导
+ * - `readOnly`：预设标签全站生效、只有管理员能改（#171），教师面板据此隐藏全部写入口
  */
-export default function TagsTab() {
+export default function TagsTab({ readOnly = false }: { readOnly?: boolean }) {
   const [tags, setTags] = useState<TagItem[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -878,7 +879,9 @@ export default function TagsTab() {
         <div>
           <h2 className="font-semibold text-foreground">标签管理</h2>
           <p className="text-xs text-muted mt-1">
-            删除为物理删除，不影响学生已提交的标签数据；删除分类会同时删除其下标签，删除后 6 秒内可撤销。
+            {readOnly
+              ? "预设标签全站生效，由管理员维护；教师可查看与导出。"
+              : "删除为物理删除，不影响学生已提交的标签数据；删除分类会同时删除其下标签，删除后 6 秒内可撤销。"}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -888,36 +891,40 @@ export default function TagsTab() {
               {exporting ? "导出中..." : "导出 XLSX"}
             </span>
           </button>
-          <button
-            onClick={() => setRestoreOpen(true)}
-            disabled={restoring}
-            className="px-3 py-1.5 border border-danger/40 text-danger hover:bg-danger/10 disabled:opacity-50 text-xs rounded-lg transition-colors"
-          >
-            {restoring ? "恢复中..." : "恢复默认预设"}
-          </button>
-          <button
-            onClick={() => setImportOpen((v) => !v)}
-            aria-pressed={importOpen}
-            className={secondaryButton}
-          >
-            <span className="inline-flex items-center gap-1.5">
-              <Upload className="w-3.5 h-3.5" />
-              批量导入
-            </span>
-          </button>
-          <button
-            onClick={() => setAddOpen((v) => !v)}
-            aria-pressed={addOpen}
-            className="flex items-center gap-1.5 px-4 py-2 bg-primary hover:bg-primary-strong text-white text-sm font-medium rounded-lg transition-colors"
-          >
-            <Plus size={16} />
-            新增
-          </button>
+          {!readOnly && (
+            <>
+              <button
+                onClick={() => setRestoreOpen(true)}
+                disabled={restoring}
+                className="px-3 py-1.5 border border-danger/40 text-danger hover:bg-danger/10 disabled:opacity-50 text-xs rounded-lg transition-colors"
+              >
+                {restoring ? "恢复中..." : "恢复默认预设"}
+              </button>
+              <button
+                onClick={() => setImportOpen((v) => !v)}
+                aria-pressed={importOpen}
+                className={secondaryButton}
+              >
+                <span className="inline-flex items-center gap-1.5">
+                  <Upload className="w-3.5 h-3.5" />
+                  批量导入
+                </span>
+              </button>
+              <button
+                onClick={() => setAddOpen((v) => !v)}
+                aria-pressed={addOpen}
+                className="flex items-center gap-1.5 px-4 py-2 bg-primary hover:bg-primary-strong text-white text-sm font-medium rounded-lg transition-colors"
+              >
+                <Plus size={16} />
+                新增
+              </button>
+            </>
+          )}
         </div>
       </div>
 
       {/* 新增表单（点 +新增 内联展开） */}
-      {addOpen && (
+      {!readOnly && addOpen && (
       <div className="grid gap-4 md:grid-cols-2">
         <div className="border border-border-soft rounded-lg p-4 space-y-3">
           <h3 className="text-sm font-medium text-foreground">新增一级分类</h3>
@@ -970,7 +977,7 @@ export default function TagsTab() {
       )}
 
       {/* 批量导入：粘贴 / 文件 / 拖拽 → 影响面预览 → 确认（点 +批量导入 内联展开） */}
-      {importOpen && (
+      {!readOnly && importOpen && (
       <div
         onDragOver={(e) => {
           e.preventDefault();
@@ -1078,33 +1085,39 @@ export default function TagsTab() {
 
       {/* 列表头：全选 / 视图控件 / 批量操作（常驻，批量按钮无选择时 disabled） */}
       <div className="flex flex-wrap items-center gap-2">
-        <label className="flex items-center gap-1.5 text-sm text-foreground cursor-pointer select-none whitespace-nowrap">
-          <input
-            ref={selectAllRef}
-            type="checkbox"
-            onChange={toggleSelectAllVisible}
-            className={checkboxClass}
-            aria-label="全选当前筛选结果"
-          />
-          {selection.affected > 0
-            ? `已选 ${selection.affected} / ${flatIds.length} 项（分类 ${selection.categories} · 标签 ${selection.tags}）`
-            : `全选 · 共 ${flatIds.length} 项`}
-        </label>
+        {!readOnly && (
+          <label className="flex items-center gap-1.5 text-sm text-foreground cursor-pointer select-none whitespace-nowrap">
+            <input
+              ref={selectAllRef}
+              type="checkbox"
+              onChange={toggleSelectAllVisible}
+              className={checkboxClass}
+              aria-label="全选当前筛选结果"
+            />
+            {selection.affected > 0
+              ? `已选 ${selection.affected} / ${flatIds.length} 项（分类 ${selection.categories} · 标签 ${selection.tags}）`
+              : `全选 · 共 ${flatIds.length} 项`}
+          </label>
+        )}
         <button onClick={toggleAllCollapsed} className={secondaryButton}>
           {allCollapsed ? "全部展开" : "全部折叠"}
         </button>
-        <button
-          onClick={() => setShowSelectedOnly((v) => !v)}
-          aria-pressed={showSelectedOnly}
-          className={`${secondaryButton} ${showSelectedOnly ? "ring-2 ring-focus-ring" : ""}`}
-        >
-          仅看已选
-        </button>
-        <div className="flex items-center gap-2 ml-auto">
-          <button onClick={openMove} disabled={selection.affected === 0} className={secondaryButton}>批量移动</button>
-          <button onClick={requestBatchDelete} disabled={selection.affected === 0} className={dangerButton}>批量删除</button>
-          <button onClick={clearSelection} disabled={selection.affected === 0} className={secondaryButton}>取消选择</button>
-        </div>
+        {!readOnly && (
+          <button
+            onClick={() => setShowSelectedOnly((v) => !v)}
+            aria-pressed={showSelectedOnly}
+            className={`${secondaryButton} ${showSelectedOnly ? "ring-2 ring-focus-ring" : ""}`}
+          >
+            仅看已选
+          </button>
+        )}
+        {!readOnly && (
+          <div className="flex items-center gap-2 ml-auto">
+            <button onClick={openMove} disabled={selection.affected === 0} className={secondaryButton}>批量移动</button>
+            <button onClick={requestBatchDelete} disabled={selection.affected === 0} className={dangerButton}>批量删除</button>
+            <button onClick={clearSelection} disabled={selection.affected === 0} className={secondaryButton}>取消选择</button>
+          </div>
+        )}
       </div>
 
       {/* 列表 */}
@@ -1163,35 +1176,41 @@ export default function TagsTab() {
                       >
                         {isCollapsed ? <ChevronRight className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
                       </button>
-                      <input
-                        type="checkbox"
-                        checked={selected.has(category.id)}
-                        onChange={() => {}}
-                        onClick={(e) => handleCategoryToggle(category.id, e)}
-                        aria-label={`选择分类 ${category.name}（含其下 ${allChildren.length} 个标签）`}
-                        className={checkboxClass}
-                      />
+                      {!readOnly && (
+                        <input
+                          type="checkbox"
+                          checked={selected.has(category.id)}
+                          onChange={() => {}}
+                          onClick={(e) => handleCategoryToggle(category.id, e)}
+                          aria-label={`选择分类 ${category.name}（含其下 ${allChildren.length} 个标签）`}
+                          className={checkboxClass}
+                        />
+                      )}
                       <span className="flex-1 min-w-0 text-sm font-medium truncate text-foreground">{category.name}</span>
                       <span className="text-xs text-muted flex-shrink-0 hidden sm:inline">
                         一级分类 · {allChildren.length} 个标签
                         {selectedChildren > 0 && ` · 已选 ${selectedChildren}`}
                       </span>
-                      <SortBtn onClick={() => moveTag(category, -1)} dir="up" label={`上移分类 ${category.name}`} />
-                      <SortBtn onClick={() => moveTag(category, 1)} dir="down" label={`下移分类 ${category.name}`} />
-                      <button
-                        onClick={() => setEditing({ ...category })}
-                        aria-label={`编辑分类 ${category.name}`}
-                        className="p-1 rounded-md text-muted hover:text-foreground hover:bg-gray-100 dark:hover:bg-gray-700 flex-shrink-0"
-                      >
-                        <Pencil className="w-3.5 h-3.5" />
-                      </button>
-                      <button
-                        onClick={() => requestSingleDelete(category)}
-                        aria-label={`删除分类 ${category.name}`}
-                        className="p-1 rounded-md text-danger hover:bg-danger/10 flex-shrink-0"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
+                      {!readOnly && (
+                        <>
+                          <SortBtn onClick={() => moveTag(category, -1)} dir="up" label={`上移分类 ${category.name}`} />
+                          <SortBtn onClick={() => moveTag(category, 1)} dir="down" label={`下移分类 ${category.name}`} />
+                          <button
+                            onClick={() => setEditing({ ...category })}
+                            aria-label={`编辑分类 ${category.name}`}
+                            className="p-1 rounded-md text-muted hover:text-foreground hover:bg-gray-100 dark:hover:bg-gray-700 flex-shrink-0"
+                          >
+                            <Pencil className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            onClick={() => requestSingleDelete(category)}
+                            aria-label={`删除分类 ${category.name}`}
+                            className="p-1 rounded-md text-danger hover:bg-danger/10 flex-shrink-0"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </>
+                      )}
                     </div>
                   )}
                 </div>
@@ -1239,31 +1258,37 @@ export default function TagsTab() {
                         </div>
                       ) : (
                         <div className="flex items-center gap-2">
-                          <input
-                            type="checkbox"
-                            checked={selected.has(tag.id)}
-                            onChange={() => {}}
-                            onClick={(e) => handleTagToggle(tag, e)}
-                            aria-label={`选择标签 ${tag.name}`}
-                            className={checkboxClass}
-                          />
+                          {!readOnly && (
+                            <input
+                              type="checkbox"
+                              checked={selected.has(tag.id)}
+                              onChange={() => {}}
+                              onClick={(e) => handleTagToggle(tag, e)}
+                              aria-label={`选择标签 ${tag.name}`}
+                              className={checkboxClass}
+                            />
+                          )}
                           <span className="flex-1 min-w-0 text-sm text-foreground truncate">{tag.name}</span>
-                          <SortBtn onClick={() => moveTag(tag, -1)} dir="up" label={`上移标签 ${tag.name}`} />
-                          <SortBtn onClick={() => moveTag(tag, 1)} dir="down" label={`下移标签 ${tag.name}`} />
-                          <button
-                            onClick={() => setEditing({ ...tag })}
-                            aria-label={`编辑标签 ${tag.name}`}
-                            className="p-1 rounded-md text-muted hover:text-foreground hover:bg-gray-100 dark:hover:bg-gray-700 flex-shrink-0"
-                          >
-                            <Pencil className="w-3.5 h-3.5" />
-                          </button>
-                          <button
-                            onClick={() => requestSingleDelete(tag)}
-                            aria-label={`删除标签 ${tag.name}`}
-                            className="p-1 rounded-md text-danger hover:bg-danger/10 flex-shrink-0"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
+                          {!readOnly && (
+                            <>
+                              <SortBtn onClick={() => moveTag(tag, -1)} dir="up" label={`上移标签 ${tag.name}`} />
+                              <SortBtn onClick={() => moveTag(tag, 1)} dir="down" label={`下移标签 ${tag.name}`} />
+                              <button
+                                onClick={() => setEditing({ ...tag })}
+                                aria-label={`编辑标签 ${tag.name}`}
+                                className="p-1 rounded-md text-muted hover:text-foreground hover:bg-gray-100 dark:hover:bg-gray-700 flex-shrink-0"
+                              >
+                                <Pencil className="w-3.5 h-3.5" />
+                              </button>
+                              <button
+                                onClick={() => requestSingleDelete(tag)}
+                                aria-label={`删除标签 ${tag.name}`}
+                                className="p-1 rounded-md text-danger hover:bg-danger/10 flex-shrink-0"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </>
+                          )}
                         </div>
                       )}
                     </div>
@@ -1279,10 +1304,16 @@ export default function TagsTab() {
           })}
           {categories.length === 0 && (
             <div className="text-center py-10 space-y-3">
-              <p className="text-sm text-muted">还没有分类：先新增一级分类，或在上方批量导入「分类,标签名」</p>
-              <button onClick={() => setAddOpen(true)} className={primaryButton}>
-                新增一级分类
-              </button>
+              <p className="text-sm text-muted">
+                {readOnly
+                  ? "管理员还没有配置预设标签；学生可自定义填写标签。"
+                  : "还没有分类：先新增一级分类，或在上方批量导入「分类,标签名」"}
+              </p>
+              {!readOnly && (
+                <button onClick={() => setAddOpen(true)} className={primaryButton}>
+                  新增一级分类
+                </button>
+              )}
             </div>
           )}
           {categories.length > 0 && visibleRows.length === 0 && (

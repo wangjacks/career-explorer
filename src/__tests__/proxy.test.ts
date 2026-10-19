@@ -79,13 +79,12 @@ describe("proxy", () => {
   });
 
   describe("teacher role", () => {
-    it("should allow teacher all methods on classes/students/tags/export", async () => {
+    it("should allow teacher all methods on classes/students/export（写入归属由路由内判定，#171）", async () => {
       const token = await signToken({ role: "teacher", uid: 3, name: "测试教师" });
       const paths = [
         "/api/manage/classes",
         "/api/manage/students",
         "/api/manage/students/batch-password",
-        "/api/manage/tags",
         "/api/manage/export",
         "/api/manage/export-images",
       ];
@@ -94,6 +93,23 @@ describe("proxy", () => {
           const res = await proxy(createRequest(path, { auth_token: token }, method));
           expect(res.status).toBe(200);
         }
+      }
+    });
+
+    it("should allow teacher GET-only on tags and profile-config（全站生效配置写入归管理员，#171）", async () => {
+      const token = await signToken({ role: "teacher", uid: 3, name: "测试教师" });
+      for (const path of ["/api/manage/tags", "/api/manage/profile-config"]) {
+        const getRes = await proxy(createRequest(path, { auth_token: token }, "GET"));
+        expect(getRes.status).toBe(200);
+        for (const method of ["POST", "PATCH", "PUT", "DELETE"]) {
+          const res = await proxy(createRequest(path, { auth_token: token }, method));
+          expect(res.status).toBe(403);
+        }
+      }
+      // 子路由同样只读（前缀匹配覆盖 tags/batch 与 tags/restore）
+      for (const path of ["/api/manage/tags/batch", "/api/manage/tags/restore"]) {
+        const res = await proxy(createRequest(path, { auth_token: token }, "POST"));
+        expect(res.status).toBe(403);
       }
     });
 

@@ -1,28 +1,49 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getUserByCode, updateUser } from "@/lib/db";
+import { getUserByCode, updateUser, type UserRow } from "@/lib/db";
 import { hashPassword } from "@/lib/auth";
 import { generatePassword } from "@/lib/password";
-import { getAuditActor, getRequestContext, recordAudit } from "@/lib/audit";
+import { getRequestContext, recordAudit } from "@/lib/audit";
+import { WriteGuard } from "../../write-guard";
+
+const ENTRY = {
+  action: "student:batch-password",
+  method: "POST",
+  path: "/api/manage/students/batch-password",
+  resource_type: "student",
+} as const;
 
 /** POST：为多名学生批量重置密码，每人生成不同的随机密码并哈希落库 */
 export async function POST(request: NextRequest) {
   const { ip, user_agent } = getRequestContext(request);
-  const actor = await getAuditActor(request);
+  const guard = await WriteGuard.from(request);
+  const actor = guard.actor;
   try {
+    if (!guard.session) return guard.unauthenticated();
     const { studentIds } = await request.json();
     if (!Array.isArray(studentIds) || studentIds.length === 0) {
       return NextResponse.json({ error: "请选择要重置密码的学生" }, { status: 400 });
     }
 
-    const results: { user_code: string; name: string; password: string }[] = [];
+    // 归属校验（#171）：先全部判定再写入，任一学生越界则整批拒绝
+    const targets: UserRow[] = [];
     let invalid = 0;
-
     for (const rawId of studentIds) {
       const user = await getUserByCode(String(rawId));
       if (!user || user.role !== "student") {
         invalid++;
         continue;
       }
+      if (!guard.canWriteStudent(user)) {
+        return guard.deny(ENTRY, null, "该学生不在你管理的班级", 403, {
+          requested: studentIds.length,
+          class_id: user.class_id,
+        });
+      }
+      targets.push(user);
+    }
+
+    const results: { user_code: string; name: string; password: string }[] = [];
+    for (const user of targets) {
       const password = generatePassword();
       await updateUser(user.id, { password_hash: await hashPassword(password) });
       results.push({ user_code: user.user_code, name: user.name, password });
@@ -30,8 +51,7 @@ export async function POST(request: NextRequest) {
 
     if (results.length === 0) {
       void recordAudit({
-        ...actor, action: "student:batch-password", method: "POST", path: "/api/manage/students/batch-password",
-        resource_type: "student", resource_id: null,
+        ...actor, ...ENTRY, resource_id: null,
         status: "failed", error_message: "没有可重置的学生", ip, user_agent,
         metadata: { requested: studentIds.length },
       });
@@ -40,8 +60,7 @@ export async function POST(request: NextRequest) {
 
     // 审计仅记人数，绝不记录生成的密码（#110）
     void recordAudit({
-      ...actor, action: "student:batch-password", method: "POST", path: "/api/manage/students/batch-password",
-      resource_type: "student", resource_id: null,
+      ...actor, ...ENTRY, resource_id: null,
       status: "success", error_message: null, ip, user_agent,
       metadata: { reset: results.length, invalid },
     });
