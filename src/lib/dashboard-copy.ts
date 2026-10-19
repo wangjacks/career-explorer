@@ -10,6 +10,10 @@
  * 只影响显示：数据口径、取数参数、图表类型、排序与无障碍语义都不经由这里传递。
  * 例外是 `classLabel`——「未分班」是接口返回的数据值，教师侧只在展示时换成「还没分班」，
  * 任何比较与排序仍认原值。
+ *
+ * **范围口径**：两端读的是同一份**全校**数据（`/api/manage/stats/*` 没有教师/班级过滤），
+ * 所以教师侧文案里不能出现「本班 / 全班」这类会被理解成「只看我这个班」的词，
+ * 一律用「学生总数 / 所有学生」这类与数据范围一致的说法（#242 评审 P1）。
  */
 
 export interface DashboardCopy {
@@ -26,6 +30,10 @@ export interface DashboardCopy {
   chartFailedTitle: string;
   /** 卡片内取数失败态的下一步指引 */
   chartFailedHint: string;
+  /** tooltip 数值后缀单位（含前导空格，直接拼在数字后） */
+  tooltipPeopleUnit: string;
+  /** tooltip 日期行前缀（含尾随空格） */
+  tooltipDatePrefix: string;
 
   /* 提交进度大屏 */
   heroSubmittedOfTotal: string;
@@ -46,6 +54,8 @@ export interface DashboardCopy {
   trendGroupTotalLabel: string;
   trendGroupClassLabel: string;
   trendDaysAriaLabel: string;
+  /** 天数按钮的文字（单位两角色一致，但同样收进文案表，避免组件里再出现面向用户的硬编码） */
+  trendDaysOptionLabel: (days: number) => string;
   trendLoadingByClass: string;
   trendPendingNote: string;
   trendEmptyTitle: string;
@@ -86,6 +96,8 @@ export const ADMIN_DASHBOARD_COPY: DashboardCopy = {
 
   chartFailedTitle: "数据加载失败",
   chartFailedHint: "点上方横幅的「重试」重新获取。",
+  tooltipPeopleUnit: " 人",
+  tooltipDatePrefix: "日期 ",
 
   heroSubmittedOfTotal: "已提交 / 在册",
   heroRateLabel: "提交率",
@@ -104,6 +116,7 @@ export const ADMIN_DASHBOARD_COPY: DashboardCopy = {
   trendGroupTotalLabel: "全校",
   trendGroupClassLabel: "按班级",
   trendDaysAriaLabel: "趋势天数",
+  trendDaysOptionLabel: (days) => `${days}天`,
   trendLoadingByClass: "正在按班级拆分…",
   trendPendingNote: "更新中",
   trendEmptyTitle: "所选窗口内还没有提交记录",
@@ -139,13 +152,15 @@ export const TEACHER_DASHBOARD_COPY: DashboardCopy = {
 
   chartFailedTitle: "数据没取到",
   chartFailedHint: "点上面的「重试」再来一次。",
+  tooltipPeopleUnit: " 人",
+  tooltipDatePrefix: "日期 ",
 
-  heroSubmittedOfTotal: "已交 / 全班人数",
+  heroSubmittedOfTotal: "已交 / 学生总数",
   heroRateLabel: "交齐比例",
   heroAriaTotals: (submitted, enrolled, unsubmitted) =>
-    `已交 ${submitted} 人，全班 ${enrolled} 人，还有 ${unsubmitted} 人没交`,
+    `已交 ${submitted} 人，学生共 ${enrolled} 人，还有 ${unsubmitted} 人没交`,
   heroMissing: (count) => `还有 ${count} 人没交`,
-  heroAllSubmitted: "全班都交齐了",
+  heroAllSubmitted: "所有学生都交齐了",
   heroProgressFailed: "进度没取到，点上面的「重试」再来一次。",
   heroNoStudents: "还没有学生，导入名单后这里会显示提交进度。",
 
@@ -156,6 +171,7 @@ export const TEACHER_DASHBOARD_COPY: DashboardCopy = {
   trendGroupTotalLabel: "全校",
   trendGroupClassLabel: "分班级",
   trendDaysAriaLabel: "看几天",
+  trendDaysOptionLabel: (days) => `${days}天`,
   trendLoadingByClass: "正在分班统计…",
   trendPendingNote: "更新中",
   trendEmptyTitle: "这几天还没有学生提交",
@@ -173,11 +189,11 @@ export const TEACHER_DASHBOARD_COPY: DashboardCopy = {
   distEmptyHint: "学生提交之后，这里会统计兴趣 / 技能 / 性格等标签各被提到多少次。",
 
   compareEyebrow: "各班比一比",
-  compareTitle: "各班完成情况（柱子高度＝全班人数）",
+  compareTitle: "各班完成情况（柱子高度＝人数）",
   compareLegendSubmitted: "已交",
   compareLegendUnsubmitted: "没交",
   compareRateNote: "每根柱子上方是交齐比例",
-  compareTooltipTotals: (enrolled, rateText) => `全班 ${enrolled} 人 · 交齐比例 ${rateText}`,
+  compareTooltipTotals: (enrolled, rateText) => `共 ${enrolled} 人 · 交齐比例 ${rateText}`,
   compareEmptyTitle: "还没有学生",
   compareEmptyHint: "先去「班级管理」建班、到「学生管理」导入名单，这里就能比较各班的完成情况。",
   classLabel: (key) => (key === "未分班" ? "还没分班" : key),
