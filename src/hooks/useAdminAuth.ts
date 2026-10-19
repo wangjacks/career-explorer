@@ -2,7 +2,7 @@
 
 import { useState, useCallback, useEffect } from "react";
 import { toast } from "sonner";
-import type { DimensionScore } from "@/lib/assessment-scoring";
+import type { RiasecScoreSnapshot } from "@/lib/assessment-view";
 
 export interface Profile {
   /** 数字用户 id（#95）：版本历史等关联查询使用；旧接口响应可能缺失，容忍 undefined */
@@ -22,7 +22,7 @@ export interface Profile {
   /** 测评完成时间（#234）；未测为 null */
   assessmentAt?: string | null;
   /** 六型标准分快照（#234 详情弹窗条形用，与结果页同一份）；未测为 null */
-  assessmentScores?: DimensionScore[] | null;
+  assessmentScores?: RiasecScoreSnapshot[] | null;
 }
 
 export interface Student {

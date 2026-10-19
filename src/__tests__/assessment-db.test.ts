@@ -553,7 +553,7 @@ function dimensionKeys(): string[] {
   return RIASEC_DIMENSIONS.map((d) => d.key);
 }
 
-describe("按用户批查当前测评结果（#234 数据列表）", () => {
+describe("按学号批查当前测评结果（#234 数据列表 / #233 导出共用）", () => {
   function complete(adapter: SqliteAdapter, userId: number, assessmentId: number, typeCode: string, scoresJson: string) {
     return adapter.completeAssessmentResult({
       userId,
@@ -564,7 +564,7 @@ describe("按用户批查当前测评结果（#234 数据列表）", () => {
     });
   }
 
-  it("只返回 completed + is_current：草稿与历史版本都不算「测过」", () => {
+  it("只返回 completed + is_current：草稿与历史版本都不算「测过」，也不带作答内容", () => {
     const { dbPath, adapter, studentId, assessment } = setup();
     const second = adapter.insertUser({ user_code: "202505050102", role: "student", name: "李四" });
     const third = adapter.insertUser({ user_code: "202505050103", role: "student", name: "王五" });
@@ -579,31 +579,39 @@ describe("按用户批查当前测评结果（#234 数据列表）", () => {
     // 王五：完成一次
     complete(adapter, third, assessment.id, "AIC", JSON.stringify([{ key: "A", standard: 77 }]));
 
-    const rows = adapter.getCurrentAssessmentResultsByUsers(assessment.id, [studentId, second, third]);
+    const rows = adapter.getCurrentAssessmentResultsByUserCodes(assessment.id, [
+      "202505050101",
+      "202505050102",
+      "202505050103",
+    ]);
 
     expect(rows).toHaveLength(2);
-    const byUser = new Map(rows.map((row) => [row.user_id, row]));
-    expect(byUser.get(studentId)?.type_code).toBe("SEC");
-    expect(byUser.get(studentId)?.scores_json).toContain('"standard":88');
-    expect(byUser.get(studentId)?.completed_at).toBeTruthy();
-    expect(byUser.has(second)).toBe(false);
-    expect(byUser.get(third)?.type_code).toBe("AIC");
+    const byCode = new Map(rows.map((row) => [row.user_code, row]));
+    // 张三的当前版本是第二次交卷的结果，历史版本不返回
+    expect(byCode.get("202505050101")?.type_code).toBe("SEC");
+    expect(byCode.get("202505050101")?.scores_json).toContain('"standard":88');
+    expect(byCode.get("202505050101")?.completed_at).toBeTruthy();
+    // 只有草稿的学号不出现在结果里
+    expect(byCode.has("202505050102")).toBe(false);
+    expect(byCode.get("202505050103")?.type_code).toBe("AIC");
+    // 四列轻量快照，不搬作答内容
+    expect(rows[0]).not.toHaveProperty("answers_json");
 
     adapter.close();
     cleanup(dbPath);
   });
 
-  it("空集合短路返回空数组；名单远超分片大小时照常返回（#193 同款分片）", () => {
+  it("空集合短路返回空数组；名单跨分片仍返回完整结果（#193 同款分片）", () => {
     const { dbPath, adapter, studentId, assessment } = setup();
     complete(adapter, studentId, assessment.id, "RIA", "[]");
 
-    expect(adapter.getCurrentAssessmentResultsByUsers(assessment.id, [])).toEqual([]);
+    expect(adapter.getCurrentAssessmentResultsByUserCodes(assessment.id, [])).toEqual([]);
 
-    // 600 个学号里只有 1 个真实存在：跨片查询不报错、结果完整
-    const ids = Array.from({ length: 600 }, (_, index) => 100000 + index);
-    const rows = adapter.getCurrentAssessmentResultsByUsers(assessment.id, [studentId, ...ids]);
-    expect(rows).toHaveLength(1);
-    expect(rows[0].user_id).toBe(studentId);
+    // 第二片才命中：600 个学号里只有最后一个真实存在
+    const codes = Array.from({ length: 600 }, (_, index) => String(100000000000 + index));
+    codes[codes.length - 1] = "202505050101";
+    const rows = adapter.getCurrentAssessmentResultsByUserCodes(assessment.id, codes);
+    expect(rows.map((row) => row.user_code)).toEqual(["202505050101"]);
 
     adapter.close();
     cleanup(dbPath);

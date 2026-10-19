@@ -3,7 +3,7 @@ import {
   getSubmittedProfiles,
   clearSubmissions,
   getAssessmentByCode,
-  getCurrentAssessmentResultsByUsers,
+  getCurrentAssessmentResultsByUserCodes,
 } from "@/lib/db";
 import { RIASEC_CODE } from "@/lib/assessment-data";
 import { parseScores } from "@/lib/assessment-flow";
@@ -19,14 +19,14 @@ export async function GET(request: NextRequest) {
     // #234：给本页每行补「兴趣测评」字段（列表列 + 详情弹窗条形）。
     // 只认 status=completed 且 is_current=1 的结果——草稿与历史版本都不算「测过」；
     // 未测行统一给 none / null，前端据此渲染灰胶囊而不是否定式样式。
-    // 学生端同一份数据来自 `/api/shared/assessment/results`（三字码 + 六型快照口径一致）。
-    const userIds = rows.map((r) => r.id);
+    // 按当页学号一次批查（与 #233 导出共用同一个数据层方法），不做全校扫表。
+    const studentCodes = rows.map((r) => r.user_code);
     const assessment = await getAssessmentByCode(RIASEC_CODE);
     const results =
-      assessment && userIds.length > 0
-        ? await getCurrentAssessmentResultsByUsers(assessment.id, userIds)
+      assessment && studentCodes.length > 0
+        ? await getCurrentAssessmentResultsByUserCodes(assessment.id, studentCodes)
         : [];
-    const resultByUser = new Map(results.map((r) => [r.user_id, r]));
+    const resultByCode = new Map(results.map((r) => [r.user_code, r]));
 
     return NextResponse.json({
       data: rows.map((r) => {
@@ -36,7 +36,7 @@ export async function GET(request: NextRequest) {
           const parsed = r.tags ? JSON.parse(r.tags) : [];
           tags = Array.isArray(parsed) ? parsed.map((t) => String(t)) : [];
         } catch {}
-        const result = resultByUser.get(r.id);
+        const result = resultByCode.get(r.user_code);
         return {
           // #95：补充数字 userId，供版本历史等关联查询使用
           userId: r.id,
@@ -51,7 +51,10 @@ export async function GET(request: NextRequest) {
           assessmentCode: result?.type_code ?? null,
           assessmentStatus: result ? "completed" : "none",
           assessmentAt: result?.completed_at ?? null,
-          assessmentScores: result ? parseScores(result.scores_json) : null,
+          // 只下发条形需要的「维度 + 标准分」，不把 raw / band / 作答计数带到教师端
+          assessmentScores: result
+            ? parseScores(result.scores_json).map(({ key, standard }) => ({ key, standard }))
+            : null,
         };
       }),
       total,

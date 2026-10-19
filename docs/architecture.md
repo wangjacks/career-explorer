@@ -289,14 +289,14 @@
 
 ## 教师端数据列表测评列（#234）
 
-<!-- 对账：配色 `src/lib/assessment-colors.ts`；筛选/徽章口径 `src/lib/profile-assessment.ts`；SQL 在两适配器的 getCurrentAssessmentResultsByUsers；测试 `assessment-colors` / `profile-assessment` / `profiles-api` / `assessment-db` -->
+<!-- 对账：配色 `src/lib/assessment-colors.ts`；筛选/徽章口径 `src/lib/profile-assessment.ts`；SQL 在两适配器的 getCurrentAssessmentResultsByUserCodes（与 #233 导出共用同一个数据层方法）；测试 `assessment-colors` / `profile-assessment` / `profiles-api` / `assessment-db` -->
 
 - **只加一列**：8 列 → 9 列（「兴趣测评」插在「标签」与「提交时间」之间，空态 `colSpan` 同步改 9）。窄屏仍靠既有横向滚动，不拆「六型」六列
-- **数据来源**：`/api/manage/profiles` 每行补三个字段 + 六型快照；SQL 只认 `assessment_id = riasec`、`status='completed'`、`is_current=1`（草稿、旧版本都不算「测过」），按**当页用户 id 集合**批查（`IN` 分片 500，与 #193 同一套 `chunkArray`），不做全校扫表
+- **数据来源**：`/api/manage/profiles` 每行补三个字段 + 六型快照；SQL 只认 `assessment_id = riasec`、`status='completed'`、`is_current=1`（草稿、旧版本都不算「测过」），按**当页学号集合**批查（`IN` 分片 500，与 #193 同一套 `chunkArray`），不做全校扫表。该批查方法与 #233 教师导出**共用同一份实现**（`getCurrentAssessmentResultsByUserCodes`，四列轻量快照），避免两个功能各写一条 SQL
 - **展示口径**：已测 = 三字码徽章（底色取首位字母的类型色、文字色按对比度选）；未测 = 灰态「未测」胶囊，不用红叉这类否定式样式；该列**不提供排序**（三字码非数值），学号/姓名/提交时间排序行为不变
 - **配色单一来源**：六型固定色值定义在 `assessment-colors.ts`，数据列表徽章、数据大屏测评栏（#232）、导出列（#233）都应 import 这里，避免三处各异；`C` 的底色偏亮，文字色用深色以保证 WCAG AA（白字只有 3.68:1），单测锁每对文本/底色对比度 ≥ 4.5:1
 - **筛选口径**：主导型胶囊「全部 / R / I / A / S / E / C / 未测」与搜索、标签筛选**同为当前页内客户端过滤**（`matchesAssessmentLead`），不引入新分页/查询协议；跨页过滤仍是列表既有局限，本列不改
-- **详情弹窗**：新增「职业兴趣测评」区块——三字码徽章 + 六型横向条（顺序/百分比/前三型标记复用结果页 `buildRiasecBars`，与学生端报告必然一致）+ 完成时间 + 「该生重测」指引文案；未测时整块不渲染。弹窗宽度仍 `max-w-md`，不放雷达图
+- **详情弹窗**：新增「职业兴趣测评」区块——三字码徽章 + 六型横向条（顺序/百分比/前三型标记复用结果页 `buildRiasecBars`，与学生端报告必然一致）+ 完成时间 + 「该生重测」指引文案；未测时整块不渲染，**快照缺失/损坏（解析为空）时只显示徽章与时间、不画六条 0**。下发的快照只含 `{ key, standard }`（不带 raw / band / 作答计数），`buildRiasecBars` 对缺 `label` 的轻量快照回退中文型名。弹窗宽度仍 `max-w-md`，不放雷达图
 - **数据敏感度**：教师端数据列表本就返回学生姓名/标签/档案图；本列只是同一权限边界内的补充字段，故不新增审计动作（与名册接口 `/assessment/roster` 不同——那个是纯个人明细端点，见 #229 口径）
 
 ## 文件存储（#111 对象存储）

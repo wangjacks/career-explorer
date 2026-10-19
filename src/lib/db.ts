@@ -372,6 +372,20 @@ export interface AssessmentResultRow {
   completed_at: string | null;
 }
 
+/**
+ * 教师侧「当前测评结果」轻量快照（#233 导出 / #234 数据列表共用）：一次批查，不逐学生查库。
+ *
+ * 只带需要的四列（学号 / 三字码 / 维度分快照 / 完成时间），不含作答内容——两个消费方都
+ * 没有「逐题作答」的诉求，少取一列就少一份个人数据的搬运面。
+ */
+export interface AssessmentResultSummary {
+  user_code: string;
+  type_code: string | null;
+  scores_json: string | null;
+  completed_at: string | null;
+}
+
+
 /** completeAssessmentResult 入参（计分由调用方用计分引擎算好再落库，数据层不重复实现算法） */
 export interface CompleteAssessmentInput {
   userId: number;
@@ -406,20 +420,6 @@ export interface AssessmentRosterRow {
   /** 三字码（首位即归型依据） */
   code: string;
   assessed_at: string;
-}
-
-/**
- * 按用户批查的「当前有效测评结果」（#234 数据列表）：
- * 只含 `status=completed` 且 `is_current=1` 的轻量字段，**不含作答内容**；
- * `scores_json` 是计分时的六型标准分快照，调用方按需解析。
- */
-export interface AssessmentUserResultRow {
-  user_id: number;
-  /** 霍兰德三字码；历史脏数据可能为 NULL */
-  type_code: string | null;
-  completed_at: string;
-  /** 六型标准分快照 JSON（`DimensionScore[]`，与结果页同一份） */
-  scores_json: string;
 }
 
 /**
@@ -781,13 +781,13 @@ export interface DbAdapter {
   /** 完成记录历史（新→旧，不含草稿），供结果页回看与版本对比 */
   getAssessmentResults(userId: number, assessmentId: number): Promise<AssessmentResultRow[]> | AssessmentResultRow[];
   /**
-   * 按用户集合批查各自的**当前有效**测评结果（#234 数据列表）：只取 completed + is_current，
-   * 适配器内分片，避免名单很长时超 SQL 参数上限。返回顺序不保证，调用方自行建索引。
+   * 按学号集合批量取「当前有效完成结果」的轻量快照（#233 教师导出 / #234 数据列表共用）：
+   * 一次查询（适配器内部分块），未测评的学号不会出现在结果里，由调用方按缺失留空。
    */
-  getCurrentAssessmentResultsByUsers(
+  getCurrentAssessmentResultsByUserCodes(
     assessmentId: number,
-    userIds: number[]
-  ): Promise<AssessmentUserResultRow[]> | AssessmentUserResultRow[];
+    userCodes: string[]
+  ): Promise<AssessmentResultSummary[]> | AssessmentResultSummary[];
 
   // onet_occupations（#226 O*NET 职业库：离线导入的只读参考数据）
   /** 全部职业（按 code 升序）。匹配在内存里做（余弦），一次读全量比逐条查省事且结果稳定 */
@@ -1393,12 +1393,13 @@ export async function getAssessmentResults(
   return Promise.resolve(adapter.getAssessmentResults(userId, assessmentId));
 }
 
-export async function getCurrentAssessmentResultsByUsers(
+/** 按学号集合批量取当前测评结果快照（#233 教师导出 / #234 数据列表：一次查询） */
+export async function getCurrentAssessmentResultsByUserCodes(
   assessmentId: number,
-  userIds: number[]
-): Promise<AssessmentUserResultRow[]> {
+  userCodes: string[]
+): Promise<AssessmentResultSummary[]> {
   const adapter = await ensureInit();
-  return Promise.resolve(adapter.getCurrentAssessmentResultsByUsers(assessmentId, userIds));
+  return Promise.resolve(adapter.getCurrentAssessmentResultsByUserCodes(assessmentId, userCodes));
 }
 
 /** #226：O*NET 职业库全量（按 code 升序），推荐接口在内存里做余弦匹配 */

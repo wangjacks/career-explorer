@@ -68,8 +68,19 @@ export interface CareerCardView {
   meta: string;
 }
 
-/** 服务端结果快照里的 `scores` 可能带任意历史键：只认 RIASEC 六型，其余忽略 */
-function scoreOf(scores: readonly DimensionScore[], key: RiasecKey): DimensionScore | undefined {
+/**
+ * 条形图/雷达图的最小输入：只需要「维度 + 标准分」。
+ * `label` 缺省时回退 `RIASEC_LABELS` 的中文型名——教师端列表（#234）下发的是轻量快照
+ * （不带 raw / band / 作答计数），照样复用同一套整理口径，不用另写一份。
+ */
+export interface RiasecScoreSnapshot {
+  key: string;
+  label?: string;
+  standard: number;
+}
+
+/** 结果快照里的 `scores` 可能带任意历史键：只认传入的 key，其余忽略 */
+function scoreOf<T extends { key: string }>(scores: readonly T[], key: string): T | undefined {
   return scores.find((score) => score.key === key);
 }
 
@@ -97,7 +108,7 @@ export function describeTypeCode(typeCode: string | null | undefined): string {
  * `isTop` 标出三字码里的前三型。
  */
 export function buildRiasecBars(
-  scores: readonly DimensionScore[],
+  scores: readonly RiasecScoreSnapshot[],
   typeCode: string | null | undefined
 ): RiasecBar[] {
   const topKeys = new Set(parseTypeCodeParts(typeCode).map((part) => part.key));

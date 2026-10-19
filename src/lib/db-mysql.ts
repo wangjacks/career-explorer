@@ -43,11 +43,11 @@ import type {
   AssessmentRow,
   AssessmentQuestionRow,
   AssessmentResultRow,
+  AssessmentResultSummary,
   CompleteAssessmentInput,
   OnetOccupationRow,
   AssessmentStatsRaw,
   AssessmentRosterRow,
-  AssessmentUserResultRow,
 } from "./db";
 import { fillGroupedTrend, fillTrendSeries, shiftDate } from "./stats-utils";
 
@@ -2096,22 +2096,25 @@ export class MysqlAdapter implements DbAdapter {
     return rows as AssessmentResultRow[];
   }
 
-  async getCurrentAssessmentResultsByUsers(
+  async getCurrentAssessmentResultsByUserCodes(
     assessmentId: number,
-    userIds: number[]
-  ): Promise<AssessmentUserResultRow[]> {
-    const unique = [...new Set(userIds)];
-    if (unique.length === 0) return [];
-    const rows: AssessmentUserResultRow[] = [];
-    for (const chunk of chunkArray(unique)) {
+    userCodes: string[]
+  ): Promise<AssessmentResultSummary[]> {
+    if (userCodes.length === 0) return [];
+    const rows: AssessmentResultSummary[] = [];
+    for (const chunk of chunkArray([...new Set(userCodes)])) {
       const placeholders = chunk.map(() => "?").join(",");
+      // 只需要列表/导出用的四列：不取作答内容，也不取整行（#233/#234）
       const [chunkRows] = await this.pool.execute(
-        `SELECT user_id, type_code, completed_at, scores_json FROM assessment_results
-         WHERE assessment_id = ? AND status = 'completed' AND is_current = 1
-           AND user_id IN (${placeholders})`,
+        `SELECT u.user_code AS user_code, r.type_code AS type_code,
+                r.scores_json AS scores_json, r.completed_at AS completed_at
+         FROM assessment_results r
+         JOIN users u ON u.id = r.user_id
+         WHERE r.assessment_id = ? AND r.status = 'completed' AND r.is_current = 1
+           AND u.role = 'student' AND u.user_code IN (${placeholders})`,
         [assessmentId, ...chunk]
       );
-      rows.push(...(chunkRows as AssessmentUserResultRow[]));
+      rows.push(...(chunkRows as AssessmentResultSummary[]));
     }
     return rows;
   }

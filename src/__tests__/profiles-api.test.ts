@@ -5,18 +5,18 @@ vi.mock("@/lib/db", () => ({
   getSubmittedProfiles: vi.fn(),
   clearSubmissions: vi.fn(),
   getAssessmentByCode: vi.fn(),
-  getCurrentAssessmentResultsByUsers: vi.fn(),
+  getCurrentAssessmentResultsByUserCodes: vi.fn(),
 }));
 
 import { GET } from "@/app/api/manage/profiles/route";
 import {
   getSubmittedProfiles,
   getAssessmentByCode,
-  getCurrentAssessmentResultsByUsers,
+  getCurrentAssessmentResultsByUserCodes,
 } from "@/lib/db";
 import type {
   AssessmentRow,
-  AssessmentUserResultRow,
+  AssessmentResultSummary,
   UserRow,
 } from "@/lib/db";
 
@@ -44,9 +44,9 @@ function student(overrides: Partial<UserRow> = {}): UserRow {
 
 const ASSESSMENT = { id: 1, code: "riasec" } as AssessmentRow;
 
-function result(overrides: Partial<AssessmentUserResultRow> = {}): AssessmentUserResultRow {
+function result(overrides: Partial<AssessmentResultSummary> = {}): AssessmentResultSummary {
   return {
-    user_id: 21,
+    user_code: "202505050101",
     type_code: "SIA",
     completed_at: "2026-10-18 09:30:00",
     scores_json: JSON.stringify([
@@ -71,7 +71,7 @@ beforeEach(() => {
     total: 42,
   });
   vi.mocked(getAssessmentByCode).mockResolvedValue(ASSESSMENT);
-  vi.mocked(getCurrentAssessmentResultsByUsers).mockResolvedValue([result()]);
+  vi.mocked(getCurrentAssessmentResultsByUserCodes).mockResolvedValue([result()]);
 });
 
 describe("GET /api/manage/profiles — 兴趣测评字段（#234）", () => {
@@ -107,11 +107,23 @@ describe("GET /api/manage/profiles — 兴趣测评字段（#234）", () => {
     });
   });
 
-  it("按当前页用户 id 批查（不是全校扫表），并把 page/pageSize 原样传给列表查询", async () => {
+  it("按当前页学号批查（不是全校扫表），并把 page/pageSize 原样传给列表查询", async () => {
     await GET(makeRequest("?page=3&pageSize=10"));
 
     expect(getSubmittedProfiles).toHaveBeenCalledWith(3, 10);
-    expect(getCurrentAssessmentResultsByUsers).toHaveBeenCalledWith(1, [21, 22]);
+    expect(getCurrentAssessmentResultsByUserCodes).toHaveBeenCalledWith(1, [
+      "202505050101",
+      "202505050102",
+    ]);
+  });
+
+  it("六型快照只下发「维度 + 标准分」（不把 raw / band / 作答计数带到教师端）", async () => {
+    const res = await GET(makeRequest());
+    const body = await res.json();
+
+    for (const score of body.data[0].assessmentScores) {
+      expect(Object.keys(score).sort()).toEqual(["key", "standard"]);
+    }
   });
 
   it("分页字段与既有字段不回归（total 来自列表查询，不是过滤后的条数）", async () => {
@@ -136,7 +148,7 @@ describe("GET /api/manage/profiles — 兴趣测评字段（#234）", () => {
 
     expect(res.status).toBe(200);
     expect(body.data).toEqual([]);
-    expect(getCurrentAssessmentResultsByUsers).not.toHaveBeenCalled();
+    expect(getCurrentAssessmentResultsByUserCodes).not.toHaveBeenCalled();
   });
 
   it("量表缺失（未安装/被删）时全部按未测返回，不抛错", async () => {
@@ -147,11 +159,11 @@ describe("GET /api/manage/profiles — 兴趣测评字段（#234）", () => {
 
     expect(res.status).toBe(200);
     expect(body.data.every((row: { assessmentStatus: string }) => row.assessmentStatus === "none")).toBe(true);
-    expect(getCurrentAssessmentResultsByUsers).not.toHaveBeenCalled();
+    expect(getCurrentAssessmentResultsByUserCodes).not.toHaveBeenCalled();
   });
 
   it("分数快照损坏时仍返回列表（scores 降级为空数组，不 500）", async () => {
-    vi.mocked(getCurrentAssessmentResultsByUsers).mockResolvedValue([
+    vi.mocked(getCurrentAssessmentResultsByUserCodes).mockResolvedValue([
       result({ scores_json: "{not-json" }),
     ]);
 
