@@ -220,4 +220,28 @@ describe("教师端测评名册（#229，真实 SQLite）", () => {
     adapter.close();
     cleanup(dbPath);
   });
+
+  it("按完整三字码精确过滤（#232 胶囊下钻），且可与班级 / 首位条件叠加", () => {
+    const { dbPath, adapter, assessment, classA } = setup();
+
+    const sia = adapter.getAssessmentRoster(assessment.id, null, { code: "SIA" });
+    expect(sia.map((row) => row.name)).toEqual(["甲"]);
+    expect(sia.every((row) => row.code === "SIA")).toBe(true);
+
+    // 精确码与首位是「且」关系：SIA 属于 S 型，但 RIC 不属于 S
+    expect(adapter.getAssessmentRoster(assessment.id, null, { lead: "S", code: "SIA" }).map((row) => row.name)).toEqual(["甲"]);
+    expect(adapter.getAssessmentRoster(assessment.id, null, { lead: "S", code: "RIC" })).toEqual([]);
+
+    // 与班级条件叠加：A 班里没有 ASE（ASE 在 B 班）
+    expect(
+      adapter.getAssessmentRoster(assessment.id, null, { classId: classA, code: "SIA" }).map((row) => row.name)
+    ).toEqual(["甲"]);
+    expect(adapter.getAssessmentRoster(assessment.id, null, { classId: classA, code: "ASE" })).toEqual([]);
+
+    // 教师范围（只带 A 班）同样生效
+    expect(adapter.getAssessmentRoster(assessment.id, [classA], { code: "RIC" }).map((row) => row.name)).toEqual(["乙"]);
+
+    adapter.close();
+    cleanup(dbPath);
+  });
 });

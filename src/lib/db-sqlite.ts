@@ -45,6 +45,7 @@ import type {
   AssessmentRow,
   AssessmentQuestionRow,
   AssessmentResultRow,
+  AssessmentResultSummary,
   CompleteAssessmentInput,
   OnetOccupationRow,
   AssessmentStatsRaw,
@@ -1862,6 +1863,31 @@ export class SqliteAdapter implements DbAdapter {
       .all(userId, assessmentId) as AssessmentResultRow[];
   }
 
+  getCurrentAssessmentResultsByUserCodes(
+    assessmentId: number,
+    userCodes: string[]
+  ): AssessmentResultSummary[] {
+    if (userCodes.length === 0) return [];
+    const rows: AssessmentResultSummary[] = [];
+    for (const chunk of chunkArray([...new Set(userCodes)])) {
+      const placeholders = chunk.map(() => "?").join(",");
+      // 只需要导出用的四列：不取作答内容，也不取整行（#233）
+      rows.push(
+        ...(this.db
+          .prepare(
+            `SELECT u.user_code AS user_code, r.type_code AS type_code,
+                    r.scores_json AS scores_json, r.completed_at AS completed_at
+             FROM assessment_results r
+             JOIN users u ON u.id = r.user_id
+             WHERE r.assessment_id = ? AND r.status = 'completed' AND r.is_current = 1
+               AND u.role = 'student' AND u.user_code IN (${placeholders})`
+          )
+          .all(assessmentId, ...chunk) as AssessmentResultSummary[])
+      );
+    }
+    return rows;
+  }
+
   // onet_occupations（#226 O*NET 职业库：离线导入的只读参考数据）
   getOnetOccupations(): OnetOccupationRow[] {
     return this.db.prepare("SELECT * FROM onet_occupations ORDER BY code").all() as OnetOccupationRow[];
@@ -1954,7 +1980,7 @@ export class SqliteAdapter implements DbAdapter {
   getAssessmentRoster(
     assessmentId: number,
     classIds: number[] | null,
-    filters: { classId?: number | null; lead?: string | null } = {}
+    filters: { classId?: number | null; lead?: string | null; code?: string | null } = {}
   ): AssessmentRosterRow[] {
     if (classIds !== null && classIds.length === 0) return [];
     const conditions = [
@@ -1975,6 +2001,11 @@ export class SqliteAdapter implements DbAdapter {
     if (filters.lead) {
       conditions.push("SUBSTR(r.type_code, 1, 1) = ?");
       params.push(filters.lead);
+    }
+    if (filters.code) {
+      // 三字码精确过滤（#232 胶囊下钻）：与 lead 可同时出现，二者是「且」关系
+      conditions.push("r.type_code = ?");
+      params.push(filters.code);
     }
     // 班级名 + 学号排序：下钻列表要稳定（库内 collation 差异不影响，因为教师只按单班看）
     return this.db

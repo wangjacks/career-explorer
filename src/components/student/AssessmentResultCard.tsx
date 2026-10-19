@@ -6,6 +6,7 @@ import { Compass, Loader2 } from "lucide-react";
 import ProfileSectionHeader from "./ProfileSectionHeader";
 import HollandCodeBadge from "./HollandCodeBadge";
 import RiasecRadarChart from "./RiasecRadarChart";
+import AssessmentDisclaimer from "./assessment/AssessmentDisclaimer";
 import { formatResultTime } from "@/lib/assessment-flow";
 import {
   buildCareerCards,
@@ -262,10 +263,9 @@ export default function AssessmentResultCard() {
         </div>
       )}
 
-      {/* 署名 / 授权 / 免责：O*NET Tools Developer License 要求随结果展示（#221） */}
-      {data?.assessment.disclaimer && (
-        <p className="text-xs text-muted leading-relaxed">{data.assessment.disclaimer}</p>
-      )}
+      {/* 署名 / 授权 / 免责：O*NET Tools Developer License 要求随结果展示（#221）。
+          免责声明用测评中心与结果区共用的组件（#225），保证两边文案口径一致。 */}
+      <AssessmentDisclaimer text={data?.assessment.disclaimer} variant="inline" />
       {data?.assessment.attribution && (
         <p className="text-[11px] text-muted/80 leading-relaxed">{data.assessment.attribution}</p>
       )}

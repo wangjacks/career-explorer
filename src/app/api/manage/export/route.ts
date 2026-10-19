@@ -1,15 +1,42 @@
 import { withDemoScope } from "@/lib/demo-scope";
 import { NextRequest, NextResponse } from "next/server";
-import { getStudents, getAllSubmitted } from "@/lib/db";
+import {
+  getStudents,
+  getAllSubmitted,
+  getClasses,
+  getAssessmentByCode,
+  getCurrentAssessmentResultsByUserCodes,
+  getOnetOccupations,
+} from "@/lib/db";
 import ExcelJS from "exceljs";
 import { imageSize } from "image-size";
 import { embedImagesInCells, type CellImageEntry } from "@/lib/xlsx-cell-images";
 import { getAuditActor, getRequestContext, recordAudit } from "@/lib/audit";
 import { getStorage } from "@/lib/storage";
+import { RIASEC_CODE } from "@/lib/assessment-data";
+import { profileFromDimensionScores, rankCareers, type RiasecKey } from "@/lib/assessment-match";
+import { toCareerCandidates } from "@/lib/onet";
+import {
+  DEFAULT_EXPORT_COLUMN_KEYS,
+  buildClassNameMap,
+  classNameOf,
+  columnLetter,
+  formatAssessmentStatus,
+  formatSixScores,
+  formatTopCareers,
+  imageColumnIndex,
+  isAssessmentColumn,
+  isImageColumn,
+  parseColumnKeys,
+  resolveExportColumns,
+  type SixScoreValues,
+} from "@/lib/export-columns";
 
 interface ExportRow {
   student_id: string;
   name: string;
+  /** 班级名（#233）：班级表内存关联，未分班为空串 */
+  class_name: string;
   tags: string; // 已转换的标签名称，分号分隔
   avatar_url: string | null;
   evaluation_url: string | null;
@@ -18,17 +45,31 @@ interface ExportRow {
   /** 文件所在存储后端（#111）；本地代理路径与云对象 key 的解析依据 */
   storage_id: number | null;
   created_at: string;
+  /** 当前有效测评结果（#233）：未测评为 false / 空串，导出的测评列整格留空 */
+  has_assessment: boolean;
+  assessment_completed_at: string;
+  assessment_code: string;
+  assessment_scores_json: string | null;
+  /** 推荐职业 Top3（中文名优先，分号分隔）；职业库不可用或未测评时为空串 */
+  careers: string;
 }
 
-function columnToLetters(column: number): string {
-  let result = "";
-  let current = column;
-  while (current > 0) {
-    const remainder = (current - 1) % 26;
-    result = String.fromCharCode(65 + remainder) + result;
-    current = Math.floor((current - 1) / 26);
-  }
-  return result;
+interface ExportFilters {
+  scope: string;
+  ids: string;
+  dateFrom: string;
+  dateTo: string;
+}
+
+function emptyRow(partial: Omit<ExportRow, "has_assessment" | "assessment_completed_at" | "assessment_code" | "assessment_scores_json" | "careers">): ExportRow {
+  return {
+    ...partial,
+    has_assessment: false,
+    assessment_completed_at: "",
+    assessment_code: "",
+    assessment_scores_json: null,
+    careers: "",
+  };
 }
 
 /** 将 users 行的标签 JSON（#94 起为名称文本数组）转为 "名称;名称" 展示字符串 */
@@ -75,16 +116,190 @@ async function fetchImageBuffer(
   return { buffer, contentType: "image/jpeg" };
 }
 
+/** 得分快照 → 匹配画像（解析失败/非 RIASEC 当作无画像，对应学生推荐列留空） */
+function profileOfScores(scoresJson: string | null): ReturnType<typeof profileFromDimensionScores> {
+  if (!scoresJson) return null;
+  try {
+    const parsed = JSON.parse(scoresJson) as { key: string; standard: number }[];
+    return profileFromDimensionScores(Array.isArray(parsed) ? parsed : null);
+  } catch (err) {
+    console.error("Failed to parse assessment scores for export:", err);
+    return null;
+  }
+}
+
+/**
+ * 组装导出行（#233）：学生表全量 / 已提交档案两种来源，班级名内存关联；
+ * 选中测评列时**一次批查**当前有效测评结果（按学号），再按需算推荐职业。
+ */
+async function buildExportRows(filters: ExportFilters, selectedKeys: readonly string[]): Promise<ExportRow[]> {
+  const [students, submitted, classes] = await Promise.all([
+    // 只有「学生名单」导出需要整表名单；其余范围按已提交档案取行，避免多余的全表读
+    filters.scope === "students" ? getStudents() : Promise.resolve([]),
+    filters.scope === "students" ? Promise.resolve([]) : getAllSubmitted(),
+    getClasses(),
+  ]);
+  const classNames = buildClassNameMap(classes);
+
+  let rows: ExportRow[];
+  if (filters.scope === "students") {
+    // 学生名单：只导出名单基础信息，档案/测评字段按学号照常补齐（不因缺档案而丢弃该行）
+    rows = students.map((s) =>
+      emptyRow({
+        student_id: s.user_code,
+        name: s.name,
+        class_name: classNameOf(s.class_id, classNames),
+        tags: "",
+        avatar_url: null,
+        evaluation_url: null,
+        avatar_link: null,
+        evaluation_link: null,
+        storage_id: null,
+        created_at: s.created_at,
+      })
+    );
+  } else {
+    rows = submitted.map((r) =>
+      emptyRow({
+        student_id: r.user_code,
+        name: r.name,
+        class_name: classNameOf(r.class_id, classNames),
+        tags: tagsToDisplay(r.tags),
+        avatar_url: r.avatar_url,
+        evaluation_url: r.evaluation_url,
+        avatar_link: r.avatar_url,
+        evaluation_link: r.evaluation_url,
+        storage_id: r.storage_id ?? null,
+        created_at: r.submitted_at || "",
+      })
+    );
+
+    // Apply filters
+    if (filters.scope === "byIds" && filters.ids) {
+      const filterIds = filters.ids.split(",").map((s) => s.trim()).filter(Boolean);
+      rows = rows.filter((r) => filterIds.includes(r.student_id));
+    }
+
+    if (filters.scope === "date" && (filters.dateFrom || filters.dateTo)) {
+      rows = rows.filter((r) => {
+        if (!r.created_at) return false;
+        const d = r.created_at.slice(0, 10);
+        if (filters.dateFrom && d < filters.dateFrom) return false;
+        if (filters.dateTo && d > filters.dateTo) return false;
+        return true;
+      });
+    }
+  }
+
+  // 导出 URL 列：云后端转限时签名链接（#111；本地代理路径原样保留）
+  for (const r of rows) {
+    r.avatar_link = await resolveExportLink(r.avatar_link, r.storage_id);
+    r.evaluation_link = await resolveExportLink(r.evaluation_link, r.storage_id);
+  }
+
+  const needsAssessment = selectedKeys.some(isAssessmentColumn);
+  const needsCareers = selectedKeys.includes("careers");
+  if (!needsAssessment && !needsCareers) return rows;
+
+  const assessment = await getAssessmentByCode(RIASEC_CODE);
+  if (!assessment) return rows;
+
+  // 一个班一次批查：未测评学生不出现在结果里，对应格留空（不填 0）
+  const summaries = await getCurrentAssessmentResultsByUserCodes(
+    assessment.id,
+    rows.map((r) => r.student_id)
+  );
+  const summaryByCode = new Map(summaries.map((summary) => [summary.user_code, summary]));
+  for (const row of rows) {
+    const summary = summaryByCode.get(row.student_id);
+    if (!summary) continue;
+    row.has_assessment = true;
+    row.assessment_completed_at = summary.completed_at ?? "";
+    row.assessment_code = summary.type_code ?? "";
+    row.assessment_scores_json = summary.scores_json;
+  }
+
+  if (needsCareers) {
+    const occupationRows = await getOnetOccupations();
+    if (occupationRows.length > 0) {
+      const candidates = toCareerCandidates(occupationRows);
+      for (const row of rows) {
+        const profile = profileOfScores(row.assessment_scores_json);
+        if (!profile) continue;
+        row.careers = formatTopCareers(rankCareers(profile, candidates, { topN: 3 }));
+      }
+    }
+  }
+
+  return rows;
+}
+
+/** 单行单列取值：测评列按快照格式化，图片列在 Excel 里留空（图片另行内嵌/浮动） */
+function formatCell(
+  row: ExportRow,
+  key: string,
+  format: "csv" | "xlsx",
+  sixScores: SixScoreValues
+): string {
+  if (key.startsWith("score_")) {
+    const dimension = key.slice("score_".length) as RiasecKey;
+    return sixScores.perDimension[dimension] ?? "";
+  }
+  switch (key) {
+    case "class_name":
+      return row.class_name;
+    case "assessment_status":
+      return formatAssessmentStatus(row.has_assessment);
+    case "assessment_completed_at":
+      return row.assessment_completed_at;
+    case "assessment_code":
+      return row.assessment_code;
+    case "assessment_scores":
+      return sixScores.composite;
+    case "careers":
+      return row.careers;
+    default:
+      if (format === "xlsx" && isImageColumn(key)) return "";
+      return String((row as unknown as Record<string, unknown>)[key] ?? "");
+  }
+}
+
+function formatRow(row: ExportRow, columns: { key: string }[], format: "csv" | "xlsx"): Record<string, string> {
+  const sixScores = formatSixScores(row.assessment_scores_json);
+  const values: Record<string, string> = {};
+  for (const column of columns) values[column.key] = formatCell(row, column.key, format, sixScores);
+  return values;
+}
+
+function quoteCsv(value: string): string {
+  return `"${value.replace(/"/g, '""')}"`;
+}
+
 async function GET_impl(request: NextRequest) {
   const { ip, user_agent } = getRequestContext(request);
   const actor = await getAuditActor(request);
   const { searchParams } = new URL(request.url);
+
+  // 能力探测（#233）：前端据此决定「推荐职业 Top3」按钮是否可点（依赖 O*NET 职业库就绪）
+  if (searchParams.get("capabilities") === "1") {
+    try {
+      const occupationRows = await getOnetOccupations();
+      return NextResponse.json({ recommendations: occupationRows.length > 0 });
+    } catch (err) {
+      // 职业库读不出来按「未就绪」处理：界面把按钮置灰，而不是用 500 打断整个导出面板
+      console.error("Failed to detect export capabilities:", err);
+      return NextResponse.json({ recommendations: false });
+    }
+  }
+
   const format = searchParams.get("format") || "csv";
   const scope = searchParams.get("scope") || "all";
   const idsParam = searchParams.get("ids") || "";
   const dateFrom = searchParams.get("dateFrom") || "";
   const dateTo = searchParams.get("dateTo") || "";
-  const columnsParam = searchParams.get("columns") || "student_id,name,tags,avatar_url,evaluation_url,created_at";
+  const columnsParam = searchParams.get("columns");
+  // 未传 columns 时用默认列（与 #233 之前完全一致）；显式传空串表示「一列都不选」，按空列导出
+  const selectedKeys = columnsParam === null ? [...DEFAULT_EXPORT_COLUMN_KEYS] : parseColumnKeys(columnsParam);
   const imagePlacement = searchParams.get("imagePlacement") || "in-cell";
   const rowHeightParam = searchParams.get("rowHeight");
   const rowHeight = rowHeightParam === null ? 45 : Number(rowHeightParam);
@@ -98,104 +313,28 @@ async function GET_impl(request: NextRequest) {
   if (!Number.isFinite(rowHeight) || rowHeight < 10 || rowHeight > 200) {
     return NextResponse.json({ error: "数据行高度须为 10-200 的数值" }, { status: 400 });
   }
-
-  const selectedColumns = columnsParam.split(",").filter(Boolean);
+  if (format !== "csv" && format !== "xlsx") {
+    return NextResponse.json({ error: "不支持的格式" }, { status: 400 });
+  }
 
   // 导出动作审计（#110）：记录范围参数；数据明细不入库（量大且含学生隐私）
   void recordAudit({
     ...actor, action: "export:excel", method: "GET", path: "/api/manage/export",
     resource_type: "export", resource_id: null,
     status: "success", error_message: null, ip, user_agent,
-    metadata: { format, scope, columns: selectedColumns.length, imagePlacement },
+    metadata: { format, scope, columns: selectedKeys.length, imagePlacement },
   });
 
-  // Build student list and submitted profiles
-  const students = await getStudents();
-
-  let rows: ExportRow[];
-
-  if (scope === "students") {
-    // Student list only (no profile data)
-    rows = students.map((s) => ({
-      student_id: s.user_code,
-      name: s.name,
-      tags: "",
-      avatar_url: null,
-      evaluation_url: null,
-      avatar_link: null,
-      evaluation_link: null,
-      storage_id: null,
-      created_at: s.created_at,
-    }));
-  } else {
-    const submitted = await getAllSubmitted();
-    rows = submitted.map((r) => ({
-      student_id: r.user_code,
-      name: r.name,
-      tags: tagsToDisplay(r.tags),
-      avatar_url: r.avatar_url,
-      evaluation_url: r.evaluation_url,
-      avatar_link: r.avatar_url,
-      evaluation_link: r.evaluation_url,
-      storage_id: r.storage_id ?? null,
-      created_at: r.submitted_at || "",
-    }));
-
-    // Apply filters
-    if (scope === "byIds" && idsParam) {
-      const filterIds = idsParam.split(",").map((s) => s.trim()).filter(Boolean);
-      rows = rows.filter((r) => filterIds.includes(r.student_id));
-    }
-
-    if (scope === "date" && (dateFrom || dateTo)) {
-      rows = rows.filter((r) => {
-        if (!r.created_at) return false;
-        const d = r.created_at.slice(0, 10);
-        if (dateFrom && d < dateFrom) return false;
-        if (dateTo && d > dateTo) return false;
-        return true;
-      });
-    }
-  }
-
-  // 导出 URL 列：云后端转限时签名链接（#111；本地代理路径原样保留）
-  for (const r of rows) {
-    r.avatar_link = await resolveExportLink(r.avatar_link, r.storage_id);
-    r.evaluation_link = await resolveExportLink(r.evaluation_link, r.storage_id);
-  }
-
-  // Column config
-  const allColumnDefs: { key: string; header: string; width: number }[] = [
-    { key: "student_id", header: "学号", width: 16 },
-    { key: "name", header: "姓名", width: 12 },
-    { key: "tags", header: "标签", width: 30 },
-    { key: "avatar_url", header: format === "xlsx" ? "学生头像" : "学生头像URL", width: 35 },
-    { key: "evaluation_url", header: format === "xlsx" ? "评价词云" : "评价词云URL", width: 35 },
-    { key: "avatar_link", header: "学生头像URL", width: 35 },
-    { key: "evaluation_link", header: "评价词云URL", width: 35 },
-    { key: "created_at", header: "提交时间", width: 22 },
-  ];
-
-  const columns = allColumnDefs.filter((c) => selectedColumns.includes(c.key));
-
-  // Format rows based on selected columns
-  const formatRow = (row: ExportRow) => {
-    const obj: Record<string, string> = {};
-    for (const col of columns) {
-      const isImageColumn = col.key === "avatar_url" || col.key === "evaluation_url";
-      obj[col.key] = format === "xlsx" && isImageColumn
-        ? ""
-        : String(row[col.key as keyof ExportRow] ?? "");
-    }
-    return obj;
-  };
+  const exportFormat: "csv" | "xlsx" = format;
+  const columns = resolveExportColumns(selectedKeys, exportFormat);
+  const rows = await buildExportRows({ scope, ids: idsParam, dateFrom, dateTo }, selectedKeys);
 
   // CSV export
-  if (format === "csv") {
-    const header = columns.map((c) => c.header).join(",");
+  if (exportFormat === "csv") {
+    const header = columns.map((c) => quoteCsv(c.header)).join(",");
     const lines = rows.map((r) => {
-      const formatted = formatRow(r);
-      return columns.map((c) => `"${formatted[c.key] ?? ""}"`).join(",");
+      const formatted = formatRow(r, columns, "csv");
+      return columns.map((c) => quoteCsv(formatted[c.key] ?? "")).join(",");
     });
     const csv = "\uFEFF" + header + "\n" + lines.join("\n");
 
@@ -208,97 +347,92 @@ async function GET_impl(request: NextRequest) {
   }
 
   // Excel export
-  if (format === "xlsx") {
-    const workbook = new ExcelJS.Workbook();
-    const sheet = workbook.addWorksheet("数据导出");
+  const workbook = new ExcelJS.Workbook();
+  const sheet = workbook.addWorksheet("数据导出");
 
-    sheet.columns = columns.map((c) => ({
-      header: c.header,
-      key: c.key,
-      width: c.width,
-    }));
+  sheet.columns = columns.map((c) => ({
+    header: c.header,
+    key: c.key,
+    width: c.width,
+  }));
 
-    // Style header
-    const headerRow = sheet.getRow(1);
-    headerRow.font = { bold: true };
-    headerRow.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF3B82F6" } };
-    headerRow.font = { bold: true, color: { argb: "FFFFFFFF" } };
+  // Style header
+  const headerRow = sheet.getRow(1);
+  headerRow.font = { bold: true, color: { argb: "FFFFFFFF" } };
+  headerRow.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF3B82F6" } };
 
-    // Add data rows
-    for (const row of rows) {
-      const formatted = formatRow(row);
-      sheet.addRow(formatted);
-    }
+  // Add data rows
+  for (const row of rows) {
+    sheet.addRow(formatRow(row, columns, "xlsx"));
+  }
 
-    // Apply configurable data row height (rows below header)
+  // Apply configurable data row height (rows below header)
+  for (let i = 0; i < rows.length; i++) {
+    sheet.getRow(i + 2).height = rowHeight;
+  }
+
+  const cellImages: CellImageEntry[] = [];
+  const imageColumns = columns.filter((c) => isImageColumn(c.key));
+  if (imageColumns.length > 0) {
     for (let i = 0; i < rows.length; i++) {
-      sheet.getRow(i + 2).height = rowHeight;
-    }
+      const rowNum = i + 2; // +2 because row 1 is header
+      for (const col of imageColumns) {
+        const url = rows[i][col.key as keyof ExportRow] as string | null;
+        if (!url) continue;
+        try {
+          const img = await fetchImageBuffer(url, rows[i].storage_id, request.url);
+          if (!img) continue;
+          const imgBuf = img.buffer;
+          const contentType = img.contentType.split(";")[0].toLowerCase();
+          const extension = contentType === "image/png" ? "png"
+            : contentType === "image/gif" ? "gif"
+              : contentType === "image/bmp" ? "bmp"
+                : contentType === "image/tiff" ? "tif"
+                  : contentType === "image/webp" ? "webp" : "jpg";
+          const dims = imageSize(imgBuf);
+          if (!dims.width || !dims.height) continue;
 
-    const cellImages: CellImageEntry[] = [];
-    const imageColumns = columns.filter((c) => c.key === "avatar_url" || c.key === "evaluation_url");
-    if (imageColumns.length > 0) {
-      for (let i = 0; i < rows.length; i++) {
-        const rowNum = i + 2; // +2 because row 1 is header
-        for (const col of imageColumns) {
-            const url = rows[i][col.key as keyof ExportRow] as string | null;
-            if (!url) continue;
-            try {
-              const img = await fetchImageBuffer(url, rows[i].storage_id, request.url);
-              if (!img) continue;
-              const imgBuf = img.buffer;
-              const contentType = img.contentType.split(";")[0].toLowerCase();
-              const extension = contentType === "image/png" ? "png"
-                : contentType === "image/gif" ? "gif"
-                  : contentType === "image/bmp" ? "bmp"
-                    : contentType === "image/tiff" ? "tif"
-                      : contentType === "image/webp" ? "webp" : "jpg";
-              const dims = imageSize(imgBuf);
-              if (!dims.width || !dims.height) continue;
+          // 图片锚点由**最终列下标**算出：插入班级/测评列后仍落在头像/词云列（#233 验收点）
+          const columnIndex = imageColumnIndex(columns, col.key);
+          if (columnIndex === 0) continue;
 
-              if (imagePlacement === "in-cell") {
-                cellImages.push({
-                  cell: `${columnToLetters(columns.indexOf(col) + 1)}${rowNum}`,
-                  buffer: imgBuf,
-                  extension,
-                });
-                continue;
-              }
+          if (imagePlacement === "in-cell") {
+            cellImages.push({
+              cell: `${columnLetter(columnIndex)}${rowNum}`,
+              buffer: imgBuf,
+              extension,
+            });
+            continue;
+          }
 
-              // eslint-disable-next-line @typescript-eslint/no-explicit-any
-              const imgId = workbook.addImage({ buffer: imgBuf as any, extension: "jpeg" });
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const imgId = workbook.addImage({ buffer: imgBuf as any, extension: "jpeg" });
 
-              // Detect original dimensions and scale proportionally
-              const targetH = 60;
-              const targetW = dims.width && dims.height
-                ? Math.round((dims.width / dims.height) * targetH)
-                : targetH;
+          // Detect original dimensions and scale proportionally
+          const targetH = 60;
+          const targetW = Math.round((dims.width / dims.height) * targetH);
 
-              const colIdx = columns.indexOf(col);
-              sheet.addImage(imgId, {
-                tl: { col: colIdx + 0.1, row: rowNum - 0.9 },
-                ext: { width: targetW, height: targetH },
-              });
-            } catch (err) {
-              console.warn("Failed to embed image in Excel:", url, err);
-            }
+          sheet.addImage(imgId, {
+            tl: { col: columnIndex - 1 + 0.1, row: rowNum - 0.9 },
+            ext: { width: targetW, height: targetH },
+          });
+        } catch (err) {
+          console.warn("Failed to embed image in Excel:", url, err);
         }
       }
     }
-
-    const workbookBuffer = await workbook.xlsx.writeBuffer();
-    const buffer: Buffer = imagePlacement === "in-cell"
-      ? await embedImagesInCells(workbookBuffer, cellImages)
-      : Buffer.from(new Uint8Array(workbookBuffer));
-    return new NextResponse(new Uint8Array(buffer), {
-      headers: {
-        "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        "Content-Disposition": `attachment; filename="export_${Date.now()}.xlsx"`,
-      },
-    });
   }
 
-  return NextResponse.json({ error: "不支持的格式" }, { status: 400 });
+  const workbookBuffer = await workbook.xlsx.writeBuffer();
+  const buffer: Buffer = imagePlacement === "in-cell"
+    ? await embedImagesInCells(workbookBuffer, cellImages)
+    : Buffer.from(new Uint8Array(workbookBuffer));
+  return new NextResponse(new Uint8Array(buffer), {
+    headers: {
+      "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      "Content-Disposition": `attachment; filename="export_${Date.now()}.xlsx"`,
+    },
+  });
 }
 
 // Preview endpoint
@@ -314,62 +448,20 @@ async function POST_impl(request: NextRequest) {
     metadata: { preview: true, scope: scope ?? "all" },
   });
 
-  const students = await getStudents();
+  const selectedKeys = parseColumnKeys(typeof columnsParam === "string" ? columnsParam : null);
+  const keys = typeof columnsParam === "string" ? selectedKeys : [...DEFAULT_EXPORT_COLUMN_KEYS];
+  const rows = await buildExportRows(
+    { scope: scope ?? "all", ids: ids ?? "", dateFrom: dateFrom ?? "", dateTo: dateTo ?? "" },
+    keys
+  );
+  const columns = resolveExportColumns(keys, "csv");
+  const preview = rows.slice(0, 10).map((row) => formatRow(row, columns, "csv"));
 
-  let rows: ExportRow[];
-
-  if (scope === "students") {
-    rows = students.map((s) => ({
-      student_id: s.user_code,
-      name: s.name,
-      tags: "",
-      avatar_url: null,
-      evaluation_url: null,
-      avatar_link: null,
-      evaluation_link: null,
-      storage_id: null,
-      created_at: s.created_at,
-    }));
-  } else {
-    const submitted = await getAllSubmitted();
-    rows = submitted.map((r) => ({
-      student_id: r.user_code,
-      name: r.name,
-      tags: tagsToDisplay(r.tags),
-      avatar_url: r.avatar_url,
-      evaluation_url: r.evaluation_url,
-      avatar_link: r.avatar_url,
-      evaluation_link: r.evaluation_url,
-      storage_id: r.storage_id ?? null,
-      created_at: r.submitted_at || "",
-    }));
-
-    if (scope === "byIds" && ids) {
-      const filterIds = ids.split(",").map((s: string) => s.trim()).filter(Boolean);
-      rows = rows.filter((r) => filterIds.includes(r.student_id));
-    }
-
-    if (scope === "date" && (dateFrom || dateTo)) {
-      rows = rows.filter((r) => {
-        if (!r.created_at) return false;
-        const d = r.created_at.slice(0, 10);
-        if (dateFrom && d < dateFrom) return false;
-        if (dateTo && d > dateTo) return false;
-        return true;
-      });
-    }
-  }
-
-  const selectedColumns = (columnsParam || "student_id,name,tags").split(",");
-  const preview = rows.slice(0, 10).map((r) => {
-    const obj: Record<string, string> = {};
-    for (const key of selectedColumns) {
-      obj[key] = String(r[key as keyof ExportRow] ?? "");
-    }
-    return obj;
+  return NextResponse.json({
+    total: rows.length,
+    columns: columns.map((column) => ({ key: column.key, header: column.header })),
+    preview,
   });
-
-  return NextResponse.json({ total: rows.length, preview });
 }
 
 export const GET = withDemoScope(GET_impl);
