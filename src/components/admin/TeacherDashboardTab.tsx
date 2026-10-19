@@ -4,29 +4,15 @@ import { useMemo } from "react";
 import { Loader2 } from "lucide-react";
 import { useDashboardData } from "@/hooks/useDashboardData";
 import { computeDashboardTotals, computeRosterBits } from "@/lib/dashboard-utils";
+import { DistributionCard, SubmissionHero } from "@/components/admin/DashboardKit";
 import {
-  CompareCard,
-  DistributionCard,
-  SubmissionHero,
-  TrendCard,
-} from "@/components/admin/DashboardKit";
+  AssessmentPlaceholderCard,
+  ClassSubmissionCard,
+} from "@/components/admin/TeacherDashboardCards";
 
 export default function TeacherDashboardTab() {
-  const {
-    trends,
-    distribution,
-    compare,
-    trendDays,
-    trendGroup,
-    setTrendDays,
-    setTrendGroup,
-    classTrend,
-    firstLoading,
-    trendPending,
-    errors,
-    loadError,
-    reload,
-  } = useDashboardData();
+  const { distribution, compare, firstLoading, errors, loadError, reload } =
+    useDashboardData({ includeTrends: false });
 
   const totals = useMemo(() => computeDashboardTotals(compare), [compare]);
   const { groups: rosterGroups, tickStep } = computeRosterBits(totals.enrolled, totals.submitted);
@@ -63,26 +49,14 @@ export default function TeacherDashboardTab() {
       />
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
-        <TrendCard
-          trends={trends}
-          trendDays={trendDays}
-          trendGroup={trendGroup}
-          setTrendDays={setTrendDays}
-          setTrendGroup={setTrendGroup}
-          classTrend={classTrend}
-          trendPending={trendPending}
-          trendsFailed={errors.trends}
-        />
+        <ClassSubmissionCard compare={compare} compareFailed={errors.compare} />
 
         <DistributionCard
           distribution={distribution}
           distributionFailed={errors.distribution}
         />
 
-        <CompareCard
-          compare={compare}
-          compareFailed={errors.compare}
-        />
+        <AssessmentPlaceholderCard />
       </div>
     </div>
   );
