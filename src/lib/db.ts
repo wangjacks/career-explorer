@@ -374,10 +374,10 @@ export interface AssessmentResultRow {
 }
 
 /**
- * 教师导出用的**当前测评结果轻量快照**（#233）：一个班一次批查，不逐学生查库。
+ * 教师侧「当前测评结果」轻量快照（#233 导出 / #234 数据列表共用）：一次批查，不逐学生查库。
  *
- * 只带导出需要的四列（学号 / 三字码 / 维度分快照 / 完成时间），不含作答内容——导出列没有
- * 「逐题作答」，少取一列就少一份个人数据的搬运面。
+ * 只带需要的四列（学号 / 三字码 / 维度分快照 / 完成时间），不含作答内容——两个消费方都
+ * 没有「逐题作答」的诉求，少取一列就少一份个人数据的搬运面。
  */
 export interface AssessmentResultSummary {
   user_code: string;
@@ -385,6 +385,7 @@ export interface AssessmentResultSummary {
   scores_json: string | null;
   completed_at: string | null;
 }
+
 
 /** completeAssessmentResult 入参（计分由调用方用计分引擎算好再落库，数据层不重复实现算法） */
 export interface CompleteAssessmentInput {
@@ -781,8 +782,8 @@ export interface DbAdapter {
   /** 完成记录历史（新→旧，不含草稿），供结果页回看与版本对比 */
   getAssessmentResults(userId: number, assessmentId: number): Promise<AssessmentResultRow[]> | AssessmentResultRow[];
   /**
-   * 按学号集合批量取「当前有效完成结果」的轻量快照（#233 教师导出）：
-   * 一个班一次查询（适配器内部分块），未测评的学号不会出现在结果里，由调用方按缺失留空。
+   * 按学号集合批量取「当前有效完成结果」的轻量快照（#233 教师导出 / #234 数据列表共用）：
+   * 一次查询（适配器内部分块），未测评的学号不会出现在结果里，由调用方按缺失留空。
    */
   getCurrentAssessmentResultsByUserCodes(
     assessmentId: number,
@@ -1437,7 +1438,7 @@ export async function getAssessmentResults(
   return Promise.resolve(adapter.getAssessmentResults(userId, assessmentId));
 }
 
-/** 按学号集合批量取当前测评结果快照（#233 教师导出：一个班一次查询） */
+/** 按学号集合批量取当前测评结果快照（#233 教师导出 / #234 数据列表：一次查询） */
 export async function getCurrentAssessmentResultsByUserCodes(
   assessmentId: number,
   userCodes: string[]

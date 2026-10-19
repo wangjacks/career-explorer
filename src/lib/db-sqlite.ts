@@ -1871,7 +1871,7 @@ export class SqliteAdapter implements DbAdapter {
     const rows: AssessmentResultSummary[] = [];
     for (const chunk of chunkArray([...new Set(userCodes)])) {
       const placeholders = chunk.map(() => "?").join(",");
-      // 只需要导出用的四列：不取作答内容，也不取整行（#233）
+      // 只需要列表/导出用的四列：不取作答内容，也不取整行（#233/#234）
       rows.push(
         ...(this.db
           .prepare(

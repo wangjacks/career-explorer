@@ -144,7 +144,7 @@
 | `/api/manage/stats/class-trends` | GET | 仅 GET | 按班级分层的提交趋势（#165，时间 × 班级交叉维度） |
 | `/api/manage/stats/assessment` | GET | 仅 GET | 测评聚合统计（#229）：班级完成度 / 六型计数 / 三字码排行 / 总数小结，**不含任何个人标识**；`?scope=all`（默认，全校）或 `scope=mine`（仅本人归属班级）；`assessment.enabled` 供大屏区分「还没开放」与「还没人做」（#232） |
 | `/api/manage/assessment/roster` | GET | 仅 GET | 测评名册（#229）：已完测学生的姓名 / 学号 / 三字码 / 完成时间，供下钻；过滤参数 `classId` / `lead`（三字码首位）/ `code`（完整三字码，#232）+ `scope`；教师恒收窄到本人归属班级（越权 403），每次读取记审计 `assessment:roster` |
-| `/api/manage/profiles` | GET / DELETE | GET + DELETE | 档案列表 / 清除档案字段 |
+| `/api/manage/profiles` | GET / DELETE | GET + DELETE | 档案列表 / 清除档案字段。GET 每行另带兴趣测评字段（#234：`assessmentCode` / `assessmentStatus` / `assessmentAt` + 详情条形用的六型快照 `assessmentScores`），取「`completed` 且 `is_current=1`」的当前有效结果，未测行为 `none` / `null`；分页、总数与既有排序口径不变 |
 | `/api/manage/profiles/submissions` | GET | GET | 管理端查看学生提交历史（#95）：admin 全量、teacher 仅管辖班级 |
 | `/api/manage/profiles/submissions/exceeding` | GET | GET | 超出版本上限的学生列表（#95） |
 | `/api/manage/groups` | GET / POST | 全方法 | 课堂分组（#101）：GET 读该班当前分组 + 指标 + 与最近一批的差异（读不限班级）；POST 触发自动分组，**完全覆盖**当前分组并追加一份历史批次归档 |
@@ -164,7 +164,7 @@
 >
 > 数据范围：`/api/manage/stats/*` 只做角色放行，不按班级裁剪，教师与管理员读到同一份全校数据（#165 的决策，界面已在面板标题与各卡片标注，非缺陷）。
 >
-> **#229 测评统计的两层范围**：聚合 `/stats/assessment` 沿用上面这条口径（默认全校，`scope=mine` 才收窄到本人归属班级）；**个人明细 `/assessment/roster` 例外**——它是全仓唯一把测评结果与姓名学号放在一起的端点，教师恒为本人归属班级（`classId` 越权直接 403），并每次读取记审计。两者的取舍见「教师端测评统计（#229）」。
+> **#229 测评统计的两层范围**：聚合 `/stats/assessment` 沿用上面这条口径（默认全校，`scope=mine` 才收窄到本人归属班级）；**个人明细 `/assessment/roster` 例外**——它是唯一**专用的**「测评结果 + 姓名学号」下钻端点，教师恒为本人归属班级（`classId` 越权直接 403），并每次读取记审计。注意「唯一」只指**专用测评端点**：档案数据列表 `/api/manage/profiles` GET 自 #234 起也在每行附带三字码/完成时间/六型分，它沿用档案列表既有权限（教师可见全校已提交档案学生、无班级收窄、不记审计），不是第二套测评权限。两者的取舍见「教师端测评统计（#229）」与「教师端数据列表测评列（#234）」。
 
 ### 共享域 `/api/shared/*`（不进 proxy，路由自鉴权）
 
@@ -289,7 +289,7 @@
 
 <!-- 对账：口径纯函数 `src/lib/assessment-stats.ts`（测试 `assessment-stats.test.ts`）；SQL 在两适配器的 getAssessmentStats / getAssessmentRoster；行为与越权测试 `assessment-stats-db.test.ts` / `assessment-stats-api.test.ts` -->
 
-- **两个端点、两种数据敏感度**：`/api/manage/stats/assessment` 是**纯聚合**（班级完成度 / 六型计数 / 三字码 Top-10 / 总数），响应里没有姓名学号，可直接投屏；`/api/manage/assessment/roster` 才返回个人明细，因此它是全仓唯一「测评结果 + 姓名学号」同体的端点，边界单独收紧（见下）
+- **两个端点、两种数据敏感度**：`/api/manage/stats/assessment` 是**纯聚合**（班级完成度 / 六型计数 / 三字码 Top-10 / 总数），响应里没有姓名学号，可直接投屏；`/api/manage/assessment/roster` 才返回个人明细，因此它是唯一**专用的**「测评结果 + 姓名学号」下钻端点，边界单独收紧（见下）。档案数据列表 `/api/manage/profiles` GET（#234）也带测评字段，但走档案列表既有权限，不受本条收窄约束（详见「教师端数据列表测评列（#234）」）
 - **关联口径**（表关系）：`assessment_results.user_id → users.id`（只取 `role='student'` 且在册）→ `users.class_id → classes.id`。三个条件缺一不可：`status='completed'`（草稿不算）、`is_current=1`（旧版本不算）、学生账号（教师/管理员本人作答不算）。未分班学生（`class_id IS NULL`）进**总分母**但不进任何班级分母，所以各班级完成率之和不等于全校完成率（有意为之，否则未分班学生凭空消失）
 - **完成率**：`assessed / enrolled` 乘 100 保留一位小数，分母是**在册学生数**（未测评也计入），并在纯函数里钳到 100% 以内——脏数据（重复当前结果、跨班归属不一致）不会把完成度刷成 150%。`enrolled`/`assessed` 都数学生而不是行数，`assessed` 用 `COUNT(DISTINCT user_id)`
 - **六型归型依据是结果快照的三字码首位**（`type_code[0]`）：计分引擎（#220）产码时已按「标准分降序 + RIASEC 破平序」选维度，统计层**不重算分数**，因此聚合计数与学生端逐人展示必然一致（单测逐人核对）。六型输出以量表 `dimensions_json` 的顺序为准、计数为 0 也返回，前端画图不用自己补零
@@ -309,6 +309,20 @@
 - **配色与对比度**：六型色由数据决定（不走语义 token），每型给浅色/深色两档类型条、一档胶囊底色 + 文字色；单测按 WCAG 校验类型条与轨道 ≥ 3:1、胶囊文字 ≥ 4.5:1。issue 写的 E 型 `#f59e0b` 对浅色底只有 2.15:1，改用同色相深一档 `#b45309`（理由写进配色表注释）
 - **下钻弹窗**：复用班级名册弹窗的范式（`dialog` 语义 + Escape + Tab 焦点捕获 + 关闭后焦点还原；窄屏全屏抽屉、桌面 `max-h-[85vh] max-w-2xl`），标题下与页脚**常驻**「投屏提醒」；列只展示姓名 / 学号（首 4 末 4 脱敏）/ 三字码 / 完成时间，支持关键字搜索与「只看某一型」二级筛选，弹窗内还会按 `lead` 再向服务端收窄一次
 - **降级**：本栏自管加载 / 失败 / 未开放 / 无人完成四种状态——失败态只坏这一栏且带重试；量表停用（`assessment.enabled=false`）或量表未配置（404）显示「还没开放」的行动邀请，**不写「暂无数据」**；无人完成时提示去哪儿做测评
+
+## 教师端数据列表测评列（#234）
+
+<!-- 对账：配色 `src/lib/assessment-colors.ts`；筛选/徽章口径 `src/lib/profile-assessment.ts`；SQL 在两适配器的 getCurrentAssessmentResultsByUserCodes（与 #233 导出共用同一个数据层方法）；测试 `assessment-colors` / `profile-assessment` / `profiles-api` / `assessment-db` -->
+
+- **只加一列**：8 列 → 9 列（「兴趣测评」插在「标签」与「提交时间」之间，空态 `colSpan` 同步改 9）。窄屏仍靠既有横向滚动，不拆「六型」六列
+- **数据来源**：`/api/manage/profiles` 每行补三个字段 + 六型快照；SQL 只认 `assessment_id = riasec`、`status='completed'`、`is_current=1`（草稿、旧版本都不算「测过」），按**当页学号集合**批查（`IN` 分片 500，与 #193 同一套 `chunkArray`），不做全校扫表。该批查方法与 #233 教师导出**共用同一份实现**（`getCurrentAssessmentResultsByUserCodes`，四列轻量快照），避免两个功能各写一条 SQL
+- **展示口径**：已测 = 三字码徽章（底色取首位字母的类型色、文字色按对比度选）；未测 = 灰态「未测」胶囊，不用红叉这类否定式样式；该列**不提供排序**（三字码非数值），学号/姓名/提交时间排序行为不变
+- **配色单一来源**：六型固定色值定义在 `assessment-colors.ts`，数据列表徽章、数据大屏测评栏（#232）、导出列（#233）都应 import 这里，避免三处各异；`C` 的底色偏亮，文字色用深色以保证 WCAG AA（白字只有 3.68:1），单测锁每对文本/底色对比度 ≥ 4.5:1
+- **筛选口径**：主导型胶囊「全部 / R / I / A / S / E / C / 未测」与搜索、标签筛选**同为当前页内客户端过滤**（`matchesAssessmentLead`），不引入新分页/查询协议；跨页过滤仍是列表既有局限，本列不改
+- **详情弹窗**：新增「职业兴趣测评」区块——三字码徽章 + 六型横向条（顺序/百分比/前三型标记复用结果页 `buildRiasecBars`，与学生端报告必然一致）+ 完成时间 + 「该生重测」指引文案；未测时整块不渲染，**快照缺失/损坏（解析为空）时只显示徽章与时间、不画六条 0**。下发的快照只含 `{ key, standard }`（不带 raw / band / 作答计数），`buildRiasecBars` 对缺 `label` 的轻量快照回退中文型名。弹窗宽度仍 `max-w-md`，不放雷达图
+- **数据敏感度与权限边界**：列表 GET 沿用档案列表既有权限（`proxy.ts` 放行教师 GET，路由内不做班级收窄——教师能看全校已提交档案的学生），本列只是把「测没测 / 什么型」补进同一行，因此**不新增审计**（与 `/stats/assessment` 等只读 GET 同口径）。它与 #229 的 `/assessment/roster` 不同：后者是**专用的**测评下钻端点、教师恒收窄本人归属班级且每次读取记审计。#229 段落里「全仓唯一」的旧表述已按本节对齐
+
+
 
 ## 文件存储（#111 对象存储）
 

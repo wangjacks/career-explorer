@@ -75,6 +75,21 @@ describe("条状排名", () => {
     // 非 RIASEC 键（O）被忽略，不会出现在排名里
     expect(bars.map((b) => String(b.key))).not.toContain("O");
   });
+
+  it("轻量快照（只有维度 + 标准分）也能画条形，中文型名回退 RIASEC_LABELS", () => {
+    // 教师端数据列表（#234）下发的是 { key, standard }，没有 label / raw / band
+    const bars = buildRiasecBars(
+      [
+        { key: "R", standard: 40 },
+        { key: "I", standard: 90 },
+        { key: "A", standard: 10 },
+      ],
+      "IRA"
+    );
+    expect(bars.map((b) => b.key)).toEqual(["I", "R", "A", "S", "E", "C"]);
+    expect(bars[0]).toMatchObject({ label: "研究型", standard: 90, percent: 90, isTop: true });
+    expect(bars[3]).toMatchObject({ label: "社会型", standard: 0, isTop: false });
+  });
 });
 
 describe("雷达图顶点", () => {
