@@ -9,6 +9,11 @@
  * 归一化后各维非负，相似度落在 0–1 且越接近 1 越像。Top-N 排序**确定性**：
  * 相似度降序 + 同分按职业 code 升序破平，同一输入在任何环境得到同一结果。
  *
+ * 口径限制（有意取舍）：这里用的是**未做均值中心化**的余弦——它只消除「向量长度」这一个自由度，
+ * 不消除「整体兴趣水平」这个偏移，所以普遍高分型的职业对任何画像都更容易靠前。RIASEC 的语义是
+ * 「六型相对强弱」，这个偏差可接受；若要纯形状匹配可换中心化余弦（Pearson），但那会改变排序口径，
+ * 属于另一次产品决策，不在本实现内偷偷改。
+ *
  * 画像来源有两种（见 `profileFromDimensionScores` / `hollandWeights`）：
  * - 首选：测评结果快照里的维度标准分（六维都有值，信息最全）；
  * - 退路：只有三字码时按 3/2/1 权重构造方向向量（老数据 / 只有类型码的场景）。
@@ -210,7 +215,9 @@ export function rankCareers(
   const studentVector = normalizeStudentScores(coerceRiasecVector(profile));
   if (vectorNorm(studentVector) === 0) return [];
 
-  const topN = Math.min(MAX_TOP_N, Math.max(1, Math.floor(options.topN ?? DEFAULT_TOP_N)));
+  // topN 兜底：非有限值（NaN/Infinity）回落到默认值，避免 Math.floor(NaN) → slice(0, NaN) 静默返回空数组
+  const requestedTopN = Number.isFinite(options.topN) ? Math.floor(options.topN as number) : DEFAULT_TOP_N;
+  const topN = Math.min(MAX_TOP_N, Math.max(1, requestedTopN));
 
   const scored = candidates.map((candidate) => {
     const similarity = cosineSimilarity(studentVector, normalizeOnetScores(coerceRiasecVector(candidate.scores)));

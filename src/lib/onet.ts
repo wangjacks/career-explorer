@@ -66,8 +66,10 @@ export const SOC_MAJOR_GROUPS: Readonly<Record<string, string>> = {
 export const SOC_MAJOR_GROUP_FALLBACK = "其他职业";
 
 /**
- * Job Zone（1–5）→ 常见学历要求。O*NET 官方对五个 zonas 的描述归纳：
- * 1 几乎无需准备 / 2 少量准备 / 3 中等准备（职业培训或大专）/ 4 大量准备（本科）/ 5 充分准备（研究生）。
+ * Job Zone → 常见学历要求。当前 O*NET 发布版的编号是 **2–5**（官方把原 1–2 级合并成
+ * 「Job Zone 1-2: Very Little to Some Preparation」，对应数值 2），数据里没有 1；
+ * key 1 保留只为兼容旧快照，含义取原「几乎无需准备」。
+ * 2 少量准备 / 3 中等准备（职业培训或大专）/ 4 大量准备（本科）/ 5 充分准备（研究生）。
  */
 export const JOB_ZONE_EDUCATION: Readonly<Record<number, string>> = {
   1: "高中以下",

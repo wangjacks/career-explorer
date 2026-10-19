@@ -195,7 +195,13 @@ export class SqliteAdapter implements DbAdapter {
     this.migrateAssessmentSchema();
     this.seedAssessments();
     this.migrateOnetSchema();
-    this.seedOnetOccupations();
+    try {
+      this.seedOnetOccupations();
+    } catch (err) {
+      // 只读参考数据灌库失败不应拖垮全站启动：职业库为空时推荐接口返回 503，
+      // 下次 init() 会重试（判据仍是版本标记 + 行数）。推荐是渐进功能，降级可见即可。
+      console.error("O*NET occupations seed failed (career recommendations degraded):", err);
+    }
   }
 
   /**

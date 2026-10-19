@@ -154,6 +154,13 @@ describe("rankCareers 排序口径", () => {
     expect(rankCareers(vector({ R: 100 }), many, { topN: 3 })).toHaveLength(3);
   });
 
+  it("topN 传非有限值时回落到默认值（Math.floor(NaN) 不会静默返回空数组）", () => {
+    const many = Array.from({ length: 30 }, (_, i) => candidate(`Y-${String(i).padStart(4, "0")}`, { R: 5 }));
+    expect(rankCareers(vector({ R: 100 }), many, { topN: Number.NaN })).toHaveLength(DEFAULT_TOP_N);
+    expect(rankCareers(vector({ R: 100 }), many, { topN: Number.POSITIVE_INFINITY })).toHaveLength(DEFAULT_TOP_N);
+    expect(rankCareers(vector({ R: 100 }), many, { topN: Number.NEGATIVE_INFINITY })).toHaveLength(DEFAULT_TOP_N);
+  });
+
   it("学生画像为零向量时返回空数组（不硬凑推荐）", () => {
     expect(rankCareers(emptyRiasecVector(), candidates)).toEqual([]);
   });

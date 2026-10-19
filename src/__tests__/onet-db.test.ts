@@ -89,6 +89,41 @@ describe("onet_occupations 种子与查询（#226）", () => {
     adapter.close();
     rmSync(path.dirname(dbPath), { recursive: true, force: true });
   });
+
+  it("restore() 不触碰职业库：恢复后仍可查询", () => {
+    const dbPath = makeTmpDb();
+    const adapter = new SqliteAdapter(dbPath);
+    adapter.init();
+
+    adapter.restore(adapter.backup());
+    expect(adapter.getOnetOccupations()).toHaveLength(SEED_COUNT);
+
+    adapter.close();
+    rmSync(path.dirname(dbPath), { recursive: true, force: true });
+  });
+
+  it("code 唯一约束与 NOT NULL 由数据库兜底（不只靠种子保证）", () => {
+    const dbPath = makeTmpDb();
+    const adapter = new SqliteAdapter(dbPath);
+    adapter.init();
+
+    const raw = new Database(dbPath);
+    const insert = raw.prepare(
+      `INSERT INTO onet_occupations
+         (code, name, interest_code, interests_json, job_zone, education_level, cluster, dataset_version, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    );
+    expect(() =>
+      insert.run("15-1252.00", "重复职业", "IC", "{}", 4, "本科", "计算机与数学", "30.2", "2026-10-19 10:00:00")
+    ).toThrow(/UNIQUE/);
+    expect(() =>
+      insert.run("99-9999.00", null, "IC", "{}", 4, "本科", "其他职业", "30.2", "2026-10-19 10:00:00")
+    ).toThrow(/NOT NULL/);
+    raw.close();
+
+    adapter.close();
+    rmSync(path.dirname(dbPath), { recursive: true, force: true });
+  });
 });
 
 describe("onet_occupations 两适配器 Schema 对账", () => {
