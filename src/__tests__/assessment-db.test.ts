@@ -4,6 +4,7 @@ import { tmpdir } from "os";
 import path from "path";
 import Database from "better-sqlite3";
 import { SqliteAdapter } from "../lib/db-sqlite";
+import { scoreAssessment } from "../lib/assessment-scoring";
 import {
   RIASEC_ASSESSMENT,
   RIASEC_CODE,
@@ -419,6 +420,45 @@ describe("两适配器 Schema 对账（#221）", () => {
         "completed_at",
       ])
     );
+  });
+});
+
+describe("与计分引擎的对接契约（#220 / #221）", () => {
+  it("库里取出的维度与题库可直接喂给 scoreAssessment，结果能原样落库", () => {
+    const { dbPath, adapter, studentId, assessment } = setup();
+
+    // 契约：dimensions_json → `{ key, label }[]`；题库行 → `{ index, dimension, reverseScored }`
+    const dimensions = JSON.parse(assessment.dimensions_json) as { key: string; label: string }[];
+    const questions = adapter.getAssessmentQuestions(assessment.id).map((q) => ({
+      index: q.question_index,
+      dimension: q.dimension,
+      reverseScored: q.reverse_scored === 1,
+    }));
+    // 30 题全答 4 分：每维 5 题 → 原始分 20 / 量程 5-25 → 线性标准分 75，六维并列按 R,I,A,S,E,C 破平
+    const answers = Object.fromEntries(questions.map((q) => [String(q.index), 4]));
+    const result = scoreAssessment(dimensions, questions, answers);
+    expect(result.complete).toBe(true);
+    expect(result.missingIndexes).toEqual([]);
+    expect(result.scores.map((s) => s.key)).toEqual(["R", "I", "A", "S", "E", "C"]);
+    expect(result.scores.every((s) => s.questionCount === 5 && s.standard === 75)).toBe(true);
+    expect(result.code).toBe("RIA");
+
+    // 快照列语义对齐：scores → scores_json、code → type_code
+    const resultId = adapter.completeAssessmentResult({
+      userId: studentId,
+      assessmentId: assessment.id,
+      answersJson: JSON.stringify(answers),
+      scoresJson: JSON.stringify(result.scores),
+      typeCode: result.code ?? null,
+    });
+    const stored = adapter.getCurrentAssessmentResult(studentId, assessment.id)!;
+    expect(stored.id).toBe(resultId);
+    expect(JSON.parse(stored.answers_json!)).toEqual(answers);
+    expect(JSON.parse(stored.scores_json!)).toEqual(result.scores);
+    expect(stored.type_code).toBe("RIA");
+
+    adapter.close();
+    cleanup(dbPath);
   });
 });
 
