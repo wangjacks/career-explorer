@@ -23,6 +23,18 @@ import TextAvatar from "@/components/TextAvatar";
 import { useEscapeKey } from "@/hooks/useEscapeKey";
 import { GROUP_SIZE_CAP, computeGroupSizes } from "@/lib/grouping-utils";
 
+const SECONDARY_BUTTON_BASE =
+  "bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-200 " +
+  "enabled:hover:bg-gray-200 dark:enabled:hover:bg-gray-700 " +
+  "disabled:text-gray-500 dark:disabled:text-gray-400 disabled:cursor-not-allowed " +
+  "transition-colors";
+
+const SECONDARY_BUTTON =
+  `${SECONDARY_BUTTON_BASE} px-4 py-2 text-sm font-medium rounded-lg inline-flex items-center gap-1.5`;
+
+const SECONDARY_BUTTON_SM =
+  `${SECONDARY_BUTTON_BASE} px-2.5 py-1.5 rounded-lg text-xs font-medium`;
+
 interface MemberView {
   userId: number;
   userCode: string;
@@ -549,7 +561,7 @@ export default function GroupingTab({
             type="button"
             onClick={() => classId != null && void loadView(classId)}
             disabled={classId == null || viewLoading}
-            className="px-4 py-2 bg-gray-100 hover:bg-gray-200 disabled:opacity-40 text-gray-700 dark:text-gray-200 dark:hover:bg-gray-800 text-sm font-medium rounded-lg transition-colors inline-flex items-center gap-1.5"
+            className={SECONDARY_BUTTON}
           >
             <RefreshCw size={14} className={viewLoading ? "animate-spin" : ""} aria-hidden />
             刷新
@@ -561,7 +573,7 @@ export default function GroupingTab({
                 type="button"
                 onClick={handleExport}
                 disabled={exporting}
-                className="px-4 py-2 bg-gray-100 hover:bg-gray-200 disabled:opacity-40 text-gray-700 dark:text-gray-200 dark:hover:bg-gray-800 text-sm font-medium rounded-lg transition-colors inline-flex items-center gap-1.5"
+                className={SECONDARY_BUTTON}
               >
                 <Download size={14} aria-hidden />
                 {exporting ? "导出中..." : "导出"}
@@ -572,7 +584,7 @@ export default function GroupingTab({
                     type="button"
                     onClick={() => fileRef.current?.click()}
                     disabled={!!pending}
-                    className="px-4 py-2 bg-gray-100 hover:bg-gray-200 disabled:opacity-40 text-gray-700 dark:text-gray-200 dark:hover:bg-gray-800 text-sm font-medium rounded-lg transition-colors inline-flex items-center gap-1.5"
+                    className={SECONDARY_BUTTON}
                   >
                     <Upload size={14} aria-hidden />
                     导入
@@ -816,7 +828,7 @@ function CurrentPanel({
             type="button"
             onClick={writes.onCreateGroup}
             disabled={writes.busy}
-            className="px-4 py-2 bg-gray-100 hover:bg-gray-200 disabled:opacity-40 text-gray-700 dark:text-gray-200 dark:hover:bg-gray-800 text-sm font-medium rounded-lg transition-colors inline-flex items-center gap-1.5"
+            className={SECONDARY_BUTTON}
           >
             <Plus size={14} aria-hidden />
             新建空组（手工分组）
@@ -925,7 +937,7 @@ function CurrentPanel({
                     type="button"
                     onClick={() => writes.onMove(m, null)}
                     disabled={writes.busy}
-                    className="px-2.5 py-1.5 rounded-lg text-xs font-medium bg-gray-100 hover:bg-gray-200 disabled:opacity-40 text-gray-700 dark:text-gray-200 dark:hover:bg-gray-800 transition-colors"
+                    className={SECONDARY_BUTTON_SM}
                   >
                     移动
                   </button>
@@ -1001,7 +1013,7 @@ function GroupCard({
                   onClick={() => writes.onMove(m, group.groupNo)}
                   disabled={writes.busy}
                   aria-label={`移动 ${m.name} 到其他组`}
-                  className="px-2.5 py-1.5 rounded-lg text-xs font-medium bg-gray-100 hover:bg-gray-200 disabled:opacity-40 text-gray-700 dark:text-gray-200 dark:hover:bg-gray-800 transition-colors"
+                  className={SECONDARY_BUTTON_SM}
                 >
                   移动
                 </button>
