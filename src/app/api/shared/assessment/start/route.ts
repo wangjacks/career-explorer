@@ -1,3 +1,4 @@
+import { withDemoScope } from "@/lib/demo-scope";
 import { NextRequest, NextResponse } from "next/server";
 import {
   getAssessmentByCode,
@@ -23,7 +24,7 @@ import { verifyToken } from "@/lib/token";
  * 只打开页面又离开的学生不会留下空记录（草稿唯一性见 #221 的 `draft_slot`）。
  * 题面不下发 `dimension`：作答时不暴露题目归属哪一型，避免暗示答案。
  */
-export async function GET(request: NextRequest) {
+async function GET_impl(request: NextRequest) {
   try {
     const token = request.cookies.get("auth_token")?.value;
     if (!token) return NextResponse.json({ error: "请先登录" }, { status: 401 });
@@ -75,3 +76,5 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "服务器错误" }, { status: 500 });
   }
 }
+
+export const GET = withDemoScope(GET_impl);
