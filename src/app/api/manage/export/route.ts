@@ -134,7 +134,8 @@ function profileOfScores(scoresJson: string | null): ReturnType<typeof profileFr
  */
 async function buildExportRows(filters: ExportFilters, selectedKeys: readonly string[]): Promise<ExportRow[]> {
   const [students, submitted, classes] = await Promise.all([
-    getStudents(),
+    // 只有「学生名单」导出需要整表名单；其余范围按已提交档案取行，避免多余的全表读
+    filters.scope === "students" ? getStudents() : Promise.resolve([]),
     filters.scope === "students" ? Promise.resolve([]) : getAllSubmitted(),
     getClasses(),
   ]);
@@ -281,8 +282,14 @@ async function GET_impl(request: NextRequest) {
 
   // 能力探测（#233）：前端据此决定「推荐职业 Top3」按钮是否可点（依赖 O*NET 职业库就绪）
   if (searchParams.get("capabilities") === "1") {
-    const occupationRows = await getOnetOccupations();
-    return NextResponse.json({ recommendations: occupationRows.length > 0 });
+    try {
+      const occupationRows = await getOnetOccupations();
+      return NextResponse.json({ recommendations: occupationRows.length > 0 });
+    } catch (err) {
+      // 职业库读不出来按「未就绪」处理：界面把按钮置灰，而不是用 500 打断整个导出面板
+      console.error("Failed to detect export capabilities:", err);
+      return NextResponse.json({ recommendations: false });
+    }
   }
 
   const format = searchParams.get("format") || "csv";

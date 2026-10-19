@@ -267,6 +267,35 @@ describe("GET /api/manage/export — 新增列（#233）", () => {
     await expect(res.json()).resolves.toEqual({ recommendations: true });
   });
 
+  it("能力探测：职业库读取失败按「未就绪」降级（200 + false，不用 500 打断面板）", async () => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    vi.mocked(getOnetOccupations).mockRejectedValue(new Error("table missing") as never);
+    const res = await GET(createGetRequest("/api/manage/export?capabilities=1"));
+    expect(res.status).toBe(200);
+    await expect(res.json()).resolves.toEqual({ recommendations: false });
+    expect(consoleError).toHaveBeenCalled();
+    consoleError.mockRestore();
+  });
+
+  it("CSV 单元格做引号转义（值里的双引号翻倍，不破坏列对齐）", async () => {
+    vi.mocked(getAllSubmitted).mockResolvedValue([
+      {
+        ...TWO_STUDENTS[0],
+        name: '他说"你好"',
+      },
+    ] as never);
+    const res = await GET(
+      createGetRequest("/api/manage/export?format=csv&scope=all&columns=student_id,name,class_name")
+    );
+    const text = await res.text();
+    expect(text).toContain('"2025级1班","S001","他说""你好"""');
+  });
+
+  it("非「学生名单」范围不做整表名单读取（避免多余全表查询）", async () => {
+    await GET(createGetRequest("/api/manage/export?format=csv&scope=all&columns=student_id"));
+    expect(getStudents).not.toHaveBeenCalled();
+  });
+
   it("默认列集合与 #233 之前一致（不因新增列改变默认导出）", async () => {
     const res = await GET(createGetRequest("/api/manage/export?format=csv&scope=all"));
     const header = (await res.text()).split("\n")[0];

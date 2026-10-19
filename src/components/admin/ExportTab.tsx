@@ -341,43 +341,15 @@ export default function ExportTab() {
           <span className="block text-xs font-medium text-muted">职业兴趣测评</span>
           <div className="flex flex-wrap gap-2">
             {ASSESSMENT_COLUMNS.map((column) => (
-            <button
-              key={column.key}
-              onClick={() => toggleColumn(column.key)}
-              aria-pressed={selectedColumns.includes(column.key)}
-              className={columnButtonClass(selectedColumns.includes(column.key))}
-            >
-              {column.label}
-            </button>
-          ))}
-          <button
-            onClick={() => setScoresEnabled(!hasScoreColumns)}
-            aria-pressed={hasScoreColumns}
-            className={columnButtonClass(hasScoreColumns)}
-          >
-            六型得分
-          </button>
-          {CAREER_COLUMNS.map((column) => {
-            const isUnavailable = recommendationsReady === false;
-            return (
               <button
                 key={column.key}
                 onClick={() => toggleColumn(column.key)}
-                disabled={isUnavailable}
                 aria-pressed={selectedColumns.includes(column.key)}
-                title={
-                  isUnavailable
-                    ? "职业库尚未就绪：请先在数据库中导入 O*NET 职业库后重试"
-                    : undefined
-                }
-                className={`${columnButtonClass(selectedColumns.includes(column.key))} ${
-                  isUnavailable ? "cursor-not-allowed opacity-50" : ""
-                }`}
+                className={columnButtonClass(selectedColumns.includes(column.key))}
               >
                 {column.label}
               </button>
-            );
-          })}
+            ))}
             <button
               onClick={() => setScoresEnabled(!hasScoreColumns)}
               aria-pressed={hasScoreColumns}
@@ -385,6 +357,27 @@ export default function ExportTab() {
             >
               六型得分
             </button>
+            {CAREER_COLUMNS.map((column) => {
+              const isUnavailable = recommendationsReady === false;
+              return (
+                <button
+                  key={column.key}
+                  onClick={() => toggleColumn(column.key)}
+                  disabled={isUnavailable}
+                  aria-pressed={selectedColumns.includes(column.key)}
+                  title={
+                    isUnavailable
+                      ? "职业库尚未就绪：请先在数据库中导入 O*NET 职业库后重试"
+                      : undefined
+                  }
+                  className={`${columnButtonClass(selectedColumns.includes(column.key))} ${
+                    isUnavailable ? "cursor-not-allowed opacity-50" : ""
+                  }`}
+                >
+                  {column.label}
+                </button>
+              );
+            })}
           </div>
 
           {hasScoreColumns && (
