@@ -351,6 +351,40 @@ describe("班级管理与教师账户", () => {
     rmSync(path.dirname(dbPath), { recursive: true, force: true });
   });
 
+  it("class roster：按班名过滤，未提交置顶（#217）", () => {
+    const dbPath = makeTmpDb();
+    const adapter = new SqliteAdapter(dbPath);
+    adapter.init();
+
+    const classId = adapter.insertClass("一班", "RRRR9999");
+    adapter.insertUser({ user_code: "202505050102", role: "student", name: "李四", class_id: classId });
+    adapter.insertUser({ user_code: "202505050101", role: "student", name: "张三", class_id: classId });
+    adapter.insertUser({ user_code: "202505050103", role: "student", name: "王五" });
+    adapter.upsertSubmission(
+      "202505050102",
+      JSON.stringify(["阅读", "编程"]),
+      "/a.png",
+      "/w.png",
+      adapter.getDefaultStorageBackend()!.id
+    );
+
+    const roster = adapter.getClassRoster("一班");
+    expect(roster.map((row) => row.user_code)).toEqual([
+      "202505050101",
+      "202505050102",
+    ]);
+    expect(roster[0].submitted_at).toBeNull();
+    expect(roster[1].tags).toBe(JSON.stringify(["阅读", "编程"]));
+
+    expect(adapter.getClassRoster("未分班").map((row) => row.user_code)).toEqual([
+      "202505050103",
+    ]);
+    expect(adapter.getClassRoster("不存在的班")).toEqual([]);
+
+    adapter.close();
+    rmSync(path.dirname(dbPath), { recursive: true, force: true });
+  });
+
   it("分班趋势：按班分层补零，仅出现在册当天有提交的班级（#165）", () => {
     const dbPath = makeTmpDb();
     const adapter = new SqliteAdapter(dbPath);

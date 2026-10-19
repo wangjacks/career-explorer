@@ -180,6 +180,14 @@ export interface CompareStat {
   submitted: number;
 }
 
+/** 班级名册行（#217）：按班名聚合口径，只取展示所需字段，绝不带 password_hash */
+export interface ClassRosterRow {
+  name: string;
+  user_code: string;
+  submitted_at: string | null;
+  tags: string | null;
+}
+
 /** 按班级分层的提交趋势（#165）：keys 为分组名，points 为窗口内逐日多序列（已补齐 0） */
 export interface ClassTrendSeries {
   keys: string[];
@@ -574,6 +582,8 @@ export interface DbAdapter {
   getTrendsByClass(days: number): Promise<ClassTrendSeries> | ClassTrendSeries;
   /** 按班级分组统计在册/已提交（#165） */
   getCompareByClass(): Promise<CompareStat[]> | CompareStat[];
+  /** 按班名取学生名册（#217）；班名口径与 getCompareByClass 的 COALESCE(c.name, '未分班') 一致 */
+  getClassRoster(className: string): Promise<ClassRosterRow[]> | ClassRosterRow[];
 
   // tags & classes
   getTags(): Promise<TagRow[]> | TagRow[];
@@ -911,6 +921,11 @@ export async function getTrendsByClass(days: number): Promise<ClassTrendSeries> 
 export async function getCompareByClass(): Promise<CompareStat[]> {
   const adapter = await ensureInit();
   return Promise.resolve(adapter.getCompareByClass());
+}
+
+export async function getClassRoster(className: string): Promise<ClassRosterRow[]> {
+  const adapter = await ensureInit();
+  return Promise.resolve(adapter.getClassRoster(className));
 }
 
 export async function getTags(): Promise<TagRow[]> {

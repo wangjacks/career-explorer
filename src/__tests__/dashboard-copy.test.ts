@@ -272,9 +272,22 @@ describe("DashboardKit 的取数与文案解耦", () => {
     expect(adminSource).not.toContain("TEACHER_DASHBOARD_COPY");
     expect(teacherSource).toContain("TEACHER_DASHBOARD_COPY");
     expect(teacherSource).not.toContain("ADMIN_DASHBOARD_COPY");
-    for (const component of ["SubmissionHero", "TrendCard", "DistributionCard", "CompareCard"]) {
+    for (const component of ["SubmissionHero", "DistributionCard"]) {
       expect(adminSource.split(component).length - 1).toBeGreaterThanOrEqual(1);
       expect(teacherSource.split(component).length - 1).toBeGreaterThanOrEqual(1);
     }
+    // 教师端已用提交列表与测评占位替换趋势 / 对比卡（#217）；管理端保留原图表组合
+    for (const component of ["TrendCard", "CompareCard"]) {
+      expect(adminSource.split(component).length - 1).toBeGreaterThanOrEqual(1);
+      expect(teacherSource.split(component).length - 1).toBe(0);
+    }
+    expect(teacherSource).toContain("ClassSubmissionCard");
+    expect(teacherSource).toContain("AssessmentPlaceholderCard");
+
+    const teacherCardsSource = stripComments(
+      readFileSync(join(process.cwd(), "src/components/admin/TeacherDashboardCards.tsx"), "utf8")
+    );
+    expect(teacherCardsSource).toContain("TEACHER_DASHBOARD_COPY");
+    expect(teacherCardsSource).not.toContain("ADMIN_DASHBOARD_COPY");
   });
 });
