@@ -1,3 +1,4 @@
+import { withDemoScope } from "@/lib/demo-scope";
 import { NextRequest, NextResponse } from "next/server";
 import { getClassGroups, getClassGroupMembers, getStudentGroupRef, getStudents } from "@/lib/db";
 import { verifyToken } from "@/lib/token";
@@ -8,7 +9,7 @@ import { FEATURE_SOURCES, buildFeatureVectors, featureLabels } from "@/lib/group
  * 只返回本组，**不提供遍历班级的接口**——把同组同学的信息暴露面压到最小；
  * 头像到客户端后仍受 storage-sign 的「同组成员 + 仅头像」约束。
  */
-export async function GET(request: NextRequest) {
+async function GET_impl(request: NextRequest) {
   try {
     const token = request.cookies.get("auth_token")?.value;
     if (!token) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -67,3 +68,5 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "获取本组名单失败" }, { status: 500 });
   }
 }
+
+export const GET = withDemoScope(GET_impl);

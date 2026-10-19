@@ -1,3 +1,4 @@
+import { withDemoScope } from "@/lib/demo-scope";
 import { NextRequest, NextResponse } from "next/server";
 import {
   getAllSubmitted,
@@ -23,7 +24,7 @@ import { getSourceKey, isThumbnailKey } from "@/lib/thumbnail-utils";
  * proxy matcher 不覆盖 /api/shared/*，由本路由自行验签（与 /api/shared/profile 同模式）。
  * 签发为高频读操作，不记审计（避免淹没审计日志）。
  */
-export async function GET(request: NextRequest) {
+async function GET_impl(request: NextRequest) {
   try {
     const token = request.cookies.get("auth_token")?.value;
     const result = token ? await verifyToken(token) : { valid: false };
@@ -112,3 +113,5 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }
+
+export const GET = withDemoScope(GET_impl);

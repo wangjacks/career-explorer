@@ -1,3 +1,4 @@
+import { withDemoScope } from "@/lib/demo-scope";
 import { NextRequest, NextResponse } from "next/server";
 import {
   getClasses,
@@ -20,7 +21,7 @@ async function uniqueInviteCode(): Promise<string> {
   throw new Error("邀请码生成失败");
 }
 
-export async function GET() {
+async function GET_impl() {
   try {
     const [classes, pairs] = await Promise.all([getClasses(), getTeacherClassPairs()]);
     return NextResponse.json({ data: classes, teacher_classes: pairs });
@@ -30,7 +31,7 @@ export async function GET() {
   }
 }
 
-export async function POST(request: NextRequest) {
+async function POST_impl(request: NextRequest) {
   const { ip, user_agent } = getRequestContext(request);
   try {
     const session = await getSession(request);
@@ -66,3 +67,6 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "创建班级失败" }, { status: 500 });
   }
 }
+
+export const GET = withDemoScope(GET_impl);
+export const POST = withDemoScope(POST_impl);

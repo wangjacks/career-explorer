@@ -1,8 +1,9 @@
+import { withDemoScope } from "@/lib/demo-scope";
 import { NextRequest, NextResponse } from "next/server";
 import { getGroupBatches } from "@/lib/db";
 
 /** GET：某班的历史批次列表（新→旧）。读不限班级，与当前分组一致 */
-export async function GET(request: NextRequest) {
+async function GET_impl(request: NextRequest) {
   try {
     const classId = Number(request.nextUrl.searchParams.get("classId"));
     if (!Number.isInteger(classId) || classId <= 0) {
@@ -27,3 +28,5 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "获取历史分组失败" }, { status: 500 });
   }
 }
+
+export const GET = withDemoScope(GET_impl);

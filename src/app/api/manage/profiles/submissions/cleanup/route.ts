@@ -1,3 +1,4 @@
+import { withDemoScope } from "@/lib/demo-scope";
 import { NextRequest, NextResponse } from "next/server";
 import {
   deleteOldestProfileSubmissions,
@@ -14,7 +15,7 @@ import { getAuditActor, getRequestContext, recordAudit } from "@/lib/audit";
  * - body 携带 userId → 清理该学生
  * - body 为空 → 一键清理全部超限学生（调低上限后存量超限的治理入口）
  */
-export async function POST(request: NextRequest) {
+async function POST_impl(request: NextRequest) {
   const { ip, user_agent } = getRequestContext(request);
   try {
     const token = request.cookies.get("auth_token")?.value;
@@ -79,3 +80,5 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "服务器错误" }, { status: 500 });
   }
 }
+
+export const POST = withDemoScope(POST_impl);

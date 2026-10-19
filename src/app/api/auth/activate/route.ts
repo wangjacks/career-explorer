@@ -1,3 +1,4 @@
+import { withDemoScope } from "@/lib/demo-scope";
 import { NextRequest, NextResponse } from "next/server";
 import { hashPassword } from "@/lib/auth";
 import { signToken } from "@/lib/token";
@@ -18,7 +19,7 @@ const COOKIE_OPTIONS = {
  * 账户须先由教师导入名单后存在，凭学号 + 姓名 + 本班邀请码三者一致核验身份，
  * 通过后设置密码并自动登录。
  */
-export async function POST(request: NextRequest) {
+async function POST_impl(request: NextRequest) {
   const { ip, user_agent } = getRequestContext(request);
   try {
     const { userCode, name, password, inviteCode } = await request.json();
@@ -68,3 +69,5 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ ok: false, error: "服务器错误" }, { status: 500 });
   }
 }
+
+export const POST = withDemoScope(POST_impl);

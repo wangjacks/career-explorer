@@ -1,3 +1,4 @@
+import { withDemoScope } from "@/lib/demo-scope";
 import { NextRequest, NextResponse } from "next/server";
 import {
   completeAssessmentResult,
@@ -28,7 +29,7 @@ import { getRequestContext, recordAudit } from "@/lib/audit";
  * - 计分复用 #220 的引擎，得分 JSON 与三字码作为**快照**写入 `assessment_results`
  *   （之后改题面或重算都不影响历史结果）；重复提交生成新版本，旧版本 `is_current` 置 0 但保留。
  */
-export async function POST(request: NextRequest) {
+async function POST_impl(request: NextRequest) {
   const { ip, user_agent } = getRequestContext(request);
   try {
     const token = request.cookies.get("auth_token")?.value;
@@ -151,3 +152,5 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "服务器错误" }, { status: 500 });
   }
 }
+
+export const POST = withDemoScope(POST_impl);

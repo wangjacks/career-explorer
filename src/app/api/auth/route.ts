@@ -1,3 +1,4 @@
+import { withDemoScope } from "@/lib/demo-scope";
 import { NextRequest, NextResponse } from "next/server";
 import { verifyPassword } from "@/lib/auth";
 import { signToken, verifyToken } from "@/lib/token";
@@ -15,7 +16,7 @@ const COOKIE_OPTIONS = {
 };
 
 /** 统一登录：user_code + 密码（admin/teacher/student 三角色） */
-export async function POST(request: NextRequest) {
+async function POST_impl(request: NextRequest) {
   const { ip, user_agent } = getRequestContext(request);
   // 登录失败时尚无会话：操作者快照仅含尝试编号（#110）
   const failedAudit = (attemptedCode: string, reason: string) =>
@@ -139,7 +140,7 @@ export async function POST(request: NextRequest) {
 }
 
 /** 会话状态检测：前端挂载时调用（httpOnly cookie 不可被 JS 读取） */
-export async function GET(request: NextRequest) {
+async function GET_impl(request: NextRequest) {
   const token = request.cookies.get("auth_token")?.value;
   if (!token) {
     return NextResponse.json({ ok: false }, { status: 401 });
@@ -180,7 +181,7 @@ export async function GET(request: NextRequest) {
 }
 
 /** 登出：清除 auth_token（#110：先记录审计再清 cookie，否则拿不到操作者） */
-export async function DELETE(request: NextRequest) {
+async function DELETE_impl(request: NextRequest) {
   const { ip, user_agent } = getRequestContext(request);
   const actor = await getAuditActor(request);
   void recordAudit({
@@ -200,3 +201,7 @@ export async function DELETE(request: NextRequest) {
   response.cookies.set("auth_token", "", { ...COOKIE_OPTIONS, maxAge: 0 });
   return response;
 }
+
+export const POST = withDemoScope(POST_impl);
+export const GET = withDemoScope(GET_impl);
+export const DELETE = withDemoScope(DELETE_impl);

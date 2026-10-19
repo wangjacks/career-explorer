@@ -1,3 +1,4 @@
+import { withDemoScope } from "@/lib/demo-scope";
 import { NextRequest, NextResponse } from "next/server";
 import { applyGroupingResult, getStudents } from "@/lib/db";
 import { getRequestContext, recordAudit } from "@/lib/audit";
@@ -20,7 +21,7 @@ const GENERATE_AUDIT = {
 } as const;
 
 /** GET：读某班当前分组 + 指标 + 与最近一次自动分组的差异（**读不限班级**，教师可查看全校） */
-export async function GET(request: NextRequest) {
+async function GET_impl(request: NextRequest) {
   try {
     const classId = Number(request.nextUrl.searchParams.get("classId"));
     if (!Number.isInteger(classId) || classId <= 0) {
@@ -39,7 +40,7 @@ export async function GET(request: NextRequest) {
  * 语义是**完全覆盖**当前分组（手工调整不可恢复），并追加一份历史批次归档；
  * 两步必须在同一事务内完成，否则中途失败会留下「当前已覆盖但没有归档」的不一致态。
  */
-export async function POST(request: NextRequest) {
+async function POST_impl(request: NextRequest) {
   const { ip, user_agent } = getRequestContext(request);
   // 覆盖式写操作的失败与被拒也要留痕（AGENTS.md：管理域写操作成败均记）
   const fail = groupFailureWriter(request, GENERATE_AUDIT);
@@ -126,3 +127,6 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "自动分组失败" }, { status: 500 });
   }
 }
+
+export const GET = withDemoScope(GET_impl);
+export const POST = withDemoScope(POST_impl);
