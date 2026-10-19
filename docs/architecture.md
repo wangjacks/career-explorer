@@ -176,7 +176,7 @@
 | `profile_submissions` | 档案提交历史版本（#95）：`user_id` + `version` + 快照字段（`tags`/`avatar_url`/`evaluation_url`/`storage_id`/`submitted_at`）+ `is_current`；索引 `(user_id, version)`、`(user_id, is_current)` | #95 | ✅ |
 | `assessments` | 测评定义（#221）：`code`（唯一，如 `riasec`）、`name`、`question_count`、`dimensions_json`（`[{key,label}]`，顺序即计分与展示顺序）、`scoring_mode`（`typological` 取类型码 / `dimensional` 多维高低分档）、`scale_version`、`attribution`（署名）/ `license_text`（授权与修改声明）/ `disclaimer`（免责声明）、`enabled` | #221 | ✅ |
 | `assessment_questions` | 题库（#221）：`assessment_id` + `question_index`（量表内从 1 开始，`UNIQUE`）+ `prompt` + `dimension`（须是 `dimensions_json` 的 key）+ `reverse_scored` + `version`（题面版本，改动时自增） | #221 | ✅ |
-| `assessment_results` | 作答与结果**快照**（#221）：`user_id` + `assessment_id` + `status`（`in_progress` 草稿 / `completed` 完成）+ `answers_json` + `scores_json` + `type_code`（三字码，dimensional 量表为 NULL）+ `is_current` + `started_at` / `updated_at` / `completed_at` | #221 | ✅（学生个人数据） |
+| `assessment_results` | 作答与结果**快照**（#221）：`user_id` + `assessment_id` + `status`（`in_progress` 草稿 / `completed` 完成）+ `answers_json` + `scores_json` + `type_code`（三字码，dimensional 量表为 NULL）+ `is_current` + `draft_slot`（草稿位：草稿为 1、完成为 NULL，`UNIQUE(user_id, assessment_id, draft_slot)`）+ `started_at` / `updated_at` / `completed_at` | #221 | ✅（学生个人数据） |
 
 **课堂分组（#101）五张表 —— 当前态与历史态物理分离**
 
@@ -194,7 +194,7 @@
 
 > **分组五表是例外**：`users` / `classes` 是整表替换的，旧备份没有分组字段时若保留现状，成员行会指向已不存在或已换班的学生（恢复期间外键检查关闭，库不会拦）。所以恢复**一律先清空五表**，只有备份带字段才回填——旧备份恢复后即为「未分组」，这是有意为之，与 `profile_submissions` 的「缺字段保留不动」口径不同。
 
-> **测评三表是第二种例外**：`assessments` 与 `assessment_questions` 必须**成对**替换（只换题库不换定义会留下指向旧维度集的题），故只判 `assessments` 字段；`assessment_results` 单独判字段、缺字段保留现状（学生个人数据，与 `profile_submissions` 同口径）。恢复后若内置量表缺失会按种子补种，已存在的量表不覆盖。
+> **测评三表是第二种例外**：三者**作为一个整体**替换——`assessments` / `assessment_questions` / `assessment_results` 齐备才整体换，否则三张表都保留现状。只换题库不换定义会留下指向旧维度集的题，换了定义却留着旧结果会让结果错配到新 id；旧备份本就没有这三个字段（等价保留现状），残缺备份也不会留下半态。恢复后若内置量表缺失会按种子补种，已存在的量表不覆盖。
 
 ## 课堂分组（#101）
 
@@ -216,8 +216,8 @@
 
 - **量表进库、不写死代码**：`assessments` 存定义（维度 JSON / 计分类型 / 量表版本 / 署名授权），`assessment_questions` 存题面；首套量表为 O*NET Interest Profiler Mini-IP 30 题中文改编版（RIASEC，6 维各 5 题，原始量表无反向题）。种子由两适配器 `init()` 写入，以 `code` 存在性判定幂等，**不覆盖后台维护过的题面**；坏种子在落库前被 `validateAssessmentSeed` 挡住（题数、题号连续、维度归属、题干非空）
 - **题号即作答键**：`question_index` 从 1 连续到 n，作答 JSON 以它为键，故跳号会让「已答 n 题 / 总 n 题」的进度口径失真；`dimension` 必须是 `dimensions_json` 里的 key，且每个维度至少一题（零题维度恒 0 分，会与真实低分混淆）
-- **草稿与结果同表**：`in_progress` 草稿在同一 `user_id + assessment_id` 下至多一条，由适配器事务保证（MySQL 无部分唯一索引，两侧都不建部分唯一约束，避免「SQLite 拦得住、MySQL 拦不住」的行为分叉）；完成时**沿用草稿行**翻状态（保留 `started_at`），同事务内把该用户该量表其他完成版本 `is_current` 置 0，保证当前版本唯一；历史版本用 `getAssessmentResults`（完成时间新→旧）
-- **结果是快照**：`answers_json` / `scores_json` / `type_code` 落库，学生回看是当时的结论，不随改题或重算漂移。计分由计分引擎（#220）在写入前算好，数据层不重复实现算法，`dimensional` 量表不产出三字码（该列为 NULL）
+- **草稿与结果同表**：`in_progress` 草稿在同一 `user_id + assessment_id` 下至多一条，靠 **可空 `draft_slot` + 唯一约束**兜住（草稿恒填 1、完成记录置 NULL，两库都允许多个 NULL，正好当「部分唯一索引」的可移植替代；MySQL 无部分唯一索引）。写入用单条 upsert（`ON CONFLICT` / `ON DUPLICATE KEY UPDATE`），并发自动保存不会插出第二条草稿。完成时**沿用草稿行**翻状态（保留 `started_at`、把 `draft_slot` 置 NULL 释放草稿位），同事务内把该用户该量表其他完成版本 `is_current` 置 0，保证当前版本唯一；历史版本用 `getAssessmentResults`（完成时间新→旧）
+- **结果是快照**：`answers_json` / `scores_json` / `type_code` 落库，学生回看是当时的结论，不随改题或重算漂移。计分由计分引擎（#220）在写入前算好，数据层不重复实现算法，`dimensional` 量表不产出三字码（该列为 NULL）。注意作答明细以**题号**为键、不含题面文本：若后续要做「逐题作答明细回看」，需先补一列记录当时的量表/题面版本，否则改题后可能套错题面（当前结果页只呈现得分快照，不受影响）
 - **个人数据随账号删除**：`deleteStudents` 一并清 `assessment_results`；历史档案快照 `profile_submissions` 仍按 #95 口径保留
 - **授权合规**：`attribution`（署名）/ `license_text`（授权与修改声明）/ `disclaimer`（免责声明）三列随量表下发，作答页与结果页必须展示。O*NET Tools Developer License 要求署名并声明「修改未经 USDOL/ETA 审核、认可或测试」（https://www.onetcenter.org/license_tools.html ）
 
