@@ -61,7 +61,7 @@
 
 ## API 路由
 
-<!-- 对账：`find src/app/api -name route.ts | wc -l`（当前 55 条 = manage 41 + auth 3 + setup 3 + shared 5 + tags/upload/uploads 各 1） -->
+<!-- 对账：`find src/app/api -name route.ts | wc -l`（当前 56 条 = manage 41 + auth 3 + setup 3 + shared 6 + tags/upload/uploads 各 1） -->
 
 ### 认证层（proxy 之外，公开）
 
@@ -155,7 +155,7 @@
 | `/api/shared/profile/submissions/restore` | POST | 学生恢复历史版本（#95）：截止后 403 → 校验版本归属 → 生成新版本（不回写旧记录）→ 审计 `profile:restore` |
 | `/api/shared/group` | GET | 学生读本组名单（#101）：只返回**本人所在组**的成员（姓名/学号/头像引用/标签），不提供遍历班级的接口；未分组返回 `grouped:false` |
 | `/api/shared/storage-sign` | GET | 文件访问地址签发（#111）：本地后端回显代理路径；云后端按归属记录的 `storage_id` 签发 30 分钟签名 URL；权限校验：学生仅本人与**同组同学的头像**（#101，词云不放行、非同组 403）、教师仅管辖班级、管理员全量 |
-| `/api/shared/assessment/careers` | GET | 本人最新霍兰德结果 → Top-N 推荐职业（#226）：只认会话 uid（显式传别人的 `user_id` 直接 403，非学生 403），`?limit=1–20`，返回推荐列表 + O*NET 署名与快照版本；没完成测评为 404 |
+| `/api/shared/assessment/careers` | GET | 本人最新霍兰德结果 → Top-N 推荐职业（#226）：只认会话 uid（显式传别人的 `user_id` 直接 403，非学生 403），`?limit=1–20`（非法值 400），返回推荐列表 + O*NET 署名与快照版本；没完成测评 404、结果里既无六维分也无三字码 409、职业库为空 503 |
 
 ### 其他开放端点（proxy 之外）
 
