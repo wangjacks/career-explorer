@@ -7,6 +7,8 @@ import { Compass, SquarePen, UsersRound, X } from "lucide-react";
 import NavigationBar from "@/components/NavigationBar";
 import StudentSidebar, { type StudentViewKey } from "@/components/student/StudentSidebar";
 import TextAvatar from "@/components/TextAvatar";
+import AssessmentResultCard from "@/components/student/AssessmentResultCard";
+import ProfileSectionHeader from "@/components/student/ProfileSectionHeader";
 import ConfirmDialog from "@/components/admin/ConfirmDialog";
 import TagSelector, { type TagCategory, TAG_CHIP_COLORS } from "@/components/TagSelector";
 import ImageUploadBox from "@/components/ImageUploadBox";
@@ -88,48 +90,6 @@ function ProgressRing({ completion }: { completion: number }) {
         <Compass size={16} className="text-accent" aria-hidden />
         <span className="text-[10px] sm:text-xs font-semibold text-white mt-0.5">{completion}/3</span>
       </div>
-    </div>
-  );
-}
-
-/** 分区小标（eyebrow）：琥珀竖条为纯装饰（琥珀不承载小字）；done 省略则不显示角标 */
-function SectionHeader({
-  label,
-  done,
-  marker,
-}: {
-  label: string;
-  done?: boolean;
-  /** 填写要求标识：编辑态的两组输入各标一种，两者都要可见（#208） */
-  marker?: "required" | "optional";
-}) {
-  return (
-    <div className="flex items-center gap-2">
-      <span className="w-1 h-4 rounded-full bg-accent" aria-hidden />
-      <h2 className="text-sm font-semibold text-foreground">{label}</h2>
-      {/* 「必填 / 选填」做成胶囊与右侧的完成度角标同形：文字直读，不用只表意的星号（#208） */}
-      {marker && (
-        <span
-          className={`px-2 py-0.5 rounded-full text-xs font-medium ${
-            marker === "required"
-              ? "bg-danger-soft text-danger-strong"
-              : "bg-gray-100 text-muted dark:bg-gray-800"
-          }`}
-        >
-          {marker === "required" ? "必填" : "选填"}
-        </span>
-      )}
-      {done !== undefined && (
-        <span
-          className={`ml-auto px-2 py-0.5 rounded-full text-xs font-medium ${
-            done
-              ? "bg-green-50 text-green-600 dark:bg-green-900/30 dark:text-green-400"
-              : "bg-gray-100 text-muted dark:bg-gray-800"
-          }`}
-        >
-          {done ? "✓ 已完成" : "待完成"}
-        </span>
-      )}
     </div>
   );
 }
@@ -251,7 +211,7 @@ function GroupPanel({
   if (error) {
     return (
       <section className="bg-card rounded-xl border border-border-soft p-5 space-y-3">
-        <SectionHeader label="我的小组" done={false} />
+        <ProfileSectionHeader label="我的小组" done={false} />
         <p className="text-sm text-danger-strong">{error}</p>
         <button
           type="button"
@@ -277,7 +237,7 @@ function GroupPanel({
   return (
     <section className="bg-card rounded-xl border border-border-soft p-5 space-y-4">
       <div className="flex items-center gap-2 flex-wrap">
-        <SectionHeader label="我的小组" />
+        <ProfileSectionHeader label="我的小组" />
         <span className="ml-auto text-sm font-semibold text-foreground">
           {group.groupNo === null ? "本组" : `第 ${group.groupNo} 组`} · {group.memberCount} 人
         </span>
@@ -704,6 +664,9 @@ export default function StudentDashboardPage() {
               </div>
             </section>
 
+            {/* 职业兴趣测评结果（#224）：独立于档案提交流程——不受截止门控、不进档案版本快照 */}
+            <AssessmentResultCard />
+
             {activeView === "group" ? (
               <GroupPanel
                 group={group}
@@ -743,7 +706,7 @@ export default function StudentDashboardPage() {
                     <>
                       {/* 我的标签（按 API 分类分组三色） */}
                       <section className="bg-card rounded-xl border border-border-soft p-5 space-y-4">
-                        <SectionHeader label="我的标签" done={profile.tags.length > 0} />
+                        <ProfileSectionHeader label="我的标签" done={profile.tags.length > 0} />
                         {profile.tags.length === 0 ? (
                           <p className="text-sm text-muted">暂无标签</p>
                         ) : (
@@ -777,7 +740,7 @@ export default function StudentDashboardPage() {
 
                       {/* 评价词云（预览可放大） */}
                       <section className="bg-card rounded-xl border border-border-soft p-5 space-y-4">
-                        <SectionHeader label="评价词云" done={!!profile.evaluation_url} />
+                        <ProfileSectionHeader label="评价词云" done={!!profile.evaluation_url} />
                         {evaluationPreview ? (
                           <img
                             src={evaluationPreview}
@@ -806,7 +769,7 @@ export default function StudentDashboardPage() {
                   ) : (
                     /* 历史提交（#95）：独立 Tab，恢复按钮截止后隐藏 */
                     <section className="bg-card rounded-xl border border-border-soft p-5 space-y-4">
-                      <SectionHeader label="历史提交" />
+                      <ProfileSectionHeader label="历史提交" />
                       {historyLoading ? (
                         <p className="text-sm text-muted">加载中...</p>
                       ) : historySubmissions.length === 0 ? (
@@ -856,7 +819,7 @@ export default function StudentDashboardPage() {
               /* 编辑模式（hero 保留在顶部） */
               <div className="space-y-5">
                 <section className="bg-card rounded-xl border border-border-soft p-5 space-y-4">
-                  <SectionHeader label={hasSubmitted ? "修改标签" : "选择标签"} marker="required" />
+                  <ProfileSectionHeader label={hasSubmitted ? "修改标签" : "选择标签"} marker="required" />
                   {categories.length === 0 ? (
                     <p className="text-sm text-muted py-4 text-center">标签加载中...</p>
                   ) : (
@@ -871,7 +834,7 @@ export default function StudentDashboardPage() {
                 </section>
 
                 <section className="bg-card rounded-xl border border-border-soft p-5 space-y-4">
-                  <SectionHeader label="头像与评价词云" marker="optional" />
+                  <ProfileSectionHeader label="头像与评价词云" marker="optional" />
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
                     <div className="space-y-2">
                       <p className="text-xs text-muted">头像</p>

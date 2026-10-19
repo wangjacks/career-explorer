@@ -1,6 +1,30 @@
 import { getConfig } from "./db-config";
 import { MysqlAdapter } from "./db-mysql";
 import { SqliteAdapter } from "./db-sqlite";
+import { isDemoScope, isDemoEnabled, getDemoDbPath } from "./demo-scope";
+
+/**
+ * 批查分片大小（#193）：单条 SQL 的绑定参数数量有引擎上限——SQLite 旧构建为
+ * 999（新构建 32766），MySQL 为 65535。批量导入的学号数量随名单规模增长，
+ * 因此按 500 分片查询，远低于所有上限，也避免构造超长 IN 列表。
+ */
+export const BATCH_QUERY_CHUNK_SIZE = 500;
+
+/** 按固定大小切分数组（批查分片用，最后一片可短于 size） */
+export function chunkArray<T>(items: T[], size: number = BATCH_QUERY_CHUNK_SIZE): T[][] {
+  const chunks: T[][] = [];
+  for (let i = 0; i < items.length; i += size) {
+    chunks.push(items.slice(i, i + size));
+  }
+  return chunks;
+}
+
+/** 按学号批查时的轻量投影（#193）：批量导入只需要「标识 + 班级归属」，不取整行（含 password_hash） */
+export interface UserCodeRef {
+  id: number;
+  user_code: string;
+  class_id: number | null;
+}
 
 export interface UserRow {
   id: number;
@@ -180,6 +204,14 @@ export interface CompareStat {
   submitted: number;
 }
 
+/** 班级名册行（#217）：按班名聚合口径，只取展示所需字段，绝不带 password_hash */
+export interface ClassRosterRow {
+  name: string;
+  user_code: string;
+  submitted_at: string | null;
+  tags: string | null;
+}
+
 /** 按班级分层的提交趋势（#165）：keys 为分组名，points 为窗口内逐日多序列（已补齐 0） */
 export interface ClassTrendSeries {
   keys: string[];
@@ -273,6 +305,151 @@ export interface NewGroupBatchInput {
   }[];
 }
 
+/* ---------- 职业测评（#221：测评定义 / 题库 / 作答结果三表） ---------- */
+
+/** assessments 行：测评定义。题库进库而非写死代码，便于扩充第二套量表与后台维护中文题面 */
+export interface AssessmentRow {
+  id: number;
+  /** 量表标识，如 `riasec`；跨环境稳定的业务主键 */
+  code: string;
+  name: string;
+  question_count: number;
+  /** 维度定义 JSON 文本 `[{ key, label }]`，顺序即展示与计分顺序 */
+  dimensions_json: string;
+  /** `typological`（取类型码，如霍兰德三字码）/ `dimensional`（多维高低分档） */
+  scoring_mode: "typological" | "dimensional";
+  scale_version: string;
+  /** 署名文本：第三方量表（如 O*NET）授权要求，必须随作答与结果下发 */
+  attribution: string;
+  /** 授权条款与「修改未经官方审核」声明 */
+  license_text: string;
+  /** 免责声明：结果是探索参考，不作诊断或录用依据 */
+  disclaimer: string;
+  /** 0/1：是否在学生测评中心可见；下线量表保留数据只改这一列 */
+  enabled: number;
+  created_at: string;
+  updated_at: string;
+}
+
+/** assessment_questions 行：题库（题面 + 计分元数据） */
+export interface AssessmentQuestionRow {
+  id: number;
+  assessment_id: number;
+  /** 作答题号，量表内从 1 开始唯一（唯一约束 `assessment_id + question_index`） */
+  question_index: number;
+  prompt: string;
+  /** 所属维度：必须是该量表 `dimensions_json` 里的某个 key */
+  dimension: string;
+  /** 0/1：反向计分（Mini-IP 全为正向，字段为后续量表预留） */
+  reverse_scored: number;
+  /** 题面版本，题面改动时自增；作答快照另存 answers/scores，历史结果不因此漂移 */
+  version: number;
+  created_at: string;
+}
+
+/** assessment_results 行：一次作答 + 结果快照（快照而非实时计算，学生回看仍是当时的结论） */
+export interface AssessmentResultRow {
+  id: number;
+  user_id: number;
+  assessment_id: number;
+  /** `in_progress` 草稿（同 (user_id, assessment_id) 至多一条）/ `completed` 完成记录（可多条） */
+  status: "in_progress" | "completed";
+  /** 作答 JSON 文本：题号 → 1-5 作答值；草稿即未答全 */
+  answers_json: string;
+  /** 得分 JSON 文本：完成时写入（维度得分快照），草稿为 NULL */
+  scores_json: string | null;
+  /** 类型码（`typological` 模式的三字码，如 `SIA`）；`dimensional` 量表为 NULL */
+  type_code: string | null;
+  /** 0/1：是否为该用户该量表的当前有效完成结果（仅 completed 会置 1） */
+  is_current: number;
+  /**
+   * 草稿位：草稿恒为 1、完成记录恒为 NULL，配合 `UNIQUE(user_id, assessment_id, draft_slot)`
+   * 让「同一学生同一量表至多一条草稿」成为**数据库级**不变量（两库都允许多个 NULL，故完成记录不受限）。
+   */
+  draft_slot: number | null;
+  started_at: string;
+  updated_at: string;
+  /** 完成时间；草稿为 NULL */
+  completed_at: string | null;
+}
+
+/**
+ * 教师侧「当前测评结果」轻量快照（#233 导出 / #234 数据列表共用）：一次批查，不逐学生查库。
+ *
+ * 只带需要的四列（学号 / 三字码 / 维度分快照 / 完成时间），不含作答内容——两个消费方都
+ * 没有「逐题作答」的诉求，少取一列就少一份个人数据的搬运面。
+ */
+export interface AssessmentResultSummary {
+  user_code: string;
+  type_code: string | null;
+  scores_json: string | null;
+  completed_at: string | null;
+}
+
+
+/** completeAssessmentResult 入参（计分由调用方用计分引擎算好再落库，数据层不重复实现算法） */
+export interface CompleteAssessmentInput {
+  userId: number;
+  assessmentId: number;
+  answersJson: string;
+  scoresJson: string | null;
+  typeCode: string | null;
+}
+
+/**
+ * 测评统计的**原始计数**（#229，教师端）：适配器只负责数数，完成率、排序、截断与中文标签
+ * 统一由 `src/lib/assessment-stats.ts` 的纯函数算——两适配器不重复实现同一套口径。
+ *
+ * 范围口径：`classIds = null` 表示全校（含未分班学生，保证完成率不出现 >100% 的怪值）；
+ * 传具体班级集合时只统计这些班的学生，班级列表也只含这些班。
+ */
+export interface AssessmentStatsRaw {
+  classes: { class_id: number; name: string; enrolled: number; assessed: number }[];
+  /** 六型计数：key = 三字码首位字母（与计分引擎的破平优先序一致，不另算一遍） */
+  types: { key: string; count: number }[];
+  /** 三字码计数（未排序未截断，最终展示顺序见 `finalizeAssessmentStats`） */
+  codes: { code: string; count: number }[];
+  total: { enrolled: number; assessed: number; last_completed_at: string | null };
+}
+
+/** 测评名册行（#229）：**含个人信息**，只给教师端下钻用，读取必须记审计 */
+export interface AssessmentRosterRow {
+  class_id: number | null;
+  class_name: string | null;
+  name: string;
+  user_code: string;
+  /** 三字码（首位即归型依据） */
+  code: string;
+  assessed_at: string;
+}
+
+/**
+ * onet_occupations 行（#226）：O*NET 职业库，**离线导入的只读参考数据**。
+ * 不进备份（可离线重灌，且体量远大于业务数据），恢复后按种子自愈。
+ */
+export interface OnetOccupationRow {
+  id: number;
+  /** O*NET-SOC Code，如 `15-1252.00` */
+  code: string;
+  /** 英文职业名（O*NET 原始 Title） */
+  name: string;
+  /** 中文译名；首批未覆盖的职业为 NULL（展示回退英文名） */
+  name_zh: string | null;
+  /** O*NET 官方兴趣高码（1–3 位字母，由官方 Interest High-Point 指标推导） */
+  interest_code: string;
+  /** 六型原始分 JSON：`{"R":3.61,"I":6.05,"A":2.37,"S":1.81,"E":1.87,"C":5.62}`（O*NET 1–7 分） */
+  interests_json: string;
+  /** O*NET Job Zone 1–5 */
+  job_zone: number;
+  /** 由 Job Zone 归纳的常见学历要求（中文） */
+  education_level: string;
+  /** SOC 大类（所属职业群，中文） */
+  cluster: string;
+  /** 数据快照版本，如 `30.2` */
+  dataset_version: string;
+  created_at: string;
+}
+
 export interface BackupData {
   version: number;
   sourceType: string;
@@ -281,24 +458,30 @@ export interface BackupData {
   classes: ClassRow[];
   teacher_classes: TeacherClassRow[];
   tags: BackupTagRow[];
-  /** 审计日志（#110；旧备份可能缺失，读取方容忍 undefined） */
+  /** 审计日志（#110；旧备份可能缺失，读取方容忍 undefined；恢复时缺字段 → 保留现状：记录本身要不可篡改，操作者另有 actor_user_code/姓名冗余快照兜底） */
   audit_logs?: AuditLogRow[];
-  /** 档案功能配置（configs_profile 键值对；旧备份可能缺失，读取方容忍 undefined） */
+  /** 档案功能配置（configs_profile 键值对；旧备份可能缺失，读取方容忍 undefined；恢复时缺字段 → 保留当前配置） */
   configs_profile?: { key: string; value: string }[];
-  /** 存储后端注册表（#111；不含凭据；旧备份可能缺失，读取方容忍 undefined） */
+  /** 存储后端注册表（#111；不含凭据；旧备份可能缺失，读取方容忍 undefined；恢复时缺字段 → 保留当前后端表并回填本地后端） */
   storage_backends?: StorageBackendRow[];
-  /** 档案提交历史版本（#95；旧备份可能缺失，读取方容忍 undefined） */
+  /** 档案提交历史版本（#95；旧备份可能缺失。**按 user_id 引用 users，恢复时缺字段一律清空**，否则同 id 换人后会把甲的历史交给乙） */
   profile_submissions?: ProfileSubmissionRow[];
-  /** 当前分组：组（#101；旧备份可能缺失，读取方容忍 undefined） */
+  /** 当前分组：组（#101；旧备份可能缺失，恢复时缺字段一律清空） */
   class_groups?: ClassGroupRow[];
-  /** 当前分组：成员归属（#101；旧备份可能缺失） */
+  /** 当前分组：成员归属（#101；旧备份可能缺失，恢复时缺字段一律清空） */
   class_group_members?: ClassGroupMemberRow[];
-  /** 历史批次头（#101；旧备份可能缺失） */
+  /** 历史批次头（#101；旧备份可能缺失，恢复时缺字段一律清空） */
   group_batches?: GroupBatchRow[];
-  /** 历史批次内的组（#101；旧备份可能缺失） */
+  /** 历史批次内的组（#101；旧备份可能缺失，恢复时缺字段一律清空） */
   group_batch_groups?: GroupBatchGroupRow[];
-  /** 历史批次的成员快照（#101；旧备份可能缺失） */
+  /** 历史批次的成员快照（#101；旧备份可能缺失，恢复时缺字段一律清空） */
   group_batch_members?: GroupBatchMemberRow[];
+  /** 测评定义（#221；旧备份可能缺失，恢复时保留当前题库不动） */
+  assessments?: AssessmentRow[];
+  /** 题库（#221；旧备份可能缺失） */
+  assessment_questions?: AssessmentQuestionRow[];
+  /** 学生作答与结果快照（#221；旧备份可能缺失。**按 user_id 引用 users，恢复时缺字段一律清空**，口径同 profile_submissions） */
+  assessment_results?: AssessmentResultRow[];
 }
 
 /** configs_profile 表行 */
@@ -415,6 +598,7 @@ export interface DbAdapter {
   // users
   insertUser(user: NewUser): Promise<number> | number;
   getUserByCode(userCode: string): Promise<UserRow | undefined> | UserRow | undefined;
+  getUsersByCodes(userCodes: string[]): Promise<UserCodeRef[]> | UserCodeRef[];
   getUserById(id: number): Promise<UserRow | undefined> | UserRow | undefined;
   getAdminUser(): Promise<UserRow | undefined> | UserRow | undefined;
   updateUser(id: number, fields: UserUpdateFields): Promise<void> | void;
@@ -464,6 +648,8 @@ export interface DbAdapter {
   getTrendsByClass(days: number): Promise<ClassTrendSeries> | ClassTrendSeries;
   /** 按班级分组统计在册/已提交（#165） */
   getCompareByClass(): Promise<CompareStat[]> | CompareStat[];
+  /** 按班名取学生名册（#217）；班名口径与 getCompareByClass 的 COALESCE(c.name, '未分班') 一致 */
+  getClassRoster(className: string): Promise<ClassRosterRow[]> | ClassRosterRow[];
 
   // tags & classes
   getTags(): Promise<TagRow[]> | TagRow[];
@@ -566,6 +752,68 @@ export interface DbAdapter {
    */
   areStudentsInSameCurrentGroup(userIdA: number, userIdB: number): Promise<boolean> | boolean;
 
+  // assessments / assessment_questions / assessment_results（#221 职业测评数据层）
+  /** 启用中的测评定义（学生测评中心列表；按 id 稳定排序） */
+  getEnabledAssessments(): Promise<AssessmentRow[]> | AssessmentRow[];
+  /** 按 code 取测评定义（含未启用：后台维护要能读到，启用与否由调用方判定） */
+  getAssessmentByCode(code: string): Promise<AssessmentRow | undefined> | AssessmentRow | undefined;
+  /** 按测评 id 取题库，按题号升序 */
+  getAssessmentQuestions(assessmentId: number): Promise<AssessmentQuestionRow[]> | AssessmentQuestionRow[];
+  /** 按 code 取题库（作答页一次调用拿全量），按题号升序 */
+  getAssessmentQuestionsByCode(code: string): Promise<AssessmentQuestionRow[]> | AssessmentQuestionRow[];
+  /**
+   * 草稿 upsert：同一 (user_id, assessment_id) 至多一条 `in_progress` 记录，返回该行 id。
+   * 幂等——续答只覆盖作答内容，不新增行；唯一性由 `draft_slot` 唯一约束兜住（并发自动保存不会插出第二条）。
+   */
+  upsertAssessmentDraft(userId: number, assessmentId: number, answersJson: string): Promise<number> | number;
+  /** 读草稿（续答）；没有草稿返回 undefined */
+  getAssessmentDraft(userId: number, assessmentId: number): Promise<AssessmentResultRow | undefined> | AssessmentResultRow | undefined;
+  /**
+   * 写完成结果：有草稿则沿用该行翻成 `completed`（保留 `started_at` 并释放草稿位），否则新插入；
+   * 同一事务内把该用户该量表其他完成版本的 `is_current` 置 0，保证当前版本唯一。
+   * @returns 写入（或沿用）的结果行 id
+   */
+  completeAssessmentResult(input: CompleteAssessmentInput): Promise<number> | number;
+  /** 当前有效的完成结果（`is_current=1`）；未完成过返回 undefined */
+  getCurrentAssessmentResult(
+    userId: number,
+    assessmentId: number
+  ): Promise<AssessmentResultRow | undefined> | AssessmentResultRow | undefined;
+  /** 完成记录历史（新→旧，不含草稿），供结果页回看与版本对比 */
+  getAssessmentResults(userId: number, assessmentId: number): Promise<AssessmentResultRow[]> | AssessmentResultRow[];
+  /**
+   * 按学号集合批量取「当前有效完成结果」的轻量快照（#233 教师导出 / #234 数据列表共用）：
+   * 一次查询（适配器内部分块），未测评的学号不会出现在结果里，由调用方按缺失留空。
+   */
+  getCurrentAssessmentResultsByUserCodes(
+    assessmentId: number,
+    userCodes: string[]
+  ): Promise<AssessmentResultSummary[]> | AssessmentResultSummary[];
+
+  // onet_occupations（#226 O*NET 职业库：离线导入的只读参考数据）
+  /** 全部职业（按 code 升序）。匹配在内存里做（余弦），一次读全量比逐条查省事且结果稳定 */
+  getOnetOccupations(): Promise<OnetOccupationRow[]> | OnetOccupationRow[];
+
+  // 教师端测评统计（#229）
+  /**
+   * 测评聚合计数（**不含个人信息**）：班级完成度、六型计数、三字码计数与总计。
+   * `classIds = null` 为全校口径；传集合则只统计这些班级（教师「只看我的班」）。
+   */
+  getAssessmentStats(
+    assessmentId: number,
+    classIds: number[] | null
+  ): Promise<AssessmentStatsRaw> | AssessmentStatsRaw;
+  /**
+   * 测评名册（**含姓名/学号，读取须记审计**）：只返回已完成且当前有效的结果。
+   * `classIds` 收窄班级范围（教师归属班级），`filters.classId` 再收窄到单班，
+   * `filters.lead` 按三字码首位过滤，`filters.code` 按完整三字码精确过滤（#232 三字码胶囊下钻）。
+   */
+  getAssessmentRoster(
+    assessmentId: number,
+    classIds: number[] | null,
+    filters?: { classId?: number | null; lead?: string | null; code?: string | null }
+  ): Promise<AssessmentRosterRow[]> | AssessmentRosterRow[];
+
   backup(): Promise<BackupData> | BackupData;
   restore(data: BackupData): Promise<void> | void;
   close(): Promise<void> | void;
@@ -581,9 +829,24 @@ export function randomInviteCode(len = 8): string {
   return code;
 }
 
+/**
+ * 量表 code 归一化（#221）：SQLite 的 `=` 对 TEXT 区分大小写、MySQL 的默认 collation 不区分，
+ * 直接在 SQL 里比会让两适配器行为分叉（#191 同类教训）。归一化放在边界（写入的种子本身即小写），
+ * 两侧都用它查，行为恒等。
+ */
+export function normalizeAssessmentCode(code: string): string {
+  return code.trim().toLowerCase();
+}
+
 let currentAdapter: DbAdapter | null = null;
 let currentType: string = "";
 let initPromise: Promise<void> | null = null;
+
+// 演示库 adapter 使用独立的 memo 槽，避免与生产 adapter 在 createAdapter() 的
+// 「切换即关闭旧 adapter」逻辑里相互 thrash（两者可能在同一进程内并存）。
+let demoAdapter: DbAdapter | null = null;
+let demoType: string = "";
+let demoInitPromise: Promise<void> | null = null;
 
 function createAdapter(): DbAdapter {
   const config = getConfig();
@@ -611,7 +874,44 @@ function createAdapter(): DbAdapter {
   return adapter;
 }
 
+/**
+ * 演示库 adapter：始终为独立 SQLite 文件（与生产库类型无关，经用户决策采用物理隔离）。
+ * 仅在演示作用域内被调用；`DEMO_ENABLED` 关闭时抛错——fail-safe，绝不回落到生产库。
+ */
+function getDemoAdapter(): DbAdapter {
+  if (!isDemoEnabled()) {
+    throw new Error("演示模式未启用（DEMO_ENABLED != true），拒绝访问演示库");
+  }
+  const demoPath = getDemoDbPath();
+  const configKey = `sqlite:${demoPath}`;
+
+  if (demoAdapter && demoType === configKey) return demoAdapter;
+
+  if (demoAdapter) {
+    try {
+      const c = demoAdapter.close();
+      if (c instanceof Promise) c.catch(() => {});
+    } catch (err) {
+      console.error("关闭旧演示 adapter 失败:", err);
+    }
+  }
+
+  const adapter = new SqliteAdapter(demoPath);
+  demoAdapter = adapter;
+  demoType = configKey;
+  demoInitPromise = Promise.resolve(adapter.init());
+  demoInitPromise.catch((err) => {
+    console.error("演示库初始化失败（后续请求将 await 到同一 rejected promise 并抛 500）:", err);
+  });
+  return adapter;
+}
+
 async function ensureInit(): Promise<DbAdapter> {
+  if (isDemoScope()) {
+    const adapter = getDemoAdapter();
+    if (demoInitPromise) await demoInitPromise;
+    return adapter;
+  }
   const adapter = createAdapter();
   if (initPromise) await initPromise;
   return adapter;
@@ -625,6 +925,12 @@ export async function insertUser(user: NewUser): Promise<number> {
 export async function getUserByCode(userCode: string): Promise<UserRow | undefined> {
   const adapter = await ensureInit();
   return Promise.resolve(adapter.getUserByCode(userCode));
+}
+
+/** 按学号集合批查（#193 批量导入）：避免逐行查库；适配器内部分块，调用方无需限制入参长度。只返回标识与班级归属 */
+export async function getUsersByCodes(userCodes: string[]): Promise<UserCodeRef[]> {
+  const adapter = await ensureInit();
+  return Promise.resolve(adapter.getUsersByCodes(userCodes));
 }
 
 export async function getUserById(id: number): Promise<UserRow | undefined> {
@@ -758,6 +1064,11 @@ export async function getTrendsByClass(days: number): Promise<ClassTrendSeries> 
 export async function getCompareByClass(): Promise<CompareStat[]> {
   const adapter = await ensureInit();
   return Promise.resolve(adapter.getCompareByClass());
+}
+
+export async function getClassRoster(className: string): Promise<ClassRosterRow[]> {
+  const adapter = await ensureInit();
+  return Promise.resolve(adapter.getClassRoster(className));
 }
 
 export async function getTags(): Promise<TagRow[]> {
@@ -1067,6 +1378,100 @@ export async function areStudentsInSameCurrentGroup(
   return Promise.resolve(adapter.areStudentsInSameCurrentGroup(userIdA, userIdB));
 }
 
+/* ---------- 职业测评（#221） ---------- */
+
+export async function getEnabledAssessments(): Promise<AssessmentRow[]> {
+  const adapter = await ensureInit();
+  return Promise.resolve(adapter.getEnabledAssessments());
+}
+
+export async function getAssessmentByCode(code: string): Promise<AssessmentRow | undefined> {
+  const adapter = await ensureInit();
+  return Promise.resolve(adapter.getAssessmentByCode(code));
+}
+
+export async function getAssessmentQuestions(assessmentId: number): Promise<AssessmentQuestionRow[]> {
+  const adapter = await ensureInit();
+  return Promise.resolve(adapter.getAssessmentQuestions(assessmentId));
+}
+
+export async function getAssessmentQuestionsByCode(code: string): Promise<AssessmentQuestionRow[]> {
+  const adapter = await ensureInit();
+  return Promise.resolve(adapter.getAssessmentQuestionsByCode(code));
+}
+
+export async function upsertAssessmentDraft(
+  userId: number,
+  assessmentId: number,
+  answersJson: string
+): Promise<number> {
+  const adapter = await ensureInit();
+  return Promise.resolve(adapter.upsertAssessmentDraft(userId, assessmentId, answersJson));
+}
+
+export async function getAssessmentDraft(
+  userId: number,
+  assessmentId: number
+): Promise<AssessmentResultRow | undefined> {
+  const adapter = await ensureInit();
+  return Promise.resolve(adapter.getAssessmentDraft(userId, assessmentId));
+}
+
+export async function completeAssessmentResult(input: CompleteAssessmentInput): Promise<number> {
+  const adapter = await ensureInit();
+  return Promise.resolve(adapter.completeAssessmentResult(input));
+}
+
+export async function getCurrentAssessmentResult(
+  userId: number,
+  assessmentId: number
+): Promise<AssessmentResultRow | undefined> {
+  const adapter = await ensureInit();
+  return Promise.resolve(adapter.getCurrentAssessmentResult(userId, assessmentId));
+}
+
+export async function getAssessmentResults(
+  userId: number,
+  assessmentId: number
+): Promise<AssessmentResultRow[]> {
+  const adapter = await ensureInit();
+  return Promise.resolve(adapter.getAssessmentResults(userId, assessmentId));
+}
+
+/** 按学号集合批量取当前测评结果快照（#233 教师导出 / #234 数据列表：一次查询） */
+export async function getCurrentAssessmentResultsByUserCodes(
+  assessmentId: number,
+  userCodes: string[]
+): Promise<AssessmentResultSummary[]> {
+  const adapter = await ensureInit();
+  return Promise.resolve(adapter.getCurrentAssessmentResultsByUserCodes(assessmentId, userCodes));
+}
+
+/** #226：O*NET 职业库全量（按 code 升序），推荐接口在内存里做余弦匹配 */
+export async function getOnetOccupations(): Promise<OnetOccupationRow[]> {
+  const adapter = await ensureInit();
+  return Promise.resolve(adapter.getOnetOccupations());
+}
+
+/** #229：教师端测评聚合计数（不含个人信息） */
+export async function getAssessmentStats(
+  assessmentId: number,
+  classIds: number[] | null
+): Promise<AssessmentStatsRaw> {
+  const adapter = await ensureInit();
+  return Promise.resolve(adapter.getAssessmentStats(assessmentId, classIds));
+}
+
+/** #229：教师端测评名册（含个人信息，调用方必须记审计并先收窄班级范围） */
+export async function getAssessmentRoster(
+  assessmentId: number,
+  classIds: number[] | null,
+  filters?: { classId?: number | null; lead?: string | null; code?: string | null }
+): Promise<AssessmentRosterRow[]> {
+  const adapter = await ensureInit();
+  return Promise.resolve(adapter.getAssessmentRoster(assessmentId, classIds, filters));
+}
+
 export async function backup(): Promise<BackupData> {
   const adapter = await ensureInit();
   return Promise.resolve(adapter.backup());
@@ -1082,5 +1487,20 @@ export async function closeDb(): Promise<void> {
     await Promise.resolve(currentAdapter.close());
     currentAdapter = null;
     currentType = "";
+  }
+}
+
+/**
+ * 关闭并清空演示 adapter 的 memo 槽。仅供演示库重置流程显式调用——刻意不与 `closeDb()`
+ * 合一：`closeDb()` 的既有语义是「生产数据源配置变更，丢弃旧生产 adapter」（settings PUT
+ * fire-and-forget 调用），若让它作用域敏感，演示 admin 调 settings 会误关演示 adapter、
+ * 生产 adapter 反带旧配置常驻。故作用域归作用域、关闭各自显式。
+ */
+export async function closeDemoDb(): Promise<void> {
+  if (demoAdapter) {
+    await Promise.resolve(demoAdapter.close());
+    demoAdapter = null;
+    demoType = "";
+    demoInitPromise = null;
   }
 }

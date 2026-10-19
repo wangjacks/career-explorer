@@ -24,7 +24,7 @@ import StudentsTab from "@/components/admin/StudentsTab";
 import TeacherHomeTab from "@/components/admin/TeacherHomeTab";
 import OverviewTab from "@/components/admin/OverviewTab";
 import ProfilesTab from "@/components/admin/ProfilesTab";
-import DashboardTab from "@/components/admin/DashboardTab";
+import TeacherDashboardTab from "@/components/admin/TeacherDashboardTab";
 import ExportTab from "@/components/admin/ExportTab";
 import TagsTab from "@/components/admin/TagsTab";
 import ProfileConfigTab from "@/components/admin/ProfileConfigTab";
@@ -108,6 +108,10 @@ export default function TeacherDashboardPage() {
     );
   }
 
+  /**
+   * 侧边栏与主页快捷入口共用这一份导航数据（#228）：
+   * `description` 是主页卡片的一句话说明，写给教师看，不用接口名/英文 key。
+   */
   const MENU_GROUPS: PanelSidebarGroup[] = [
     {
       items: [{ key: "home", label: "主页", icon: Home }],
@@ -115,31 +119,37 @@ export default function TeacherDashboardPage() {
     {
       label: "数据中心",
       items: [
-        { key: "overview", label: "数据概览", icon: BarChart3 },
-        { key: "dashboard", label: "数据大屏", icon: MonitorPlay },
-        { key: "export", label: "数据导出", icon: Download },
+        {
+          key: "overview",
+          label: "数据概览",
+          icon: BarChart3,
+          description: "交了多少人、标签怎么分布，都在这儿",
+        },
+        { key: "dashboard", label: "数据大屏", icon: MonitorPlay, description: "投屏看的那块大盘" },
+        { key: "export", label: "数据导出", icon: Download, description: "把数据做成 Excel 文件带走" },
       ],
     },
     {
       label: "数据管理",
       items: [
-        { key: "profiles", label: "数据列表", icon: Table },
+        { key: "profiles", label: "数据列表", icon: Table, description: "逐个学生翻档案" },
         {
           key: "students",
           label: "学生管理",
           icon: Users,
           badge: students.length > 0 ? `${students.length} 名` : undefined,
+          description: "看名单、加学生、重置密码",
         },
-        { key: "classes", label: "班级管理", icon: School },
-        { key: "grouping", label: "课堂分组", icon: UsersRound },
-        { key: "tags", label: "标签管理", icon: Tags },
+        { key: "classes", label: "班级管理", icon: School, description: "建班级、看邀请码、生成海报" },
+        { key: "grouping", label: "课堂分组", icon: UsersRound, description: "按兴趣相似度自动分组、手工调整" },
+        { key: "tags", label: "标签管理", icon: Tags, description: "调整学生能选的标签" },
       ],
     },
     {
       label: "系统设置",
       items: [
-        { key: "profile-config", label: "功能设置", icon: SlidersHorizontal },
-        { key: "audit-logs", label: "操作审计", icon: ScrollText },
+        { key: "profile-config", label: "功能设置", icon: SlidersHorizontal, description: "改提交截止时间和上传上限" },
+        { key: "audit-logs", label: "操作审计", icon: ScrollText, description: "谁改过什么，都记在这儿" },
       ],
     },
   ];
@@ -162,7 +172,13 @@ export default function TeacherDashboardPage() {
 
         <main className="flex-1 min-w-0 px-4 sm:px-6 py-6 animate-[fade-in_0.2s_ease-out]">
           <div className="max-w-6xl mx-auto space-y-8">
-            {activeTab === "home" && <TeacherHomeTab teacherName={session.name} students={students} />}
+            {activeTab === "home" && (
+              <TeacherHomeTab
+                teacherName={session.name}
+                groups={MENU_GROUPS}
+                onNavigate={(key) => setActiveTab(key as Tab)}
+              />
+            )}
 
             {activeTab === "overview" && (
               <OverviewTab
@@ -171,10 +187,12 @@ export default function TeacherDashboardPage() {
                 loadProfiles={loadProfiles}
                 students={students}
                 showProfiles={false}
+                mode="teacher"
+                onNavigate={(key) => setActiveTab(key as Tab)}
               />
             )}
 
-            {activeTab === "dashboard" && <DashboardTab />}
+            {activeTab === "dashboard" && <TeacherDashboardTab />}
 
             {activeTab === "export" && <ExportTab />}
 
@@ -194,9 +212,9 @@ export default function TeacherDashboardPage() {
 
             {activeTab === "grouping" && <GroupingTab mode="teacher" teacherUid={session.uid} />}
 
-            {activeTab === "tags" && <TagsTab />}
+            {activeTab === "tags" && <TagsTab readOnly />}
 
-            {activeTab === "profile-config" && <ProfileConfigTab />}
+            {activeTab === "profile-config" && <ProfileConfigTab readOnly />}
 
             {activeTab === "audit-logs" && <AuditLogsTab mode="teacher" />}
           </div>

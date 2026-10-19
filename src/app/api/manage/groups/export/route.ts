@@ -4,6 +4,7 @@ import { getClassGroupMembers, getClassGroups, getClasses, getStudents } from "@
 import { getRequestContext, recordAudit } from "@/lib/audit";
 import { getSession } from "../../classes/helpers";
 import { actorOf, rosterOf } from "../helpers";
+import { withDemoScope } from "@/lib/demo-scope";
 
 const AUDIT = {
   action: "group:export",
@@ -17,7 +18,7 @@ const AUDIT = {
  * 表内不放标题行、班级信息进文件名，保证「导出 → 编辑 → 导入」是干净的 round-trip；
  * 未分组的班级导出空白模板（全班学生 + 空组号列），教师可直接在表里填组号再导入。
  */
-export async function GET(request: NextRequest) {
+async function GET_impl(request: NextRequest) {
   const { ip, user_agent } = getRequestContext(request);
   const fail = (session: Awaited<ReturnType<typeof getSession>>, error: string, metadata?: unknown) => {
     void recordAudit({
@@ -122,3 +123,5 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "导出分组失败" }, { status: 500 });
   }
 }
+
+export const GET = withDemoScope(GET_impl);

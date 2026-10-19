@@ -27,7 +27,7 @@ import OverviewTab from "@/components/admin/OverviewTab";
 import SettingsTab from "@/components/admin/SettingsTab";
 import StudentsTab from "@/components/admin/StudentsTab";
 import ExportTab from "@/components/admin/ExportTab";
-import DashboardTab from "@/components/admin/DashboardTab";
+import AdminDashboardTab from "@/components/admin/AdminDashboardTab";
 import NavigationBar from "@/components/NavigationBar";
 import PanelSidebar, { type PanelSidebarGroup } from "@/components/dashboard/PanelSidebar";
 import TagsTab from "@/components/admin/TagsTab";
@@ -204,7 +204,7 @@ export default function AdminPage() {
             )}
 
             {activeTab === "dashboard" && (
-              <DashboardTab />
+              <AdminDashboardTab />
             )}
 
             {activeTab === "settings" && (

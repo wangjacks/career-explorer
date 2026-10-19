@@ -1,10 +1,11 @@
+import { withDemoScope } from "@/lib/demo-scope";
 import { NextRequest, NextResponse } from "next/server";
 import { getGroupBatchDetail } from "@/lib/db";
 
 type Ctx = { params: Promise<{ id: string }> };
 
 /** GET：读某个历史批次的明细（组 + 成员快照）。只读，读不限班级 */
-export async function GET(_request: NextRequest, { params }: Ctx) {
+async function GET_impl(_request: NextRequest, { params }: Ctx) {
   try {
     const { id: idParam } = await params;
     const id = Number(idParam);
@@ -52,3 +53,5 @@ export async function GET(_request: NextRequest, { params }: Ctx) {
     return NextResponse.json({ error: "获取批次明细失败" }, { status: 500 });
   }
 }
+
+export const GET = withDemoScope(GET_impl);

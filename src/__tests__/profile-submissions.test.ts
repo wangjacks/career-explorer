@@ -1,9 +1,11 @@
 import { describe, it, expect } from "vitest";
+import Database from "better-sqlite3";
 import { mkdtempSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import path from "path";
 import { SqliteAdapter } from "../lib/db-sqlite";
 import { DEFAULT_MAX_PROFILE_SUBMISSIONS, MAX_PROFILE_SUBMISSIONS_KEY } from "../lib/db";
+import type { BackupData } from "../lib/db";
 
 function makeTmpDb(): string {
   const dir = mkdtempSync(path.join(tmpdir(), "career-test-"));
@@ -317,7 +319,7 @@ describe("submitProfileWithVersion（#95）", () => {
 });
 
 describe("备份恢复集成（#95）", () => {
-  it("backup 导出版本记录，restore 后完整还原；旧备份无此字段时保留当前记录", () => {
+  it("backup 导出版本记录，restore 后完整还原；旧备份无此字段时清空", () => {
     const dbPath = makeTmpDb();
     const adapter = new SqliteAdapter(dbPath);
     adapter.init();
@@ -327,7 +329,7 @@ describe("备份恢复集成（#95）", () => {
     adapter.submitProfileWithVersion("202505050101", "[2]", "/a2.png", "/w2.png", storageId);
 
     const data = adapter.backup();
-    expect(data.version).toBe(5); // #101 起含分组五表
+    expect(data.version).toBe(6); // #221 起含测评三表
     expect(data.profile_submissions).toHaveLength(2);
     expect(data.profile_submissions![0]).toMatchObject({ user_id: studentId, version: 1, is_current: 0 });
     expect(data.profile_submissions![1]).toMatchObject({ user_id: studentId, version: 2, is_current: 1 });
@@ -341,10 +343,83 @@ describe("备份恢复集成（#95）", () => {
     expect(restored.map((r) => r.version)).toEqual([2, 1]);
     expect(restored.find((r) => r.version === 2)?.is_current).toBe(1);
 
-    // 旧备份（无 profile_submissions 字段）→ 保留当前记录不动（兼容）
-    const legacy = { ...data, profile_submissions: undefined };
+    // 旧备份（无 profile_submissions 字段）→ 清空，不是保留不动
+    // users 是整表替换且按备份原 id 重插，保留旧快照就是留下可能属于别人的历史版本（#211）
+    const legacy = { ...data } as BackupData;
+    delete legacy.profile_submissions;
     adapter.restore(legacy);
-    expect(adapter.getProfileSubmissions(studentId)).toHaveLength(2);
+    expect(adapter.getProfileSubmissions(studentId)).toHaveLength(0);
+
+    adapter.close();
+    cleanup(dbPath);
+  });
+
+  it("旧备份 + 名单变化：同 id 换人不会把甲的历史交给丙，被删的人也不留幽灵行（#211）", () => {
+    const dbPath = makeTmpDb();
+    const adapter = new SqliteAdapter(dbPath);
+    adapter.init();
+    const classId = adapter.insertClass("一班", "AAAA1111");
+    const jiaId = adapter.insertUser({ user_code: "202505050101", role: "student", name: "甲", class_id: classId });
+    const yiId = adapter.insertUser({ user_code: "202505050102", role: "student", name: "乙", class_id: classId });
+    const storageId = adapter.getDefaultStorageBackend()!.id;
+    adapter.submitProfileWithVersion("202505050101", '["编程"]', "/jia-a.png", "/jia-w.png", storageId);
+    adapter.submitProfileWithVersion("202505050102", '["足球"]', "/yi-a.png", "/yi-w.png", storageId);
+
+    const dump = adapter.backup();
+    // 模拟 #95 之前生成的旧档：缺 profile_submissions 字段，且名单已变——甲的位置换成未提交的丙、乙已退班
+    const legacy = {
+      ...dump,
+      users: dump.users
+        .filter((u) => u.id !== yiId)
+        .map((u) =>
+          u.id === jiaId
+            ? { ...u, name: "丙", user_code: "202505050199", tags: null, avatar_url: null, evaluation_url: null, submitted_at: null }
+            : u
+        ),
+    } as BackupData;
+    delete legacy.profile_submissions;
+    adapter.restore(legacy);
+
+    const bing = adapter.getStudentByCode("202505050199")!;
+    expect(bing.id).toBe(jiaId); // 同 id 换人，正是错配的触发条件
+    // 断言一：丙读不到任何历史版本（等价于经 GET /api/shared/profile/submissions 拿到空数组）
+    expect(adapter.getProfileSubmissions(bing.id)).toHaveLength(0);
+
+    // 断言二：全表不存在 user_id 落在恢复后名单之外的幽灵快照（乙的行若残留即命中）
+    const db = (adapter as unknown as { db: Database.Database }).db;
+    const rows = db.prepare("SELECT id, user_id FROM profile_submissions").all() as { id: number; user_id: number }[];
+    const alive = new Set(legacy.users.map((u) => u.id));
+    expect(rows.filter((r) => !alive.has(r.user_id))).toEqual([]);
+    expect(rows).toHaveLength(0);
+
+    adapter.close();
+    cleanup(dbPath);
+  });
+
+  it("清空后下次启动的迁移按恢复后的 users 补 version=1，归属是丙而不是甲（#211 副作用）", () => {
+    const dbPath = makeTmpDb();
+    const adapter = new SqliteAdapter(dbPath);
+    adapter.init();
+    const jiaId = adapter.insertUser({ user_code: "202505050101", role: "student", name: "甲" });
+    const storageId = adapter.getDefaultStorageBackend()!.id;
+    adapter.submitProfileWithVersion("202505050101", '["编程"]', "/jia-a.png", "/jia-w.png", storageId);
+
+    const dump = adapter.backup();
+    // 同 id 换人，且丙自己是一条已提交档案（迁移只会按 users 补，不会搬运甲的快照）
+    const legacy = {
+      ...dump,
+      users: dump.users.map((u) =>
+        u.id === jiaId ? { ...u, name: "丙", user_code: "202505050199", tags: '["篮球"]', avatar_url: "/bing-a.png" } : u
+      ),
+    } as BackupData;
+    delete legacy.profile_submissions;
+    adapter.restore(legacy);
+    expect(adapter.getProfileSubmissions(jiaId)).toHaveLength(0);
+
+    adapter.init(); // 模拟下一次冷启动
+    const rows = adapter.getProfileSubmissions(jiaId);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ version: 1, is_current: 1, tags: '["篮球"]', avatar_url: "/bing-a.png" });
 
     adapter.close();
     cleanup(dbPath);

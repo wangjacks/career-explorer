@@ -35,7 +35,8 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 | `src/app/api/{tags,upload,uploads}/` | 开放端点：标签与配置读取、上传、本地文件静态服务（含路径穿越防护） |
 | `src/components/` | 全站公共组件；子目录 `admin/`（面板 Tab 页命名 `*Tab.tsx`，同目录另有共用 UI 组件如 `AdminUI` / `ConfirmDialog` / `*Table`）、`dashboard/`（管理/教师侧边栏）、`student/`（学生侧边栏） |
 | `src/hooks/` | 客户端自定义 hook，命名一律 `use*.ts` |
-| `src/lib/` | 服务端数据层与工具，按前缀分组（`db*` / `storage*` / `media-*` / `thumbnail*` / `profile-*` / `tag*` 等，分组表见 `docs/overview.md`） |
+| `src/lib/` | 服务端数据层与工具，按前缀分组（`db*` / `storage*` / `media-*` / `thumbnail*` / `profile-*` / `assessment-*` / `onet*` / `tag*` 等，分组表见 `docs/overview.md`） |
+| `scripts/` | 离线数据导入脚本（`import-onet.mjs` 生成 O\*NET 职业库快照，#226），不进运行时 |
 | `src/proxy.ts` | 角色权限中间件（替代已删除的 `middleware.ts`），内置 `TEACHER_ALLOWED` 声明式权限表 |
 | `src/types/`、`src/__tests__/` | 类型定义；Vitest 测试按被测对象命名——lib / hook 用 `<模块名>.test.ts`，API 路由与跨模块行为用 `<资源>-api.test.ts` / `<行为>.test.ts`（如 `profile-api`、`submission-deadline`）；改代码必须同步改对应测试 |
 | `uploads/`、`data/` | 本地存储后端的上传文件（含 `*_thumb.jpg` 缩略图）、SQLite 库文件，均 gitignored |
@@ -51,7 +52,7 @@ find src/app -name page.tsx && find src/app/api -name route.ts
 
 - 抽象层：`src/lib/db.ts` 定义 `DbAdapter` 接口，**所有数据库操作必须走此接口**，两适配器（`db-mysql.ts` / `db-sqlite.ts`）行为须一致
 - 配置来源：`db-config.json`（运行时文件，gitignored），经 `db-config.ts` 读写；`DbConfig` 含 `type: "mysql" | "sqlite"`、`installed` 标志、连接参数
-- **十三张表**（权威定义在两适配器的 `CREATE TABLE`，完整字段与备份口径见 `docs/architecture.md`「数据库」）：
+- **十七张表**（权威定义在两适配器的 `CREATE TABLE`，完整字段与备份口径见 `docs/architecture.md`「数据库」）：
 
 | 表 | 一句话职责 |
 |---|---|
@@ -65,6 +66,8 @@ find src/app -name page.tsx && find src/app/api -name route.ts
 | `profile_submissions` | 档案提交历史版本（#95），`version` + 快照字段 + `is_current` |
 | `class_groups` / `class_group_members` | **当前**分组（#101）：组与成员，成员表 `user_id` 全局唯一（一人同时只属于一个组，转班/删人必须清理） |
 | `group_batches` / `group_batch_groups` / `group_batch_members` | 分组历史批次（#101）：每次自动分组追加一份不可变归档（策略、特征源、指标、组内聚度、成员姓名学号快照） |
+| `assessments` / `assessment_questions` / `assessment_results` | 职业测评（#221）：量表定义（维度 JSON、计分类型、量表版本、署名与授权文本）、题库（题号 + 题干 + 维度 + 反向计分 + 题面版本）、作答与结果快照（`in_progress` 草稿 / `completed` 完成 + 三字码 + `is_current`）；题库进库、种子在 `assessment-data.ts` |
+| `onet_occupations` | O*NET 职业库（#226）：`code` + 英文名 + 中文译名 + 官方兴趣高码 + 六型分 JSON + Job Zone + 学历 + SOC 职业群；**只读参考数据、不纳入备份**，快照 `onet-data.ts` 按版本整表重灌 |
 
 - 学生 `tags` 为**标签名称文本数组**（#94 起，预设 + 自定义直存，与 `tags` 表解耦）
 - 初始化流程：手动访问 `/setup` 配置数据库 + 管理员密码 → 写入 `db-config.json` 与 `users`；安装状态经 `isInstalled()` + `/api/setup/status`
@@ -87,6 +90,8 @@ find src/app -name page.tsx && find src/app/api -name route.ts
 - 中间件：`proxy.ts` matcher 仅 `/dashboard/admin/:path*` 与 `/api/manage/:path*`；teacher/student 面板不经 proxy，由路由自鉴权
 - 权限模型：`/api/manage/*` admin 全放行；teacher 按 `TEACHER_ALLOWED`（前缀 + 方法，**改代码必须同步改 `docs/architecture.md` 权限表**）；`/api/shared/*` 路由自鉴权；其余 `/api/*` 不拦截
 - 例外：分组（`/api/manage/groups*`）前缀整体放行，**班级归属在路由内判定**——读不限（教师可看全校分组），写限自建班（`canModifyClass`），被拒的写同样落审计
+- 例外：学生写入（`/api/manage/students*`）前缀整体放行，**归属由路由内 `WriteGuard` 判定**（#171）——学生以其 `class_id` 在教师关联班级内为准，未分班学生只有管理员可写，批量操作任一行越界即整批拒绝；读不限（教师可看全校名单）
+- 边界：全站生效的配置写入只归管理员（#171）——预设标签（`/api/manage/tags*`）与 `profile-config` 对教师收敛为仅 GET，教师面板相应 Tab 以 `readOnly` 呈现
 - 路由设计原则：API 面向资源组织 + 业务域前缀（manage/shared），角色差异收敛于 proxy 权限表，**权限演化不搬路径**（否决过按角色拆分路由的设计）
 - 激活（#93 两步单页）：`POST /api/auth/activate/verify` 核验学号 + 姓名 + 本班邀请码三要素并取回名单姓名 → `POST /api/auth/activate` 设置密码并自动登录；账户须先由教师导入名单预建（无密码）
 - 错误信息不泄露账号存在性：用户不存在与密码错误共用「编号或密码错误」；无 `password_hash` 账户提示「该账户尚未设置密码，请联系管理员」
@@ -121,7 +126,17 @@ find src/app -name page.tsx && find src/app/api -name route.ts
 - 对象存储（#111）：一切文件读写走 `StorageAdapter`（本地 / S3 兼容双实现），归属后端由记录的 `storage_id` 决定，**切换默认后端不影响存量文件**；前端取访问地址一律经 `useFileUrl` / `StorageImage`，不要自己拼 URL（细节见 `docs/architecture.md`「文件存储」）
 - 媒体治理（#117/#118）：孤儿**不做自动删除**（保留期可配 + 人工确认清理，服务端重扫自证不信任前端）；缩略图生成仅服务端（依赖 sharp），key 派生 `{base}.jpg` → `{base}_thumb.jpg`
 - 课堂分组（#101）：算法是纯函数（`grouping-utils.ts` / `grouping-features.ts`），只认「特征源注册表」，不直接读 `users.tags`——新增数据源只加一条注册项；结果确定性（无随机，按学号升序）；**当前分组与历史批次两套表物理分离**，触发自动分组=覆盖当前 + 追加归档同一事务（口径见 `docs/architecture.md`「课堂分组」）
+- 职业测评（#221）：三表 = 量表定义 / 题库 / 作答结果快照；**量表进库不写死代码**，种子在「`code` 缺失或题库为空」时补种、非空题库不覆盖；草稿与完成记录同表，可空 `draft_slot` + 唯一约束保证「一人一量表至多一条草稿」，完成时释放草稿位并保证 `is_current` 唯一（MySQL 用 `FOR UPDATE` 锁学生行串行化）；两库一致性另有三条硬约束：列名逐列相同、外键成对存在、`code` 用 `utf8mb4_bin` 保证大小写敏感的唯一语义；计分由计分引擎（#220）在落库前算好，数据层不重复实现算法（口径见 `docs/architecture.md`「职业测评数据层」）
+- 职业测评中心（#222 / #225）：学生侧边栏固定四项「我的档案 / 职业测评 / 我的班级（占位）/ 成长记录（占位）」，条目与高亮规则在 `src/lib/student-nav.ts`（「我的档案」精确匹配、其余按路径前缀，避免两个条目同时点亮）；测评中心页 `/dashboard/student/assessment` **只承载入口、状态与说明**，三态判定在 `src/lib/assessment-center.ts` 的纯函数里（优先级：进行中 > 已完成 > 未开始，重测草稿优先），结果解读留给「我的档案」测评区（#224）；量表停用（`enabled=false`）只收作答入口、不隐藏历史结果。页面上另有四张内容卡（#225）：测验清单（`buildAssessmentList`，单套时 1 行、接口返回 `assessments` 数组即多行，只有主测评渲染作答入口）、六型科普、学职平台外链（**只外链不复刻题目**，统一 `rel="noopener noreferrer"`）、页底「授权与免责」（O\*NET 署名取 `assessments` 表字段、不复制到前端；免责声明组件与结果区共用）；科普文案在 `src/lib/assessment-center-content.ts`，**不出现 SDS/Strong/MBTI 等商业量表名称**，内容卡在接口失败时也常驻
+- 职业测评作答（#223）：答题页 `/dashboard/student/assessment/quiz` 单题单屏 + Likert 1-5，**进度以服务端草稿为唯一真相**（每题 `POST /answer` 合并式 upsert，不用 localStorage），`resumeIndex` 续答；提交要求完整（缺答 400 回带 `missingIndexes`），作答内容只认服务端草稿、不接受客户端答案或 userId；结果按快照落库、重复提交生成新版本；审计 `assessment:answer`（只记进度不记选项）/ `assessment:submit` / `assessment:results`，停用量表拒绝新作答但历史结果仍可读（口径见 `docs/architecture.md`「职业测评作答流程」）
+- 职业推荐（#226）：O\*NET **30.2** 快照离线导入 `onet_occupations`（**30.3 起兴趣表只是从 `Interests.txt` 改名为 `Career Interest Types.txt`、列结构与数值不变**，脚本两种文件名都认，本轮先锁 30.2）；数据快照由 `scripts/import-onet.mjs` 生成、中文译名单独维护（重新生成不覆盖），脚本会校验必需列与职业数、列名变化时拒绝生成；匹配是纯函数（六维各自归一化后算余弦，同分按 code 破平 → 可复现），画像优先用结果快照六维分、只有三字码时按 3/2/1 权重兜底；Job Zone 现行为 2–5（原 1–2 级已合并）；接口 `/api/shared/assessment/careers` 只认会话 uid，响应必须带 CC BY 4.0 署名（口径见 `docs/architecture.md`「职业库与推荐匹配」）
+- 测评结果展示（#224）：「我的档案」hero 之下常驻测评结果卡（三字码徽章 + 六型雷达图 + 条状排名 + 逐条解读 + 推荐职业），**自己读 `/results`、与档案提交流程完全解耦**——不受 `submissionClosed` 门控、不进档案版本快照、不显示归档状态；推荐职业是渐进增强（接口失败/为空整块静默不渲染）；视图模型纯函数在 `assessment-view.ts`（仓库无 DOM 测试环境，界面逻辑先落纯函数再测）（口径见 `docs/architecture.md`「职业测评结果展示」）
+- 教师端测评统计（#229）：两个端点分工是安全边界——`/api/manage/stats/assessment` **纯聚合**（班级完成度/六型计数/三字码 Top-10/总数，响应无个人标识，可投屏），`/api/manage/assessment/roster` 是唯一**专用的**「测评结果 + 姓名学号」下钻端点（档案数据列表 GET 也带测评字段，但走档案列表既有权限，见 #234），教师**恒收窄到本人归属班级**（越权 `classId` 直接 403）且每次读取（含被拒）都记审计 `assessment:roster`；归型依据是结果快照三字码首位（不重算分数，与学生端必然一致），分母是在册学生且完成率钳到 100%；适配器只出原始计数，完成率/排序/标签统一在 `assessment-stats.ts` 纯函数里（口径见 `docs/architecture.md`「教师端测评统计」）
+- 数据概览（#230）：**概览只回答「有没有做」，图表一律归数据大屏**——概览 = 四张统计卡（第四张「测评完成」，复用 `purple` 色档）+ 班级概览表（追加「测评完成 / 交齐比例」两列，全表百分比取整）；测评数据复用 #229 聚合接口，接口不可用/无数据时卡片显示 0 + 「学生还没开始测评」、表格显示 `-`，**不出现报错态**；「去数据大屏」引导只在教师端（`mode="teacher"`），管理员概览不受影响（口径见 `docs/architecture.md`「面板导航结构」，视图模型在 `src/lib/assessment-overview.ts`）
+- 数据大屏测评栏（#232）：教师端全宽栏一栏三视图（完成进度 / 类型分布 / 热门三字码）+ 点击下钻，三视图**共用一次聚合请求**（切视图不重取，只有切「全校 / 只看我的班」才重取），点班级行 / 类型条 / 三字码胶囊才去取名册（含个人信息，服务端每次读取记审计）；视图口径与六型配色在 `assessment-dashboard.ts` 纯函数里——类型条宽度按最大值归一、完成进度按交齐比例升序且「还没分班」置末、三字码胶囊用完整 `code` 下钻（名册接口为此新增 `code` 过滤）；数据分类色不走语义 token，但必须给浅/深两档并单测对比度（类型条 vs 轨道 ≥ 3:1、胶囊文字 ≥ 4.5:1）；本栏自管加载/失败/未开放/无人完成四态，失败只坏这一栏，空态是行动邀请（口径见 `docs/architecture.md`「数据大屏测评栏」）
+- 教师端数据列表测评列（#234）：数据列表**只加一列**「兴趣测评」（8→9 列，空态 `colSpan` 同步），已测显示三字码徽章、未测显示灰态「未测」胶囊且该列不排序；`/api/manage/profiles` 按当页学号批查（`IN` 分片、与 #233 导出共用 `getCurrentAssessmentResultsByUserCodes`）补 `assessmentCode` / `assessmentStatus` / `assessmentAt` + 六型轻量快照（只 `{key, standard}`），只认 `completed + is_current`，三字码非法一律按未测、测评数据层故障降级为全部未测；主导型筛选胶囊与搜索、标签筛选**同为当前页内过滤**（`profile-assessment.ts` 纯函数），全选按「可见行是否全选」判定；**六型配色单一来源** `assessment-colors.ts`（本轮先建立；数据大屏 #232 与导出列 #233 合并后应改为 import 这里，当前它们仍各带一套；`C` 用深色文字、「未测」胶囊用 `text-gray-600` 保证 WCAG AA ≥4.5:1，单测锁对比度）；详情弹窗只加六型横条（复用 `buildRiasecBars`，分数一位小数、「主要」标记同学生端）与重测指引，未测整块不渲染、快照缺失不画六条 0（口径见 `docs/architecture.md`「教师端数据列表测评列」）
 - 上传与导出：上传走服务端压缩 + 可配置大小上限 + 唯一命名不覆盖；导出用 ExcelJS（XLSX 默认原生单元格图片，可切浮动图片）+ JSZip 打包图片
+- 数据导出自定义列（#233）：列定义与格式化是纯函数（`export-columns.ts`，含列顺序、CSV/Excel 表头差异、六型分合成/拆列、图片锚点列字母），路由与界面只消费它；**默认列集合永不因加列而变**，新列一律增量勾选；列顺序以定义为准（与勾选顺序无关），xlsx 图片锚点按最终列下标算；测评列来自结果快照的当前有效版本（按学号一次批查，未测评整格留空），推荐职业列依赖职业库、未就绪时按钮置灰不隐藏（`?capabilities=1` 探测）（口径见 `docs/architecture.md`「数据导出」）
 - 面板结构：Tab 式布局，管理/教师面板的 Tab 页命名 `*Tab.tsx`（同目录共用 UI 组件不套用该后缀）；词云为客户端 canvas 组件
 
 ## 8. Development Environment Notes
@@ -141,10 +156,11 @@ find src/app -name page.tsx && find src/app/api -name route.ts
 | 信息 | 权威文件 |
 |---|---|
 | 技术栈全量清单、目录模块划分、路线图 | `docs/overview.md` |
-| 页面/API 路由表、数据库十三表、教师权限表、面板导航分组、课堂分组口径 | `docs/architecture.md` |
+| 页面/API 路由表、数据库十七表、教师权限表、面板导航分组、课堂分组口径 | `docs/architecture.md` |
 | 分支模型、提交/PR/发布规范、环境变量表 | `docs/standards.md` |
 | 色彩 token、组件与交互规范、z-index 层级 | `docs/ui-conventions.md` |
 | Issue 标题/标签/正文/验收标准 | `docs/issue-standard.md` |
+| 量表信效度验证方案、判定阈值、常模实施预案（#227） | `docs/assessment-validation-plan.md`（阈值常量在 `src/lib/assessment-validation.ts`，改一处必须同步另一处） |
 | 部署步骤、运行环境要求、运维排障 | `DEPLOY.md` |
 | 对外门面与快速上手 | `README.md` |
 | 变更历史 | `CHANGELOG.md` |

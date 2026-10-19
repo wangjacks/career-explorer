@@ -1,9 +1,10 @@
+import { withDemoScope } from "@/lib/demo-scope";
 import { NextRequest, NextResponse } from "next/server";
 import { hashPassword } from "@/lib/auth";
 import { getTeachers, getUserByCode, insertUser } from "@/lib/db";
 import { getAuditActor, getRequestContext, recordAudit } from "@/lib/audit";
 
-export async function GET() {
+async function GET_impl() {
   try {
     const teachers = await getTeachers();
     return NextResponse.json({ data: teachers });
@@ -14,7 +15,7 @@ export async function GET() {
 }
 
 /** 创建教师账户：手填 8 位实际编号 + 姓名 + 初始密码 */
-export async function POST(request: NextRequest) {
+async function POST_impl(request: NextRequest) {
   const { ip, user_agent } = getRequestContext(request);
   const actor = await getAuditActor(request);
   const failAudit = (resourceId: string | null, error: string) =>
@@ -68,3 +69,6 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "创建教师失败" }, { status: 500 });
   }
 }
+
+export const GET = withDemoScope(GET_impl);
+export const POST = withDemoScope(POST_impl);

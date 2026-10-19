@@ -1,13 +1,44 @@
+import { withDemoScope } from "@/lib/demo-scope";
 import { NextRequest, NextResponse } from "next/server";
-import { getSubmittedProfiles, clearSubmissions } from "@/lib/db";
+import {
+  getSubmittedProfiles,
+  clearSubmissions,
+  getAssessmentByCode,
+  getCurrentAssessmentResultsByUserCodes,
+  type AssessmentResultSummary,
+} from "@/lib/db";
+import { RIASEC_CODE } from "@/lib/assessment-data";
+import { parseScores } from "@/lib/assessment-flow";
+import { assessmentLeadOf } from "@/lib/profile-assessment";
 
-export async function GET(request: NextRequest) {
+async function GET_impl(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
     const page = parseInt(searchParams.get("page") || "1", 10);
     const pageSize = parseInt(searchParams.get("pageSize") || "20", 10);
 
     const { rows, total } = await getSubmittedProfiles(page, pageSize);
+
+    // #234：给本页每行补「兴趣测评」字段（列表列 + 详情弹窗条形）。
+    // 只认 status=completed 且 is_current=1 的结果——草稿与历史版本都不算「测过」；
+    // 未测行统一给 none / null，前端据此渲染灰胶囊而不是否定式样式。
+    // 按当页学号一次批查（与 #233 导出共用同一个数据层方法），不做全校扫表。
+    // 量表缺失 / 测评数据层故障只降级为「全部未测」：列表本身是主功能，不能因此整体 500。
+    const resultByCode = new Map<string, AssessmentResultSummary>();
+    if (rows.length > 0) {
+      try {
+        const assessment = await getAssessmentByCode(RIASEC_CODE);
+        if (assessment) {
+          const results = await getCurrentAssessmentResultsByUserCodes(
+            assessment.id,
+            rows.map((r) => r.user_code)
+          );
+          for (const result of results) resultByCode.set(result.user_code, result);
+        }
+      } catch (err) {
+        console.error("Profiles assessment lookup degraded:", err);
+      }
+    }
 
     return NextResponse.json({
       data: rows.map((r) => {
@@ -17,6 +48,9 @@ export async function GET(request: NextRequest) {
           const parsed = r.tags ? JSON.parse(r.tags) : [];
           tags = Array.isArray(parsed) ? parsed.map((t) => String(t)) : [];
         } catch {}
+        const result = resultByCode.get(r.user_code);
+        // 状态与徽章同源：三字码合法才算「已测」，避免接口说 completed、界面显示未测
+        const assessed = assessmentLeadOf(result?.type_code) !== null;
         return {
           // #95：补充数字 userId，供版本历史等关联查询使用
           userId: r.id,
@@ -27,6 +61,14 @@ export async function GET(request: NextRequest) {
           evaluationUrl: r.evaluation_url,
           storageId: r.storage_id,
           createdAt: r.submitted_at,
+          // #234：已测给三字码 + 完成时间 + 六型快照；未测统一为 none / null
+          assessmentCode: assessed ? result!.type_code : null,
+          assessmentStatus: assessed ? "completed" : "none",
+          assessmentAt: assessed ? (result!.completed_at ?? null) : null,
+          // 只下发条形需要的「维度 + 标准分」，不把 raw / band / 作答计数带到教师端
+          assessmentScores: assessed
+            ? parseScores(result!.scores_json).map(({ key, standard }) => ({ key, standard }))
+            : null,
         };
       }),
       total,
@@ -40,7 +82,7 @@ export async function GET(request: NextRequest) {
   }
 }
 
-export async function DELETE(request: NextRequest) {
+async function DELETE_impl(request: NextRequest) {
   try {
     const { ids } = await request.json();
     if (!Array.isArray(ids) || ids.length === 0) {
@@ -53,3 +95,6 @@ export async function DELETE(request: NextRequest) {
     return NextResponse.json({ error: "删除失败" }, { status: 500 });
   }
 }
+
+export const GET = withDemoScope(GET_impl);
+export const DELETE = withDemoScope(DELETE_impl);

@@ -2,6 +2,7 @@
 
 import { useState, useCallback, useEffect } from "react";
 import { toast } from "sonner";
+import type { RiasecScoreSnapshot } from "@/lib/assessment-view";
 
 export interface Profile {
   /** 数字用户 id（#95）：版本历史等关联查询使用；旧接口响应可能缺失，容忍 undefined */
@@ -14,6 +15,14 @@ export interface Profile {
   /** 文件所在存储后端（#111）；旧接口响应可能缺失，容忍 undefined */
   storageId?: number;
   createdAt: string;
+  /** 霍兰德三字码（#234）；未测或旧接口为 null */
+  assessmentCode?: string | null;
+  /** `completed` 已测 / `none` 未测（#234） */
+  assessmentStatus?: string | null;
+  /** 测评完成时间（#234）；未测为 null */
+  assessmentAt?: string | null;
+  /** 六型标准分快照（#234 详情弹窗条形用，与结果页同一份）；未测为 null */
+  assessmentScores?: RiasecScoreSnapshot[] | null;
 }
 
 export interface Student {

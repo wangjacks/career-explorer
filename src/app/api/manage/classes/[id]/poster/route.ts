@@ -1,3 +1,4 @@
+import { withDemoScope } from "@/lib/demo-scope";
 import { NextRequest, NextResponse } from "next/server";
 import { getClasses } from "@/lib/db";
 import { getAuditActor, getRequestContext, recordAudit } from "@/lib/audit";
@@ -13,7 +14,7 @@ type Ctx = { params: Promise<{ id: string }> };
  * 二维码指向 `/activate?invite=CODE`，激活安全仍由服务端三要素核验兜底。
  * 基址配置缺失或非法（#148）返回 503 + 中文原因，不产出错误域名的海报。
  */
-export async function GET(request: NextRequest, { params }: Ctx) {
+async function GET_impl(request: NextRequest, { params }: Ctx) {
   const { ip, user_agent } = getRequestContext(request);
   const actor = await getAuditActor(request);
   const { id: idParam } = await params;
@@ -116,3 +117,5 @@ export async function GET(request: NextRequest, { params }: Ctx) {
     return NextResponse.json({ error: "生成邀请海报失败" }, { status: 500 });
   }
 }
+
+export const GET = withDemoScope(GET_impl);

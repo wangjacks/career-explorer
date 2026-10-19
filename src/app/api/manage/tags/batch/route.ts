@@ -1,17 +1,29 @@
+import { withDemoScope } from "@/lib/demo-scope";
 import { NextRequest, NextResponse } from "next/server";
 import { getTags, insertTag } from "@/lib/db";
-import { getAuditActor, getRequestContext, recordAudit } from "@/lib/audit";
+import { getRequestContext, recordAudit } from "@/lib/audit";
+import { WriteGuard, type AuditTarget, GLOBAL_WRITE_ONLY } from "../../write-guard";
 
 const MAX_NAME_LENGTH = 50;
+
+const IMPORT: AuditTarget = {
+  action: "tag:batch-import",
+  method: "POST",
+  path: "/api/manage/tags/batch",
+  resource_type: "tag",
+};
 
 /**
  * 标签批量导入（#94）：`{ items: [{ category, name }] }`。
  * 分类不存在时自动创建；「分类+标签名」已存在则跳过；返回导入/跳过计数。
  */
-export async function POST(request: NextRequest) {
+async function POST_impl(request: NextRequest) {
   const { ip, user_agent } = getRequestContext(request);
-  const actor = await getAuditActor(request);
+  const guard = await WriteGuard.from(request);
+  const actor = guard.actor;
   try {
+    if (!guard.session) return guard.unauthenticated();
+    if (!guard.canWriteGlobal) return guard.deny(IMPORT, null, GLOBAL_WRITE_ONLY);
     const body = (await request.json()) as { items?: unknown };
     if (!Array.isArray(body.items) || body.items.length === 0) {
       return NextResponse.json({ error: "没有可导入的标签" }, { status: 400 });
@@ -105,3 +117,5 @@ export async function POST(request: NextRequest) {
     );
   }
 }
+
+export const POST = withDemoScope(POST_impl);

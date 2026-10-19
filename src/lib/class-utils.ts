@@ -18,11 +18,35 @@ export interface ClassResolution {
   classId: number | null;
 }
 
+/** 班级名归一化（唯一入口）：仅去掉首尾空白，不做大小写 / 全半角折叠 */
+export function normalizeClassName(raw: unknown): string {
+  return String(raw ?? "").trim();
+}
+
 export async function resolveClassByName(raw: unknown): Promise<ClassResolution> {
-  const className = String(raw ?? "").trim();
+  const className = normalizeClassName(raw);
   if (!className) {
     return { provided: false, className: "", classId: null };
   }
   const klass = await getClassByName(className);
   return { provided: true, className, classId: klass ? klass.id : null };
+}
+
+/**
+ * 批量班级名解析（#193 批量导入去重）：
+ * 先按归一化名称去重，再逐个走 `resolveClassByName`，因此查库次数只与
+ * **去重后的名称数**有关，与名单行数无关；解析口径与单条添加完全一致
+ * （口径统一交给 `resolveClassByName`，不另起一套内存比较语义）。
+ *
+ * 返回数组与入参**一一对应**（同长度、同顺序），调用方按下标取用，
+ * 不存在「索引来自 A 字段、查询用 B 字段导致查不中」的静默失败路径。
+ */
+export async function resolveClassNames(rawNames: unknown[]): Promise<ClassResolution[]> {
+  const resolutions = new Map<string, ClassResolution>();
+  for (const raw of rawNames) {
+    const className = normalizeClassName(raw);
+    if (resolutions.has(className)) continue;
+    resolutions.set(className, await resolveClassByName(className));
+  }
+  return rawNames.map((raw) => resolutions.get(normalizeClassName(raw)) as ClassResolution);
 }

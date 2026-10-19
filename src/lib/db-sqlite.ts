@@ -3,9 +3,14 @@ import { mkdirSync, readFileSync, existsSync } from "fs";
 import { tmpdir } from "os";
 import path from "path";
 import { tagCategories } from "./tagData";
-import { normalizeBackupTags, DEFAULT_MAX_CUSTOM_TAGS, DEFAULT_MAX_PROFILE_SUBMISSIONS, MAX_PROFILE_SUBMISSIONS_KEY, DEFAULT_MEDIA_ORPHAN_RETENTION_DAYS, MEDIA_ORPHAN_RETENTION_KEY } from "./db";
+import { ASSESSMENT_SEEDS, getQuestionSeeds, validateAssessmentSeed } from "./assessment-data";
+import type { QuestionSeed } from "./assessment-data";
+import { getOnetOccupationSeeds, needsOnetReseed, ONET_SEED_MARKER_KEY } from "./onet";
+import { ONET_DATASET_VERSION } from "./onet-data";
+import { normalizeBackupTags, normalizeAssessmentCode, DEFAULT_MAX_CUSTOM_TAGS, DEFAULT_MAX_PROFILE_SUBMISSIONS, MAX_PROFILE_SUBMISSIONS_KEY, DEFAULT_MEDIA_ORPHAN_RETENTION_DAYS, MEDIA_ORPHAN_RETENTION_KEY, chunkArray } from "./db";
 import type {
   UserRow,
+  UserCodeRef,
   TagRow,
   ClassRow,
   TeacherClassRow,
@@ -36,6 +41,15 @@ import type {
   TrendPoint,
   CompareStat,
   ClassTrendSeries,
+  ClassRosterRow,
+  AssessmentRow,
+  AssessmentQuestionRow,
+  AssessmentResultRow,
+  AssessmentResultSummary,
+  CompleteAssessmentInput,
+  OnetOccupationRow,
+  AssessmentStatsRaw,
+  AssessmentRosterRow,
 } from "./db";
 import { fillGroupedTrend, fillTrendSeries, shiftDate } from "./stats-utils";
 
@@ -183,6 +197,16 @@ export class SqliteAdapter implements DbAdapter {
     this.migrateLegacy();
     this.migrateProfileSubmissions();
     this.migrateGroupSchema();
+    this.migrateAssessmentSchema();
+    this.seedAssessments();
+    this.migrateOnetSchema();
+    try {
+      this.seedOnetOccupations();
+    } catch (err) {
+      // 只读参考数据灌库失败不应拖垮全站启动：职业库为空时推荐接口返回 503，
+      // 下次 init() 会重试（判据仍是版本标记 + 行数）。推荐是渐进功能，降级可见即可。
+      console.error("O*NET occupations seed failed (career recommendations degraded):", err);
+    }
   }
 
   /**
@@ -273,6 +297,211 @@ export class SqliteAdapter implements DbAdapter {
     this.db.exec(
       `CREATE INDEX IF NOT EXISTS idx_group_batch_members_user ON group_batch_members(user_id)`
     );
+  }
+
+  /**
+   * 职业测评三表（#221）：
+   * 1) `assessments` 测评定义（维度 JSON / 计分类型 / 量表版本 / 署名与授权文本）
+   * 2) `assessment_questions` 题库（题号 + 题干 + 维度 + 反向计分 + 题面版本）
+   * 3) `assessment_results` 作答与结果**快照**（草稿与完成记录同表，`is_current` 标当前完成版本）
+   *
+   * 设计要点：
+   * - 题库进库而非写死代码：扩充量表、后台维护题面都不必改代码；
+   * - 结果是快照（作答 + 得分 JSON 落库），学生半年后回看仍是当时结论，不随后续改题漂移；
+   * - 草稿唯一性（同 user + 量表至多一条 in_progress）靠可空的 `draft_slot` + 唯一约束兜住：
+   *   草稿恒填 1、完成记录置 NULL，两库都允许多个 NULL，行为一致（MySQL 无部分唯一索引，
+   *   这是可移植的等价物，不再只靠「先查再写」的事务）；
+   * - `user_id` / `assessment_id` 只写 REFERENCES 不建 ON DELETE CASCADE，与其余表一致。
+   */
+  private migrateAssessmentSchema(): void {
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS assessments (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        code TEXT NOT NULL UNIQUE,
+        name TEXT NOT NULL,
+        question_count INTEGER NOT NULL,
+        dimensions_json TEXT NOT NULL,
+        scoring_mode TEXT NOT NULL DEFAULT 'typological',
+        scale_version TEXT NOT NULL,
+        attribution TEXT NOT NULL,
+        license_text TEXT NOT NULL,
+        disclaimer TEXT NOT NULL,
+        enabled INTEGER NOT NULL DEFAULT 1,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      )
+    `);
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS assessment_questions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        assessment_id INTEGER NOT NULL REFERENCES assessments(id),
+        question_index INTEGER NOT NULL,
+        prompt TEXT NOT NULL,
+        dimension TEXT NOT NULL,
+        reverse_scored INTEGER NOT NULL DEFAULT 0,
+        version INTEGER NOT NULL DEFAULT 1,
+        created_at TEXT NOT NULL,
+        UNIQUE(assessment_id, question_index)
+      )
+    `);
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS assessment_results (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL REFERENCES users(id),
+        assessment_id INTEGER NOT NULL REFERENCES assessments(id),
+        status TEXT NOT NULL DEFAULT 'in_progress',
+        answers_json TEXT NOT NULL,
+        scores_json TEXT,
+        type_code TEXT,
+        is_current INTEGER NOT NULL DEFAULT 0,
+        draft_slot INTEGER,
+        started_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        completed_at TEXT,
+        UNIQUE(user_id, assessment_id, draft_slot)
+      )
+    `);
+    this.db.exec(
+      `CREATE INDEX IF NOT EXISTS idx_assessment_results_user ON assessment_results(user_id, assessment_id, status)`
+    );
+    this.db.exec(
+      `CREATE INDEX IF NOT EXISTS idx_assessment_results_current ON assessment_results(user_id, assessment_id, is_current)`
+    );
+    this.db.exec(`CREATE INDEX IF NOT EXISTS idx_assessment_results_assessment ON assessment_results(assessment_id)`);
+  }
+
+  /**
+   * 量表种子（#221）：以 `code` 存在性 + 题库题数判定——题面被后台维护过（非空）就完全不碰；
+   * 只补两种残缺态：量表行缺失，或量表行存在但题库为空（例如恢复了一份 `assessment_questions: []` 的备份）。
+   * 落库前用 `validateAssessmentSeed` 自检，坏种子在安装时报错而不是留半截题库。
+   */
+  private seedAssessments(): void {
+    const findAssessment = this.db.prepare("SELECT id FROM assessments WHERE code = ?");
+    const countQuestions = this.db.prepare(
+      "SELECT COUNT(*) as c FROM assessment_questions WHERE assessment_id = ?"
+    );
+    const updateQuestionCount = this.db.prepare("UPDATE assessments SET question_count = ?, updated_at = ? WHERE id = ?");
+    const insertAssessment = this.db.prepare(
+      `INSERT INTO assessments
+         (code, name, question_count, dimensions_json, scoring_mode, scale_version,
+          attribution, license_text, disclaimer, enabled, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`
+    );
+    const insertQuestion = this.db.prepare(
+      `INSERT INTO assessment_questions
+         (assessment_id, question_index, prompt, dimension, reverse_scored, version, created_at)
+       VALUES (?, ?, ?, ?, ?, 1, ?)`
+    );
+    const insertQuestions = (assessmentId: number, questions: readonly QuestionSeed[], now: string) => {
+      for (const question of questions) {
+        insertQuestion.run(
+          assessmentId,
+          question.index,
+          question.prompt,
+          question.dimension,
+          question.reverseScored ? 1 : 0,
+          now
+        );
+      }
+    };
+
+    const seed = this.db.transaction(() => {
+      for (const definition of ASSESSMENT_SEEDS) {
+        const questions = getQuestionSeeds(definition.code);
+        if (!questions) throw new Error(`量表 ${definition.code} 缺少题库种子`);
+        // 落库前自检：坏种子宁可安装时报错，也不留半截题库
+        validateAssessmentSeed(definition, questions);
+
+        const existing = findAssessment.get(definition.code) as { id: number } | undefined;
+        if (existing) {
+          const { c } = countQuestions.get(existing.id) as { c: number };
+          if (c > 0) continue; // 后台维护过的题库：绝不覆盖
+          // 题库为空：只补种题库并校正题数，不动其它字段（题面/署名等可能已被后台改过）
+          const now = getNow();
+          updateQuestionCount.run(questions.length, now, existing.id);
+          insertQuestions(existing.id, questions, now);
+          continue;
+        }
+
+        const now = getNow();
+        const result = insertAssessment.run(
+          definition.code,
+          definition.name,
+          definition.questionCount,
+          JSON.stringify(definition.dimensions),
+          definition.scoringMode,
+          definition.scaleVersion,
+          definition.attribution,
+          definition.licenseText,
+          definition.disclaimer,
+          now,
+          now
+        );
+        insertQuestions(Number(result.lastInsertRowid), questions, now);
+      }
+    });
+    seed();
+  }
+
+  /**
+   * O*NET 职业库（#226）：**只读参考数据**，来自离线快照（`src/lib/onet-data.ts`）。
+   *
+   * 与量表种子（`seedAssessments`）不同：职业库是整批发布的，没有「后台维护」的语义，
+   * 所以判据是「快照版本标记 + 行数」，快照升级时**整表重灌**（避免新旧职业混在一起）；
+   * 平时每次 init 只做两条轻查询就跳过。不纳入备份：可离线重灌，且体量远大于业务数据。
+   */
+  private migrateOnetSchema(): void {
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS onet_occupations (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        code TEXT NOT NULL UNIQUE,
+        name TEXT NOT NULL,
+        name_zh TEXT,
+        interest_code TEXT NOT NULL,
+        interests_json TEXT NOT NULL,
+        job_zone INTEGER NOT NULL,
+        education_level TEXT NOT NULL,
+        cluster TEXT NOT NULL,
+        dataset_version TEXT NOT NULL,
+        created_at TEXT NOT NULL
+      )
+    `);
+  }
+
+  /** 职业库种子：按快照版本幂等整表重灌（判据见 `needsOnetReseed`，两适配器共用） */
+  private seedOnetOccupations(): void {
+    const seeds = getOnetOccupationSeeds();
+    const marker = this.db
+      .prepare("SELECT value FROM configs_profile WHERE key = ?")
+      .get(ONET_SEED_MARKER_KEY) as { value: string } | undefined;
+    const { c } = this.db.prepare("SELECT COUNT(*) as c FROM onet_occupations").get() as { c: number };
+    if (!needsOnetReseed(marker?.value, c, seeds.length)) return;
+
+    const insert = this.db.prepare(
+      `INSERT INTO onet_occupations
+         (code, name, name_zh, interest_code, interests_json, job_zone, education_level, cluster, dataset_version, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    );
+    const now = getNow();
+    const tx = this.db.transaction(() => {
+      this.db.exec("DELETE FROM onet_occupations");
+      for (const seed of seeds) {
+        insert.run(
+          seed.code,
+          seed.name,
+          seed.nameZh,
+          seed.interestCode,
+          JSON.stringify(seed.scores),
+          seed.jobZone,
+          seed.educationLevel,
+          seed.cluster,
+          seed.datasetVersion,
+          now
+        );
+      }
+    });
+    tx();
+    this.setProfileConfig(ONET_SEED_MARKER_KEY, ONET_DATASET_VERSION);
   }
 
   /**
@@ -554,6 +783,21 @@ export class SqliteAdapter implements DbAdapter {
       | undefined;
   }
 
+  getUsersByCodes(userCodes: string[]): UserCodeRef[] {
+    if (userCodes.length === 0) return [];
+    const rows: UserCodeRef[] = [];
+    for (const chunk of chunkArray([...new Set(userCodes)])) {
+      const placeholders = chunk.map(() => "?").join(",");
+      // 只取标识与班级归属：批量导入不需要整行（尤其不把 password_hash 带进内存）
+      rows.push(
+        ...(this.db
+          .prepare(`SELECT id, user_code, class_id FROM users WHERE user_code IN (${placeholders})`)
+          .all(...chunk) as UserCodeRef[])
+      );
+    }
+    return rows;
+  }
+
   getUserById(id: number): UserRow | undefined {
     return this.db.prepare("SELECT * FROM users WHERE id = ?").get(id) as UserRow | undefined;
   }
@@ -606,6 +850,12 @@ export class SqliteAdapter implements DbAdapter {
       this.db
         .prepare(
           `DELETE FROM class_group_members WHERE user_id IN (SELECT id FROM users WHERE user_code IN (${placeholders}))`
+        )
+        .run(...userCodes);
+      // 测评作答（#221）：属学生个人测评数据，账号删除即无归属方，随手一并清掉（不留悬空 user_id）
+      this.db
+        .prepare(
+          `DELETE FROM assessment_results WHERE user_id IN (SELECT id FROM users WHERE user_code IN (${placeholders}))`
         )
         .run(...userCodes);
       return this.db
@@ -915,6 +1165,20 @@ export class SqliteAdapter implements DbAdapter {
       )
       .all() as { k: string; total: number; submitted: number }[];
     return rows.map((r) => ({ key: r.k, total: r.total, submitted: r.submitted }));
+  }
+
+  getClassRoster(className: string): ClassRosterRow[] {
+    // 班名口径与 getCompareByClass 保持一致；未提交置顶，其余按学号升序。
+    // submitted_at 的空串视为未提交，避免脏数据把空时间显示成「已提交」。
+    return this.db
+      .prepare(
+        `SELECT u.name, u.user_code, u.submitted_at, u.tags
+         FROM users u LEFT JOIN classes c ON u.class_id = c.id
+         WHERE u.role = 'student' AND COALESCE(c.name, '未分班') = ?
+         ORDER BY CASE WHEN u.submitted_at IS NULL OR TRIM(u.submitted_at) = '' THEN 0 ELSE 1 END,
+                  u.user_code`
+      )
+      .all(className) as ClassRosterRow[];
   }
 
   // tags & classes
@@ -1480,6 +1744,283 @@ export class SqliteAdapter implements DbAdapter {
     return row.same === 1;
   }
 
+  // assessments / assessment_questions / assessment_results（#221 职业测评数据层）
+  getEnabledAssessments(): AssessmentRow[] {
+    return this.db
+      .prepare("SELECT * FROM assessments WHERE enabled = 1 ORDER BY id")
+      .all() as AssessmentRow[];
+  }
+
+  getAssessmentByCode(code: string): AssessmentRow | undefined {
+    // code 归一化在边界做：SQLite 的 `=` 区分大小写、MySQL 默认不区分，直接比会分叉
+    return this.db
+      .prepare("SELECT * FROM assessments WHERE code = ?")
+      .get(normalizeAssessmentCode(code)) as AssessmentRow | undefined;
+  }
+
+  getAssessmentQuestions(assessmentId: number): AssessmentQuestionRow[] {
+    return this.db
+      .prepare("SELECT * FROM assessment_questions WHERE assessment_id = ? ORDER BY question_index")
+      .all(assessmentId) as AssessmentQuestionRow[];
+  }
+
+  getAssessmentQuestionsByCode(code: string): AssessmentQuestionRow[] {
+    return this.db
+      .prepare(
+        `SELECT q.* FROM assessment_questions q
+         JOIN assessments a ON a.id = q.assessment_id
+         WHERE a.code = ? ORDER BY q.question_index`
+      )
+      .all(normalizeAssessmentCode(code)) as AssessmentQuestionRow[];
+  }
+
+  upsertAssessmentDraft(userId: number, assessmentId: number, answersJson: string): number {
+    // 单条原子 upsert：`draft_slot = 1` 是草稿位，唯一约束保证「至多一条草稿」；
+    // 「先查再写」在并发自动保存下会插出第二条草稿，故用 ON CONFLICT 直接覆盖。
+    const now = getNow();
+    this.db
+      .prepare(
+        `INSERT INTO assessment_results
+           (user_id, assessment_id, status, answers_json, is_current, draft_slot, started_at, updated_at)
+         VALUES (?, ?, 'in_progress', ?, 0, 1, ?, ?)
+         ON CONFLICT(user_id, assessment_id, draft_slot)
+         DO UPDATE SET answers_json = excluded.answers_json, updated_at = excluded.updated_at`
+      )
+      .run(userId, assessmentId, answersJson, now, now);
+    const draft = this.db
+      .prepare("SELECT id FROM assessment_results WHERE user_id = ? AND assessment_id = ? AND draft_slot = 1")
+      .get(userId, assessmentId) as { id: number };
+    return draft.id;
+  }
+
+  getAssessmentDraft(userId: number, assessmentId: number): AssessmentResultRow | undefined {
+    return this.db
+      .prepare(
+        `SELECT * FROM assessment_results
+         WHERE user_id = ? AND assessment_id = ? AND draft_slot = 1
+         ORDER BY id DESC LIMIT 1`
+      )
+      .get(userId, assessmentId) as AssessmentResultRow | undefined;
+  }
+
+  completeAssessmentResult(input: CompleteAssessmentInput): number {
+    const { userId, assessmentId, answersJson, scoresJson, typeCode } = input;
+    const tx = this.db.transaction(() => {
+      const now = getNow();
+      // 当前版本唯一：先整体置 0，再把本次结果置 1（同一事务内，读不到中间态）
+      this.db
+        .prepare("UPDATE assessment_results SET is_current = 0 WHERE user_id = ? AND assessment_id = ? AND is_current = 1")
+        .run(userId, assessmentId);
+      const draft = this.db
+        .prepare(
+          `SELECT id FROM assessment_results
+           WHERE user_id = ? AND assessment_id = ? AND draft_slot = 1
+           ORDER BY id DESC LIMIT 1`
+        )
+        .get(userId, assessmentId) as { id: number } | undefined;
+      if (draft) {
+        // 沿用草稿行：保留 started_at，作答内容以本次提交为准，草稿位释放（draft_slot → NULL）
+        this.db
+          .prepare(
+            `UPDATE assessment_results
+             SET status = 'completed', answers_json = ?, scores_json = ?, type_code = ?,
+                 is_current = 1, draft_slot = NULL, updated_at = ?, completed_at = ?
+             WHERE id = ?`
+          )
+          .run(answersJson, scoresJson, typeCode, now, now, draft.id);
+        return draft.id;
+      }
+      const result = this.db
+        .prepare(
+          `INSERT INTO assessment_results
+             (user_id, assessment_id, status, answers_json, scores_json, type_code, is_current,
+              started_at, updated_at, completed_at)
+           VALUES (?, ?, 'completed', ?, ?, ?, 1, ?, ?, ?)`
+        )
+        .run(userId, assessmentId, answersJson, scoresJson, typeCode, now, now, now);
+      return Number(result.lastInsertRowid);
+    });
+    return tx();
+  }
+
+  getCurrentAssessmentResult(userId: number, assessmentId: number): AssessmentResultRow | undefined {
+    return this.db
+      .prepare(
+        `SELECT * FROM assessment_results
+         WHERE user_id = ? AND assessment_id = ? AND status = 'completed' AND is_current = 1
+         ORDER BY id DESC LIMIT 1`
+      )
+      .get(userId, assessmentId) as AssessmentResultRow | undefined;
+  }
+
+  getAssessmentResults(userId: number, assessmentId: number): AssessmentResultRow[] {
+    return this.db
+      .prepare(
+        `SELECT * FROM assessment_results
+         WHERE user_id = ? AND assessment_id = ? AND status = 'completed'
+         ORDER BY completed_at DESC, id DESC`
+      )
+      .all(userId, assessmentId) as AssessmentResultRow[];
+  }
+
+  getCurrentAssessmentResultsByUserCodes(
+    assessmentId: number,
+    userCodes: string[]
+  ): AssessmentResultSummary[] {
+    if (userCodes.length === 0) return [];
+    const rows: AssessmentResultSummary[] = [];
+    for (const chunk of chunkArray([...new Set(userCodes)])) {
+      const placeholders = chunk.map(() => "?").join(",");
+      // 只需要列表/导出用的四列：不取作答内容，也不取整行（#233/#234）
+      rows.push(
+        ...(this.db
+          .prepare(
+            `SELECT u.user_code AS user_code, r.type_code AS type_code,
+                    r.scores_json AS scores_json, r.completed_at AS completed_at
+             FROM assessment_results r
+             JOIN users u ON u.id = r.user_id
+             WHERE r.assessment_id = ? AND r.status = 'completed' AND r.is_current = 1
+               AND u.role = 'student' AND u.user_code IN (${placeholders})`
+          )
+          .all(assessmentId, ...chunk) as AssessmentResultSummary[])
+      );
+    }
+    return rows;
+  }
+
+  // onet_occupations（#226 O*NET 职业库：离线导入的只读参考数据）
+  getOnetOccupations(): OnetOccupationRow[] {
+    return this.db.prepare("SELECT * FROM onet_occupations ORDER BY code").all() as OnetOccupationRow[];
+  }
+
+  // 教师端测评统计（#229）：只数数，完成率/排序/标签交给 `assessment-stats.ts`，两适配器不重复口径
+  getAssessmentStats(assessmentId: number, classIds: number[] | null): AssessmentStatsRaw {
+    if (classIds !== null && classIds.length === 0) {
+      return { classes: [], types: [], codes: [], total: { enrolled: 0, assessed: 0, last_completed_at: null } };
+    }
+    const inClause = classIds === null ? "" : ` AND u.class_id IN (${classIds.map(() => "?").join(",")})`;
+    const params = classIds ?? [];
+    // 完成/当前有效的结果，且必须是学生账号（教师/管理员本人作答不计入班级完成度）
+    const resultWhere = `r.assessment_id = ? AND r.status = 'completed' AND r.is_current = 1 AND u.role = 'student'${inClause}`;
+
+    const classRows = (
+      classIds === null
+        ? this.db
+            .prepare(
+              `SELECT c.id AS class_id, c.name AS name, COUNT(u.id) AS enrolled
+               FROM classes c LEFT JOIN users u ON u.class_id = c.id AND u.role = 'student'
+               GROUP BY c.id, c.name`
+            )
+            .all()
+        : this.db
+            .prepare(
+              `SELECT c.id AS class_id, c.name AS name, COUNT(u.id) AS enrolled
+               FROM classes c LEFT JOIN users u ON u.class_id = c.id AND u.role = 'student'
+               WHERE c.id IN (${classIds.map(() => "?").join(",")})
+               GROUP BY c.id, c.name`
+            )
+            .all(...classIds)
+    ) as { class_id: number; name: string; enrolled: number }[];
+
+    const assessedRows = this.db
+      .prepare(
+        `SELECT u.class_id AS class_id, COUNT(DISTINCT r.user_id) AS assessed
+         FROM assessment_results r JOIN users u ON u.id = r.user_id
+         WHERE ${resultWhere} AND u.class_id IS NOT NULL
+         GROUP BY u.class_id`
+      )
+      .all(assessmentId, ...params) as { class_id: number; assessed: number }[];
+    const assessedByClass = new Map(assessedRows.map((row) => [row.class_id, Number(row.assessed)]));
+
+    const typeRows = this.db
+      .prepare(
+        `SELECT SUBSTR(r.type_code, 1, 1) AS key, COUNT(*) AS count
+         FROM assessment_results r JOIN users u ON u.id = r.user_id
+         WHERE ${resultWhere} AND r.type_code IS NOT NULL AND TRIM(r.type_code) <> ''
+         GROUP BY SUBSTR(r.type_code, 1, 1)`
+      )
+      .all(assessmentId, ...params) as { key: string; count: number }[];
+
+    const codeRows = this.db
+      .prepare(
+        `SELECT r.type_code AS code, COUNT(*) AS count
+         FROM assessment_results r JOIN users u ON u.id = r.user_id
+         WHERE ${resultWhere} AND r.type_code IS NOT NULL AND TRIM(r.type_code) <> ''
+         GROUP BY r.type_code`
+      )
+      .all(assessmentId, ...params) as { code: string; count: number }[];
+
+    const totalParams = classIds === null ? [] : classIds;
+    const { c: enrolled } = this.db
+      .prepare(
+        `SELECT COUNT(*) AS c FROM users WHERE role = 'student'${classIds === null ? "" : ` AND class_id IN (${classIds.map(() => "?").join(",")})`}`
+      )
+      .get(...totalParams) as { c: number };
+    const { c: assessed, last } = this.db
+      .prepare(
+        `SELECT COUNT(DISTINCT r.user_id) AS c, MAX(r.completed_at) AS last
+         FROM assessment_results r JOIN users u ON u.id = r.user_id
+         WHERE ${resultWhere}`
+      )
+      .get(assessmentId, ...params) as { c: number; last: string | null };
+
+    return {
+      classes: classRows.map((row) => ({
+        class_id: row.class_id,
+        name: row.name,
+        enrolled: Number(row.enrolled),
+        assessed: assessedByClass.get(row.class_id) ?? 0,
+      })),
+      types: typeRows.map((row) => ({ key: String(row.key), count: Number(row.count) })),
+      codes: codeRows.map((row) => ({ code: String(row.code), count: Number(row.count) })),
+      total: { enrolled: Number(enrolled), assessed: Number(assessed), last_completed_at: last ?? null },
+    };
+  }
+
+  getAssessmentRoster(
+    assessmentId: number,
+    classIds: number[] | null,
+    filters: { classId?: number | null; lead?: string | null; code?: string | null } = {}
+  ): AssessmentRosterRow[] {
+    if (classIds !== null && classIds.length === 0) return [];
+    const conditions = [
+      "r.assessment_id = ?",
+      "r.status = 'completed'",
+      "r.is_current = 1",
+      "u.role = 'student'",
+    ];
+    const params: (string | number)[] = [assessmentId];
+    if (classIds !== null) {
+      conditions.push(`u.class_id IN (${classIds.map(() => "?").join(",")})`);
+      params.push(...classIds);
+    }
+    if (filters.classId != null) {
+      conditions.push("u.class_id = ?");
+      params.push(filters.classId);
+    }
+    if (filters.lead) {
+      conditions.push("SUBSTR(r.type_code, 1, 1) = ?");
+      params.push(filters.lead);
+    }
+    if (filters.code) {
+      // 三字码精确过滤（#232 胶囊下钻）：与 lead 可同时出现，二者是「且」关系
+      conditions.push("r.type_code = ?");
+      params.push(filters.code);
+    }
+    // 班级名 + 学号排序：下钻列表要稳定（库内 collation 差异不影响，因为教师只按单班看）
+    return this.db
+      .prepare(
+        `SELECT u.class_id AS class_id, c.name AS class_name, u.name AS name, u.user_code AS user_code,
+                r.type_code AS code, r.completed_at AS assessed_at
+         FROM assessment_results r
+         JOIN users u ON u.id = r.user_id
+         LEFT JOIN classes c ON c.id = u.class_id
+         WHERE ${conditions.join(" AND ")}
+         ORDER BY COALESCE(c.name, ''), u.user_code`
+      )
+      .all(...params) as AssessmentRosterRow[];
+  }
+
   backup(): BackupData {
     const users = this.db.prepare("SELECT * FROM users ORDER BY id").all() as UserRow[];
     const classes = this.db.prepare("SELECT * FROM classes ORDER BY id").all() as ClassRow[];
@@ -1513,8 +2054,15 @@ export class SqliteAdapter implements DbAdapter {
     const groupBatchMembers = this.db
       .prepare("SELECT * FROM group_batch_members ORDER BY id")
       .all() as GroupBatchMemberRow[];
+    const assessments = this.db.prepare("SELECT * FROM assessments ORDER BY id").all() as AssessmentRow[];
+    const assessmentQuestions = this.db
+      .prepare("SELECT * FROM assessment_questions ORDER BY id")
+      .all() as AssessmentQuestionRow[];
+    const assessmentResults = this.db
+      .prepare("SELECT * FROM assessment_results ORDER BY id")
+      .all() as AssessmentResultRow[];
     return {
-      version: 5,
+      version: 6,
       sourceType: "sqlite",
       createdAt: new Date().toISOString(),
       users,
@@ -1530,6 +2078,9 @@ export class SqliteAdapter implements DbAdapter {
       group_batches: groupBatches,
       group_batch_groups: groupBatchGroups,
       group_batch_members: groupBatchMembers,
+      assessments,
+      assessment_questions: assessmentQuestions,
+      assessment_results: assessmentResults,
     };
   }
 
@@ -1541,13 +2092,15 @@ export class SqliteAdapter implements DbAdapter {
     try {
     const restoreTx = this.db.transaction((d: BackupData) => {
       const tags = normalizeBackupTags(d.tags);
-      // 分组（#101）五表一律先清空：users / classes 是整表替换的，旧备份不含分组字段时若保留现状，
-      // 成员行会指向不存在或已换班的学生（恢复期间 FK 关闭，库不会拦），所以「无字段 = 恢复后未分组」
+      // 凡按 user_id / class_id 引用 users / classes 的持久表，恢复时一律无条件先清空：这两张表整表替换且按原 id 重插，
+      // 旧备份缺字段时若保留现状，行会指向已不存在、或已被别人占用的 id（恢复期间 FK 关闭，库不会拦，事后开启也不回溯校验）。
+      // 所以「缺字段 = 恢复后该功能无数据」，不是「保留不动」——#101 分组五表、#95 档案历史版本同此口径
       this.db.exec("DELETE FROM class_group_members");
       this.db.exec("DELETE FROM class_groups");
       this.db.exec("DELETE FROM group_batch_members");
       this.db.exec("DELETE FROM group_batch_groups");
       this.db.exec("DELETE FROM group_batches");
+      this.db.exec("DELETE FROM profile_submissions");
       this.db.exec("DELETE FROM teacher_classes");
       this.db.exec("DELETE FROM users");
       this.db.exec("DELETE FROM classes");
@@ -1682,9 +2235,8 @@ export class SqliteAdapter implements DbAdapter {
           );
         }
       }
-      // 档案提交历史版本恢复（#95；旧备份无此字段时保留当前记录不动）
+      // 档案提交历史版本恢复（#95；**含此字段才回填，旧备份恢复后即为无历史版本**——上面已统一清空）
       if (Array.isArray(d.profile_submissions)) {
-        this.db.exec("DELETE FROM profile_submissions");
         if (d.profile_submissions.length > 0) {
           const stmt = this.db.prepare(
             `INSERT INTO profile_submissions (id, user_id, version, tags, avatar_url, evaluation_url, storage_id, submitted_at, is_current)
@@ -1703,6 +2255,85 @@ export class SqliteAdapter implements DbAdapter {
               p.is_current ?? 0
             );
           }
+        }
+      }
+      // 测评恢复（#221）：
+      // - `assessments` + `assessment_questions` 是参考数据：两字段齐备才整体替换，否则保留现状（可被种子自愈）；
+      // - `assessment_results` 是**学生个人数据且只靠数值 user_id 关联**，而 `users` 上面已经整表替换了：
+      //   保留旧结果会在「恢复到另一套库的旧备份」时张冠李戴，故与分组五表同口径——**一律先清空**，
+      //   只有备份带该字段才回填。
+      this.db.exec("DELETE FROM assessment_results");
+      if (Array.isArray(d.assessments) && Array.isArray(d.assessment_questions)) {
+        this.db.exec("DELETE FROM assessment_questions");
+        this.db.exec("DELETE FROM assessments");
+        if (d.assessments.length > 0) {
+          const assessmentStmt = this.db.prepare(
+            `INSERT INTO assessments
+               (id, code, name, question_count, dimensions_json, scoring_mode, scale_version,
+                attribution, license_text, disclaimer, enabled, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+          );
+          for (const a of d.assessments) {
+            assessmentStmt.run(
+              a.id,
+              // code 统一小写入库：两适配器的唯一比较语义已对齐（MySQL 用 utf8mb4_bin），
+              // 这里再做一次规范化，避免跨库备份里的大小写差异变成「查不到的量表」
+              normalizeAssessmentCode(a.code),
+              a.name,
+              a.question_count,
+              a.dimensions_json,
+              a.scoring_mode ?? "typological",
+              a.scale_version,
+              a.attribution ?? "",
+              a.license_text ?? "",
+              a.disclaimer ?? "",
+              a.enabled ?? 1,
+              a.created_at ?? getNow(),
+              a.updated_at ?? getNow()
+            );
+          }
+        }
+        const questionStmt = this.db.prepare(
+          `INSERT INTO assessment_questions
+             (id, assessment_id, question_index, prompt, dimension, reverse_scored, version, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+        );
+        for (const q of d.assessment_questions) {
+          questionStmt.run(
+            q.id,
+            q.assessment_id,
+            q.question_index,
+            q.prompt,
+            q.dimension,
+            q.reverse_scored ?? 0,
+            q.version ?? 1,
+            q.created_at ?? getNow()
+          );
+        }
+      }
+      if (Array.isArray(d.assessment_results)) {
+        const resultStmt = this.db.prepare(
+          `INSERT INTO assessment_results
+             (id, user_id, assessment_id, status, answers_json, scores_json, type_code, is_current,
+              draft_slot, started_at, updated_at, completed_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        );
+        for (const r of d.assessment_results) {
+          resultStmt.run(
+            r.id,
+            r.user_id,
+            r.assessment_id,
+            r.status,
+            r.answers_json ?? "{}",
+            r.scores_json ?? null,
+            r.type_code ?? null,
+            r.is_current ?? 0,
+            // 旧备份没有 draft_slot 列：草稿补草稿位、完成记录补 NULL，恢复后不变量仍成立
+            r.draft_slot ?? (r.status === "in_progress" ? 1 : null),
+            r.started_at ?? getNow(),
+            r.updated_at ?? getNow(),
+            r.completed_at ?? null
+          );
         }
       }
       // 分组恢复（#101；**含此字段才回填，旧备份恢复后即为未分组**——上面已统一清空）
@@ -1777,6 +2408,8 @@ export class SqliteAdapter implements DbAdapter {
     } finally {
       if (fkWasOn) this.db.pragma("foreign_keys = ON");
     }
+    // 恢复后保证内置量表存在（旧备份无测评字段、或备份本身题库为空时自愈）；已存在的量表不覆盖
+    this.seedAssessments();
   }
 
   close(): void {

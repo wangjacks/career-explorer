@@ -1,3 +1,4 @@
+import { withDemoScope } from "@/lib/demo-scope";
 import { NextRequest, NextResponse } from "next/server";
 import { MEDIA_ORPHAN_RETENTION_KEY, setProfileConfig } from "@/lib/db";
 import { verifyToken } from "@/lib/token";
@@ -28,7 +29,7 @@ async function requireAdmin(request: NextRequest, action: string): Promise<{ ok:
 }
 
 /** 媒体总览统计（#117）：扫描全部后端文件与引用，返回统计与保留期配置 */
-export async function GET(request: NextRequest) {
+async function GET_impl(request: NextRequest) {
   const { ip, user_agent } = getRequestContext(request);
   const auth = await requireAdmin(request, "media:query");
   if (!auth.ok) return auth.response!;
@@ -49,7 +50,7 @@ export async function GET(request: NextRequest) {
 }
 
 /** 保存孤儿保留期（#117）：整数 1–365，审计 media:config-update */
-export async function PUT(request: NextRequest) {
+async function PUT_impl(request: NextRequest) {
   const { ip, user_agent } = getRequestContext(request);
   const auth = await requireAdmin(request, "media:config-update");
   if (!auth.ok) return auth.response!;
@@ -82,3 +83,6 @@ export async function PUT(request: NextRequest) {
     return NextResponse.json({ error: "服务器错误" }, { status: 500 });
   }
 }
+
+export const GET = withDemoScope(GET_impl);
+export const PUT = withDemoScope(PUT_impl);

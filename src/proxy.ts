@@ -4,12 +4,16 @@ import { verifyToken } from "@/lib/token";
 /** 声明式权限表：teacher 可用的 manage 路由（前缀 + 允许的 HTTP 方法） */
 const TEACHER_ALLOWED: { prefix: string; methods: "all" | string[] }[] = [
   { prefix: "/api/manage/classes", methods: "all" },
+  // #171：学生写入的班级归属在路由内判定（前缀匹配连 batch-password 一起放行，权限表判不了单条记录归属）
   { prefix: "/api/manage/students", methods: "all" },
-  { prefix: "/api/manage/tags", methods: "all" },
+  // #171：预设标签与档案功能设置全站生效，教师只读，写入只归管理员
+  { prefix: "/api/manage/tags", methods: ["GET"] },
   { prefix: "/api/manage/export", methods: "all" }, // startsWith 覆盖 export-images
-  { prefix: "/api/manage/stats", methods: ["GET"] },
+  { prefix: "/api/manage/stats", methods: ["GET"] }, // startsWith 覆盖 stats/assessment（#229 聚合，学生不可见）
+  // #229 测评名册：含姓名/学号，前缀整体放行后由路由按 teacher_classes 收窄到归属班级，并每次读取记审计
+  { prefix: "/api/manage/assessment", methods: ["GET"] },
   { prefix: "/api/manage/profiles", methods: ["GET", "DELETE"] },
-  { prefix: "/api/manage/profile-config", methods: "all" },
+  { prefix: "/api/manage/profile-config", methods: ["GET"] },
   { prefix: "/api/manage/audit-logs", methods: ["GET"] }, // #110：教师仅可查询本人记录，路由内强制 actor_id = 本人
   // #101 分组：读不限（可看全校名单），写操作由路由用 canModifyClass 收紧到所带班级
   { prefix: "/api/manage/groups", methods: "all" },

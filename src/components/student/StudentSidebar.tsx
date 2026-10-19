@@ -1,31 +1,39 @@
 "use client";
 
-import { FileText, Users, UsersRound, Sprout } from "lucide-react";
+import Link from "next/link";
+import { usePathname } from "next/navigation";
+import { FileText, Users, UsersRound, Sprout, Compass, type LucideIcon } from "lucide-react";
 
 /** 学生面板内的可切换视图：`group` 由侧边栏进入，`profile` / `history` 另有页内分段控件 */
 export type StudentViewKey = "profile" | "history" | "group";
 
 interface SidebarItem {
-  /** 点击后要切到的视图；`null` = 占位项，不可点 */
-  key: StudentViewKey | null;
+  /** 页内视图切换的 key；`null` = 占位项或外链项，不走 onSelect */
+  viewKey: StudentViewKey | null;
+  /** 外链 href（职业测评走独立路由） */
+  href?: string;
   label: string;
-  icon: typeof FileText;
+  icon: LucideIcon;
   /** 不可点时的说明（读屏与 title 都用它，别让用户猜为什么按不动） */
   hint?: string;
+  /** 占位项标记 */
+  soon?: boolean;
 }
 
 const ITEMS: SidebarItem[] = [
-  { key: "profile", label: "我的档案", icon: FileText },
-  { key: "group", label: "我的小组", icon: UsersRound },
-  { key: null, label: "我的班级", icon: Users, hint: "即将上线" },
-  { key: null, label: "成长记录", icon: Sprout, hint: "即将上线" },
+  { viewKey: "profile", label: "我的档案", icon: FileText },
+  { viewKey: "group", label: "我的小组", icon: UsersRound },
+  { viewKey: null, href: "/dashboard/student/assessment", label: "职业测评", icon: Compass },
+  { viewKey: null, label: "我的班级", icon: Users, hint: "即将上线", soon: true },
+  { viewKey: null, label: "成长记录", icon: Sprout, hint: "即将上线", soon: true },
 ];
 
 /**
  * 学生面板左侧菜单（#101 起可交互）：
  * - 桌面（md+）：sticky 静态左栏，open=false 时宽度折叠为 0
  * - 移动（<md）：顶栏下方抽屉（top-12 起，不盖顶栏，切换按钮保持可点）+ z-30 遮罩
- * 占位项保持不可聚焦（用 span），避免读屏把「即将上线」当成可操作的按钮。
+ * - 「我的档案」「我的小组」是页内视图切换（button），「职业测评」是独立路由（Link）
+ * - 占位项保持不可聚焦（用 span），避免读屏把「即将上线」当成可操作的按钮。
  */
 export default function StudentSidebar({
   open,
@@ -35,13 +43,19 @@ export default function StudentSidebar({
 }: {
   open: boolean;
   onClose: () => void;
-  activeView: StudentViewKey;
-  onSelect: (key: StudentViewKey) => void;
+  activeView?: StudentViewKey;
+  onSelect?: (key: StudentViewKey) => void;
 }) {
+  const pathname = usePathname();
+
   // 只在移动端选完自动收起：桌面是常驻静态栏，收起会把整条导航折叠成 0 宽（与 PanelSidebar 同规则）
   const handleSelect = (key: StudentViewKey) => {
-    onSelect(key);
+    onSelect?.(key);
     if (!window.matchMedia("(min-width: 768px)").matches) onClose();
+  };
+
+  const closeOnMobile = () => {
+    if (typeof window !== "undefined" && window.matchMedia("(max-width: 767px)").matches) onClose();
   };
 
   return (
@@ -72,11 +86,11 @@ export default function StudentSidebar({
           {ITEMS.map((item) => {
             const label = (
               <>
-                <item.icon size={17} strokeWidth={item.key ? 2 : 1.8} />
+                <item.icon size={17} strokeWidth={item.viewKey || item.href ? 2 : 1.8} />
                 {item.label}
               </>
             );
-            if (item.key === null) {
+            if (item.soon || (!item.viewKey && !item.href)) {
               return (
                 <span
                   key={item.label}
@@ -91,14 +105,42 @@ export default function StudentSidebar({
                 </span>
               );
             }
+            // 外链项（职业测评）：用 pathname 判定高亮
+            if (item.href) {
+              const isActive = pathname === item.href || pathname.startsWith(item.href + "/");
+              if (isActive) {
+                return (
+                  <span
+                    key={item.label}
+                    aria-current="page"
+                    className="flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-sm font-medium bg-primary-soft text-primary-strong dark:bg-green-900/30 dark:text-green-300"
+                  >
+                    {label}
+                  </span>
+                );
+              }
+              return (
+                <Link
+                  key={item.label}
+                  href={item.href}
+                  onClick={closeOnMobile}
+                  className="flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-sm text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+                >
+                  {label}
+                </Link>
+              );
+            }
+            // 页内视图项：用 activeView 判定高亮（activeView 未传时不高亮任何页内项）
             // 历史提交是「我的档案」的子视图：停在档案区时侧边栏仍高亮「我的档案」
-            const active = item.key === "profile" ? activeView !== "group" : activeView === item.key;
+            const active = activeView !== undefined && (
+              item.viewKey === "profile" ? activeView !== "group" : activeView === item.viewKey
+            );
             return (
               <button
                 type="button"
                 key={item.label}
                 aria-current={active ? "page" : undefined}
-                onClick={() => handleSelect(item.key as StudentViewKey)}
+                onClick={() => handleSelect(item.viewKey as StudentViewKey)}
                 className={`w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors text-left ${
                   active
                     ? "bg-primary-soft text-primary-strong dark:bg-green-900/30 dark:text-green-300"

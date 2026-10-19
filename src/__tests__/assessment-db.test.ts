@@ -1,0 +1,618 @@
+import { describe, it, expect } from "vitest";
+import { mkdtempSync, readFileSync, rmSync } from "fs";
+import { tmpdir } from "os";
+import path from "path";
+import Database from "better-sqlite3";
+import { SqliteAdapter } from "../lib/db-sqlite";
+import { scoreAssessment } from "../lib/assessment-scoring";
+import {
+  RIASEC_ASSESSMENT,
+  RIASEC_CODE,
+  RIASEC_QUESTIONS,
+  RIASEC_DIMENSIONS,
+  validateAssessmentSeed,
+} from "../lib/assessment-data";
+
+function makeTmpDb(): string {
+  const dir = mkdtempSync(path.join(tmpdir(), "career-assessment-"));
+  return path.join(dir, "test.db");
+}
+
+/** 建好库 + 种子 + 一个学生，返回适配器与该学生 id */
+function setup() {
+  const dbPath = makeTmpDb();
+  const adapter = new SqliteAdapter(dbPath);
+  adapter.init();
+  const studentId = adapter.insertUser({ user_code: "202505050101", role: "student", name: "张三" });
+  const assessment = adapter.getAssessmentByCode(RIASEC_CODE)!;
+  return { dbPath, adapter, studentId, assessment };
+}
+
+function cleanup(dbPath: string) {
+  rmSync(path.dirname(dbPath), { recursive: true, force: true });
+}
+
+describe("RIASEC 题库种子（#221）", () => {
+  it("首次安装预置 riasec 量表与 30 题，六个维度各 5 题", () => {
+    const { dbPath, adapter, assessment } = setup();
+
+    const enabled = adapter.getEnabledAssessments();
+    expect(enabled).toHaveLength(1);
+    expect(enabled[0].code).toBe(RIASEC_CODE);
+    expect(enabled[0].question_count).toBe(30);
+    expect(enabled[0].scoring_mode).toBe("typological");
+    expect(enabled[0].scale_version).toBe(RIASEC_ASSESSMENT.scaleVersion);
+
+    // 维度定义 JSON：供计分引擎直接消费的 { key, label } 数组
+    const dimensions = JSON.parse(assessment.dimensions_json) as { key: string; label: string }[];
+    expect(dimensions.map((d) => d.key)).toEqual(["R", "I", "A", "S", "E", "C"]);
+    expect(dimensions.every((d) => d.label.length > 0)).toBe(true);
+
+    const questions = adapter.getAssessmentQuestions(assessment.id);
+    expect(questions).toHaveLength(30);
+    // 题号从 1 连续到 30（作答接口按题号存答案，跳号会让进度口径失真）
+    expect(questions.map((q) => q.question_index)).toEqual(
+      Array.from({ length: 30 }, (_, i) => i + 1)
+    );
+    for (const question of questions) {
+      expect(question.prompt.trim().length).toBeGreaterThan(0);
+      expect(dimensionKeys()).toContain(question.dimension);
+      // Mini-IP 原始量表无反向计分题，字段照实写 0
+      expect(question.reverse_scored).toBe(0);
+      expect(question.version).toBe(1);
+    }
+    // 六型均衡：每型 5 题，否则标准分口径不可比
+    for (const key of dimensionKeys()) {
+      expect(questions.filter((q) => q.dimension === key)).toHaveLength(5);
+    }
+
+    // 题号与维度按 Mini-IP 报告建议的轮转顺序（R,I,A,S,E,C 循环）
+    const cycle = ["R", "I", "A", "S", "E", "C"];
+    expect(questions.map((q) => q.dimension)).toEqual(
+      Array.from({ length: 30 }, (_, i) => cycle[i % 6])
+    );
+    expect(questions[0].prompt).toBe("动手制作厨房橱柜");
+
+    // 署名 / 授权 / 免责文本随记录可查出（O*NET 授权硬性要求）
+    expect(assessment.attribution).toContain("O*NET");
+    expect(assessment.attribution).toContain("U.S. Department of Labor");
+    expect(assessment.license_text).toContain("USDOL/ETA");
+    expect(assessment.disclaimer).toContain("不作为心理诊断");
+
+    adapter.close();
+    cleanup(dbPath);
+  });
+
+  it("种子幂等：重复 init 不重复插入，且不覆盖后台维护过的题面", () => {
+    const { dbPath, adapter, assessment } = setup();
+
+    adapter.init();
+    expect(adapter.getAssessmentQuestions(assessment.id)).toHaveLength(30);
+    expect(adapter.getEnabledAssessments()).toHaveLength(1);
+
+    // 模拟后台维护题面 + 停用：再次 init 不得覆盖
+    const raw = new Database(dbPath);
+    raw.prepare("UPDATE assessment_questions SET prompt = ? WHERE assessment_id = ? AND question_index = 1").run(
+      "（已维护）动手制作厨房橱柜",
+      assessment.id
+    );
+    raw.prepare("UPDATE assessments SET enabled = 0 WHERE id = ?").run(assessment.id);
+    raw.close();
+
+    adapter.init();
+    expect(adapter.getAssessmentQuestions(assessment.id)[0].prompt).toBe("（已维护）动手制作厨房橱柜");
+    expect(adapter.getEnabledAssessments()).toHaveLength(0);
+
+    adapter.close();
+    cleanup(dbPath);
+  });
+
+  it("按 code 取题库与按 id 取题库同口径；停用的量表仍可按 code 读取", () => {
+    const { dbPath, adapter, assessment } = setup();
+
+    const byCode = adapter.getAssessmentQuestionsByCode(RIASEC_CODE);
+    expect(byCode).toEqual(adapter.getAssessmentQuestions(assessment.id));
+    expect(adapter.getAssessmentQuestionsByCode("nope")).toEqual([]);
+    // code 大小写归一化在边界做：SQLite 的 = 区分大小写、MySQL 不区分，两侧行为必须一致
+    expect(adapter.getAssessmentByCode(" RIASEC ")?.id).toBe(assessment.id);
+    expect(adapter.getAssessmentQuestionsByCode("RIASEC")).toHaveLength(30);
+
+    const raw = new Database(dbPath);
+    raw.prepare("UPDATE assessments SET enabled = 0 WHERE id = ?").run(assessment.id);
+    raw.close();
+    expect(adapter.getEnabledAssessments()).toHaveLength(0);
+    expect(adapter.getAssessmentByCode(RIASEC_CODE)?.enabled).toBe(0);
+
+    adapter.close();
+    cleanup(dbPath);
+  });
+
+  it("题库为空时由 init 自愈补种，且不覆盖已维护的非空题库", () => {
+    const { dbPath, adapter, assessment } = setup();
+
+    // 模拟「量表行在、题库空」的残缺态（例如恢复了一份 question 数组为空的备份）
+    const raw = new Database(dbPath);
+    raw.exec("DELETE FROM assessment_questions");
+    raw.close();
+    expect(adapter.getAssessmentQuestions(assessment.id)).toHaveLength(0);
+
+    adapter.init();
+    expect(adapter.getAssessmentQuestions(assessment.id)).toHaveLength(30);
+    expect(adapter.getAssessmentByCode(RIASEC_CODE)?.question_count).toBe(30);
+
+    // 补种之后就是「已维护」：改过的题面再 init 一次不会被覆盖
+    const raw2 = new Database(dbPath);
+    raw2.prepare("UPDATE assessment_questions SET prompt = ? WHERE assessment_id = ? AND question_index = 1").run(
+      "（已维护）动手制作厨房橱柜",
+      assessment.id
+    );
+    raw2.close();
+    adapter.init();
+    expect(adapter.getAssessmentQuestions(assessment.id)[0].prompt).toBe("（已维护）动手制作厨房橱柜");
+
+    adapter.close();
+    cleanup(dbPath);
+  });
+
+  it("种子自检：完整题库存得下，坏数据在落库前报错", () => {
+    expect(() => validateAssessmentSeed(RIASEC_ASSESSMENT, RIASEC_QUESTIONS)).not.toThrow();
+
+    const caseOf = (mutate: (questions: typeof RIASEC_QUESTIONS) => typeof RIASEC_QUESTIONS) => {
+      return () => validateAssessmentSeed(RIASEC_ASSESSMENT, mutate(RIASEC_QUESTIONS.map((q) => ({ ...q }))));
+    };
+
+    expect(caseOf((qs) => qs.slice(1))).toThrow(/题数与题库不符/);
+    expect(caseOf((qs) => qs.map((q, i) => (i === 0 ? { ...q, index: 2 } : q)))).toThrow(/题号重复/);
+    expect(caseOf((qs) => qs.map((q, i) => (i === 0 ? { ...q, index: 31 } : q)))).toThrow(/题号不连续/);
+    expect(caseOf((qs) => qs.map((q, i) => (i === 0 ? { ...q, dimension: "X" } : q)))).toThrow(/未定义的维度/);
+    expect(caseOf((qs) => qs.map((q, i) => (i === 0 ? { ...q, prompt: "  " } : q)))).toThrow(/题干为空/);
+    expect(caseOf((qs) => qs.map((q, i) => (i === 0 ? { ...q, source: "" } : q)))).toThrow(/缺少英文原文/);
+  });
+});
+
+describe("草稿与结果（#221）", () => {
+  it("草稿 upsert 幂等：同一学生同一量表只有一条 in_progress，作答内容被覆盖", () => {
+    const { dbPath, adapter, studentId, assessment } = setup();
+
+    const first = adapter.upsertAssessmentDraft(studentId, assessment.id, JSON.stringify({ 1: 4, 2: 5 }));
+    const second = adapter.upsertAssessmentDraft(studentId, assessment.id, JSON.stringify({ 1: 2 }));
+    expect(second).toBe(first);
+
+    const draft = adapter.getAssessmentDraft(studentId, assessment.id);
+    expect(draft).toMatchObject({ id: first, status: "in_progress", is_current: 0, draft_slot: 1 });
+    expect(JSON.parse(draft!.answers_json)).toEqual({ 1: 2 });
+    // 草稿不算完成记录
+    expect(adapter.getCurrentAssessmentResult(studentId, assessment.id)).toBeUndefined();
+    expect(adapter.getAssessmentResults(studentId, assessment.id)).toEqual([]);
+
+    adapter.close();
+    cleanup(dbPath);
+  });
+
+  it("草稿唯一性由唯一约束兜住：绕过适配器也插不进第二条草稿", () => {
+    const { dbPath, adapter, studentId, assessment } = setup();
+
+    adapter.upsertAssessmentDraft(studentId, assessment.id, JSON.stringify({ 1: 4 }));
+
+    // draft_slot = 1 是草稿位；唯一约束 (user_id, assessment_id, draft_slot) 让并发自动保存也插不出第二条
+    const raw = new Database(dbPath);
+    expect(() =>
+      raw
+        .prepare(
+          `INSERT INTO assessment_results
+             (user_id, assessment_id, status, answers_json, is_current, draft_slot, started_at, updated_at)
+           VALUES (?, ?, 'in_progress', '{}', 0, 1, '2026-10-20 10:00:00', '2026-10-20 10:00:00')`
+        )
+        .run(studentId, assessment.id)
+    ).toThrow(/UNIQUE/);
+    raw.close();
+
+    adapter.close();
+    cleanup(dbPath);
+  });
+
+  it("完成时释放草稿位：完成后可再开新草稿，不覆盖已完成的版本", () => {
+    const { dbPath, adapter, studentId, assessment } = setup();
+
+    adapter.upsertAssessmentDraft(studentId, assessment.id, JSON.stringify({ 1: 4 }));
+    const completedId = adapter.completeAssessmentResult({
+      userId: studentId,
+      assessmentId: assessment.id,
+      answersJson: JSON.stringify({ 1: 4 }),
+      scoresJson: null,
+      typeCode: "RIA",
+    });
+    expect(adapter.getAssessmentDraft(studentId, assessment.id)).toBeUndefined();
+
+    // 再开新一轮：新草稿占回草稿位，已完成版本不受影响
+    const newDraftId = adapter.upsertAssessmentDraft(studentId, assessment.id, JSON.stringify({ 1: 5 }));
+    expect(newDraftId).not.toBe(completedId);
+    expect(adapter.getAssessmentDraft(studentId, assessment.id)?.answers_json).toBe(JSON.stringify({ 1: 5 }));
+    expect(adapter.getCurrentAssessmentResult(studentId, assessment.id)?.id).toBe(completedId);
+    expect(adapter.getAssessmentResults(studentId, assessment.id)).toHaveLength(1);
+
+    adapter.close();
+    cleanup(dbPath);
+  });
+
+  it("完成结果沿用草稿行；再完成一次生成新版本，is_current 唯一且历史可查", () => {
+    const { dbPath, adapter, studentId, assessment } = setup();
+
+    const draftId = adapter.upsertAssessmentDraft(studentId, assessment.id, JSON.stringify({ 1: 4 }));
+    const firstId = adapter.completeAssessmentResult({
+      userId: studentId,
+      assessmentId: assessment.id,
+      answersJson: JSON.stringify({ 1: 4 }),
+      scoresJson: JSON.stringify([{ key: "R", standard: 75 }]),
+      typeCode: "RIA",
+    });
+    expect(firstId).toBe(draftId);
+
+    const first = adapter.getCurrentAssessmentResult(studentId, assessment.id)!;
+    expect(first.status).toBe("completed");
+    expect(first.is_current).toBe(1);
+    expect(first.type_code).toBe("RIA");
+    expect(first.completed_at).toBeTruthy();
+    expect(first.started_at).toBeTruthy();
+    expect(adapter.getAssessmentDraft(studentId, assessment.id)).toBeUndefined();
+
+    // 第二次完成（不经草稿），旧版本让位
+    const secondId = adapter.completeAssessmentResult({
+      userId: studentId,
+      assessmentId: assessment.id,
+      answersJson: JSON.stringify({ 1: 5 }),
+      scoresJson: JSON.stringify([{ key: "R", standard: 100 }]),
+      typeCode: "RIC",
+    });
+    expect(secondId).not.toBe(firstId);
+
+    const current = adapter.getCurrentAssessmentResult(studentId, assessment.id)!;
+    expect(current.id).toBe(secondId);
+    expect(current.type_code).toBe("RIC");
+
+    const history = adapter.getAssessmentResults(studentId, assessment.id);
+    expect(history.map((r) => r.id)).toEqual([secondId, firstId]);
+    expect(history.filter((r) => r.is_current === 1)).toHaveLength(1);
+    expect(history[1].type_code).toBe("RIA");
+
+    adapter.close();
+    cleanup(dbPath);
+  });
+
+  it("学生之间互不可见；维度与计分类型可共存（dimensional 量表无三字码）", () => {
+    const { dbPath, adapter, studentId, assessment } = setup();
+    const otherId = adapter.insertUser({ user_code: "202505050102", role: "student", name: "李四" });
+
+    adapter.completeAssessmentResult({
+      userId: studentId,
+      assessmentId: assessment.id,
+      answersJson: "{}",
+      scoresJson: null,
+      typeCode: null,
+    });
+
+    expect(adapter.getCurrentAssessmentResult(studentId, assessment.id)).toBeDefined();
+    expect(adapter.getCurrentAssessmentResult(otherId, assessment.id)).toBeUndefined();
+    // dimensional 量表（大五等）不产出三字码：三字码列允许 NULL
+    expect(adapter.getCurrentAssessmentResult(studentId, assessment.id)!.type_code).toBeNull();
+
+    adapter.close();
+    cleanup(dbPath);
+  });
+
+  it("删除学生时清掉其测评作答记录", () => {
+    const { dbPath, adapter, studentId, assessment } = setup();
+
+    adapter.completeAssessmentResult({
+      userId: studentId,
+      assessmentId: assessment.id,
+      answersJson: "{}",
+      scoresJson: null,
+      typeCode: "RIA",
+    });
+    expect(adapter.getCurrentAssessmentResult(studentId, assessment.id)).toBeDefined();
+
+    expect(adapter.deleteStudents(["202505050101"])).toBe(1);
+    const raw = new Database(dbPath);
+    const remaining = raw.prepare("SELECT COUNT(*) as c FROM assessment_results").get() as { c: number };
+    raw.close();
+    expect(remaining.c).toBe(0);
+
+    adapter.close();
+    cleanup(dbPath);
+  });
+});
+
+describe("备份与恢复（#221：三表纳入备份 version 6）", () => {
+  it("备份含测评三表，恢复后量表与结果均保留", () => {
+    const { dbPath, adapter, studentId, assessment } = setup();
+    adapter.completeAssessmentResult({
+      userId: studentId,
+      assessmentId: assessment.id,
+      answersJson: JSON.stringify({ 1: 4 }),
+      scoresJson: JSON.stringify([{ key: "R", standard: 75 }]),
+      typeCode: "RIA",
+    });
+
+    const data = adapter.backup();
+    expect(data.version).toBe(6);
+    expect(data.assessments).toHaveLength(1);
+    expect(data.assessment_questions).toHaveLength(30);
+    expect(data.assessment_results).toHaveLength(1);
+
+    adapter.restore(data);
+    expect(adapter.getAssessmentQuestionsByCode(RIASEC_CODE)).toHaveLength(30);
+    const restored = adapter.getCurrentAssessmentResult(studentId, assessment.id);
+    expect(restored).toMatchObject({ type_code: "RIA", is_current: 1 });
+
+    adapter.close();
+    cleanup(dbPath);
+  });
+
+  it("旧备份（无测评字段）恢复：题库保留现状，作答结果一律清空（users 已整表替换）", () => {
+    const { dbPath, adapter, studentId, assessment } = setup();
+    adapter.completeAssessmentResult({
+      userId: studentId,
+      assessmentId: assessment.id,
+      answersJson: "{}",
+      scoresJson: null,
+      typeCode: "RIA",
+    });
+
+    const legacy = {
+      ...adapter.backup(),
+      version: 5,
+      assessments: undefined,
+      assessment_questions: undefined,
+      assessment_results: undefined,
+    };
+    adapter.restore(legacy);
+    // 题库是参考数据 → 缺字段保留现状
+    expect(adapter.getAssessmentQuestionsByCode(RIASEC_CODE)).toHaveLength(30);
+    expect(adapter.getStudentByCode("202505050101")).toBeDefined();
+    // 作答只靠数值 user_id 关联，users 已被备份整表替换：保留旧结果会张冠李戴 → 一律清空
+    expect(adapter.getCurrentAssessmentResult(studentId, assessment.id)).toBeUndefined();
+    expect(adapter.getAssessmentDraft(studentId, assessment.id)).toBeUndefined();
+
+    // 题库被清空后恢复旧备份：即使 code 还在，题数为 0 也要补种
+    const raw = new Database(dbPath);
+    raw.exec("DELETE FROM assessment_results; DELETE FROM assessment_questions; DELETE FROM assessments");
+    raw.close();
+    adapter.restore(legacy);
+    expect(adapter.getAssessmentQuestionsByCode(RIASEC_CODE)).toHaveLength(30);
+
+    adapter.close();
+    cleanup(dbPath);
+  });
+
+  it("备份里题库为空数组：恢复后由种子自愈补题，不留「可用但 0 题」的量表", () => {
+    const { dbPath, adapter, assessment } = setup();
+
+    const forged = { ...adapter.backup(), assessment_questions: [] };
+    adapter.restore(forged);
+    expect(adapter.getAssessmentQuestionsByCode(RIASEC_CODE)).toHaveLength(30);
+    expect(adapter.getAssessmentByCode(RIASEC_CODE)?.question_count).toBe(30);
+    expect(adapter.getAssessmentByCode(RIASEC_CODE)?.id).toBe(assessment.id);
+
+    adapter.close();
+    cleanup(dbPath);
+  });
+});
+
+describe("两适配器 Schema 对账（#221）", () => {
+  /**
+   * MySQL 适配器无法在无 MySQL 实例的环境里做行为测试（CI 同样没有），这份对账补上「表结构同构」这条铁律：
+   * 从两适配器源码抽 CREATE TABLE 块，比对**列名、外键目标、大小写敏感的唯一语义**，任一侧悄悄改列/漏外键/
+   * 换 collation 都会在这里失败。行为口径（草稿 upsert / is_current / 事务）由上面的 SQLite 用例覆盖，
+   * MySQL 侧靠同一个 `DbAdapter` 接口在 `npm run build` 的 tsc 阶段兜住方法签名。
+   */
+  const tableBlock = (source: string, table: string): string => {
+    const lines = source.split(/\r?\n/);
+    const start = lines.findIndex((line) => line.includes(`CREATE TABLE IF NOT EXISTS ${table} (`));
+    expect(start, `两适配器都必须建表 ${table}`).toBeGreaterThanOrEqual(0);
+    const block: string[] = [];
+    for (let i = start + 1; i < lines.length; i += 1) {
+      const line = lines[i].trim();
+      if (line.startsWith(")")) break;
+      block.push(line);
+    }
+    return block.join("\n");
+  };
+
+  const columnNames = (source: string, table: string): string[] => {
+    const columns: string[] = [];
+    for (const line of tableBlock(source, table).split("\n")) {
+      if (!line) continue;
+      // 索引 / 唯一约束 / 外键约束不是列
+      if (/^(INDEX|UNIQUE|KEY|CONSTRAINT|PRIMARY|FOREIGN)\b/i.test(line)) continue;
+      const match = /^([a-z_][a-z0-9_]*)\s/.exec(line);
+      if (match) columns.push(match[1]);
+    }
+    return columns;
+  };
+
+  /** 列 → 被引用表：SQLite 写行内 `REFERENCES`，MySQL 写表级 `CONSTRAINT ... FOREIGN KEY (...) REFERENCES` */
+  const references = (source: string, table: string): string[] => {
+    const found: string[] = [];
+    for (const line of tableBlock(source, table).split("\n")) {
+      const constraint = /FOREIGN KEY\s*\(([a-z_][a-z0-9_]*)\)\s*REFERENCES\s+([a-z_][a-z0-9_]*)\s*\(/i.exec(line);
+      if (constraint) {
+        found.push(`${constraint[1]}->${constraint[2]}`);
+        continue;
+      }
+      const inline = /^([a-z_][a-z0-9_]*)\s[^,]*REFERENCES\s+([a-z_][a-z0-9_]*)\s*\(/i.exec(line);
+      if (inline) found.push(`${inline[1]}->${inline[2]}`);
+    }
+    return found.sort();
+  };
+
+  const read = (file: string) => readFileSync(path.resolve(process.cwd(), "src/lib", file), "utf8");
+
+  it.each(["assessments", "assessment_questions", "assessment_results"])("%s 两适配器列集合一致", (table) => {
+    const sqliteColumns = columnNames(read("db-sqlite.ts"), table);
+    const mysqlColumns = columnNames(read("db-mysql.ts"), table);
+    expect(sqliteColumns.length).toBeGreaterThan(0);
+    expect(mysqlColumns).toEqual(sqliteColumns);
+  });
+
+  it("外键集合一致（SQLite 的 REFERENCES 与本机 foreign_keys=ON 下真实生效）", () => {
+    const sqlite = read("db-sqlite.ts");
+    const mysql = read("db-mysql.ts");
+    expect(references(mysql, "assessment_questions")).toEqual(references(sqlite, "assessment_questions"));
+    expect(references(mysql, "assessment_results")).toEqual(references(sqlite, "assessment_results"));
+    // 非空断言：两侧同时丢外键时上面两条会「空对空」通过
+    expect(references(sqlite, "assessment_questions")).toEqual(["assessment_id->assessments"]);
+    expect(references(sqlite, "assessment_results")).toEqual(["assessment_id->assessments", "user_id->users"]);
+  });
+
+  it("code 的唯一比较语义一致：MySQL 显式 utf8mb4_bin（默认 collation 不区分大小写）", () => {
+    expect(tableBlock(read("db-mysql.ts"), "assessments")).toMatch(/code VARCHAR\(\d+\) COLLATE utf8mb4_bin/i);
+  });
+
+  it("三表覆盖 issue #221 要求的字段", () => {
+    const sqlite = read("db-sqlite.ts");
+    expect(columnNames(sqlite, "assessments")).toEqual(
+      expect.arrayContaining([
+        "code",
+        "name",
+        "question_count",
+        "dimensions_json",
+        "scoring_mode",
+        "scale_version",
+        "attribution",
+        "license_text",
+        "enabled",
+      ])
+    );
+    expect(columnNames(sqlite, "assessment_questions")).toEqual(
+      expect.arrayContaining(["assessment_id", "question_index", "prompt", "dimension", "reverse_scored", "version"])
+    );
+    expect(columnNames(sqlite, "assessment_results")).toEqual(
+      expect.arrayContaining([
+        "user_id",
+        "assessment_id",
+        "status",
+        "answers_json",
+        "scores_json",
+        "type_code",
+        "is_current",
+        "started_at",
+        "completed_at",
+      ])
+    );
+  });
+});
+
+describe("与计分引擎的对接契约（#220 / #221）", () => {
+  it("库里取出的维度与题库可直接喂给 scoreAssessment，结果能原样落库", () => {
+    const { dbPath, adapter, studentId, assessment } = setup();
+
+    // 契约：dimensions_json → `{ key, label }[]`；题库行 → `{ index, dimension, reverseScored }`
+    const dimensions = JSON.parse(assessment.dimensions_json) as { key: string; label: string }[];
+    const questions = adapter.getAssessmentQuestions(assessment.id).map((q) => ({
+      index: q.question_index,
+      dimension: q.dimension,
+      reverseScored: q.reverse_scored === 1,
+    }));
+    // 30 题全答 4 分：每维 5 题 → 原始分 20 / 量程 5-25 → 线性标准分 75，六维并列按 R,I,A,S,E,C 破平
+    const answers = Object.fromEntries(questions.map((q) => [String(q.index), 4]));
+    const result = scoreAssessment(dimensions, questions, answers);
+    expect(result.complete).toBe(true);
+    expect(result.missingIndexes).toEqual([]);
+    expect(result.scores.map((s) => s.key)).toEqual(["R", "I", "A", "S", "E", "C"]);
+    expect(result.scores.every((s) => s.questionCount === 5 && s.standard === 75)).toBe(true);
+    expect(result.code).toBe("RIA");
+
+    // 快照列语义对齐：scores → scores_json、code → type_code
+    const resultId = adapter.completeAssessmentResult({
+      userId: studentId,
+      assessmentId: assessment.id,
+      answersJson: JSON.stringify(answers),
+      scoresJson: JSON.stringify(result.scores),
+      typeCode: result.code ?? null,
+    });
+    const stored = adapter.getCurrentAssessmentResult(studentId, assessment.id)!;
+    expect(stored.id).toBe(resultId);
+    expect(JSON.parse(stored.answers_json!)).toEqual(answers);
+    expect(JSON.parse(stored.scores_json!)).toEqual(result.scores);
+    expect(stored.type_code).toBe("RIA");
+
+    adapter.close();
+    cleanup(dbPath);
+  });
+});
+
+describe("RIASEC 维度常量", () => {
+  it("声明顺序固定为 R,I,A,S,E,C（计分与雷达图共用）", () => {
+    expect(RIASEC_DIMENSIONS.map((d) => d.key)).toEqual(["R", "I", "A", "S", "E", "C"]);
+    expect(RIASEC_QUESTIONS).toHaveLength(30);
+  });
+});
+
+function dimensionKeys(): string[] {
+  return RIASEC_DIMENSIONS.map((d) => d.key);
+}
+
+describe("按学号批量取当前测评结果快照（#233 教师导出 / #234 数据列表）", () => {
+  it("只回当前有效版本、未测评学号不出现、空入参短路", () => {
+    const { dbPath, adapter, studentId, assessment } = setup();
+    const otherId = adapter.insertUser({ user_code: "202505050102", role: "student", name: "李四" });
+    expect(otherId).toBeGreaterThan(0);
+    // 李四只有草稿：草稿不算「测过」，不应出现在结果里（#234 列表徽章同口径）
+    adapter.upsertAssessmentDraft(otherId, assessment.id, JSON.stringify({ 1: 3 }));
+
+    // 同一学生两次完成：只应返回 is_current 的那条（最新）
+    adapter.completeAssessmentResult({
+      userId: studentId,
+      assessmentId: assessment.id,
+      answersJson: JSON.stringify({ 1: 4 }),
+      scoresJson: JSON.stringify([{ key: "R", standard: 75 }]),
+      typeCode: "RIA",
+    });
+    adapter.completeAssessmentResult({
+      userId: studentId,
+      assessmentId: assessment.id,
+      answersJson: JSON.stringify({ 1: 5 }),
+      scoresJson: JSON.stringify([{ key: "R", standard: 100 }]),
+      typeCode: "RIC",
+    });
+
+    const summaries = adapter.getCurrentAssessmentResultsByUserCodes(assessment.id, [
+      "202505050101", // 已完测
+      "202505050102", // 在册但只有草稿
+      "999999999999", // 不存在的学号
+    ]);
+
+    expect(summaries).toHaveLength(1);
+    expect(summaries[0].user_code).toBe("202505050101");
+    expect(summaries[0].type_code).toBe("RIC");
+    expect(summaries[0].scores_json).toContain("100");
+    expect(summaries[0].completed_at).toBeTruthy();
+    // 不返回作答内容（导出列不需要，少搬个人数据）
+    expect(summaries[0]).not.toHaveProperty("answers_json");
+    expect(adapter.getCurrentAssessmentResultsByUserCodes(assessment.id, [])).toEqual([]);
+
+    adapter.close();
+    cleanup(dbPath);
+  });
+
+  it("名单跨分片仍返回完整结果（#193 批查分片口径复用）", () => {
+    const { dbPath, adapter, studentId, assessment } = setup();
+    adapter.completeAssessmentResult({
+      userId: studentId,
+      assessmentId: assessment.id,
+      answersJson: "{}",
+      scoresJson: JSON.stringify([{ key: "S", standard: 80 }]),
+      typeCode: "SIA",
+    });
+
+    // 第二片里才命中（分片大小 500）
+    const codes = Array.from({ length: 600 }, (_, index) => String(100000000000 + index));
+    codes[codes.length - 1] = "202505050101";
+    const summaries = adapter.getCurrentAssessmentResultsByUserCodes(assessment.id, codes);
+    expect(summaries.map((row) => row.user_code)).toEqual(["202505050101"]);
+
+    adapter.close();
+    cleanup(dbPath);
+  });
+});

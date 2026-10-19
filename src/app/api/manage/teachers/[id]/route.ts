@@ -1,3 +1,4 @@
+import { withDemoScope } from "@/lib/demo-scope";
 import { NextRequest, NextResponse } from "next/server";
 import { hashPassword } from "@/lib/auth";
 import { getTeachers, updateUser, deleteTeacher } from "@/lib/db";
@@ -6,7 +7,7 @@ import { getAuditActor, getRequestContext, recordAudit } from "@/lib/audit";
 type Ctx = { params: Promise<{ id: string }> };
 
 /** PUT：重置密码 / 改名（#110：改名记 old/new；密码绝不入 metadata） */
-export async function PUT(request: NextRequest, { params }: Ctx) {
+async function PUT_impl(request: NextRequest, { params }: Ctx) {
   const { ip, user_agent } = getRequestContext(request);
   const actor = await getAuditActor(request);
   try {
@@ -67,7 +68,7 @@ export async function PUT(request: NextRequest, { params }: Ctx) {
 }
 
 /** DELETE：删除教师（数据层事务内连带清理 teacher_classes） */
-export async function DELETE(request: NextRequest, { params }: Ctx) {
+async function DELETE_impl(request: NextRequest, { params }: Ctx) {
   const { ip, user_agent } = getRequestContext(request);
   const actor = await getAuditActor(request);
   try {
@@ -96,3 +97,6 @@ export async function DELETE(request: NextRequest, { params }: Ctx) {
     return NextResponse.json({ error: "删除教师失败" }, { status: 500 });
   }
 }
+
+export const PUT = withDemoScope(PUT_impl);
+export const DELETE = withDemoScope(DELETE_impl);

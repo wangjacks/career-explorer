@@ -12,6 +12,7 @@ import {
   rosterOf,
 } from "../helpers";
 import { getStudents } from "@/lib/db";
+import { withDemoScope } from "@/lib/demo-scope";
 
 const AUDIT = {
   action: "group:import",
@@ -73,7 +74,7 @@ function parseRows(input: unknown): { rows: ImportRow[]; errors: string[] } {
  * 严格校验：文件里的学号集合必须与班级名单完全一致——全量覆盖下缺人 = 学生静默消失，
  * 因此任何缺人 / 多人 / 未知学号 / 重复学号都整份拒绝并列出差异，绝不部分生效。
  */
-export async function POST(request: NextRequest) {
+async function POST_impl(request: NextRequest) {
   const fail = groupFailureWriter(request, AUDIT);
   let session: Awaited<ReturnType<typeof getSession>> = null;
   try {
@@ -168,3 +169,5 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "导入分组失败" }, { status: 500 });
   }
 }
+
+export const POST = withDemoScope(POST_impl);

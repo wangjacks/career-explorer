@@ -433,7 +433,7 @@ describe("分组五表与适配器方法（#101）", () => {
     );
 
     const dump = adapter.backup();
-    expect(dump.version).toBe(5);
+    expect(dump.version).toBe(6); // #221 起含测评三表
     expect(dump.class_groups?.length).toBe(1);
     expect(dump.class_group_members?.length).toBe(2);
     expect(dump.group_batches?.length).toBe(1);
