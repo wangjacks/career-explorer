@@ -155,6 +155,7 @@ find src/app -name page.tsx && find src/app/api -name route.ts
 | 分支模型、提交/PR/发布规范、环境变量表 | `docs/standards.md` |
 | 色彩 token、组件与交互规范、z-index 层级 | `docs/ui-conventions.md` |
 | Issue 标题/标签/正文/验收标准 | `docs/issue-standard.md` |
+| 量表信效度验证方案、判定阈值、常模实施预案（#227） | `docs/assessment-validation-plan.md`（阈值常量在 `src/lib/assessment-validation.ts`，改一处必须同步另一处） |
 | 部署步骤、运行环境要求、运维排障 | `DEPLOY.md` |
 | 对外门面与快速上手 | `README.md` |
 | 变更历史 | `CHANGELOG.md` |
