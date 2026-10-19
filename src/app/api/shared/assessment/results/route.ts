@@ -88,6 +88,8 @@ export async function GET(request: NextRequest) {
         code: assessment.code,
         name: assessment.name,
         questionCount: bankIndexes.length,
+        /** 是否开放（#222 测评中心据此决定给不给「开始 / 继续作答」入口；停用后历史结果仍可读） */
+        enabled: assessment.enabled === 1,
         scaleVersion: assessment.scale_version,
         dimensions: parseDimensions(assessment.dimensions_json),
         attribution: assessment.attribution,
