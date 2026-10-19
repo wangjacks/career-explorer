@@ -10,7 +10,12 @@ import type {
 
 export type { ClassTrendSeries, CompareItem, DistributionItem, TrendItem };
 
-export function useDashboardData() {
+export interface DashboardDataOptions {
+  /** 教师端已移除趋势图：跳过趋势取数；默认 true，管理员端行为不变 */
+  includeTrends?: boolean;
+}
+
+export function useDashboardData({ includeTrends = true }: DashboardDataOptions = {}) {
   const [trends, setTrends] = useState<TrendItem[]>([]);
   const [distribution, setDistribution] = useState<DistributionItem[]>([]);
   const [compare, setCompare] = useState<CompareItem[]>([]);
@@ -77,26 +82,27 @@ export function useDashboardData() {
   /* eslint-disable react-hooks/set-state-in-effect -- 首屏数据拉取与依赖变更时重取 */
   // 首屏一次拉齐三份，也只有这一次整屏加载态
   useEffect(() => {
-    Promise.all([fetchTrendData(trendDays, trendGroup), fetchDistribution(), fetchCompare()]).then(() =>
-      setFirstLoading(false)
-    );
+    const tasks = [fetchDistribution(), fetchCompare()];
+    if (includeTrends) tasks.push(fetchTrendData(trendDays, trendGroup));
+    Promise.all(tasks).then(() => setFirstLoading(false));
     // eslint-disable-next-line react-hooks/exhaustive-deps -- 仅首屏，用默认天数与默认分组
   }, []);
 
   // 天数或分组变化只重取趋势；首屏那次已由上面的 effect 拉过，故跳过本 effect 的首次运行
   const trendsLoaded = useRef(false);
   useEffect(() => {
+    if (!includeTrends) return;
     if (!trendsLoaded.current) {
       trendsLoaded.current = true;
       return;
     }
     fetchTrendData(trendDays, trendGroup);
-  }, [trendDays, trendGroup, fetchTrendData]);
+  }, [trendDays, trendGroup, fetchTrendData, includeTrends]);
   /* eslint-enable react-hooks/set-state-in-effect */
 
   // 重试：只重取失败/过期的数据源，已在屏的数据不动
   const reload = () => {
-    fetchTrendData(trendDays, trendGroup);
+    if (includeTrends) fetchTrendData(trendDays, trendGroup);
     fetchDistribution();
     fetchCompare();
   };

@@ -6,6 +6,7 @@ import { signToken } from "@/lib/token";
 vi.mock("@/lib/db", () => ({
   getStudents: vi.fn(async () => []),
   getUserByCode: vi.fn(),
+  getUsersByCodes: vi.fn(async () => []),
   getUserById: vi.fn(async () => ({ user_code: "20001", name: "张教师", role: "teacher" })),
   insertUser: vi.fn(async () => 5),
   updateUser: vi.fn(async () => undefined),
@@ -45,6 +46,7 @@ import {
   getTeacherClassPairs,
   getUserById,
   getUserByCode,
+  getUsersByCodes,
   insertAuditLog,
   insertTag,
   insertUser,
@@ -105,6 +107,12 @@ beforeEach(() => {
   vi.mocked(getTeacherClassPairs).mockResolvedValue([{ id: 1, teacher_id: 3, class_id: 7, created_at: "" }]);
   vi.mocked(getStudents).mockImplementation(async () => roster);
   vi.mocked(getUserByCode).mockImplementation(async (code: string) => roster.find((s) => s.user_code === code));
+  // 批量导入改为「按学号集合批查」（#193）：只回标识与班级归属的轻量投影
+  vi.mocked(getUsersByCodes).mockImplementation(async (codes: string[]) =>
+    roster
+      .filter((s) => codes.includes(s.user_code))
+      .map((s) => ({ id: s.id, user_code: s.user_code, class_id: s.class_id }))
+  );
   vi.mocked(getUserById).mockImplementation(async (id: number) =>
     id === 1
       ? ({ user_code: "10001", name: "管理员", role: "admin" } as unknown as UserRow)

@@ -3,6 +3,29 @@ import { MysqlAdapter } from "./db-mysql";
 import { SqliteAdapter } from "./db-sqlite";
 import { isDemoScope, isDemoEnabled, getDemoDbPath } from "./demo-scope";
 
+/**
+ * 批查分片大小（#193）：单条 SQL 的绑定参数数量有引擎上限——SQLite 旧构建为
+ * 999（新构建 32766），MySQL 为 65535。批量导入的学号数量随名单规模增长，
+ * 因此按 500 分片查询，远低于所有上限，也避免构造超长 IN 列表。
+ */
+export const BATCH_QUERY_CHUNK_SIZE = 500;
+
+/** 按固定大小切分数组（批查分片用，最后一片可短于 size） */
+export function chunkArray<T>(items: T[], size: number = BATCH_QUERY_CHUNK_SIZE): T[][] {
+  const chunks: T[][] = [];
+  for (let i = 0; i < items.length; i += size) {
+    chunks.push(items.slice(i, i + size));
+  }
+  return chunks;
+}
+
+/** 按学号批查时的轻量投影（#193）：批量导入只需要「标识 + 班级归属」，不取整行（含 password_hash） */
+export interface UserCodeRef {
+  id: number;
+  user_code: string;
+  class_id: number | null;
+}
+
 export interface UserRow {
   id: number;
   user_code: string;
@@ -179,6 +202,14 @@ export interface CompareStat {
   key: string;
   total: number;
   submitted: number;
+}
+
+/** 班级名册行（#217）：按班名聚合口径，只取展示所需字段，绝不带 password_hash */
+export interface ClassRosterRow {
+  name: string;
+  user_code: string;
+  submitted_at: string | null;
+  tags: string | null;
 }
 
 /** 按班级分层的提交趋势（#165）：keys 为分组名，points 为窗口内逐日多序列（已补齐 0） */
@@ -526,6 +557,7 @@ export interface DbAdapter {
   // users
   insertUser(user: NewUser): Promise<number> | number;
   getUserByCode(userCode: string): Promise<UserRow | undefined> | UserRow | undefined;
+  getUsersByCodes(userCodes: string[]): Promise<UserCodeRef[]> | UserCodeRef[];
   getUserById(id: number): Promise<UserRow | undefined> | UserRow | undefined;
   getAdminUser(): Promise<UserRow | undefined> | UserRow | undefined;
   updateUser(id: number, fields: UserUpdateFields): Promise<void> | void;
@@ -575,6 +607,8 @@ export interface DbAdapter {
   getTrendsByClass(days: number): Promise<ClassTrendSeries> | ClassTrendSeries;
   /** 按班级分组统计在册/已提交（#165） */
   getCompareByClass(): Promise<CompareStat[]> | CompareStat[];
+  /** 按班名取学生名册（#217）；班名口径与 getCompareByClass 的 COALESCE(c.name, '未分班') 一致 */
+  getClassRoster(className: string): Promise<ClassRosterRow[]> | ClassRosterRow[];
 
   // tags & classes
   getTags(): Promise<TagRow[]> | TagRow[];
@@ -822,6 +856,12 @@ export async function getUserByCode(userCode: string): Promise<UserRow | undefin
   return Promise.resolve(adapter.getUserByCode(userCode));
 }
 
+/** 按学号集合批查（#193 批量导入）：避免逐行查库；适配器内部分块，调用方无需限制入参长度。只返回标识与班级归属 */
+export async function getUsersByCodes(userCodes: string[]): Promise<UserCodeRef[]> {
+  const adapter = await ensureInit();
+  return Promise.resolve(adapter.getUsersByCodes(userCodes));
+}
+
 export async function getUserById(id: number): Promise<UserRow | undefined> {
   const adapter = await ensureInit();
   return Promise.resolve(adapter.getUserById(id));
@@ -953,6 +993,11 @@ export async function getTrendsByClass(days: number): Promise<ClassTrendSeries> 
 export async function getCompareByClass(): Promise<CompareStat[]> {
   const adapter = await ensureInit();
   return Promise.resolve(adapter.getCompareByClass());
+}
+
+export async function getClassRoster(className: string): Promise<ClassRosterRow[]> {
+  const adapter = await ensureInit();
+  return Promise.resolve(adapter.getClassRoster(className));
 }
 
 export async function getTags(): Promise<TagRow[]> {

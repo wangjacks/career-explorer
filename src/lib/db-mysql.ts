@@ -5,9 +5,10 @@ import { tagCategories } from "./tagData";
 import { ASSESSMENT_SEEDS, getQuestionSeeds, validateAssessmentSeed } from "./assessment-data";
 import { ONET_DATASET_VERSION } from "./onet-data";
 import { getOnetOccupationSeeds, needsOnetReseed, ONET_SEED_MARKER_KEY } from "./onet";
-import { normalizeBackupTags, normalizeAssessmentCode, DEFAULT_MAX_CUSTOM_TAGS, DEFAULT_MAX_PROFILE_SUBMISSIONS, MAX_PROFILE_SUBMISSIONS_KEY, DEFAULT_MEDIA_ORPHAN_RETENTION_DAYS, MEDIA_ORPHAN_RETENTION_KEY } from "./db";
+import { normalizeBackupTags, normalizeAssessmentCode, DEFAULT_MAX_CUSTOM_TAGS, DEFAULT_MAX_PROFILE_SUBMISSIONS, MAX_PROFILE_SUBMISSIONS_KEY, DEFAULT_MEDIA_ORPHAN_RETENTION_DAYS, MEDIA_ORPHAN_RETENTION_KEY, chunkArray } from "./db";
 import type {
   UserRow,
+  UserCodeRef,
   TagRow,
   ClassRow,
   TeacherClassRow,
@@ -38,6 +39,7 @@ import type {
   TrendPoint,
   CompareStat,
   ClassTrendSeries,
+  ClassRosterRow,
   AssessmentRow,
   AssessmentQuestionRow,
   AssessmentResultRow,
@@ -856,6 +858,21 @@ export class MysqlAdapter implements DbAdapter {
     return (rows as UserRow[])[0];
   }
 
+  async getUsersByCodes(userCodes: string[]): Promise<UserCodeRef[]> {
+    if (userCodes.length === 0) return [];
+    const rows: UserCodeRef[] = [];
+    for (const chunk of chunkArray([...new Set(userCodes)])) {
+      const placeholders = chunk.map(() => "?").join(",");
+      // 只取标识与班级归属：批量导入不需要整行（尤其不把 password_hash 带进内存）
+      const [chunkRows] = await this.pool.execute(
+        `SELECT id, user_code, class_id FROM users WHERE user_code IN (${placeholders})`,
+        chunk
+      );
+      rows.push(...(chunkRows as UserCodeRef[]));
+    }
+    return rows;
+  }
+
   async getUserById(id: number): Promise<UserRow | undefined> {
     const [rows] = await this.pool.execute("SELECT * FROM users WHERE id = ?", [id]);
     return (rows as UserRow[])[0];
@@ -1288,6 +1305,20 @@ export class MysqlAdapter implements DbAdapter {
       total: Number(r.total),
       submitted: Number(r.submitted ?? 0),
     }));
+  }
+
+  async getClassRoster(className: string): Promise<ClassRosterRow[]> {
+    // 班名口径与 getCompareByClass 保持一致；未提交置顶，其余按学号升序。
+    // submitted_at 的空串视为未提交，避免脏数据把空时间显示成「已提交」。
+    const [rows] = await this.pool.execute(
+      `SELECT u.name, u.user_code, u.submitted_at, u.tags
+       FROM users u LEFT JOIN classes c ON u.class_id = c.id
+       WHERE u.role = 'student' AND COALESCE(c.name, '未分班') = ?
+       ORDER BY CASE WHEN u.submitted_at IS NULL OR TRIM(u.submitted_at) = '' THEN 0 ELSE 1 END,
+                u.user_code`,
+      [className]
+    );
+    return rows as ClassRosterRow[];
   }
 
   // tags & classes

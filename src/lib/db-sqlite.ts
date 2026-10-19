@@ -7,9 +7,10 @@ import { ASSESSMENT_SEEDS, getQuestionSeeds, validateAssessmentSeed } from "./as
 import type { QuestionSeed } from "./assessment-data";
 import { getOnetOccupationSeeds, needsOnetReseed, ONET_SEED_MARKER_KEY } from "./onet";
 import { ONET_DATASET_VERSION } from "./onet-data";
-import { normalizeBackupTags, normalizeAssessmentCode, DEFAULT_MAX_CUSTOM_TAGS, DEFAULT_MAX_PROFILE_SUBMISSIONS, MAX_PROFILE_SUBMISSIONS_KEY, DEFAULT_MEDIA_ORPHAN_RETENTION_DAYS, MEDIA_ORPHAN_RETENTION_KEY } from "./db";
+import { normalizeBackupTags, normalizeAssessmentCode, DEFAULT_MAX_CUSTOM_TAGS, DEFAULT_MAX_PROFILE_SUBMISSIONS, MAX_PROFILE_SUBMISSIONS_KEY, DEFAULT_MEDIA_ORPHAN_RETENTION_DAYS, MEDIA_ORPHAN_RETENTION_KEY, chunkArray } from "./db";
 import type {
   UserRow,
+  UserCodeRef,
   TagRow,
   ClassRow,
   TeacherClassRow,
@@ -40,6 +41,7 @@ import type {
   TrendPoint,
   CompareStat,
   ClassTrendSeries,
+  ClassRosterRow,
   AssessmentRow,
   AssessmentQuestionRow,
   AssessmentResultRow,
@@ -778,6 +780,21 @@ export class SqliteAdapter implements DbAdapter {
       | undefined;
   }
 
+  getUsersByCodes(userCodes: string[]): UserCodeRef[] {
+    if (userCodes.length === 0) return [];
+    const rows: UserCodeRef[] = [];
+    for (const chunk of chunkArray([...new Set(userCodes)])) {
+      const placeholders = chunk.map(() => "?").join(",");
+      // 只取标识与班级归属：批量导入不需要整行（尤其不把 password_hash 带进内存）
+      rows.push(
+        ...(this.db
+          .prepare(`SELECT id, user_code, class_id FROM users WHERE user_code IN (${placeholders})`)
+          .all(...chunk) as UserCodeRef[])
+      );
+    }
+    return rows;
+  }
+
   getUserById(id: number): UserRow | undefined {
     return this.db.prepare("SELECT * FROM users WHERE id = ?").get(id) as UserRow | undefined;
   }
@@ -1145,6 +1162,20 @@ export class SqliteAdapter implements DbAdapter {
       )
       .all() as { k: string; total: number; submitted: number }[];
     return rows.map((r) => ({ key: r.k, total: r.total, submitted: r.submitted }));
+  }
+
+  getClassRoster(className: string): ClassRosterRow[] {
+    // 班名口径与 getCompareByClass 保持一致；未提交置顶，其余按学号升序。
+    // submitted_at 的空串视为未提交，避免脏数据把空时间显示成「已提交」。
+    return this.db
+      .prepare(
+        `SELECT u.name, u.user_code, u.submitted_at, u.tags
+         FROM users u LEFT JOIN classes c ON u.class_id = c.id
+         WHERE u.role = 'student' AND COALESCE(c.name, '未分班') = ?
+         ORDER BY CASE WHEN u.submitted_at IS NULL OR TRIM(u.submitted_at) = '' THEN 0 ELSE 1 END,
+                  u.user_code`
+      )
+      .all(className) as ClassRosterRow[];
   }
 
   // tags & classes

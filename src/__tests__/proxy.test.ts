@@ -115,7 +115,13 @@ describe("proxy", () => {
 
     it("should allow teacher GET-only on stats (including sub routes)", async () => {
       const token = await signToken({ role: "teacher", uid: 3, name: "测试教师" });
-      for (const path of ["/api/manage/stats", "/api/manage/stats/trends", "/api/manage/stats/distribution", "/api/manage/stats/compare"]) {
+      for (const path of [
+        "/api/manage/stats",
+        "/api/manage/stats/trends",
+        "/api/manage/stats/distribution",
+        "/api/manage/stats/compare",
+        "/api/manage/stats/class-roster",
+      ]) {
         const getRes = await proxy(createRequest(path, { auth_token: token }, "GET"));
         expect(getRes.status).toBe(200);
         const postRes = await proxy(createRequest(path, { auth_token: token }, "POST"));
