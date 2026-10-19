@@ -42,6 +42,9 @@ export interface DashboardCopy {
   /** 控件作用域说明：这张图只受上方两个按钮影响 */
   trendScopeNote: string;
   trendGroupAriaLabel: string;
+  /** 分组按钮的可见文字，须与 trendGroupAriaLabel 的说法一致 */
+  trendGroupTotalLabel: string;
+  trendGroupClassLabel: string;
   trendDaysAriaLabel: string;
   trendLoadingByClass: string;
   trendPendingNote: string;
@@ -98,6 +101,8 @@ export const ADMIN_DASHBOARD_COPY: DashboardCopy = {
   trendTitle: (byClass) => (byClass ? "各班提交趋势（单位：人数）" : "提交趋势（单位：人数）"),
   trendScopeNote: "趋势天数与分组仅作用于本图",
   trendGroupAriaLabel: "趋势分组",
+  trendGroupTotalLabel: "全校",
+  trendGroupClassLabel: "按班级",
   trendDaysAriaLabel: "趋势天数",
   trendLoadingByClass: "正在按班级拆分…",
   trendPendingNote: "更新中",
@@ -148,6 +153,8 @@ export const TEACHER_DASHBOARD_COPY: DashboardCopy = {
   trendTitle: (byClass) => (byClass ? "各班提交趋势" : "提交趋势"),
   trendScopeNote: "上面两个按钮只改这张图",
   trendGroupAriaLabel: "怎么看（全校 · 分班级）",
+  trendGroupTotalLabel: "全校",
+  trendGroupClassLabel: "分班级",
   trendDaysAriaLabel: "看几天",
   trendLoadingByClass: "正在分班统计…",
   trendPendingNote: "更新中",

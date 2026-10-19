@@ -14,6 +14,7 @@ const JARGON = [
   "时间 窗口",
   "趋势天数",
   "趋势分组",
+  "按班级",
   "窗口",
   "加载失败",
   "横幅",
@@ -104,6 +105,14 @@ describe("TEACHER_DASHBOARD_COPY", () => {
     expect(TEACHER_DASHBOARD_COPY.chartFailedHint).toBe("点上面的「重试」再来一次。");
   });
 
+  it("分组按钮的文字与 aria-label 用同一个词，不出现按钮说一套、读屏说一套", () => {
+    const aria = TEACHER_DASHBOARD_COPY.trendGroupAriaLabel;
+    expect(TEACHER_DASHBOARD_COPY.trendGroupTotalLabel).toBe("全校");
+    expect(TEACHER_DASHBOARD_COPY.trendGroupClassLabel).toBe("分班级");
+    expect(aria).toContain(TEACHER_DASHBOARD_COPY.trendGroupTotalLabel);
+    expect(aria).toContain(TEACHER_DASHBOARD_COPY.trendGroupClassLabel);
+  });
+
   it("aria-label 仍完整读出人数，只换措辞", () => {
     expect(TEACHER_DASHBOARD_COPY.heroAriaTotals(18, 24, 6)).toBe("已交 18 人，全班 24 人，还有 6 人没交");
     for (const number of [18, 24, 6]) {
@@ -140,6 +149,8 @@ describe("ADMIN_DASHBOARD_COPY", () => {
     expect(ADMIN_DASHBOARD_COPY.trendTitle(true)).toBe("各班提交趋势（单位：人数）");
     expect(ADMIN_DASHBOARD_COPY.trendScopeNote).toBe("趋势天数与分组仅作用于本图");
     expect(ADMIN_DASHBOARD_COPY.trendGroupAriaLabel).toBe("趋势分组");
+    expect(ADMIN_DASHBOARD_COPY.trendGroupTotalLabel).toBe("全校");
+    expect(ADMIN_DASHBOARD_COPY.trendGroupClassLabel).toBe("按班级");
     expect(ADMIN_DASHBOARD_COPY.trendDaysAriaLabel).toBe("趋势天数");
     expect(ADMIN_DASHBOARD_COPY.trendLoadingByClass).toBe("正在按班级拆分…");
     expect(ADMIN_DASHBOARD_COPY.trendEmptyTitle).toBe("所选窗口内还没有提交记录");
@@ -203,6 +214,8 @@ describe("DashboardKit 的取数与文案解耦", () => {
       expect(source, `DashboardKit 仍有硬编码文案「${word}」`).not.toContain(word);
     }
     expect(source).toContain("copy.compareTitle");
+    // 分组按钮的 label 也必须走 copy，否则教师侧按钮会写回「按班级」
+    expect(source).toContain("copy.trendGroupClassLabel");
   });
 
   it("四块卡片与失败态都从 copy 取文，缺 copy 会编译不过", () => {

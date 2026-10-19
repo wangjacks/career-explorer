@@ -52,11 +52,9 @@ export const SERIES_COLORS = ["#059669", "#0284c7", "#f59e0b", "#8b5cf6", "#e11d
 
 export const DAY_OPTIONS = [7, 14, 30, 60] as const;
 
-/** 趋势分组：全校合计（面积图）与按班级分层（多序列折线）共用同一个时间窗口 */
-export const TREND_GROUP_OPTIONS = [
-  { value: "total", label: "全校" },
-  { value: "class", label: "按班级" },
-] as const;
+/** 趋势分组的取值：全校合计（面积图）与按班级分层（多序列折线）共用同一个时间窗口。
+    按钮文字取自文案表——教师侧的按钮要和「怎么看（全校 · 分班级）」用同一个词 */
+export const TREND_GROUP_VALUES = ["total", "class"] as const;
 
 /** recharts 的 payload 条目类型较宽（name/dataKey 可为 string|number，dataKey 还可能是函数），
     这里只取本页图表用到的字段，取值时统一转字符串 */
@@ -467,7 +465,10 @@ export function TrendCard({
           )}
           <Segmented
             label={copy.trendGroupAriaLabel}
-            options={TREND_GROUP_OPTIONS}
+            options={TREND_GROUP_VALUES.map((value) => ({
+              value,
+              label: value === "class" ? copy.trendGroupClassLabel : copy.trendGroupTotalLabel,
+            }))}
             value={trendGroup}
             onChange={setTrendGroup}
           />
