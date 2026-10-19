@@ -1,6 +1,7 @@
 import { getConfig } from "./db-config";
 import { MysqlAdapter } from "./db-mysql";
 import { SqliteAdapter } from "./db-sqlite";
+import { isDemoScope, isDemoEnabled, getDemoDbPath } from "./demo-scope";
 
 export interface UserRow {
   id: number;
@@ -738,6 +739,12 @@ let currentAdapter: DbAdapter | null = null;
 let currentType: string = "";
 let initPromise: Promise<void> | null = null;
 
+// 演示库 adapter 使用独立的 memo 槽，避免与生产 adapter 在 createAdapter() 的
+// 「切换即关闭旧 adapter」逻辑里相互 thrash（两者可能在同一进程内并存）。
+let demoAdapter: DbAdapter | null = null;
+let demoType: string = "";
+let demoInitPromise: Promise<void> | null = null;
+
 function createAdapter(): DbAdapter {
   const config = getConfig();
   const dbType = config.type || "mysql";
@@ -764,7 +771,42 @@ function createAdapter(): DbAdapter {
   return adapter;
 }
 
+/**
+ * 演示库 adapter：始终为独立 SQLite 文件（与生产库类型无关，经用户决策采用物理隔离）。
+ * 仅在演示作用域内被调用；`DEMO_ENABLED` 关闭时抛错——fail-safe，绝不回落到生产库。
+ */
+function getDemoAdapter(): DbAdapter {
+  if (!isDemoEnabled()) {
+    throw new Error("演示模式未启用（DEMO_ENABLED != true），拒绝访问演示库");
+  }
+  const demoPath = getDemoDbPath();
+  const configKey = `sqlite:${demoPath}`;
+
+  if (demoAdapter && demoType === configKey) return demoAdapter;
+
+  if (demoAdapter) {
+    try {
+      const c = demoAdapter.close();
+      if (c instanceof Promise) c.catch(() => {});
+    } catch (err) {
+      console.error("关闭旧演示 adapter 失败:", err);
+    }
+  }
+
+  const adapter = new SqliteAdapter(demoPath);
+  demoAdapter = adapter;
+  demoType = configKey;
+  demoInitPromise = Promise.resolve(adapter.init());
+  demoInitPromise.catch(() => {});
+  return adapter;
+}
+
 async function ensureInit(): Promise<DbAdapter> {
+  if (isDemoScope()) {
+    const adapter = getDemoAdapter();
+    if (demoInitPromise) await demoInitPromise;
+    return adapter;
+  }
   const adapter = createAdapter();
   if (initPromise) await initPromise;
   return adapter;
@@ -1297,9 +1339,23 @@ export async function restore(data: BackupData): Promise<void> {
 }
 
 export async function closeDb(): Promise<void> {
+  if (isDemoScope()) {
+    await closeDemoDb();
+    return;
+  }
   if (currentAdapter) {
     await Promise.resolve(currentAdapter.close());
     currentAdapter = null;
     currentType = "";
+  }
+}
+
+/** 关闭并清空演示 adapter 的 memo 槽（供演示库重置流程调用） */
+export async function closeDemoDb(): Promise<void> {
+  if (demoAdapter) {
+    await Promise.resolve(demoAdapter.close());
+    demoAdapter = null;
+    demoType = "";
+    demoInitPromise = null;
   }
 }
