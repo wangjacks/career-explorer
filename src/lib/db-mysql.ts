@@ -2209,7 +2209,7 @@ export class MysqlAdapter implements DbAdapter {
   async getAssessmentRoster(
     assessmentId: number,
     classIds: number[] | null,
-    filters: { classId?: number | null; lead?: string | null } = {}
+    filters: { classId?: number | null; lead?: string | null; code?: string | null } = {}
   ): Promise<AssessmentRosterRow[]> {
     if (classIds !== null && classIds.length === 0) return [];
     const conditions = ["r.assessment_id = ?", "r.status = 'completed'", "r.is_current = 1", "u.role = 'student'"];
@@ -2225,6 +2225,11 @@ export class MysqlAdapter implements DbAdapter {
     if (filters.lead) {
       conditions.push("SUBSTR(r.type_code, 1, 1) = ?");
       params.push(filters.lead);
+    }
+    if (filters.code) {
+      // 三字码精确过滤（#232 胶囊下钻）：与 lead 可同时出现，二者是「且」关系
+      conditions.push("r.type_code = ?");
+      params.push(filters.code);
     }
     const [rows] = await this.pool.execute(
       `SELECT u.class_id AS class_id, c.name AS class_name, u.name AS name, u.user_code AS user_code,

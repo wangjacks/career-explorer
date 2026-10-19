@@ -184,6 +184,8 @@ export default function TeacherDashboardPage() {
                 loadProfiles={loadProfiles}
                 students={students}
                 showProfiles={false}
+                mode="teacher"
+                onNavigate={(key) => setActiveTab(key as Tab)}
               />
             )}
 

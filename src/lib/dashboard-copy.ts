@@ -198,3 +198,83 @@ export const TEACHER_DASHBOARD_COPY: DashboardCopy = {
   compareEmptyHint: "先去「班级管理」建班、到「学生管理」导入名单，这里就能比较各班的完成情况。",
   classLabel: (key) => (key === "未分班" ? "还没分班" : key),
 };
+
+/**
+ * 教师端数据大屏「职业兴趣测评」栏的文案（#232）。
+ *
+ * 为什么单独一张表而不是塞进 `DashboardCopy`：这块只有教师端渲染（管理员侧大屏保持原样），
+ * 塞进去会让管理员文案表出现一批永远不用的字段。措辞仍沿用教师侧口语化词表——
+ * 不出现「提交率 / 在册 / 口径 / 维度 / 已提交」等统计口径词，也不说「全班 / 本班」。
+ */
+export const ASSESSMENT_DASHBOARD_COPY = {
+  eyebrow: "测评看板",
+  title: "职业兴趣测评",
+  subtitle: "三字码来自学生答完的兴趣测评；点下面任意一项，都能看到具体是谁",
+
+  /* 范围切换 */
+  scopeAriaLabel: "测评统计范围",
+  scopeAllLabel: "全校",
+  scopeMineLabel: "只看我的班",
+
+  /* 视图切换 */
+  viewAriaLabel: "换一种看法",
+  viewProgressLabel: "完成进度",
+  viewTypesLabel: "类型分布",
+  viewCodesLabel: "热门三字码",
+
+  /* 完成进度 */
+  progressNote: "按交齐比例从低到高排，最该提醒的班在最上面",
+  classCounts: (assessed: number, enrolled: number) => `已交 ${assessed} / ${enrolled} 人`,
+  classAriaLabel: (label: string, assessed: number, enrolled: number) =>
+    `查看${label}的测评明细：已交 ${assessed} 人，共 ${enrolled} 人`,
+  unassignedHint: "还没分班的学生暂时不能单独看明细",
+  /** 「未分班」是接口数据值，教师侧只在展示时换口语（与 TEACHER_DASHBOARD_COPY.classLabel 同口径） */
+  unassignedLabel: "还没分班",
+  progressEmptyTitle: "还没有可看的班",
+  progressEmptyHint: "先去「班级管理」建班、到「学生管理」导入名单，这里会按班列出测评进度。",
+
+  /* 类型分布 */
+  typesNote: "每型一条，右边是人数；鼠标停在哪条（或键盘移到哪条），人数就显示在中间",
+  typesCenterLabel: "已测人数",
+  typeAriaLabel: (label: string, count: number) => `查看${label}的测评明细：${count} 人`,
+
+  /* 热门三字码 */
+  codesNote: "人数最多的十个三字码，颜色是它的第一位类型",
+  codeAriaLabel: (code: string, count: number) => `查看三字码 ${code} 的测评明细：${count} 人`,
+  codeCountLabel: (count: number) => `${count} 人`,
+
+  /* 空态 / 失败态 */
+  loadingLabel: "正在取测评数据…",
+  disabledTitle: "这个测评还没开放",
+  disabledHint: "开放后学生就能在面板里作答，这里会显示各班进度和六型分布。",
+  emptyTitle: "还没有学生完成测评",
+  emptyHint: "提醒学生到「职业测评」里答完题，完成后这里就会出现各班进度和六型分布。",
+  failedTitle: "测评数据没取到",
+  failedHint: "点「重试」再来一次；上面的其它图表不受影响。",
+  retryLabel: "重试",
+
+  /* 下钻弹窗 */
+  drilldownHint: "明细含学生个人信息，投屏时请注意",
+  drilldownLoading: "正在加载明细…",
+  userCodeMaskedTooltip: "学号已脱敏",
+  drilldownSummary: (assessed: number, total: number) => `已测 ${assessed} / ${total} 人`,
+  drilldownTitleClass: (label: string) => `${label}的测评明细`,
+  drilldownTitleType: (label: string) => `${label}学生的测评明细`,
+  drilldownTitleCode: (code: string) => `三字码 ${code} 的学生`,
+  drilldownSearchPlaceholder: "搜索姓名或学号",
+  drilldownTypeFilterAriaLabel: "只看某一型",
+  drilldownAllTypesLabel: "全部",
+  drilldownColumnName: "姓名",
+  drilldownColumnUserCode: "学号",
+  drilldownColumnCode: "三字码",
+  drilldownColumnTime: "完成时间",
+  drilldownEmptyTitle: "没有符合条件的学生",
+  drilldownEmptyHint: "换个关键字或清除筛选再看看。",
+  drilldownFilteredEmptyLabel: "清除筛选",
+  drilldownFailedTitle: "明细没取到",
+  drilldownFailedHint: "请检查网络后重试，或先关掉弹窗继续看其他内容。",
+  drilldownCloseLabel: "关闭明细",
+
+  footerNote: "点班级、类型条或三字码，都能下钻到具体学生",
+};
+

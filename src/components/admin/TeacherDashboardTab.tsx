@@ -6,10 +6,8 @@ import { useDashboardData } from "@/hooks/useDashboardData";
 import { computeDashboardTotals, computeRosterBits } from "@/lib/dashboard-utils";
 import { TEACHER_DASHBOARD_COPY } from "@/lib/dashboard-copy";
 import { DistributionCard, SubmissionHero } from "@/components/admin/DashboardKit";
-import {
-  AssessmentPlaceholderCard,
-  ClassSubmissionCard,
-} from "@/components/admin/TeacherDashboardCards";
+import { ClassSubmissionCard } from "@/components/admin/TeacherDashboardCards";
+import TeacherAssessmentCard from "@/components/admin/TeacherAssessmentCard";
 
 export default function TeacherDashboardTab() {
   const { distribution, compare, firstLoading, errors, loadError, reload } =
@@ -59,7 +57,7 @@ export default function TeacherDashboardTab() {
           copy={TEACHER_DASHBOARD_COPY}
         />
 
-        <AssessmentPlaceholderCard />
+        <TeacherAssessmentCard />
       </div>
     </div>
   );

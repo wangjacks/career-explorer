@@ -2,13 +2,28 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { Student } from "@/hooks/useAdminAuth";
+import {
+  CELL_PLACEHOLDER,
+  classAssessmentCells,
+  formatPercent,
+  totalAssessmentCells,
+  type AssessmentOverviewStats,
+} from "@/lib/assessment-overview";
 
 interface Props {
   students: Student[];
+  /** 测评聚合数据（#230）：由 `OverviewTab` 统一拉取后传入，接口不可用时为 null（两列显示 `-`） */
+  assessment?: AssessmentOverviewStats | null;
 }
 
-/** 班级概览统计表：各班/未分班/合计的学生总数、已提交、未提交与提交率 */
-export default function ClassOverviewTable({ students }: Props) {
+/**
+ * 班级概览统计表：各班/未分班/合计的学生总数、已提交、未提交、提交率，
+ * 以及 #230 追加的「测评完成」（人数）与「交齐比例」（%）两列。
+ *
+ * 口径：提交率与交齐比例的分母都是**在册人数**（未提交/未测评计入未提交/未测评），
+ * 百分比统一取整显示（教师不需要两位小数），空班与非数字一律显示 `-`、不出现 NaN。
+ */
+export default function ClassOverviewTable({ students, assessment = null }: Props) {
   const [classList, setClassList] = useState<{ id: number; name: string }[]>([]);
   const [loadError, setLoadError] = useState(false);
 
@@ -38,7 +53,13 @@ export default function ClassOverviewTable({ students }: Props) {
     const rows = classList.map((c) => {
       const members = students.filter((s) => s.class_id === c.id);
       const submitted = members.filter((s) => s.submitted_at != null).length;
-      return { name: c.name, total: members.length, submitted, unsubmitted: members.length - submitted };
+      return {
+        classId: c.id,
+        name: c.name,
+        total: members.length,
+        submitted,
+        unsubmitted: members.length - submitted,
+      };
     });
     const unassigned = students.filter((s) => s.class_id == null);
     const unassignedSubmitted = unassigned.filter((s) => s.submitted_at != null).length;
@@ -55,6 +76,8 @@ export default function ClassOverviewTable({ students }: Props) {
       totalUnsubmitted: students.length - totalSubmitted,
     };
   }, [students, classList]);
+
+  const totalAssessment = totalAssessmentCells(assessment);
 
   if (students.length === 0) return null;
 
@@ -82,20 +105,27 @@ export default function ClassOverviewTable({ students }: Props) {
               <th className="px-5 py-3 font-medium">已提交</th>
               <th className="px-5 py-3 font-medium">未提交</th>
               <th className="px-5 py-3 font-medium">提交率</th>
+              <th className="px-5 py-3 font-medium">测评完成</th>
+              <th className="px-5 py-3 font-medium">交齐比例</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-50 dark:divide-gray-700/50">
-            {classOverview.rows.map((r) => (
-              <tr key={r.name}>
-                <td className="px-5 py-3 text-gray-700 dark:text-gray-200">{r.name}</td>
-                <td className="px-5 py-3 text-gray-600 dark:text-gray-300">{r.total}</td>
-                <td className="px-5 py-3 text-green-600 dark:text-green-400">{r.submitted}</td>
-                <td className="px-5 py-3 text-gray-600 dark:text-gray-300">{r.unsubmitted}</td>
-                <td className="px-5 py-3 text-gray-600 dark:text-gray-300">
-                  {r.total > 0 ? `${((r.submitted / r.total) * 100).toFixed(2)}%` : "-"}
-                </td>
-              </tr>
-            ))}
+            {classOverview.rows.map((r) => {
+              const assessmentCells = classAssessmentCells(assessment, r.classId);
+              return (
+                <tr key={r.classId}>
+                  <td className="px-5 py-3 text-gray-700 dark:text-gray-200">{r.name}</td>
+                  <td className="px-5 py-3 text-gray-600 dark:text-gray-300">{r.total}</td>
+                  <td className="px-5 py-3 text-green-600 dark:text-green-400">{r.submitted}</td>
+                  <td className="px-5 py-3 text-gray-600 dark:text-gray-300">{r.unsubmitted}</td>
+                  <td className="px-5 py-3 text-gray-600 dark:text-gray-300">
+                    {r.total > 0 ? formatPercent((r.submitted / r.total) * 100) : "-"}
+                  </td>
+                  <td className="px-5 py-3 text-purple-600 dark:text-purple-400">{assessmentCells.assessed}</td>
+                  <td className="px-5 py-3 text-gray-600 dark:text-gray-300">{assessmentCells.rate}</td>
+                </tr>
+              );
+            })}
             {classOverview.unassigned.total > 0 && (
               <tr>
                 <td className="px-5 py-3 text-amber-600 dark:text-amber-400">未分班</td>
@@ -103,8 +133,11 @@ export default function ClassOverviewTable({ students }: Props) {
                 <td className="px-5 py-3 text-green-600 dark:text-green-400">{classOverview.unassigned.submitted}</td>
                 <td className="px-5 py-3 text-gray-600 dark:text-gray-300">{classOverview.unassigned.unsubmitted}</td>
                 <td className="px-5 py-3 text-gray-600 dark:text-gray-300">
-                  {((classOverview.unassigned.submitted / classOverview.unassigned.total) * 100).toFixed(2)}%
+                  {formatPercent((classOverview.unassigned.submitted / classOverview.unassigned.total) * 100)}
                 </td>
+                {/* 测评聚合按班级归属统计，未分班学生只在合计里体现 */}
+                <td className="px-5 py-3 text-gray-600 dark:text-gray-300">{CELL_PLACEHOLDER}</td>
+                <td className="px-5 py-3 text-gray-600 dark:text-gray-300">{CELL_PLACEHOLDER}</td>
               </tr>
             )}
             <tr className="bg-gray-50 dark:bg-gray-800 font-medium">
@@ -113,8 +146,12 @@ export default function ClassOverviewTable({ students }: Props) {
               <td className="px-5 py-3 text-green-700 dark:text-green-400">{classOverview.totalSubmitted}</td>
               <td className="px-5 py-3 text-foreground">{classOverview.totalUnsubmitted}</td>
               <td className="px-5 py-3 text-foreground">
-                {classOverview.total > 0 ? `${((classOverview.totalSubmitted / classOverview.total) * 100).toFixed(2)}%` : "-"}
+                {classOverview.total > 0
+                  ? formatPercent((classOverview.totalSubmitted / classOverview.total) * 100)
+                  : "-"}
               </td>
+              <td className="px-5 py-3 text-foreground">{totalAssessment.assessed}</td>
+              <td className="px-5 py-3 text-foreground">{totalAssessment.rate}</td>
             </tr>
           </tbody>
         </table>

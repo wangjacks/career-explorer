@@ -805,12 +805,13 @@ export interface DbAdapter {
   ): Promise<AssessmentStatsRaw> | AssessmentStatsRaw;
   /**
    * 测评名册（**含姓名/学号，读取须记审计**）：只返回已完成且当前有效的结果。
-   * `classIds` 收窄班级范围（教师归属班级），`filters.classId` 再收窄到单班，`filters.lead` 按三字码首位过滤。
+   * `classIds` 收窄班级范围（教师归属班级），`filters.classId` 再收窄到单班，
+   * `filters.lead` 按三字码首位过滤，`filters.code` 按完整三字码精确过滤（#232 三字码胶囊下钻）。
    */
   getAssessmentRoster(
     assessmentId: number,
     classIds: number[] | null,
-    filters?: { classId?: number | null; lead?: string | null }
+    filters?: { classId?: number | null; lead?: string | null; code?: string | null }
   ): Promise<AssessmentRosterRow[]> | AssessmentRosterRow[];
 
   backup(): Promise<BackupData> | BackupData;
@@ -1465,7 +1466,7 @@ export async function getAssessmentStats(
 export async function getAssessmentRoster(
   assessmentId: number,
   classIds: number[] | null,
-  filters?: { classId?: number | null; lead?: string | null }
+  filters?: { classId?: number | null; lead?: string | null; code?: string | null }
 ): Promise<AssessmentRosterRow[]> {
   const adapter = await ensureInit();
   return Promise.resolve(adapter.getAssessmentRoster(assessmentId, classIds, filters));

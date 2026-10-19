@@ -153,6 +153,16 @@ describe("GET /api/manage/stats/assessment（#229 聚合）", () => {
     expect(getAssessmentStats).toHaveBeenCalledWith(ASSESSMENT.id, null);
   });
 
+  it("量表停用：enabled=false 透传，大屏据此显示「还没开放」而不是「还没人做」（#232）", async () => {
+    vi.mocked(getAssessmentByCode).mockResolvedValue({ ...ASSESSMENT, enabled: 0 });
+    const res = await statsGet(request("/api/manage/stats/assessment", await token("teacher", 3)));
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.assessment.enabled).toBe(false);
+    // 停用不影响聚合本身（历史结果仍要能统计）
+    expect(body.total.assessed).toBe(2);
+  });
+
   it("非法 scope → 400；量表未配置 → 404；查询异常 → 500", async () => {
     const teacher = await token("teacher", 3);
     expect((await statsGet(request("/api/manage/stats/assessment?scope=class", teacher))).status).toBe(400);
@@ -191,7 +201,7 @@ describe("GET /api/manage/assessment/roster（#229 名册）", () => {
     const res = await rosterGet(request("/api/manage/assessment/roster?classId=7", teacher));
     expect(res.status).toBe(200);
     const body = await res.json();
-    expect(getAssessmentRoster).toHaveBeenCalledWith(ASSESSMENT.id, [7], { classId: 7, lead: null });
+    expect(getAssessmentRoster).toHaveBeenCalledWith(ASSESSMENT.id, [7], { classId: 7, lead: null, code: null });
     expect(body.data).toEqual([
       {
         classId: 7,
@@ -203,7 +213,7 @@ describe("GET /api/manage/assessment/roster（#229 名册）", () => {
       },
     ]);
     expect(body.total).toBe(1);
-    expect(body.filters).toEqual({ classId: 7, lead: null });
+    expect(body.filters).toEqual({ classId: 7, lead: null, code: null });
     expect(lastAudit()).toMatchObject({
       action: "assessment:roster",
       status: "success",
@@ -217,7 +227,7 @@ describe("GET /api/manage/assessment/roster（#229 名册）", () => {
   it("教师不传 classId 时恒为本人归属班级全集（明细永不放宽到全校）", async () => {
     const teacher = await token("teacher", 3);
     expect((await rosterGet(request("/api/manage/assessment/roster", teacher))).status).toBe(200);
-    expect(getAssessmentRoster).toHaveBeenCalledWith(ASSESSMENT.id, [7], { classId: null, lead: null });
+    expect(getAssessmentRoster).toHaveBeenCalledWith(ASSESSMENT.id, [7], { classId: null, lead: null, code: null });
   });
 
   it("lead 过滤：小写归一化后传给查询，非法值 400", async () => {
@@ -225,7 +235,7 @@ describe("GET /api/manage/assessment/roster（#229 名册）", () => {
     const ok = await rosterGet(request("/api/manage/assessment/roster?lead=s", teacher));
     expect(ok.status).toBe(200);
     expect((await ok.json()).filters.lead).toBe("S");
-    expect(getAssessmentRoster).toHaveBeenCalledWith(ASSESSMENT.id, [7], { classId: null, lead: "S" });
+    expect(getAssessmentRoster).toHaveBeenCalledWith(ASSESSMENT.id, [7], { classId: null, lead: "S", code: null });
 
     expect((await rosterGet(request("/api/manage/assessment/roster?lead=Z", teacher))).status).toBe(400);
     expect((await rosterGet(request("/api/manage/assessment/roster?classId=abc", teacher))).status).toBe(400);
@@ -233,13 +243,37 @@ describe("GET /api/manage/assessment/roster（#229 名册）", () => {
     expect((await rosterGet(request("/api/manage/assessment/roster?scope=class", teacher))).status).toBe(400);
   });
 
+  it("code 过滤（#232 三字码胶囊下钻）：小写归一化后精确传给查询，非法值 400 且不查库", async () => {
+    const teacher = await token("teacher", 3);
+    const ok = await rosterGet(request("/api/manage/assessment/roster?code=sia", teacher));
+    expect(ok.status).toBe(200);
+    const okBody = await ok.json();
+    expect(okBody.filters.code).toBe("SIA");
+    expect(getAssessmentRoster).toHaveBeenLastCalledWith(ASSESSMENT.id, [7], {
+      classId: null,
+      lead: null,
+      code: "SIA",
+    });
+    expect(lastAudit()?.metadata).toContain('"code":"SIA"');
+
+    vi.mocked(getAssessmentRoster).mockClear();
+    for (const bad of ["XYZ", "SIAX", "S1"]) {
+      const res = await rosterGet(
+        request(`/api/manage/assessment/roster?code=${encodeURIComponent(bad)}`, teacher)
+      );
+      expect(res.status, `code=${bad} 应被拒`).toBe(400);
+    }
+    expect(getAssessmentRoster).not.toHaveBeenCalled();
+    expect(lastAudit()).toMatchObject({ action: "assessment:roster", status: "failed" });
+  });
+
   it("管理员不受班级限制（全校排查），但不带 classId 时也走全校范围", async () => {
     const admin = await token("admin", 1);
     expect((await rosterGet(request("/api/manage/assessment/roster?classId=9", admin))).status).toBe(200);
-    expect(getAssessmentRoster).toHaveBeenLastCalledWith(ASSESSMENT.id, null, { classId: 9, lead: null });
+    expect(getAssessmentRoster).toHaveBeenLastCalledWith(ASSESSMENT.id, null, { classId: 9, lead: null, code: null });
 
     expect((await rosterGet(request("/api/manage/assessment/roster", admin))).status).toBe(200);
-    expect(getAssessmentRoster).toHaveBeenLastCalledWith(ASSESSMENT.id, null, { classId: null, lead: null });
+    expect(getAssessmentRoster).toHaveBeenLastCalledWith(ASSESSMENT.id, null, { classId: null, lead: null, code: null });
   });
 
   it("量表未配置 → 404 且记失败审计；查询异常 → 500", async () => {
@@ -253,3 +287,4 @@ describe("GET /api/manage/assessment/roster（#229 名册）", () => {
     expect((await rosterGet(request("/api/manage/assessment/roster", admin))).status).toBe(500);
   });
 });
+
