@@ -140,7 +140,7 @@ describe("GET /api/manage/profiles — 兴趣测评字段（#234）", () => {
     expect(body.data[1].tags).toEqual([]);
   });
 
-  it("空页不查测评结果（少一次无意义查询）", async () => {
+  it("空页不查量表也不查测评结果（一次多余查询都不发）", async () => {
     vi.mocked(getSubmittedProfiles).mockResolvedValue({ rows: [], total: 0 });
 
     const res = await GET(makeRequest());
@@ -148,6 +148,7 @@ describe("GET /api/manage/profiles — 兴趣测评字段（#234）", () => {
 
     expect(res.status).toBe(200);
     expect(body.data).toEqual([]);
+    expect(getAssessmentByCode).not.toHaveBeenCalled();
     expect(getCurrentAssessmentResultsByUserCodes).not.toHaveBeenCalled();
   });
 
@@ -173,5 +174,34 @@ describe("GET /api/manage/profiles — 兴趣测评字段（#234）", () => {
     expect(res.status).toBe(200);
     expect(body.data[0].assessmentCode).toBe("SIA");
     expect(body.data[0].assessmentScores).toEqual([]);
+  });
+
+  it("完成记录但三字码为 NULL 时按未测返回（状态与徽章同源，不出现「已测但没码」）", async () => {
+    vi.mocked(getCurrentAssessmentResultsByUserCodes).mockResolvedValue([
+      result({ type_code: null, scores_json: null }),
+    ]);
+
+    const res = await GET(makeRequest());
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body.data[0]).toMatchObject({
+      assessmentCode: null,
+      assessmentStatus: "none",
+      assessmentAt: null,
+      assessmentScores: null,
+    });
+  });
+
+  it("测评数据层故障时整页降级为全部未测，不影响档案列表", async () => {
+    vi.mocked(getAssessmentByCode).mockRejectedValue(new Error("assessment table missing"));
+
+    const res = await GET(makeRequest());
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body.data).toHaveLength(2);
+    expect(body.data[0].studentName).toBe("张三");
+    expect(body.data.every((row: { assessmentStatus: string }) => row.assessmentStatus === "none")).toBe(true);
   });
 });
