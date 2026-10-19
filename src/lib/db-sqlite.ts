@@ -1699,7 +1699,6 @@ export class SqliteAdapter implements DbAdapter {
               p.tags,
               p.avatar_url,
               p.evaluation_url,
-              // #95 早于 #111，这期间生成的备份有快照行却缺 storage_id → 同 users 一样回落到本地后端，不能硬编码 1
               p.storage_id ?? 1,
               p.submitted_at,
               p.is_current ?? 0

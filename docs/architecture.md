@@ -189,9 +189,11 @@
 
 备份格式 `BackupData`（**version 5**，定义在 `src/lib/db.ts`）：十三表全量，其中 `audit_logs` / `configs_profile` / `storage_backends` / `profile_submissions` / 分组五表为可选字段（旧备份缺失时读取方容忍 `undefined`）；含 `password_hash`，不含上传文件。
 
-> **恢复期间的「缺字段」口径（#211 统一）**：`users` / `classes` 是**整表替换并按备份里的原始 `id` 重插**，恢复全程外键检查又是关闭的（SQLite `PRAGMA foreign_keys = OFF` / MySQL `SET FOREIGN_KEY_CHECKS = 0`，事后开启**不回溯校验**已存在的行）。所以规则是：**凡按 `user_id` / `class_id` 引用这两张表的持久表，一律无条件先清空，只有备份带该字段才回填**——「缺字段 = 恢复后该功能无数据」，不是「保留现状」。分组五表（#101，恢复后即为未分组）与 `profile_submissions`（#95，恢复后即为无历史版本）都走这条；留着旧行等于把上一个占这个 id 的人的数据交给新的人，而 `GET /api/shared/profile/submissions` 是学生本人可读的。
+> **恢复期间的「缺字段」口径（#211 统一）**：`users` / `classes` 是**整表替换并按备份里的原始 `id` 重插**，恢复全程外键检查又是关闭的（SQLite `PRAGMA foreign_keys = OFF` / MySQL `SET FOREIGN_KEY_CHECKS = 0`，事后开启**不回溯校验**已存在的行）。所以规则是：**凡按 `user_id` / `class_id` 引用这两张表的持久表，一律无条件先清空，只有备份带该字段才回填**——「缺字段 = 恢复后该功能无数据」，不是「保留现状」。分组五表（#101）与 `profile_submissions`（#95）都走这条；留着旧行等于把上一个占这个 id 的人的数据交给新的人，而 `GET /api/shared/profile/submissions` 是学生本人可读的。
 >
-> 不引用 `users`/`classes` 归属的表仍可保留现状：`configs_profile`（键值配置，与身份无关）、`storage_backends`（缺字段即 #111 之前的备份，其 `users` 行本就无 `storage_id` 可用，恢复时一律回落到内置本地后端——它是该表首行，编号恒为 1，与迁移列的 `DEFAULT 1` 对齐）。`audit_logs` 同样保留：**审计记录不可丢**优先于归属洁净，行内已冗余存了操作者编号/姓名/角色，`actor_id` 错配只影响展示归属与教师「只看本人」的过滤范围（该项为后续议题，见 #211）。
+> 两条已接受的副作用：① 清空后历史版本表为空，但**下一次冷启动 `init()` 里的迁移会按恢复后的 `users` 给已提交学生补一条 `version=1 / is_current=1`**，归属取自那条 `users` 行、不会复活别人的数据，所以「无历史版本」只维持到下次启动为止；② 只存在于历史快照里的文件（`avatar_url` / `evaluation_url` 未被当前 `users` 引用的那些）失去最后一条 DB 引用，会进入 #117 孤儿清单——恢复不碰上传文件，孤儿也不自动删，留给人工确认。
+>
+> 仍保留现状的表：`configs_profile`（键值配置，与身份无关）、`storage_backends`（缺字段即 #111 之前的备份，其 `users` 行没有可用的 `storage_id`，恢复时回落到内置本地后端；该后端是 `storage_backends` 首行且管理端禁删，编号恒为 1）。`audit_logs` 是唯一**引用了 `users` 却仍保留**的表：**审计记录不可丢**优先于归属洁净，行内已冗余存了操作者编号/姓名/角色，`actor_id` 错配只影响展示归属与教师「只看本人」的过滤范围（该项为后续议题，见 #211）。
 
 ## 课堂分组（#101）
 
