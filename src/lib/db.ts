@@ -358,29 +358,29 @@ export interface BackupData {
   classes: ClassRow[];
   teacher_classes: TeacherClassRow[];
   tags: BackupTagRow[];
-  /** 审计日志（#110；旧备份可能缺失，读取方容忍 undefined） */
+  /** 审计日志（#110；旧备份可能缺失，读取方容忍 undefined；恢复时缺字段 → 保留现状：记录本身要不可篡改，操作者另有 actor_user_code/姓名冗余快照兜底） */
   audit_logs?: AuditLogRow[];
-  /** 档案功能配置（configs_profile 键值对；旧备份可能缺失，读取方容忍 undefined） */
+  /** 档案功能配置（configs_profile 键值对；旧备份可能缺失，读取方容忍 undefined；恢复时缺字段 → 保留当前配置） */
   configs_profile?: { key: string; value: string }[];
-  /** 存储后端注册表（#111；不含凭据；旧备份可能缺失，读取方容忍 undefined） */
+  /** 存储后端注册表（#111；不含凭据；旧备份可能缺失，读取方容忍 undefined；恢复时缺字段 → 保留当前后端表并回填本地后端） */
   storage_backends?: StorageBackendRow[];
-  /** 档案提交历史版本（#95；旧备份可能缺失，读取方容忍 undefined） */
+  /** 档案提交历史版本（#95；旧备份可能缺失。**按 user_id 引用 users，恢复时缺字段一律清空**，否则同 id 换人后会把甲的历史交给乙） */
   profile_submissions?: ProfileSubmissionRow[];
-  /** 当前分组：组（#101；旧备份可能缺失，读取方容忍 undefined） */
+  /** 当前分组：组（#101；旧备份可能缺失，恢复时缺字段一律清空） */
   class_groups?: ClassGroupRow[];
-  /** 当前分组：成员归属（#101；旧备份可能缺失） */
+  /** 当前分组：成员归属（#101；旧备份可能缺失，恢复时缺字段一律清空） */
   class_group_members?: ClassGroupMemberRow[];
-  /** 历史批次头（#101；旧备份可能缺失） */
+  /** 历史批次头（#101；旧备份可能缺失，恢复时缺字段一律清空） */
   group_batches?: GroupBatchRow[];
-  /** 历史批次内的组（#101；旧备份可能缺失） */
+  /** 历史批次内的组（#101；旧备份可能缺失，恢复时缺字段一律清空） */
   group_batch_groups?: GroupBatchGroupRow[];
-  /** 历史批次的成员快照（#101；旧备份可能缺失） */
+  /** 历史批次的成员快照（#101；旧备份可能缺失，恢复时缺字段一律清空） */
   group_batch_members?: GroupBatchMemberRow[];
   /** 测评定义（#221；旧备份可能缺失，恢复时保留当前题库不动） */
   assessments?: AssessmentRow[];
   /** 题库（#221；旧备份可能缺失） */
   assessment_questions?: AssessmentQuestionRow[];
-  /** 学生作答与结果快照（#221；旧备份可能缺失） */
+  /** 学生作答与结果快照（#221；旧备份可能缺失。**按 user_id 引用 users，恢复时缺字段一律清空**，口径同 profile_submissions） */
   assessment_results?: AssessmentResultRow[];
 }
 
