@@ -5,6 +5,8 @@ import path from "path";
 import { tagCategories } from "./tagData";
 import { ASSESSMENT_SEEDS, getQuestionSeeds, validateAssessmentSeed } from "./assessment-data";
 import type { QuestionSeed } from "./assessment-data";
+import { getOnetOccupationSeeds, needsOnetReseed, ONET_SEED_MARKER_KEY } from "./onet";
+import { ONET_DATASET_VERSION } from "./onet-data";
 import { normalizeBackupTags, normalizeAssessmentCode, DEFAULT_MAX_CUSTOM_TAGS, DEFAULT_MAX_PROFILE_SUBMISSIONS, MAX_PROFILE_SUBMISSIONS_KEY, DEFAULT_MEDIA_ORPHAN_RETENTION_DAYS, MEDIA_ORPHAN_RETENTION_KEY } from "./db";
 import type {
   UserRow,
@@ -42,6 +44,7 @@ import type {
   AssessmentQuestionRow,
   AssessmentResultRow,
   CompleteAssessmentInput,
+  OnetOccupationRow,
 } from "./db";
 import { fillGroupedTrend, fillTrendSeries, shiftDate } from "./stats-utils";
 
@@ -191,6 +194,14 @@ export class SqliteAdapter implements DbAdapter {
     this.migrateGroupSchema();
     this.migrateAssessmentSchema();
     this.seedAssessments();
+    this.migrateOnetSchema();
+    try {
+      this.seedOnetOccupations();
+    } catch (err) {
+      // 只读参考数据灌库失败不应拖垮全站启动：职业库为空时推荐接口返回 503，
+      // 下次 init() 会重试（判据仍是版本标记 + 行数）。推荐是渐进功能，降级可见即可。
+      console.error("O*NET occupations seed failed (career recommendations degraded):", err);
+    }
   }
 
   /**
@@ -425,6 +436,67 @@ export class SqliteAdapter implements DbAdapter {
       }
     });
     seed();
+  }
+
+  /**
+   * O*NET 职业库（#226）：**只读参考数据**，来自离线快照（`src/lib/onet-data.ts`）。
+   *
+   * 与量表种子（`seedAssessments`）不同：职业库是整批发布的，没有「后台维护」的语义，
+   * 所以判据是「快照版本标记 + 行数」，快照升级时**整表重灌**（避免新旧职业混在一起）；
+   * 平时每次 init 只做两条轻查询就跳过。不纳入备份：可离线重灌，且体量远大于业务数据。
+   */
+  private migrateOnetSchema(): void {
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS onet_occupations (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        code TEXT NOT NULL UNIQUE,
+        name TEXT NOT NULL,
+        name_zh TEXT,
+        interest_code TEXT NOT NULL,
+        interests_json TEXT NOT NULL,
+        job_zone INTEGER NOT NULL,
+        education_level TEXT NOT NULL,
+        cluster TEXT NOT NULL,
+        dataset_version TEXT NOT NULL,
+        created_at TEXT NOT NULL
+      )
+    `);
+  }
+
+  /** 职业库种子：按快照版本幂等整表重灌（判据见 `needsOnetReseed`，两适配器共用） */
+  private seedOnetOccupations(): void {
+    const seeds = getOnetOccupationSeeds();
+    const marker = this.db
+      .prepare("SELECT value FROM configs_profile WHERE key = ?")
+      .get(ONET_SEED_MARKER_KEY) as { value: string } | undefined;
+    const { c } = this.db.prepare("SELECT COUNT(*) as c FROM onet_occupations").get() as { c: number };
+    if (!needsOnetReseed(marker?.value, c, seeds.length)) return;
+
+    const insert = this.db.prepare(
+      `INSERT INTO onet_occupations
+         (code, name, name_zh, interest_code, interests_json, job_zone, education_level, cluster, dataset_version, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    );
+    const now = getNow();
+    const tx = this.db.transaction(() => {
+      this.db.exec("DELETE FROM onet_occupations");
+      for (const seed of seeds) {
+        insert.run(
+          seed.code,
+          seed.name,
+          seed.nameZh,
+          seed.interestCode,
+          JSON.stringify(seed.scores),
+          seed.jobZone,
+          seed.educationLevel,
+          seed.cluster,
+          seed.datasetVersion,
+          now
+        );
+      }
+    });
+    tx();
+    this.setProfileConfig(ONET_SEED_MARKER_KEY, ONET_DATASET_VERSION);
   }
 
   /**
@@ -1755,6 +1827,11 @@ export class SqliteAdapter implements DbAdapter {
          ORDER BY completed_at DESC, id DESC`
       )
       .all(userId, assessmentId) as AssessmentResultRow[];
+  }
+
+  // onet_occupations（#226 O*NET 职业库：离线导入的只读参考数据）
+  getOnetOccupations(): OnetOccupationRow[] {
+    return this.db.prepare("SELECT * FROM onet_occupations ORDER BY code").all() as OnetOccupationRow[];
   }
 
   backup(): BackupData {

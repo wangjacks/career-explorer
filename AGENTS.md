@@ -35,7 +35,8 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 | `src/app/api/{tags,upload,uploads}/` | 开放端点：标签与配置读取、上传、本地文件静态服务（含路径穿越防护） |
 | `src/components/` | 全站公共组件；子目录 `admin/`（面板 Tab 页命名 `*Tab.tsx`，同目录另有共用 UI 组件如 `AdminUI` / `ConfirmDialog` / `*Table`）、`dashboard/`（管理/教师侧边栏）、`student/`（学生侧边栏） |
 | `src/hooks/` | 客户端自定义 hook，命名一律 `use*.ts` |
-| `src/lib/` | 服务端数据层与工具，按前缀分组（`db*` / `storage*` / `media-*` / `thumbnail*` / `profile-*` / `assessment-*` / `tag*` 等，分组表见 `docs/overview.md`） |
+| `src/lib/` | 服务端数据层与工具，按前缀分组（`db*` / `storage*` / `media-*` / `thumbnail*` / `profile-*` / `assessment-*` / `onet*` / `tag*` 等，分组表见 `docs/overview.md`） |
+| `scripts/` | 离线数据导入脚本（`import-onet.mjs` 生成 O\*NET 职业库快照，#226），不进运行时 |
 | `src/proxy.ts` | 角色权限中间件（替代已删除的 `middleware.ts`），内置 `TEACHER_ALLOWED` 声明式权限表 |
 | `src/types/`、`src/__tests__/` | 类型定义；Vitest 测试按被测对象命名——lib / hook 用 `<模块名>.test.ts`，API 路由与跨模块行为用 `<资源>-api.test.ts` / `<行为>.test.ts`（如 `profile-api`、`submission-deadline`）；改代码必须同步改对应测试 |
 | `uploads/`、`data/` | 本地存储后端的上传文件（含 `*_thumb.jpg` 缩略图）、SQLite 库文件，均 gitignored |
@@ -51,7 +52,7 @@ find src/app -name page.tsx && find src/app/api -name route.ts
 
 - 抽象层：`src/lib/db.ts` 定义 `DbAdapter` 接口，**所有数据库操作必须走此接口**，两适配器（`db-mysql.ts` / `db-sqlite.ts`）行为须一致
 - 配置来源：`db-config.json`（运行时文件，gitignored），经 `db-config.ts` 读写；`DbConfig` 含 `type: "mysql" | "sqlite"`、`installed` 标志、连接参数
-- **十六张表**（权威定义在两适配器的 `CREATE TABLE`，完整字段与备份口径见 `docs/architecture.md`「数据库」）：
+- **十七张表**（权威定义在两适配器的 `CREATE TABLE`，完整字段与备份口径见 `docs/architecture.md`「数据库」）：
 
 | 表 | 一句话职责 |
 |---|---|
@@ -66,6 +67,7 @@ find src/app -name page.tsx && find src/app/api -name route.ts
 | `class_groups` / `class_group_members` | **当前**分组（#101）：组与成员，成员表 `user_id` 全局唯一（一人同时只属于一个组，转班/删人必须清理） |
 | `group_batches` / `group_batch_groups` / `group_batch_members` | 分组历史批次（#101）：每次自动分组追加一份不可变归档（策略、特征源、指标、组内聚度、成员姓名学号快照） |
 | `assessments` / `assessment_questions` / `assessment_results` | 职业测评（#221）：量表定义（维度 JSON、计分类型、量表版本、署名与授权文本）、题库（题号 + 题干 + 维度 + 反向计分 + 题面版本）、作答与结果快照（`in_progress` 草稿 / `completed` 完成 + 三字码 + `is_current`）；题库进库、种子在 `assessment-data.ts` |
+| `onet_occupations` | O*NET 职业库（#226）：`code` + 英文名 + 中文译名 + 官方兴趣高码 + 六型分 JSON + Job Zone + 学历 + SOC 职业群；**只读参考数据、不纳入备份**，快照 `onet-data.ts` 按版本整表重灌 |
 
 - 学生 `tags` 为**标签名称文本数组**（#94 起，预设 + 自定义直存，与 `tags` 表解耦）
 - 初始化流程：手动访问 `/setup` 配置数据库 + 管理员密码 → 写入 `db-config.json` 与 `users`；安装状态经 `isInstalled()` + `/api/setup/status`
@@ -125,6 +127,7 @@ find src/app -name page.tsx && find src/app/api -name route.ts
 - 媒体治理（#117/#118）：孤儿**不做自动删除**（保留期可配 + 人工确认清理，服务端重扫自证不信任前端）；缩略图生成仅服务端（依赖 sharp），key 派生 `{base}.jpg` → `{base}_thumb.jpg`
 - 课堂分组（#101）：算法是纯函数（`grouping-utils.ts` / `grouping-features.ts`），只认「特征源注册表」，不直接读 `users.tags`——新增数据源只加一条注册项；结果确定性（无随机，按学号升序）；**当前分组与历史批次两套表物理分离**，触发自动分组=覆盖当前 + 追加归档同一事务（口径见 `docs/architecture.md`「课堂分组」）
 - 职业测评（#221）：三表 = 量表定义 / 题库 / 作答结果快照；**量表进库不写死代码**，种子在「`code` 缺失或题库为空」时补种、非空题库不覆盖；草稿与完成记录同表，可空 `draft_slot` + 唯一约束保证「一人一量表至多一条草稿」，完成时释放草稿位并保证 `is_current` 唯一（MySQL 用 `FOR UPDATE` 锁学生行串行化）；两库一致性另有三条硬约束：列名逐列相同、外键成对存在、`code` 用 `utf8mb4_bin` 保证大小写敏感的唯一语义；计分由计分引擎（#220）在落库前算好，数据层不重复实现算法（口径见 `docs/architecture.md`「职业测评数据层」）
+- 职业推荐（#226）：O\*NET **30.2** 快照离线导入 `onet_occupations`（**30.3 起兴趣表只是从 `Interests.txt` 改名为 `Career Interest Types.txt`、列结构与数值不变**，脚本两种文件名都认，本轮先锁 30.2）；数据快照由 `scripts/import-onet.mjs` 生成、中文译名单独维护（重新生成不覆盖），脚本会校验必需列与职业数、列名变化时拒绝生成；匹配是纯函数（六维各自归一化后算余弦，同分按 code 破平 → 可复现），画像优先用结果快照六维分、只有三字码时按 3/2/1 权重兜底；Job Zone 现行为 2–5（原 1–2 级已合并）；接口 `/api/shared/assessment/careers` 只认会话 uid，响应必须带 CC BY 4.0 署名（口径见 `docs/architecture.md`「职业库与推荐匹配」）
 - 上传与导出：上传走服务端压缩 + 可配置大小上限 + 唯一命名不覆盖；导出用 ExcelJS（XLSX 默认原生单元格图片，可切浮动图片）+ JSZip 打包图片
 - 面板结构：Tab 式布局，管理/教师面板的 Tab 页命名 `*Tab.tsx`（同目录共用 UI 组件不套用该后缀）；词云为客户端 canvas 组件
 
@@ -145,7 +148,7 @@ find src/app -name page.tsx && find src/app/api -name route.ts
 | 信息 | 权威文件 |
 |---|---|
 | 技术栈全量清单、目录模块划分、路线图 | `docs/overview.md` |
-| 页面/API 路由表、数据库十六表、教师权限表、面板导航分组、课堂分组口径 | `docs/architecture.md` |
+| 页面/API 路由表、数据库十七表、教师权限表、面板导航分组、课堂分组口径 | `docs/architecture.md` |
 | 分支模型、提交/PR/发布规范、环境变量表 | `docs/standards.md` |
 | 色彩 token、组件与交互规范、z-index 层级 | `docs/ui-conventions.md` |
 | Issue 标题/标签/正文/验收标准 | `docs/issue-standard.md` |
