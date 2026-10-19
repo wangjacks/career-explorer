@@ -12,6 +12,7 @@
     "lint": "eslint",
     "test": "vitest run",
     "test:watch": "vitest",
+    "import:onet": "node scripts/import-onet.mjs",
     "prepare": "husky"
   },
   "dependencies": {

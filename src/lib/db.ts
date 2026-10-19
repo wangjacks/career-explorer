@@ -350,6 +350,33 @@ export interface CompleteAssessmentInput {
   typeCode: string | null;
 }
 
+/**
+ * onet_occupations 行（#226）：O*NET 职业库，**离线导入的只读参考数据**。
+ * 不进备份（可离线重灌，且体量远大于业务数据），恢复后按种子自愈。
+ */
+export interface OnetOccupationRow {
+  id: number;
+  /** O*NET-SOC Code，如 `15-1252.00` */
+  code: string;
+  /** 英文职业名（O*NET 原始 Title） */
+  name: string;
+  /** 中文译名；首批未覆盖的职业为 NULL（展示回退英文名） */
+  name_zh: string | null;
+  /** O*NET 官方兴趣高码（1–3 位字母，由官方 Interest High-Point 指标推导） */
+  interest_code: string;
+  /** 六型原始分 JSON：`{"R":3.61,"I":6.05,"A":2.37,"S":1.81,"E":1.87,"C":5.62}`（O*NET 1–7 分） */
+  interests_json: string;
+  /** O*NET Job Zone 1–5 */
+  job_zone: number;
+  /** 由 Job Zone 归纳的常见学历要求（中文） */
+  education_level: string;
+  /** SOC 大类（所属职业群，中文） */
+  cluster: string;
+  /** 数据快照版本，如 `30.2` */
+  dataset_version: string;
+  created_at: string;
+}
+
 export interface BackupData {
   version: number;
   sourceType: string;
@@ -678,6 +705,10 @@ export interface DbAdapter {
   ): Promise<AssessmentResultRow | undefined> | AssessmentResultRow | undefined;
   /** 完成记录历史（新→旧，不含草稿），供结果页回看与版本对比 */
   getAssessmentResults(userId: number, assessmentId: number): Promise<AssessmentResultRow[]> | AssessmentResultRow[];
+
+  // onet_occupations（#226 O*NET 职业库：离线导入的只读参考数据）
+  /** 全部职业（按 code 升序）。匹配在内存里做（余弦），一次读全量比逐条查省事且结果稳定 */
+  getOnetOccupations(): Promise<OnetOccupationRow[]> | OnetOccupationRow[];
 
   backup(): Promise<BackupData> | BackupData;
   restore(data: BackupData): Promise<void> | void;
@@ -1247,6 +1278,12 @@ export async function getAssessmentResults(
 ): Promise<AssessmentResultRow[]> {
   const adapter = await ensureInit();
   return Promise.resolve(adapter.getAssessmentResults(userId, assessmentId));
+}
+
+/** #226：O*NET 职业库全量（按 code 升序），推荐接口在内存里做余弦匹配 */
+export async function getOnetOccupations(): Promise<OnetOccupationRow[]> {
+  const adapter = await ensureInit();
+  return Promise.resolve(adapter.getOnetOccupations());
 }
 
 export async function backup(): Promise<BackupData> {

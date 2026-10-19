@@ -3,6 +3,8 @@ import { readFileSync, existsSync } from "fs";
 import path from "path";
 import { tagCategories } from "./tagData";
 import { ASSESSMENT_SEEDS, getQuestionSeeds, validateAssessmentSeed } from "./assessment-data";
+import { ONET_DATASET_VERSION } from "./onet-data";
+import { getOnetOccupationSeeds, needsOnetReseed, ONET_SEED_MARKER_KEY } from "./onet";
 import { normalizeBackupTags, normalizeAssessmentCode, DEFAULT_MAX_CUSTOM_TAGS, DEFAULT_MAX_PROFILE_SUBMISSIONS, MAX_PROFILE_SUBMISSIONS_KEY, DEFAULT_MEDIA_ORPHAN_RETENTION_DAYS, MEDIA_ORPHAN_RETENTION_KEY } from "./db";
 import type {
   UserRow,
@@ -40,6 +42,7 @@ import type {
   AssessmentQuestionRow,
   AssessmentResultRow,
   CompleteAssessmentInput,
+  OnetOccupationRow,
 } from "./db";
 import { fillGroupedTrend, fillTrendSeries, shiftDate } from "./stats-utils";
 
@@ -197,6 +200,14 @@ export class MysqlAdapter implements DbAdapter {
     await this.migrateGroupSchema();
     await this.migrateAssessmentSchema();
     await this.seedAssessments();
+    await this.migrateOnetSchema();
+    try {
+      await this.seedOnetOccupations();
+    } catch (err) {
+      // 只读参考数据灌库失败不应拖垮全站启动：职业库为空时推荐接口返回 503，
+      // 下次 init() 会重试（判据仍是版本标记 + 行数）。推荐是渐进功能，降级可见即可。
+      console.error("O*NET occupations seed failed (career recommendations degraded):", err);
+    }
   }
 
   /**
@@ -465,6 +476,77 @@ export class MysqlAdapter implements DbAdapter {
     } finally {
       conn.release();
     }
+  }
+
+  /**
+   * O*NET 职业库（#226）：与 sqlite 适配器同构（列名/可空性/唯一约束一致），差异只在方言。
+   * 只读参考数据，判据与重灌口径见 sqlite 侧同名方法注释。
+   */
+  private async migrateOnetSchema(): Promise<void> {
+    await this.pool.execute(`
+      CREATE TABLE IF NOT EXISTS onet_occupations (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        code VARCHAR(16) NOT NULL UNIQUE,
+        name VARCHAR(200) NOT NULL,
+        name_zh VARCHAR(100),
+        interest_code VARCHAR(8) NOT NULL,
+        interests_json TEXT NOT NULL,
+        job_zone INT NOT NULL,
+        education_level VARCHAR(30) NOT NULL,
+        cluster VARCHAR(40) NOT NULL,
+        dataset_version VARCHAR(16) NOT NULL,
+        created_at TEXT NOT NULL
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    `);
+  }
+
+  /** 职业库种子：按快照版本幂等整表重灌（判据见 `needsOnetReseed`，两适配器共用） */
+  private async seedOnetOccupations(): Promise<void> {
+    const seeds = getOnetOccupationSeeds();
+    const [markerRows] = await this.pool.execute(
+      "SELECT value FROM configs_profile WHERE `key` = ?",
+      [ONET_SEED_MARKER_KEY]
+    );
+    const marker = (markerRows as { value: string }[])[0]?.value;
+    const [countRows] = await this.pool.execute("SELECT COUNT(*) as c FROM onet_occupations");
+    const count = Number((countRows as { c: number }[])[0].c);
+    if (!needsOnetReseed(marker, count, seeds.length)) return;
+
+    const now = getNow();
+    const conn = await this.pool.getConnection();
+    try {
+      await conn.beginTransaction();
+      await conn.execute("DELETE FROM onet_occupations");
+      // 923 行分批插入：单条多值 INSERT 参数太多，分批既稳又便于定位失败批次
+      const chunkSize = 300;
+      for (let start = 0; start < seeds.length; start += chunkSize) {
+        const values = seeds.slice(start, start + chunkSize).map((seed) => [
+          seed.code,
+          seed.name,
+          seed.nameZh,
+          seed.interestCode,
+          JSON.stringify(seed.scores),
+          seed.jobZone,
+          seed.educationLevel,
+          seed.cluster,
+          seed.datasetVersion,
+          now,
+        ]);
+        await conn.query(
+          `INSERT INTO onet_occupations
+             (code, name, name_zh, interest_code, interests_json, job_zone, education_level, cluster, dataset_version, created_at)
+           VALUES ?`,
+          [values]
+        );
+      }
+      await conn.commit();
+    } catch (err) {
+      await conn.rollback();
+      throw err;
+    } finally {
+      conn.release();
+    }
+    await this.setProfileConfig(ONET_SEED_MARKER_KEY, ONET_DATASET_VERSION);
   }
 
   /**
@@ -1978,6 +2060,12 @@ export class MysqlAdapter implements DbAdapter {
       [userId, assessmentId]
     );
     return rows as AssessmentResultRow[];
+  }
+
+  // onet_occupations（#226 O*NET 职业库：离线导入的只读参考数据）
+  async getOnetOccupations(): Promise<OnetOccupationRow[]> {
+    const [rows] = await this.pool.execute("SELECT * FROM onet_occupations ORDER BY code");
+    return rows as OnetOccupationRow[];
   }
 
   async backup(): Promise<BackupData> {
