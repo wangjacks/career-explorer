@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { ADMIN_DASHBOARD_COPY, TEACHER_DASHBOARD_COPY, type DashboardCopy } from "../lib/dashboard-copy";
+import { ASSESSMENT_DASHBOARD_COPY, ADMIN_DASHBOARD_COPY, TEACHER_DASHBOARD_COPY, type DashboardCopy } from "../lib/dashboard-copy";
 
 /** 教师侧不许出现的统计口径词与控件名（#231 替换表的左列及其同族词） */
 const JARGON = [
@@ -276,18 +276,124 @@ describe("DashboardKit 的取数与文案解耦", () => {
       expect(adminSource.split(component).length - 1).toBeGreaterThanOrEqual(1);
       expect(teacherSource.split(component).length - 1).toBeGreaterThanOrEqual(1);
     }
-    // 教师端已用提交列表与测评占位替换趋势 / 对比卡（#217）；管理端保留原图表组合
+    // 教师端已用提交列表与测评看板替换趋势 / 对比卡（#217 / #232）；管理端保留原图表组合
     for (const component of ["TrendCard", "CompareCard"]) {
       expect(adminSource.split(component).length - 1).toBeGreaterThanOrEqual(1);
       expect(teacherSource.split(component).length - 1).toBe(0);
     }
     expect(teacherSource).toContain("ClassSubmissionCard");
-    expect(teacherSource).toContain("AssessmentPlaceholderCard");
+    expect(teacherSource).toContain("TeacherAssessmentCard");
 
     const teacherCardsSource = stripComments(
       readFileSync(join(process.cwd(), "src/components/admin/TeacherDashboardCards.tsx"), "utf8")
     );
     expect(teacherCardsSource).toContain("TEACHER_DASHBOARD_COPY");
     expect(teacherCardsSource).not.toContain("ADMIN_DASHBOARD_COPY");
+    // 占位卡已被真实看板替换（#232），不能再留着并行的占位实现
+    expect(teacherCardsSource).not.toContain("AssessmentPlaceholderCard");
   });
 });
+
+/** 测评栏（#232）函数字段的样例入参：形状与真实调用一致，漏补会直接抛错 */
+const ASSESSMENT_FUNCTION_SAMPLES: Record<string, unknown[][]> = {
+  classCounts: [[2, 10]],
+  classAriaLabel: [["2025级1班", 2, 10]],
+  typeAriaLabel: [["社会型", 9]],
+  codeAriaLabel: [["SIA", 4]],
+  codeCountLabel: [[4]],
+  drilldownSummary: [[4, 10]],
+  drilldownTitleClass: [["2025级1班"]],
+  drilldownTitleType: [["社会型"]],
+  drilldownTitleCode: [["SIA"]],
+};
+
+function collectAssessmentStrings(): string[] {
+  const out: string[] = [];
+  for (const [key, value] of Object.entries(ASSESSMENT_DASHBOARD_COPY)) {
+    if (typeof value === "string") {
+      out.push(value);
+      continue;
+    }
+    if (typeof value !== "function") continue;
+    const samples = ASSESSMENT_FUNCTION_SAMPLES[key];
+    if (!samples) throw new Error(`函数字段 ${key} 缺少样例入参（ASSESSMENT_FUNCTION_SAMPLES）`);
+    const fn = value as unknown as (...args: unknown[]) => string;
+    for (const args of samples) out.push(fn(...args));
+  }
+  return out;
+}
+
+describe("ASSESSMENT_DASHBOARD_COPY（#232 大屏测评栏）", () => {
+  it("沿用教师侧口语化词表：不含统计口径词，也不说「全班 / 本班」", () => {
+    const strings = collectAssessmentStrings();
+    expect(strings.length).toBeGreaterThan(20);
+    for (const text of strings) {
+      for (const word of JARGON) {
+        expect(text, `测评栏文案残留「${word}」：${text}`).not.toContain(word);
+      }
+      expect(text, `测评栏文案暗示了班级范围：${text}`).not.toMatch(/全班|本班/);
+    }
+  });
+
+  it("空态是「行动邀请」：不写「暂无数据」这类孤句", () => {
+    const strings = collectAssessmentStrings();
+    for (const text of strings) {
+      expect(text).not.toMatch(/暂无数据|没有数据|暂无内容/);
+    }
+    expect(ASSESSMENT_DASHBOARD_COPY.emptyTitle).toContain("还没有");
+    expect(ASSESSMENT_DASHBOARD_COPY.emptyHint).toContain("职业测评");
+    expect(ASSESSMENT_DASHBOARD_COPY.disabledHint).toContain("开放");
+  });
+
+  it("三视图 / 两范围 / 下钻文案逐条落地", () => {
+    expect(ASSESSMENT_DASHBOARD_COPY.eyebrow).toBe("测评看板");
+    expect(ASSESSMENT_DASHBOARD_COPY.title).toBe("职业兴趣测评");
+    expect(ASSESSMENT_DASHBOARD_COPY.scopeAllLabel).toBe("全校");
+    expect(ASSESSMENT_DASHBOARD_COPY.scopeMineLabel).toBe("只看我的班");
+    expect(ASSESSMENT_DASHBOARD_COPY.viewProgressLabel).toBe("完成进度");
+    expect(ASSESSMENT_DASHBOARD_COPY.viewTypesLabel).toBe("类型分布");
+    expect(ASSESSMENT_DASHBOARD_COPY.viewCodesLabel).toBe("热门三字码");
+    expect(ASSESSMENT_DASHBOARD_COPY.classCounts(2, 10)).toBe("已交 2 / 10 人");
+    expect(ASSESSMENT_DASHBOARD_COPY.drilldownSummary(4, 10)).toBe("已测 4 / 10 人");
+    expect(ASSESSMENT_DASHBOARD_COPY.drilldownTitleClass("2025级1班")).toBe("2025级1班的测评明细");
+    expect(ASSESSMENT_DASHBOARD_COPY.drilldownTitleType("社会型")).toBe("社会型学生的测评明细");
+    expect(ASSESSMENT_DASHBOARD_COPY.drilldownTitleCode("SIA")).toBe("三字码 SIA 的学生");
+    // 投屏提醒：常驻在弹窗标题下与页脚，文案本身也要明确「含个人信息」
+    expect(ASSESSMENT_DASHBOARD_COPY.drilldownHint).toContain("个人信息");
+    expect(ASSESSMENT_DASHBOARD_COPY.drilldownHint).toContain("投屏");
+  });
+
+  it("每个字段都有内容；函数字段对样例入参返回非空", () => {
+    for (const [key, value] of Object.entries(ASSESSMENT_DASHBOARD_COPY)) {
+      if (typeof value === "function") continue;
+      expect(value, `${key} 为空`).toBeTruthy();
+    }
+    for (const text of collectAssessmentStrings()) expect(text.trim()).not.toBe("");
+  });
+
+  it("两块新组件的源码里没有任何面向用户的中文字面量（全部走文案表）", () => {
+    for (const file of [
+      "src/components/admin/TeacherAssessmentCard.tsx",
+      "src/components/admin/AssessmentRosterDialog.tsx",
+    ]) {
+      expect(cjkLiterals(readFileSync(join(process.cwd(), file), "utf8")), `${file} 里有硬编码中文`).toEqual([]);
+    }
+  });
+
+  it("投屏提醒在弹窗里常驻：标题下与页脚各出现一次，且不受加载态影响", () => {
+    const dialogSource = stripComments(
+      readFileSync(join(process.cwd(), "src/components/admin/AssessmentRosterDialog.tsx"), "utf8")
+    );
+    const occurrences = dialogSource.split("copy.drilldownHint").length - 1;
+    expect(occurrences).toBeGreaterThanOrEqual(2);
+  });
+
+  it("测评栏替换了占位卡，且只有教师侧使用文案表", () => {
+    const cardSource = stripComments(
+      readFileSync(join(process.cwd(), "src/components/admin/TeacherAssessmentCard.tsx"), "utf8")
+    );
+    expect(cardSource).toContain("ASSESSMENT_DASHBOARD_COPY");
+    expect(cardSource).not.toContain("TEACHER_DASHBOARD_COPY");
+  });
+});
+
