@@ -230,9 +230,11 @@ export const ASSESSMENT_DASHBOARD_COPY = {
   unassignedHint: "还没分班的学生暂时不能单独看明细",
   /** 「未分班」是接口数据值，教师侧只在展示时换口语（与 TEACHER_DASHBOARD_COPY.classLabel 同口径） */
   unassignedLabel: "还没分班",
+  progressEmptyTitle: "还没有可看的班",
+  progressEmptyHint: "先去「班级管理」建班、到「学生管理」导入名单，这里会按班列出测评进度。",
 
   /* 类型分布 */
-  typesNote: "每型一条，右边是人数；鼠标停在哪条，人数就显示在中间",
+  typesNote: "每型一条，右边是人数；鼠标停在哪条（或键盘移到哪条），人数就显示在中间",
   typesCenterLabel: "已测人数",
   typeAriaLabel: (label: string, count: number) => `查看${label}的测评明细：${count} 人`,
 

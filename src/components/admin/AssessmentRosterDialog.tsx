@@ -8,6 +8,7 @@ import {
   drilldownCounts,
   drilldownQuery,
   filterRosterItems,
+  showsTypeFilter,
   typeColorOf,
   type AssessmentDrilldownTarget,
   type AssessmentRosterItem,
@@ -46,6 +47,7 @@ function titleOf(target: AssessmentDrilldownTarget | null): string {
 export default function AssessmentRosterDialog({ open, scope, target, stats, onClose }: AssessmentRosterDialogProps) {
   const copy = ASSESSMENT_DASHBOARD_COPY;
   const titleId = useId();
+  const hintId = useId();
   const panelRef = useRef<HTMLDivElement>(null);
   const [rows, setRows] = useState<AssessmentRosterItem[] | null>(null);
   const [loading, setLoading] = useState(false);
@@ -59,7 +61,7 @@ export default function AssessmentRosterDialog({ open, scope, target, stats, onC
     () => (target && stats ? drilldownCounts(target, stats) : { assessed: 0, total: 0 }),
     [target, stats]
   );
-  const typeFilterVisible = target !== null && target.kind !== "code";
+  const typeFilterVisible = showsTypeFilter(target);
   const typeOptions = useMemo(() => {
     if (!stats) return [];
     return stats.types.map((item) => ({ value: item.key, label: item.label }));
@@ -160,6 +162,7 @@ export default function AssessmentRosterDialog({ open, scope, target, stats, onC
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
+        aria-describedby={hintId}
         tabIndex={-1}
         className="flex h-full w-full flex-col overflow-hidden bg-card shadow-xl outline-none sm:h-auto sm:max-h-[85vh] sm:max-w-2xl sm:rounded-2xl"
         onClick={(e) => e.stopPropagation()}
@@ -174,7 +177,7 @@ export default function AssessmentRosterDialog({ open, scope, target, stats, onC
                 {loading ? copy.drilldownLoading : failed ? copy.drilldownFailedTitle : copy.drilldownSummary(counts.assessed, counts.total)}
               </p>
               {/* 投屏提醒常驻（不随加载态消失） */}
-              <p className="mt-1 text-[11px] text-muted/70">{copy.drilldownHint}</p>
+              <p id={hintId} className="mt-1 text-[11px] text-muted/70">{copy.drilldownHint}</p>
             </div>
             <button
               type="button"
@@ -220,9 +223,20 @@ export default function AssessmentRosterDialog({ open, scope, target, stats, onC
                   );
                 })}
               </div>
-            ) : (
-              <span className="text-[11px] text-muted/70">{copy.drilldownColumnCode}</span>
-            )}
+            ) : target.kind === "lead" ? (
+              // 类型条下钻：类型已由目标锁死，只把目标亮出来（不给可切换的筛选，避免标题与列表对不上）
+              <span className="inline-flex items-center self-start rounded-full bg-gray-100 px-2.5 py-1 text-[11px] font-medium text-gray-600 dark:bg-gray-800 dark:text-gray-300">
+                {target.label}
+              </span>
+            ) : target.kind === "code" ? (
+              // 三字码胶囊下钻：用同色胶囊把当前三字码亮出来（与列表里的码保持同一视觉）
+              <span
+                className="inline-flex items-center self-start rounded-full px-2.5 py-1 font-mono text-[11px] font-semibold tracking-wide"
+                style={{ backgroundColor: typeColorOf(target.code).chipBg, color: typeColorOf(target.code).chipFg }}
+              >
+                {target.code}
+              </span>
+            ) : null}
 
             <label className="relative block w-full sm:w-56">
               <span className="sr-only">{copy.drilldownSearchPlaceholder}</span>

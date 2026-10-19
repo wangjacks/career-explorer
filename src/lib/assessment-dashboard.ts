@@ -154,6 +154,16 @@ export function drilldownQuery(target: AssessmentDrilldownTarget): { classId?: n
 }
 
 /**
+ * 弹窗里的「只看某一型」二级筛选**只在按班级下钻时出现**。
+ *
+ * 类型条 / 三字码胶囊下钻时，类型已经由目标锁死（弹窗标题也写明了），再给一个类型筛选会出现
+ * 「标题说社会型、列表却可以切成研究型」的自相矛盾；而且它会覆盖目标自带的 `lead` 参数。
+ */
+export function showsTypeFilter(target: AssessmentDrilldownTarget | null): boolean {
+  return target?.kind === "class";
+}
+
+/**
  * 弹窗顶部「已测 N / M」的数字：
  * - 班级：该班已交 / 该班在册；
  * - 类型 / 三字码：该型（码）人数 / 全校已测总人数（分母是「已测的人里有多少属于它」）。

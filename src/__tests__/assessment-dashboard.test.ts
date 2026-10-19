@@ -13,6 +13,7 @@ import {
   isUnassignedClass,
   relativeLuminance,
   resolveSectionState,
+  showsTypeFilter,
   sortClassesByNeed,
   typeColorOf,
   type AssessmentRosterItem,
@@ -174,6 +175,13 @@ describe("下钻目标映射", () => {
     expect(drilldownCounts({ kind: "class", classId: 999, name: "x" }, stats)).toEqual({ assessed: 0, total: 0 });
     expect(drilldownCounts({ kind: "lead", lead: "X", label: "x" }, stats)).toEqual({ assessed: 0, total: 21 });
     expect(drilldownCounts({ kind: "code", code: "ZZZ", lead: "Z" }, stats)).toEqual({ assessed: 0, total: 21 });
+  });
+
+  it("「只看某一型」只出现在按班级下钻时：类型 / 三字码下钻已锁死类型，再给筛选会让标题与列表对不上", () => {
+    expect(showsTypeFilter({ kind: "class", classId: 7, name: "2025级1班" })).toBe(true);
+    expect(showsTypeFilter({ kind: "lead", lead: "S", label: "社会型" })).toBe(false);
+    expect(showsTypeFilter({ kind: "code", code: "SIA", lead: "S" })).toBe(false);
+    expect(showsTypeFilter(null)).toBe(false);
   });
 });
 

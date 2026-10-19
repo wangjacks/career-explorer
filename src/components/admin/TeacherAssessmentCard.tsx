@@ -175,7 +175,15 @@ export default function TeacherAssessmentCard() {
       ) : view === "progress" ? (
         <>
           <p className="mb-2 text-[11px] text-muted/70">{copy.progressNote}</p>
-          <ul className="max-h-[320px] space-y-1 overflow-y-auto pr-1">
+          {classRows.length === 0 ? (
+            // 有完成记录但没有可列的班（例如学生都还没分班）：给下一步指引，不留一块空列表
+            <div className="flex flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-border-soft bg-gray-50/50 py-10 text-center dark:bg-gray-900/20">
+              <Compass className="h-6 w-6 text-muted/40" strokeWidth={1.5} />
+              <p className="text-sm font-medium text-foreground">{copy.progressEmptyTitle}</p>
+              <p className="max-w-md text-xs text-muted">{copy.progressEmptyHint}</p>
+            </div>
+          ) : (
+            <ul className="max-h-[320px] space-y-1 overflow-y-auto pr-1">
             {classRows.map((row) => {
               // 「未分班」是接口数据值，教师侧展示时换口语（比较与排序仍认原值）
               const label = row.isUnassigned ? copy.unassignedLabel : row.name;
@@ -224,7 +232,8 @@ export default function TeacherAssessmentCard() {
                 </li>
               );
             })}
-          </ul>
+            </ul>
+          )}
         </>
       ) : view === "types" ? (
         <div onMouseLeave={() => setActiveType(null)}>
