@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Compass, School } from "lucide-react";
+import { School } from "lucide-react";
 import { ChartEmpty, ChartFailed } from "@/components/admin/DashboardKit";
 import ClassRosterDialog from "@/components/admin/ClassRosterDialog";
 import { TEACHER_DASHBOARD_COPY } from "@/lib/dashboard-copy";
@@ -115,25 +115,6 @@ export function ClassSubmissionCard({
         displayName={openClass ? TEACHER_DASHBOARD_COPY.classLabel(openClass) : ""}
         onClose={() => setOpenClass(null)}
       />
-    </div>
-  );
-}
-
-/** 职业兴趣测评占位卡（#217）：全宽腾位，具体看板另立 issue */
-export function AssessmentPlaceholderCard() {
-  return (
-    <div className="rounded-xl border border-border-soft bg-card p-5 lg:col-span-12">
-      <div className="mb-3">
-        <p className="text-[11px] font-medium tracking-[0.2em] text-muted">测评看板</p>
-        <h3 className="mt-1 text-sm font-semibold text-foreground">职业兴趣测评</h3>
-      </div>
-      <div className="flex min-h-[180px] flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-border-soft bg-gray-50/50 px-6 py-8 text-center dark:bg-gray-900/20">
-        <Compass className="h-8 w-8 text-muted/40" strokeWidth={1.5} />
-        <p className="text-sm font-medium text-foreground">测评数据即将接入</p>
-        <p className="max-w-md text-xs text-muted">
-          接入后这里会显示各班完成度与 RIASEC 六型分布，先完成本学期的档案收集即可。
-        </p>
-      </div>
     </div>
   );
 }
