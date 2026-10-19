@@ -12,6 +12,8 @@ vi.mock("@/lib/db", () => ({
   getGroupBatches: vi.fn(),
   getGroupBatchDetail: vi.fn(),
   replaceClassGrouping: vi.fn(),
+  insertGroupBatch: vi.fn(),
+  applyGroupingResult: vi.fn(),
   getTeacherClassPairs: vi.fn(),
   insertAuditLog: vi.fn(),
 }));
@@ -19,6 +21,7 @@ vi.mock("@/lib/db", () => ({
 import { GET as exportGet } from "@/app/api/manage/groups/export/route";
 import { POST as importPost } from "@/app/api/manage/groups/import/route";
 import {
+  applyGroupingResult,
   getClassGroupMembers,
   getClassGroups,
   getClasses,
@@ -27,6 +30,7 @@ import {
   getStudents,
   getTeacherClassPairs,
   insertAuditLog,
+  insertGroupBatch,
   replaceClassGrouping,
 } from "@/lib/db";
 import type { ClassGroupMemberRow, ClassGroupRow, UserRow } from "@/lib/db";
@@ -266,6 +270,9 @@ describe("POST /api/manage/groups/import — 全量覆盖（#101）", () => {
     const res = await importPost(importPostBody({ classId: CLASS_A, rows: validRows }, OWNER));
     expect(res.status).toBe(200);
     // 历史侧写入只有 insertGroupBatch / applyGroupingResult 两条路，本端点都不该碰
+    expect(vi.mocked(replaceClassGrouping)).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(insertGroupBatch)).not.toHaveBeenCalled();
+    expect(vi.mocked(applyGroupingResult)).not.toHaveBeenCalled();
     expect(vi.mocked(insertAuditLog).mock.calls.map((c) => c[0].action)).toContain("group:import");
   });
 
@@ -307,6 +314,15 @@ describe("POST /api/manage/groups/import — 全量覆盖（#101）", () => {
         expect: "必须是 1 到 999 的整数",
       },
       { name: "空文件", rows: [], expect: "文件没有数据行" },
+      {
+        name: "行数超过班级人数两倍",
+        rows: Array.from({ length: 13 }, (_, i) => ({
+          groupNo: 1,
+          userCode: `2026${String(i + 1).padStart(8, "0")}`,
+          name: `学生${i + 1}`,
+        })),
+        expect: "超过班级人数两倍",
+      },
     ];
 
     for (const item of cases) {

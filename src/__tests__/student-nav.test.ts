@@ -7,27 +7,41 @@ function item(key: string): StudentNavItem {
   return found!;
 }
 
-describe("学生侧边栏导航数据（#222）", () => {
-  it("四项：我的档案 / 职业测评 / 我的班级（占位）/ 成长记录（占位）", () => {
-    expect(STUDENT_NAV_ITEMS.map((nav) => nav.label)).toEqual(["我的档案", "职业测评", "我的班级", "成长记录"]);
+describe("学生侧边栏导航数据（#222 / #101）", () => {
+  it("五项：我的档案 / 我的小组 / 职业测评 / 我的班级（占位）/ 成长记录（占位）", () => {
+    expect(STUDENT_NAV_ITEMS.map((nav) => nav.label)).toEqual([
+      "我的档案",
+      "我的小组",
+      "职业测评",
+      "我的班级",
+      "成长记录",
+    ]);
     expect(item("profile").href).toBe("/dashboard/student");
+    expect(item("profile").view).toBe(true);
+    expect(item("group").href).toBe("/dashboard/student");
+    expect(item("group").view).toBe(true);
     expect(item("assessment").href).toBe("/dashboard/student/assessment");
     expect(item("class").soon).toBe(true);
     expect(item("growth").soon).toBe(true);
   });
 
-  it("有地址的条目才可点击；占位项没有 href（不产生死链）", () => {
+  it("有地址或可切换视图的条目才可点击；占位项没有 href（不产生死链）", () => {
     for (const nav of STUDENT_NAV_ITEMS) {
-      if (nav.soon) expect(nav.href).toBeUndefined();
-      else expect(nav.href).toMatch(/^\/dashboard\/student/);
+      if (nav.soon) {
+        expect(nav.href).toBeUndefined();
+        expect(nav.view).toBeUndefined();
+      } else {
+        expect(nav.href).toMatch(/^\/dashboard\/student/);
+      }
     }
   });
 });
 
 describe("isStudentNavActive", () => {
-  it("我的档案只在自己那一页高亮（精确匹配，避免与职业测评同时点亮）", () => {
-    expect(isStudentNavActive("/dashboard/student", item("profile"))).toBe(true);
+  it("页内视图项（我的档案 / 我的小组）不走 pathname 高亮，由组件按 activeView 判定", () => {
+    expect(isStudentNavActive("/dashboard/student", item("profile"))).toBe(false);
     expect(isStudentNavActive("/dashboard/student/assessment", item("profile"))).toBe(false);
+    expect(isStudentNavActive("/dashboard/student", item("group"))).toBe(false);
   });
 
   it("职业测评在测评中心与答题页都高亮（前缀匹配覆盖子路由）", () => {
@@ -45,6 +59,6 @@ describe("isStudentNavActive", () => {
     expect(isStudentNavActive("/dashboard/student", item("class"))).toBe(false);
     expect(isStudentNavActive("/dashboard/student", item("growth"))).toBe(false);
     expect(isStudentNavActive(null, item("profile"))).toBe(false);
-    expect(isStudentNavActive(undefined, item("profile"))).toBe(false);
+    expect(isStudentNavActive(undefined, item("assessment"))).toBe(false);
   });
 });

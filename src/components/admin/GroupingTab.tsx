@@ -430,9 +430,13 @@ export default function GroupingTab({
       const url = URL.createObjectURL(await res.blob());
       const a = document.createElement("a");
       a.href = url;
-      a.download = `分组_${selectedClassName}_${new Date().toISOString().slice(0, 10)}.xlsx`;
+      // 与 service 端 Content-Disposition 保持一致，使用 Asia/Shanghai 日期，避免晚上导出显示前一天
+      const dateStr = new Date().toLocaleDateString("sv-SE", { timeZone: "Asia/Shanghai" });
+      a.download = `分组_${selectedClassName}_${dateStr}.xlsx`;
+      document.body.appendChild(a);
       a.click();
-      URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+      setTimeout(() => URL.revokeObjectURL(url), 0);
       toast.success("已导出分组名单");
     } catch (err) {
       console.error("分组导出失败:", err);

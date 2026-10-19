@@ -61,7 +61,7 @@
 
 > **数据概览只回答「有没有做」，图表归数据大屏（#230）**：概览 = 四张统计卡（总提交数 / 标签种类 / **测评完成** / 热门标签，栅格 `1 → 2 → 4` 列）+ 班级概览表（在原有四列后追加 **测评完成**、**交齐比例**，百分比全表取整）。测评数据来自 `/api/manage/stats/assessment`（#229），口径与「提交率」一致（分母=在册人数）；接口不可用/还没人测评时卡片显示 `0` + 「学生还没开始测评」、表格两列显示 `-`，**不出现报错态**。教师端在表下多一条「去数据大屏看兴趣类型分布」引导（`mode="teacher"` 才渲染，管理员端概览不受影响）；**分布类需求一律进数据大屏，概览不新增图表**——这条边界写在 `src/lib/assessment-overview.ts` 的文件头。
 
-**学生面板 `/dashboard/student`** — 侧边栏含可用视图：我的档案（页内再分「我的档案」通览 + 就地修改，二次确认 / 「历史提交」#95 懒加载，恢复生成新版本）、我的小组（#101，只读本组成员）、职业测评（#222）、我的班级（即将上线）、成长记录（即将上线）；高亮按路径判定（「我的档案」精确匹配、「职业测评」前缀匹配覆盖答题页），条目与判定规则在 `src/lib/student-nav.ts`。
+**学生面板 `/dashboard/student`** — 侧边栏五项：我的档案、我的小组（#101）、职业测评（#222）、我的班级（即将上线）、成长记录（即将上线）。「我的档案」「我的小组」是页内视图切换（由 `StudentSidebar` 的 `activeView` / `onSelect` 控制，历史提交作为「我的档案」子视图仍高亮「我的档案」）；「职业测评」是独立路由，按路径前缀高亮（覆盖答题页）。条目定义与判定规则在 `src/lib/student-nav.ts`。
 
 **学生测评中心 `/dashboard/student/assessment`（#222 骨架 + #225 内容卡）** — 承载入口、状态与说明，结果解读与职业推荐留给「我的档案」测评区（#224）。状态来自 `GET /api/shared/assessment/results`（`current` / `inProgress`），三态判定在 `src/lib/assessment-center.ts`：**进行中 > 已完成 > 未开始**（重测中的草稿优先，旧三字码作为次要信息）；量表停用（`assessment.enabled=false`）时收掉「开始 / 继续作答」入口但历史结果照常展示。
 
@@ -76,7 +76,7 @@
 
 ## API 路由
 
-<!-- 对账：`find src/app/api -name route.ts | wc -l`（当前 64 条 = manage 44 + auth 4 + setup 3 + shared 10 + tags/upload/uploads 各 1） -->
+<!-- 对账：`find src/app/api -name route.ts | wc -l`（当前 66 条 = manage 46 + auth 4 + setup 3 + shared 10 + tags/upload/uploads 各 1） -->
 
 ### 认证层（proxy 之外，公开）
 
@@ -97,7 +97,7 @@
 
 ### 管理域 `/api/manage/*`（proxy 拦截：admin 全放行，teacher 按声明式权限表）
 
-<!-- 对账：路由清单 `find src/app/api/manage -name route.ts`（共 44 条）；teacher 权限列须与 src/proxy.ts 的 TEACHER_ALLOWED 逐条一致 -->
+<!-- 对账：路由清单 `find src/app/api/manage -name route.ts`（共 46 条）；teacher 权限列须与 src/proxy.ts 的 TEACHER_ALLOWED 逐条一致 -->
 
 **教师禁止（不在 `TEACHER_ALLOWED`，一律 403）**
 

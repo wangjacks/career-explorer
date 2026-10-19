@@ -107,6 +107,13 @@ async function POST_impl(request: NextRequest) {
     }
 
     const roster = rosterOf(await getStudents(), classId);
+    if (rows.length > roster.length * 2) {
+      fail(session, "导入行数超过上限", { classId, rowCount: rows.length, rosterCount: roster.length });
+      return NextResponse.json(
+        { error: `导入行数（${rows.length}）超过班级人数两倍（${roster.length * 2}），请检查文件` },
+        { status: 400 }
+      );
+    }
     const byCode = new Map(roster.map((s) => [s.user_code, s]));
     const seen = new Set<string>();
     const duplicates: string[] = [];

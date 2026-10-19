@@ -65,7 +65,8 @@ export default function TextAvatar({
   const requested = avatarUrl && !givenUp ? (wantThumb ? toThumbnailUrl(avatarUrl) : avatarUrl) : null;
 
   const mark = (thumb: boolean) =>
-    setFailures({ forUrl: key, thumb, original: thumb ? failed.original : true });
+    // 保留旧 thumb 失败位：原图失败时不能把 thumb 位覆盖成 false，否则又会回头再试一次缩略图
+    setFailures({ forUrl: key, thumb: thumb || failed.thumb, original: thumb ? failed.original : true });
 
   return (
     <span
