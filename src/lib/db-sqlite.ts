@@ -3,6 +3,7 @@ import { mkdirSync, readFileSync, existsSync } from "fs";
 import { tmpdir } from "os";
 import path from "path";
 import { tagCategories } from "./tagData";
+import { ASSESSMENT_SEEDS, getQuestionSeeds, validateAssessmentSeed } from "./assessment-data";
 import { normalizeBackupTags, DEFAULT_MAX_CUSTOM_TAGS, DEFAULT_MAX_PROFILE_SUBMISSIONS, MAX_PROFILE_SUBMISSIONS_KEY, DEFAULT_MEDIA_ORPHAN_RETENTION_DAYS, MEDIA_ORPHAN_RETENTION_KEY } from "./db";
 import type {
   UserRow,
@@ -36,6 +37,10 @@ import type {
   TrendPoint,
   CompareStat,
   ClassTrendSeries,
+  AssessmentRow,
+  AssessmentQuestionRow,
+  AssessmentResultRow,
+  CompleteAssessmentInput,
 } from "./db";
 import { fillGroupedTrend, fillTrendSeries, shiftDate } from "./stats-utils";
 
@@ -183,6 +188,8 @@ export class SqliteAdapter implements DbAdapter {
     this.migrateLegacy();
     this.migrateProfileSubmissions();
     this.migrateGroupSchema();
+    this.migrateAssessmentSchema();
+    this.seedAssessments();
   }
 
   /**
@@ -273,6 +280,131 @@ export class SqliteAdapter implements DbAdapter {
     this.db.exec(
       `CREATE INDEX IF NOT EXISTS idx_group_batch_members_user ON group_batch_members(user_id)`
     );
+  }
+
+  /**
+   * 职业测评三表（#221）：
+   * 1) `assessments` 测评定义（维度 JSON / 计分类型 / 量表版本 / 署名与授权文本）
+   * 2) `assessment_questions` 题库（题号 + 题干 + 维度 + 反向计分 + 题面版本）
+   * 3) `assessment_results` 作答与结果**快照**（草稿与完成记录同表，`is_current` 标当前完成版本）
+   *
+   * 设计要点：
+   * - 题库进库而非写死代码：扩充量表、后台维护题面都不必改代码；
+   * - 结果是快照（作答 + 得分 JSON 落库），学生半年后回看仍是当时结论，不随后续改题漂移；
+   * - 草稿唯一性（同 user + 量表至多一条 in_progress）由适配器事务保证——MySQL 无部分唯一索引，
+   *   两侧都不建部分唯一约束，避免「SQLite 拦得住、MySQL 拦不住」的行为差异；
+   * - `user_id` / `assessment_id` 只写 REFERENCES 不建 ON DELETE CASCADE，与其余表一致。
+   */
+  private migrateAssessmentSchema(): void {
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS assessments (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        code TEXT NOT NULL UNIQUE,
+        name TEXT NOT NULL,
+        question_count INTEGER NOT NULL,
+        dimensions_json TEXT NOT NULL,
+        scoring_mode TEXT NOT NULL DEFAULT 'typological',
+        scale_version TEXT NOT NULL,
+        attribution TEXT NOT NULL DEFAULT '',
+        license_text TEXT NOT NULL DEFAULT '',
+        disclaimer TEXT NOT NULL DEFAULT '',
+        enabled INTEGER NOT NULL DEFAULT 1,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      )
+    `);
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS assessment_questions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        assessment_id INTEGER NOT NULL REFERENCES assessments(id),
+        question_index INTEGER NOT NULL,
+        prompt TEXT NOT NULL,
+        dimension TEXT NOT NULL,
+        reverse_scored INTEGER NOT NULL DEFAULT 0,
+        version INTEGER NOT NULL DEFAULT 1,
+        created_at TEXT NOT NULL,
+        UNIQUE(assessment_id, question_index)
+      )
+    `);
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS assessment_results (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL REFERENCES users(id),
+        assessment_id INTEGER NOT NULL REFERENCES assessments(id),
+        status TEXT NOT NULL DEFAULT 'in_progress',
+        answers_json TEXT NOT NULL DEFAULT '{}',
+        scores_json TEXT,
+        type_code TEXT,
+        is_current INTEGER NOT NULL DEFAULT 0,
+        started_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        completed_at TEXT
+      )
+    `);
+    this.db.exec(
+      `CREATE INDEX IF NOT EXISTS idx_assessment_questions_assessment ON assessment_questions(assessment_id, question_index)`
+    );
+    this.db.exec(
+      `CREATE INDEX IF NOT EXISTS idx_assessment_results_user ON assessment_results(user_id, assessment_id, status)`
+    );
+    this.db.exec(
+      `CREATE INDEX IF NOT EXISTS idx_assessment_results_current ON assessment_results(user_id, assessment_id, is_current)`
+    );
+    this.db.exec(`CREATE INDEX IF NOT EXISTS idx_assessment_results_assessment ON assessment_results(assessment_id)`);
+  }
+
+  /**
+   * 量表种子（#221）：以 `code` 存在性判定幂等——后台维护过的题面不会被启动流程覆盖掉。
+   * 也顺带自愈「恢复旧备份后题库为空」的场景（restore 缺字段时保留现状，但空表仍会补种）。
+   */
+  private seedAssessments(): void {
+    const findAssessment = this.db.prepare("SELECT id FROM assessments WHERE code = ?");
+    const insertAssessment = this.db.prepare(
+      `INSERT INTO assessments
+         (code, name, question_count, dimensions_json, scoring_mode, scale_version,
+          attribution, license_text, disclaimer, enabled, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`
+    );
+    const insertQuestion = this.db.prepare(
+      `INSERT INTO assessment_questions
+         (assessment_id, question_index, prompt, dimension, reverse_scored, version, created_at)
+       VALUES (?, ?, ?, ?, ?, 1, ?)`
+    );
+    const seed = this.db.transaction(() => {
+      for (const definition of ASSESSMENT_SEEDS) {
+        if (findAssessment.get(definition.code)) continue;
+        const questions = getQuestionSeeds(definition.code);
+        if (!questions) throw new Error(`量表 ${definition.code} 缺少题库种子`);
+        // 落库前自检：坏种子宁可安装时报错，也不留半截题库
+        validateAssessmentSeed(definition, questions);
+        const now = getNow();
+        const result = insertAssessment.run(
+          definition.code,
+          definition.name,
+          definition.questionCount,
+          JSON.stringify(definition.dimensions),
+          definition.scoringMode,
+          definition.scaleVersion,
+          definition.attribution,
+          definition.licenseText,
+          definition.disclaimer,
+          now,
+          now
+        );
+        const assessmentId = Number(result.lastInsertRowid);
+        for (const question of questions) {
+          insertQuestion.run(
+            assessmentId,
+            question.index,
+            question.prompt,
+            question.dimension,
+            question.reverseScored ? 1 : 0,
+            now
+          );
+        }
+      }
+    });
+    seed();
   }
 
   /**
@@ -606,6 +738,12 @@ export class SqliteAdapter implements DbAdapter {
       this.db
         .prepare(
           `DELETE FROM class_group_members WHERE user_id IN (SELECT id FROM users WHERE user_code IN (${placeholders}))`
+        )
+        .run(...userCodes);
+      // 测评作答（#221）：属学生个人测评数据，账号删除即无归属方，随手一并清掉（不留悬空 user_id）
+      this.db
+        .prepare(
+          `DELETE FROM assessment_results WHERE user_id IN (SELECT id FROM users WHERE user_code IN (${placeholders}))`
         )
         .run(...userCodes);
       return this.db
@@ -1480,6 +1618,131 @@ export class SqliteAdapter implements DbAdapter {
     return row.same === 1;
   }
 
+  // assessments / assessment_questions / assessment_results（#221 职业测评数据层）
+  getEnabledAssessments(): AssessmentRow[] {
+    return this.db
+      .prepare("SELECT * FROM assessments WHERE enabled = 1 ORDER BY id")
+      .all() as AssessmentRow[];
+  }
+
+  getAssessmentByCode(code: string): AssessmentRow | undefined {
+    return this.db.prepare("SELECT * FROM assessments WHERE code = ?").get(code) as AssessmentRow | undefined;
+  }
+
+  getAssessmentQuestions(assessmentId: number): AssessmentQuestionRow[] {
+    return this.db
+      .prepare("SELECT * FROM assessment_questions WHERE assessment_id = ? ORDER BY question_index")
+      .all(assessmentId) as AssessmentQuestionRow[];
+  }
+
+  getAssessmentQuestionsByCode(code: string): AssessmentQuestionRow[] {
+    return this.db
+      .prepare(
+        `SELECT q.* FROM assessment_questions q
+         JOIN assessments a ON a.id = q.assessment_id
+         WHERE a.code = ? ORDER BY q.question_index`
+      )
+      .all(code) as AssessmentQuestionRow[];
+  }
+
+  upsertAssessmentDraft(userId: number, assessmentId: number, answersJson: string): number {
+    const tx = this.db.transaction(() => {
+      const now = getNow();
+      const draft = this.db
+        .prepare(
+          `SELECT id FROM assessment_results
+           WHERE user_id = ? AND assessment_id = ? AND status = 'in_progress'
+           ORDER BY id DESC LIMIT 1`
+        )
+        .get(userId, assessmentId) as { id: number } | undefined;
+      if (draft) {
+        this.db
+          .prepare("UPDATE assessment_results SET answers_json = ?, updated_at = ? WHERE id = ?")
+          .run(answersJson, now, draft.id);
+        return draft.id;
+      }
+      const result = this.db
+        .prepare(
+          `INSERT INTO assessment_results
+             (user_id, assessment_id, status, answers_json, is_current, started_at, updated_at)
+           VALUES (?, ?, 'in_progress', ?, 0, ?, ?)`
+        )
+        .run(userId, assessmentId, answersJson, now, now);
+      return Number(result.lastInsertRowid);
+    });
+    return tx();
+  }
+
+  getAssessmentDraft(userId: number, assessmentId: number): AssessmentResultRow | undefined {
+    return this.db
+      .prepare(
+        `SELECT * FROM assessment_results
+         WHERE user_id = ? AND assessment_id = ? AND status = 'in_progress'
+         ORDER BY id DESC LIMIT 1`
+      )
+      .get(userId, assessmentId) as AssessmentResultRow | undefined;
+  }
+
+  completeAssessmentResult(input: CompleteAssessmentInput): number {
+    const { userId, assessmentId, answersJson, scoresJson, typeCode } = input;
+    const tx = this.db.transaction(() => {
+      const now = getNow();
+      // 当前版本唯一：先整体置 0，再把本次结果置 1（同一事务内，读不到中间态）
+      this.db
+        .prepare("UPDATE assessment_results SET is_current = 0 WHERE user_id = ? AND assessment_id = ? AND is_current = 1")
+        .run(userId, assessmentId);
+      const draft = this.db
+        .prepare(
+          `SELECT id FROM assessment_results
+           WHERE user_id = ? AND assessment_id = ? AND status = 'in_progress'
+           ORDER BY id DESC LIMIT 1`
+        )
+        .get(userId, assessmentId) as { id: number } | undefined;
+      if (draft) {
+        // 沿用草稿行：保留 started_at，作答内容以本次提交为准
+        this.db
+          .prepare(
+            `UPDATE assessment_results
+             SET status = 'completed', answers_json = ?, scores_json = ?, type_code = ?,
+                 is_current = 1, updated_at = ?, completed_at = ?
+             WHERE id = ?`
+          )
+          .run(answersJson, scoresJson, typeCode, now, now, draft.id);
+        return draft.id;
+      }
+      const result = this.db
+        .prepare(
+          `INSERT INTO assessment_results
+             (user_id, assessment_id, status, answers_json, scores_json, type_code, is_current,
+              started_at, updated_at, completed_at)
+           VALUES (?, ?, 'completed', ?, ?, ?, 1, ?, ?, ?)`
+        )
+        .run(userId, assessmentId, answersJson, scoresJson, typeCode, now, now, now);
+      return Number(result.lastInsertRowid);
+    });
+    return tx();
+  }
+
+  getCurrentAssessmentResult(userId: number, assessmentId: number): AssessmentResultRow | undefined {
+    return this.db
+      .prepare(
+        `SELECT * FROM assessment_results
+         WHERE user_id = ? AND assessment_id = ? AND status = 'completed' AND is_current = 1
+         ORDER BY id DESC LIMIT 1`
+      )
+      .get(userId, assessmentId) as AssessmentResultRow | undefined;
+  }
+
+  getAssessmentResults(userId: number, assessmentId: number): AssessmentResultRow[] {
+    return this.db
+      .prepare(
+        `SELECT * FROM assessment_results
+         WHERE user_id = ? AND assessment_id = ? AND status = 'completed'
+         ORDER BY completed_at DESC, id DESC`
+      )
+      .all(userId, assessmentId) as AssessmentResultRow[];
+  }
+
   backup(): BackupData {
     const users = this.db.prepare("SELECT * FROM users ORDER BY id").all() as UserRow[];
     const classes = this.db.prepare("SELECT * FROM classes ORDER BY id").all() as ClassRow[];
@@ -1513,8 +1776,15 @@ export class SqliteAdapter implements DbAdapter {
     const groupBatchMembers = this.db
       .prepare("SELECT * FROM group_batch_members ORDER BY id")
       .all() as GroupBatchMemberRow[];
+    const assessments = this.db.prepare("SELECT * FROM assessments ORDER BY id").all() as AssessmentRow[];
+    const assessmentQuestions = this.db
+      .prepare("SELECT * FROM assessment_questions ORDER BY id")
+      .all() as AssessmentQuestionRow[];
+    const assessmentResults = this.db
+      .prepare("SELECT * FROM assessment_results ORDER BY id")
+      .all() as AssessmentResultRow[];
     return {
-      version: 5,
+      version: 6,
       sourceType: "sqlite",
       createdAt: new Date().toISOString(),
       users,
@@ -1530,6 +1800,9 @@ export class SqliteAdapter implements DbAdapter {
       group_batches: groupBatches,
       group_batch_groups: groupBatchGroups,
       group_batch_members: groupBatchMembers,
+      assessments,
+      assessment_questions: assessmentQuestions,
+      assessment_results: assessmentResults,
     };
   }
 
@@ -1705,6 +1978,81 @@ export class SqliteAdapter implements DbAdapter {
           }
         }
       }
+      // 测评恢复（#221）：含 assessments 字段 → 定义与题库**成对**整体替换（避免「换了题库没换定义」）；
+      // 旧备份无此字段 → 保留当前量表与题库不动（题库是参考数据，缺失时保留比清空安全）。
+      // 作答结果单独判字段：属学生个人数据，与 profile_submissions 同口径（缺字段保留现状）。
+      if (Array.isArray(d.assessments)) {
+        this.db.exec("DELETE FROM assessment_questions");
+        this.db.exec("DELETE FROM assessments");
+        if (d.assessments.length > 0) {
+          const assessmentStmt = this.db.prepare(
+            `INSERT INTO assessments
+               (id, code, name, question_count, dimensions_json, scoring_mode, scale_version,
+                attribution, license_text, disclaimer, enabled, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+          );
+          for (const a of d.assessments) {
+            assessmentStmt.run(
+              a.id,
+              a.code,
+              a.name,
+              a.question_count,
+              a.dimensions_json,
+              a.scoring_mode ?? "typological",
+              a.scale_version,
+              a.attribution ?? "",
+              a.license_text ?? "",
+              a.disclaimer ?? "",
+              a.enabled ?? 1,
+              a.created_at ?? getNow(),
+              a.updated_at ?? getNow()
+            );
+          }
+        }
+        const questionStmt = this.db.prepare(
+          `INSERT INTO assessment_questions
+             (id, assessment_id, question_index, prompt, dimension, reverse_scored, version, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+        );
+        for (const q of d.assessment_questions ?? []) {
+          questionStmt.run(
+            q.id,
+            q.assessment_id,
+            q.question_index,
+            q.prompt,
+            q.dimension,
+            q.reverse_scored ?? 0,
+            q.version ?? 1,
+            q.created_at ?? getNow()
+          );
+        }
+      }
+      if (Array.isArray(d.assessment_results)) {
+        this.db.exec("DELETE FROM assessment_results");
+        if (d.assessment_results.length > 0) {
+          const resultStmt = this.db.prepare(
+            `INSERT INTO assessment_results
+               (id, user_id, assessment_id, status, answers_json, scores_json, type_code, is_current,
+                started_at, updated_at, completed_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+          );
+          for (const r of d.assessment_results) {
+            resultStmt.run(
+              r.id,
+              r.user_id,
+              r.assessment_id,
+              r.status,
+              r.answers_json ?? "{}",
+              r.scores_json ?? null,
+              r.type_code ?? null,
+              r.is_current ?? 0,
+              r.started_at ?? getNow(),
+              r.updated_at ?? getNow(),
+              r.completed_at ?? null
+            );
+          }
+        }
+      }
       // 分组恢复（#101；**含此字段才回填，旧备份恢复后即为未分组**——上面已统一清空）
       // 当前侧与历史侧各自成对处理，避免出现「删了组却留着成员」的半截状态
       if (Array.isArray(d.class_groups)) {
@@ -1777,6 +2125,8 @@ export class SqliteAdapter implements DbAdapter {
     } finally {
       if (fkWasOn) this.db.pragma("foreign_keys = ON");
     }
+    // 恢复后保证内置量表存在（旧备份无测评字段、或备份本身题库为空时自愈）；已存在的量表不覆盖
+    this.seedAssessments();
   }
 
   close(): void {

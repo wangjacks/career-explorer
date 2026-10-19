@@ -2,6 +2,7 @@ import mysql from "mysql2/promise";
 import { readFileSync, existsSync } from "fs";
 import path from "path";
 import { tagCategories } from "./tagData";
+import { ASSESSMENT_SEEDS, getQuestionSeeds, validateAssessmentSeed } from "./assessment-data";
 import { normalizeBackupTags, DEFAULT_MAX_CUSTOM_TAGS, DEFAULT_MAX_PROFILE_SUBMISSIONS, MAX_PROFILE_SUBMISSIONS_KEY, DEFAULT_MEDIA_ORPHAN_RETENTION_DAYS, MEDIA_ORPHAN_RETENTION_KEY } from "./db";
 import type {
   UserRow,
@@ -35,6 +36,10 @@ import type {
   TrendPoint,
   CompareStat,
   ClassTrendSeries,
+  AssessmentRow,
+  AssessmentQuestionRow,
+  AssessmentResultRow,
+  CompleteAssessmentInput,
 } from "./db";
 import { fillGroupedTrend, fillTrendSeries, shiftDate } from "./stats-utils";
 
@@ -190,6 +195,8 @@ export class MysqlAdapter implements DbAdapter {
     await this.migrateLegacy();
     await this.migrateProfileSubmissions();
     await this.migrateGroupSchema();
+    await this.migrateAssessmentSchema();
+    await this.seedAssessments();
   }
 
   /**
@@ -275,6 +282,123 @@ export class MysqlAdapter implements DbAdapter {
         CONSTRAINT fk_batch_members_group FOREIGN KEY (group_id) REFERENCES group_batch_groups(id)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
     `);
+  }
+
+  /**
+   * 职业测评三表（#221）：与 sqlite 适配器同构（列名/约束/索引一致），差异仅在方言：
+   * `INT AUTO_INCREMENT`、定长 VARCHAR、`TINYINT`。
+   * 语义与取舍（题库进库、结果快照、草稿唯一性由事务保证、无 ON DELETE CASCADE）见 sqlite 侧同名方法注释。
+   */
+  private async migrateAssessmentSchema(): Promise<void> {
+    await this.pool.execute(`
+      CREATE TABLE IF NOT EXISTS assessments (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        code VARCHAR(32) NOT NULL UNIQUE,
+        name VARCHAR(100) NOT NULL,
+        question_count INT NOT NULL,
+        dimensions_json TEXT NOT NULL,
+        scoring_mode VARCHAR(20) NOT NULL DEFAULT 'typological',
+        scale_version VARCHAR(50) NOT NULL,
+        attribution TEXT NOT NULL,
+        license_text TEXT NOT NULL,
+        disclaimer TEXT NOT NULL,
+        enabled TINYINT NOT NULL DEFAULT 1,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    `);
+    await this.pool.execute(`
+      CREATE TABLE IF NOT EXISTS assessment_questions (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        assessment_id INT NOT NULL,
+        question_index INT NOT NULL,
+        prompt TEXT NOT NULL,
+        dimension VARCHAR(20) NOT NULL,
+        reverse_scored TINYINT NOT NULL DEFAULT 0,
+        version INT NOT NULL DEFAULT 1,
+        created_at TEXT NOT NULL,
+        UNIQUE KEY uq_assessment_question_index (assessment_id, question_index)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    `);
+    await this.pool.execute(`
+      CREATE TABLE IF NOT EXISTS assessment_results (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        user_id INT NOT NULL,
+        assessment_id INT NOT NULL,
+        status VARCHAR(20) NOT NULL DEFAULT 'in_progress',
+        answers_json MEDIUMTEXT NOT NULL,
+        scores_json TEXT,
+        type_code VARCHAR(16),
+        is_current TINYINT NOT NULL DEFAULT 0,
+        started_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        completed_at TEXT,
+        INDEX idx_assessment_results_user (user_id, assessment_id, status),
+        INDEX idx_assessment_results_current (user_id, assessment_id, is_current),
+        INDEX idx_assessment_results_assessment (assessment_id)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    `);
+  }
+
+  /**
+   * 量表种子（#221）：以 `code` 存在性判定幂等——后台维护过的题面不会被启动流程覆盖掉。
+   * 与 sqlite 侧同口径：落库前用同一个 `validateAssessmentSeed` 自检，坏种子在安装时报错。
+   */
+  private async seedAssessments(): Promise<void> {
+    for (const definition of ASSESSMENT_SEEDS) {
+      const [existing] = await this.pool.execute("SELECT id FROM assessments WHERE code = ?", [definition.code]);
+      if ((existing as unknown[]).length > 0) continue;
+      const questions = getQuestionSeeds(definition.code);
+      if (!questions) throw new Error(`量表 ${definition.code} 缺少题库种子`);
+      validateAssessmentSeed(definition, questions);
+
+      const conn = await this.pool.getConnection();
+      try {
+        await conn.beginTransaction();
+        const now = getNow();
+        const [result] = await conn.execute(
+          `INSERT INTO assessments
+             (code, name, question_count, dimensions_json, scoring_mode, scale_version,
+              attribution, license_text, disclaimer, enabled, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`,
+          [
+            definition.code,
+            definition.name,
+            definition.questionCount,
+            JSON.stringify(definition.dimensions),
+            definition.scoringMode,
+            definition.scaleVersion,
+            definition.attribution,
+            definition.licenseText,
+            definition.disclaimer,
+            now,
+            now,
+          ]
+        );
+        const assessmentId = (result as mysql.ResultSetHeader).insertId;
+        const values = questions.map((question) => [
+          assessmentId,
+          question.index,
+          question.prompt,
+          question.dimension,
+          question.reverseScored ? 1 : 0,
+          1,
+          now,
+        ]);
+        await conn.query(
+          `INSERT INTO assessment_questions
+             (assessment_id, question_index, prompt, dimension, reverse_scored, version, created_at)
+           VALUES ?`,
+          [values]
+        );
+        await conn.commit();
+      } catch (err) {
+        await conn.rollback();
+        throw err;
+      } finally {
+        conn.release();
+      }
+    }
   }
 
   /**
@@ -644,6 +768,11 @@ export class MysqlAdapter implements DbAdapter {
       // 分组（#101）：只清「当前分组」的成员行；历史批次保留快照（姓名/学号冗余，账号删除后仍可读）
       await conn.execute(
         `DELETE FROM class_group_members WHERE user_id IN (SELECT id FROM users WHERE user_code IN (${placeholders}))`,
+        userCodes
+      );
+      // 测评作答（#221）：属学生个人测评数据，账号删除即无归属方，随手一并清掉（不留悬空 user_id）
+      await conn.execute(
+        `DELETE FROM assessment_results WHERE user_id IN (SELECT id FROM users WHERE user_code IN (${placeholders}))`,
         userCodes
       );
       const [result] = await conn.execute(
@@ -1656,6 +1785,149 @@ export class MysqlAdapter implements DbAdapter {
     return Number(row?.same ?? 0) > 0;
   }
 
+  // assessments / assessment_questions / assessment_results（#221 职业测评数据层）
+  async getEnabledAssessments(): Promise<AssessmentRow[]> {
+    const [rows] = await this.pool.execute("SELECT * FROM assessments WHERE enabled = 1 ORDER BY id");
+    return rows as AssessmentRow[];
+  }
+
+  async getAssessmentByCode(code: string): Promise<AssessmentRow | undefined> {
+    const [rows] = await this.pool.execute("SELECT * FROM assessments WHERE code = ?", [code]);
+    return (rows as AssessmentRow[])[0];
+  }
+
+  async getAssessmentQuestions(assessmentId: number): Promise<AssessmentQuestionRow[]> {
+    const [rows] = await this.pool.execute(
+      "SELECT * FROM assessment_questions WHERE assessment_id = ? ORDER BY question_index",
+      [assessmentId]
+    );
+    return rows as AssessmentQuestionRow[];
+  }
+
+  async getAssessmentQuestionsByCode(code: string): Promise<AssessmentQuestionRow[]> {
+    const [rows] = await this.pool.execute(
+      `SELECT q.* FROM assessment_questions q
+       JOIN assessments a ON a.id = q.assessment_id
+       WHERE a.code = ? ORDER BY q.question_index`,
+      [code]
+    );
+    return rows as AssessmentQuestionRow[];
+  }
+
+  async upsertAssessmentDraft(userId: number, assessmentId: number, answersJson: string): Promise<number> {
+    const conn = await this.pool.getConnection();
+    try {
+      await conn.beginTransaction();
+      const now = getNow();
+      const [draftRows] = await conn.execute(
+        `SELECT id FROM assessment_results
+         WHERE user_id = ? AND assessment_id = ? AND status = 'in_progress'
+         ORDER BY id DESC LIMIT 1`,
+        [userId, assessmentId]
+      );
+      const draft = (draftRows as { id: number }[])[0];
+      if (draft) {
+        await conn.execute("UPDATE assessment_results SET answers_json = ?, updated_at = ? WHERE id = ?", [
+          answersJson,
+          now,
+          draft.id,
+        ]);
+        await conn.commit();
+        return draft.id;
+      }
+      const [result] = await conn.execute(
+        `INSERT INTO assessment_results
+           (user_id, assessment_id, status, answers_json, is_current, started_at, updated_at)
+         VALUES (?, ?, 'in_progress', ?, 0, ?, ?)`,
+        [userId, assessmentId, answersJson, now, now]
+      );
+      await conn.commit();
+      return (result as mysql.ResultSetHeader).insertId;
+    } catch (err) {
+      await conn.rollback();
+      throw err;
+    } finally {
+      conn.release();
+    }
+  }
+
+  async getAssessmentDraft(userId: number, assessmentId: number): Promise<AssessmentResultRow | undefined> {
+    const [rows] = await this.pool.execute(
+      `SELECT * FROM assessment_results
+       WHERE user_id = ? AND assessment_id = ? AND status = 'in_progress'
+       ORDER BY id DESC LIMIT 1`,
+      [userId, assessmentId]
+    );
+    return (rows as AssessmentResultRow[])[0];
+  }
+
+  async completeAssessmentResult(input: CompleteAssessmentInput): Promise<number> {
+    const { userId, assessmentId, answersJson, scoresJson, typeCode } = input;
+    const conn = await this.pool.getConnection();
+    try {
+      await conn.beginTransaction();
+      const now = getNow();
+      // 当前版本唯一：先整体置 0，再把本次结果置 1（同一事务内，读不到中间态）
+      await conn.execute(
+        "UPDATE assessment_results SET is_current = 0 WHERE user_id = ? AND assessment_id = ? AND is_current = 1",
+        [userId, assessmentId]
+      );
+      const [draftRows] = await conn.execute(
+        `SELECT id FROM assessment_results
+         WHERE user_id = ? AND assessment_id = ? AND status = 'in_progress'
+         ORDER BY id DESC LIMIT 1`,
+        [userId, assessmentId]
+      );
+      const draft = (draftRows as { id: number }[])[0];
+      if (draft) {
+        // 沿用草稿行：保留 started_at，作答内容以本次提交为准
+        await conn.execute(
+          `UPDATE assessment_results
+           SET status = 'completed', answers_json = ?, scores_json = ?, type_code = ?,
+               is_current = 1, updated_at = ?, completed_at = ?
+           WHERE id = ?`,
+          [answersJson, scoresJson, typeCode, now, now, draft.id]
+        );
+        await conn.commit();
+        return draft.id;
+      }
+      const [result] = await conn.execute(
+        `INSERT INTO assessment_results
+           (user_id, assessment_id, status, answers_json, scores_json, type_code, is_current,
+            started_at, updated_at, completed_at)
+         VALUES (?, ?, 'completed', ?, ?, ?, 1, ?, ?, ?)`,
+        [userId, assessmentId, answersJson, scoresJson, typeCode, now, now, now]
+      );
+      await conn.commit();
+      return (result as mysql.ResultSetHeader).insertId;
+    } catch (err) {
+      await conn.rollback();
+      throw err;
+    } finally {
+      conn.release();
+    }
+  }
+
+  async getCurrentAssessmentResult(userId: number, assessmentId: number): Promise<AssessmentResultRow | undefined> {
+    const [rows] = await this.pool.execute(
+      `SELECT * FROM assessment_results
+       WHERE user_id = ? AND assessment_id = ? AND status = 'completed' AND is_current = 1
+       ORDER BY id DESC LIMIT 1`,
+      [userId, assessmentId]
+    );
+    return (rows as AssessmentResultRow[])[0];
+  }
+
+  async getAssessmentResults(userId: number, assessmentId: number): Promise<AssessmentResultRow[]> {
+    const [rows] = await this.pool.execute(
+      `SELECT * FROM assessment_results
+       WHERE user_id = ? AND assessment_id = ? AND status = 'completed'
+       ORDER BY completed_at DESC, id DESC`,
+      [userId, assessmentId]
+    );
+    return rows as AssessmentResultRow[];
+  }
+
   async backup(): Promise<BackupData> {
     // **单连接 + 一致性快照**：这张表用 pool.execute 逐条读，每次任取连接、各自开隐式事务，
     // 中途有写入就会读出「成员行引用一个不在本次 users 里的 user_id」这类撕裂备份；
@@ -1681,9 +1953,12 @@ export class MysqlAdapter implements DbAdapter {
       const [groupBatches] = await conn.execute("SELECT * FROM group_batches ORDER BY id");
       const [groupBatchGroups] = await conn.execute("SELECT * FROM group_batch_groups ORDER BY id");
       const [groupBatchMembers] = await conn.execute("SELECT * FROM group_batch_members ORDER BY id");
+      const [assessments] = await conn.execute("SELECT * FROM assessments ORDER BY id");
+      const [assessmentQuestions] = await conn.execute("SELECT * FROM assessment_questions ORDER BY id");
+      const [assessmentResults] = await conn.execute("SELECT * FROM assessment_results ORDER BY id");
       await conn.commit();
       return {
-        version: 5,
+        version: 6,
         sourceType: "mysql",
         createdAt: new Date().toISOString(),
         users: users as UserRow[],
@@ -1699,6 +1974,9 @@ export class MysqlAdapter implements DbAdapter {
         group_batches: groupBatches as GroupBatchRow[],
         group_batch_groups: groupBatchGroups as GroupBatchGroupRow[],
         group_batch_members: groupBatchMembers as GroupBatchMemberRow[],
+        assessments: assessments as AssessmentRow[],
+        assessment_questions: assessmentQuestions as AssessmentQuestionRow[],
+        assessment_results: assessmentResults as AssessmentResultRow[],
       };
     } catch (err) {
       await conn.rollback();
@@ -1881,6 +2159,80 @@ export class MysqlAdapter implements DbAdapter {
           );
         }
       }
+      // 测评恢复（#221）：含 assessments 字段 → 定义与题库**成对**整体替换（避免「换了题库没换定义」）；
+      // 旧备份无此字段 → 保留当前量表与题库不动（题库是参考数据，缺失时保留比清空安全）。
+      // 作答结果单独判字段：属学生个人数据，与 profile_submissions 同口径（缺字段保留现状）。
+      if (Array.isArray(data.assessments)) {
+        await conn.execute("DELETE FROM assessment_questions");
+        await conn.execute("DELETE FROM assessments");
+        if (data.assessments.length > 0) {
+          const values = data.assessments.map((a) => [
+            a.id,
+            a.code,
+            a.name,
+            a.question_count,
+            a.dimensions_json,
+            a.scoring_mode ?? "typological",
+            a.scale_version,
+            a.attribution ?? "",
+            a.license_text ?? "",
+            a.disclaimer ?? "",
+            a.enabled ?? 1,
+            a.created_at ?? getNow(),
+            a.updated_at ?? getNow(),
+          ]);
+          await conn.query(
+            `INSERT INTO assessments
+               (id, code, name, question_count, dimensions_json, scoring_mode, scale_version,
+                attribution, license_text, disclaimer, enabled, created_at, updated_at)
+             VALUES ?`,
+            [values]
+          );
+        }
+        if ((data.assessment_questions ?? []).length > 0) {
+          const values = (data.assessment_questions ?? []).map((q) => [
+            q.id,
+            q.assessment_id,
+            q.question_index,
+            q.prompt,
+            q.dimension,
+            q.reverse_scored ?? 0,
+            q.version ?? 1,
+            q.created_at ?? getNow(),
+          ]);
+          await conn.query(
+            `INSERT INTO assessment_questions
+               (id, assessment_id, question_index, prompt, dimension, reverse_scored, version, created_at)
+             VALUES ?`,
+            [values]
+          );
+        }
+      }
+      if (Array.isArray(data.assessment_results)) {
+        await conn.execute("DELETE FROM assessment_results");
+        if (data.assessment_results.length > 0) {
+          const values = data.assessment_results.map((r) => [
+            r.id,
+            r.user_id,
+            r.assessment_id,
+            r.status,
+            r.answers_json ?? "{}",
+            r.scores_json ?? null,
+            r.type_code ?? null,
+            r.is_current ?? 0,
+            r.started_at ?? getNow(),
+            r.updated_at ?? getNow(),
+            r.completed_at ?? null,
+          ]);
+          await conn.query(
+            `INSERT INTO assessment_results
+               (id, user_id, assessment_id, status, answers_json, scores_json, type_code, is_current,
+                started_at, updated_at, completed_at)
+             VALUES ?`,
+            [values]
+          );
+        }
+      }
       // 分组恢复（#101；**含此字段才回填，旧备份恢复后即为未分组**——上面已统一清空）
       // 当前侧与历史侧各自成对处理，避免出现「删了组却留着成员」的半截状态
       if (Array.isArray(data.class_groups)) {
@@ -1977,6 +2329,8 @@ export class MysqlAdapter implements DbAdapter {
     } finally {
       conn.release();
     }
+    // 恢复后保证内置量表存在（旧备份无测评字段、或备份本身题库为空时自愈）；已存在的量表不覆盖
+    await this.seedAssessments();
   }
 
   async close(): Promise<void> {
