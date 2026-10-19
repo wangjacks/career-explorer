@@ -119,3 +119,33 @@ export function computeRosterBits(enrolled: number, submitted: number) {
 export function buildClassSeries(points: ClassTrendSeries["points"]) {
   return points.map((p) => ({ ...p.counts, date: p.date }));
 }
+
+/** 面板主页按时段问候（入参为本地小时 0–23；跨时段停留时调用方每分钟重算） */
+export function getTimeGreeting(hour: number): string {
+  if (hour < 5) return "夜深了";
+  if (hour < 11) return "早上好";
+  if (hour < 13) return "中午好";
+  if (hour < 18) return "下午好";
+  return "晚上好";
+}
+
+/** 侧边栏分组的最小形状：主页卡片与侧边栏共用同一份导航数据 */
+export interface NavGroupLike<T> {
+  /** 组头；无组头的单项分组省略 */
+  label?: string;
+  items: T[];
+}
+
+/**
+ * 主页快捷入口：从侧边栏的分组数据里去掉「当前页自身」与空分组。
+ * 导航只维护一份（`page.tsx` 的 MENU_GROUPS），新增栏目时主页卡片自动跟着出现，
+ * 不会出现「侧边栏加了、主页忘了加」的两处维护。
+ */
+export function buildQuickNavGroups<T extends { key: string }>(
+  groups: readonly NavGroupLike<T>[],
+  currentKey: string
+): NavGroupLike<T>[] {
+  return groups
+    .map((group) => ({ ...group, items: group.items.filter((item) => item.key !== currentKey) }))
+    .filter((group) => group.items.length > 0);
+}

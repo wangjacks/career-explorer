@@ -3,9 +3,11 @@ import {
   ROSTER_MARK_CAP,
   buildClassSubmissionRows,
   buildClassSeries,
+  buildQuickNavGroups,
   computeDashboardTotals,
   computeRosterBits,
   filterRosterStudents,
+  getTimeGreeting,
   maskStudentCode,
   type RosterStudent,
 } from "../lib/dashboard-utils";
@@ -128,5 +130,52 @@ describe("filterRosterStudents", () => {
     expect(filterRosterStudents(students, "all", "张").map((s) => s.name)).toEqual(["张三"]);
     expect(filterRosterStudents(students, "all", "202301230158").map((s) => s.name)).toEqual(["王五"]);
     expect(filterRosterStudents(students, "all", "不存在")).toEqual([]);
+  });
+});
+
+describe("getTimeGreeting", () => {
+  it("五个时段的边界值（问候语逻辑沿用 #228 之前的口径）", () => {
+    expect(getTimeGreeting(0)).toBe("夜深了");
+    expect(getTimeGreeting(4)).toBe("夜深了");
+    expect(getTimeGreeting(5)).toBe("早上好");
+    expect(getTimeGreeting(10)).toBe("早上好");
+    expect(getTimeGreeting(11)).toBe("中午好");
+    expect(getTimeGreeting(12)).toBe("中午好");
+    expect(getTimeGreeting(13)).toBe("下午好");
+    expect(getTimeGreeting(17)).toBe("下午好");
+    expect(getTimeGreeting(18)).toBe("晚上好");
+    expect(getTimeGreeting(23)).toBe("晚上好");
+  });
+});
+
+describe("buildQuickNavGroups", () => {
+  const groups = [
+    { items: [{ key: "home" }, { key: "standalone" }] },
+    { label: "数据中心", items: [{ key: "overview" }, { key: "dashboard" }] },
+    { label: "系统设置", items: [{ key: "home" }] },
+  ];
+
+  it("去掉当前页自身，并把只剩当前页的分组整个丢掉", () => {
+    expect(buildQuickNavGroups(groups, "home")).toEqual([
+      { items: [{ key: "standalone" }] },
+      { label: "数据中心", items: [{ key: "overview" }, { key: "dashboard" }] },
+    ]);
+  });
+
+  it("组内顺序与组顺序保持不变（卡片顺序跟随侧边栏）", () => {
+    const quick = buildQuickNavGroups(groups, "home");
+    expect(quick.map((group) => group.label)).toEqual([undefined, "数据中心"]);
+    expect(quick[1].items.map((item) => item.key)).toEqual(["overview", "dashboard"]);
+  });
+
+  it("不修改入参：侧边栏用的那份导航数据不能被快捷入口的过滤改掉", () => {
+    const snapshot = JSON.parse(JSON.stringify(groups));
+    buildQuickNavGroups(groups, "home");
+    expect(groups).toEqual(snapshot);
+  });
+
+  it("非主页场景：过滤的是传入的当前栏目 key（不硬编码主页）", () => {
+    expect(buildQuickNavGroups(groups, "overview")[1].items.map((item) => item.key)).toEqual(["dashboard"]);
+    expect(buildQuickNavGroups(groups, "standalone")[0].items.map((item) => item.key)).toEqual(["home"]);
   });
 });
