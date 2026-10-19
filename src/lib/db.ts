@@ -382,6 +382,33 @@ export interface CompleteAssessmentInput {
 }
 
 /**
+ * 测评统计的**原始计数**（#229，教师端）：适配器只负责数数，完成率、排序、截断与中文标签
+ * 统一由 `src/lib/assessment-stats.ts` 的纯函数算——两适配器不重复实现同一套口径。
+ *
+ * 范围口径：`classIds = null` 表示全校（含未分班学生，保证完成率不出现 >100% 的怪值）；
+ * 传具体班级集合时只统计这些班的学生，班级列表也只含这些班。
+ */
+export interface AssessmentStatsRaw {
+  classes: { class_id: number; name: string; enrolled: number; assessed: number }[];
+  /** 六型计数：key = 三字码首位字母（与计分引擎的破平优先序一致，不另算一遍） */
+  types: { key: string; count: number }[];
+  /** 三字码计数（未排序未截断，最终展示顺序见 `finalizeAssessmentStats`） */
+  codes: { code: string; count: number }[];
+  total: { enrolled: number; assessed: number; last_completed_at: string | null };
+}
+
+/** 测评名册行（#229）：**含个人信息**，只给教师端下钻用，读取必须记审计 */
+export interface AssessmentRosterRow {
+  class_id: number | null;
+  class_name: string | null;
+  name: string;
+  user_code: string;
+  /** 三字码（首位即归型依据） */
+  code: string;
+  assessed_at: string;
+}
+
+/**
  * onet_occupations 行（#226）：O*NET 职业库，**离线导入的只读参考数据**。
  * 不进备份（可离线重灌，且体量远大于业务数据），恢复后按种子自愈。
  */
@@ -743,6 +770,25 @@ export interface DbAdapter {
   // onet_occupations（#226 O*NET 职业库：离线导入的只读参考数据）
   /** 全部职业（按 code 升序）。匹配在内存里做（余弦），一次读全量比逐条查省事且结果稳定 */
   getOnetOccupations(): Promise<OnetOccupationRow[]> | OnetOccupationRow[];
+
+  // 教师端测评统计（#229）
+  /**
+   * 测评聚合计数（**不含个人信息**）：班级完成度、六型计数、三字码计数与总计。
+   * `classIds = null` 为全校口径；传集合则只统计这些班级（教师「只看我的班」）。
+   */
+  getAssessmentStats(
+    assessmentId: number,
+    classIds: number[] | null
+  ): Promise<AssessmentStatsRaw> | AssessmentStatsRaw;
+  /**
+   * 测评名册（**含姓名/学号，读取须记审计**）：只返回已完成且当前有效的结果。
+   * `classIds` 收窄班级范围（教师归属班级），`filters.classId` 再收窄到单班，`filters.lead` 按三字码首位过滤。
+   */
+  getAssessmentRoster(
+    assessmentId: number,
+    classIds: number[] | null,
+    filters?: { classId?: number | null; lead?: string | null }
+  ): Promise<AssessmentRosterRow[]> | AssessmentRosterRow[];
 
   backup(): Promise<BackupData> | BackupData;
   restore(data: BackupData): Promise<void> | void;
@@ -1329,6 +1375,25 @@ export async function getAssessmentResults(
 export async function getOnetOccupations(): Promise<OnetOccupationRow[]> {
   const adapter = await ensureInit();
   return Promise.resolve(adapter.getOnetOccupations());
+}
+
+/** #229：教师端测评聚合计数（不含个人信息） */
+export async function getAssessmentStats(
+  assessmentId: number,
+  classIds: number[] | null
+): Promise<AssessmentStatsRaw> {
+  const adapter = await ensureInit();
+  return Promise.resolve(adapter.getAssessmentStats(assessmentId, classIds));
+}
+
+/** #229：教师端测评名册（含个人信息，调用方必须记审计并先收窄班级范围） */
+export async function getAssessmentRoster(
+  assessmentId: number,
+  classIds: number[] | null,
+  filters?: { classId?: number | null; lead?: string | null }
+): Promise<AssessmentRosterRow[]> {
+  const adapter = await ensureInit();
+  return Promise.resolve(adapter.getAssessmentRoster(assessmentId, classIds, filters));
 }
 
 export async function backup(): Promise<BackupData> {
