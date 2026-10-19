@@ -1,3 +1,4 @@
+import { withDemoScope } from "@/lib/demo-scope";
 import { NextRequest, NextResponse } from "next/server";
 import {
   countUsersByStorageId,
@@ -44,7 +45,7 @@ function credentialsConfigured(backend: StorageBackendRow): boolean {
   }
 }
 
-export async function GET(request: NextRequest) {
+async function GET_impl(request: NextRequest) {
   const denied = await requireAdmin(request);
   if (denied) return denied;
   try {
@@ -58,7 +59,7 @@ export async function GET(request: NextRequest) {
   }
 }
 
-export async function POST(request: NextRequest) {
+async function POST_impl(request: NextRequest) {
   const { ip, user_agent } = getRequestContext(request);
   const actor = await getAuditActor(request);
   const denied = await requireAdmin(request);
@@ -115,7 +116,7 @@ export async function POST(request: NextRequest) {
   }
 }
 
-export async function PUT(request: NextRequest) {
+async function PUT_impl(request: NextRequest) {
   const { ip, user_agent } = getRequestContext(request);
   const actor = await getAuditActor(request);
   const denied = await requireAdmin(request);
@@ -180,7 +181,7 @@ export async function PUT(request: NextRequest) {
   }
 }
 
-export async function DELETE(request: NextRequest) {
+async function DELETE_impl(request: NextRequest) {
   const { ip, user_agent } = getRequestContext(request);
   const actor = await getAuditActor(request);
   const denied = await requireAdmin(request);
@@ -223,7 +224,7 @@ export async function DELETE(request: NextRequest) {
   }
 }
 
-export async function PATCH(request: NextRequest) {
+async function PATCH_impl(request: NextRequest) {
   const { ip, user_agent } = getRequestContext(request);
   const actor = await getAuditActor(request);
   const denied = await requireAdmin(request);
@@ -259,3 +260,9 @@ export async function PATCH(request: NextRequest) {
     return NextResponse.json({ error: "设置默认后端失败" }, { status: 500 });
   }
 }
+
+export const GET = withDemoScope(GET_impl);
+export const POST = withDemoScope(POST_impl);
+export const PUT = withDemoScope(PUT_impl);
+export const DELETE = withDemoScope(DELETE_impl);
+export const PATCH = withDemoScope(PATCH_impl);

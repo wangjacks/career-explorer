@@ -1,3 +1,4 @@
+import { withDemoScope } from "@/lib/demo-scope";
 import { NextRequest, NextResponse } from "next/server";
 import { getAssessmentByCode, getAssessmentStats } from "@/lib/db";
 import { RIASEC_CODE } from "@/lib/assessment-data";
@@ -21,7 +22,7 @@ type Scope = (typeof SCOPES)[number];
  * - 聚合读取不记审计：与既有 stats / 档案列表等本人无权限差异的只读端点同口径（#110 的审计范围是个人信息读取、
  *   管理域写操作、认证事件等）。
  */
-export async function GET(request: NextRequest) {
+async function GET_impl(request: NextRequest) {
   try {
     const session = await getSession(request);
     if (!session || (session.role !== "admin" && session.role !== "teacher")) {
@@ -63,3 +64,5 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "获取测评统计失败" }, { status: 500 });
   }
 }
+
+export const GET = withDemoScope(GET_impl);

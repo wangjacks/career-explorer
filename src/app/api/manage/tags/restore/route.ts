@@ -1,3 +1,4 @@
+import { withDemoScope } from "@/lib/demo-scope";
 import { NextRequest, NextResponse } from "next/server";
 import { resetTagsToDefaults } from "@/lib/db";
 import { getRequestContext, recordAudit } from "@/lib/audit";
@@ -11,7 +12,7 @@ const RESTORE: AuditTarget = {
 };
 
 /** 恢复默认预设（#94 补充）：清空全部标签后重插默认预设（需前端二次确认） */
-export async function POST(request: NextRequest) {
+async function POST_impl(request: NextRequest) {
   const { ip, user_agent } = getRequestContext(request);
   const guard = await WriteGuard.from(request);
   const actor = guard.actor;
@@ -29,3 +30,5 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "恢复默认失败" }, { status: 500 });
   }
 }
+
+export const POST = withDemoScope(POST_impl);

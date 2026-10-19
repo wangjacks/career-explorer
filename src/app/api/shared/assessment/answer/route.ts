@@ -1,3 +1,4 @@
+import { withDemoScope } from "@/lib/demo-scope";
 import { NextRequest, NextResponse } from "next/server";
 import {
   getAssessmentByCode,
@@ -28,7 +29,7 @@ import { getRequestContext, recordAudit } from "@/lib/audit";
  * 仍是最后写入为准——单标签页由前端「保存中禁用」串行，跨标签页丢的一题会显示为未答、重进补答即可。
  * 不使用 localStorage —— 进度以服务端草稿为唯一真相（与 #221 的草稿唯一性约束配套）。
  */
-export async function POST(request: NextRequest) {
+async function POST_impl(request: NextRequest) {
   const { ip, user_agent } = getRequestContext(request);
   try {
     const token = request.cookies.get("auth_token")?.value;
@@ -126,3 +127,5 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "服务器错误" }, { status: 500 });
   }
 }
+
+export const POST = withDemoScope(POST_impl);

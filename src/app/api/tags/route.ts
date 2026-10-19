@@ -1,3 +1,4 @@
+import { withDemoScope } from "@/lib/demo-scope";
 import { NextResponse } from "next/server";
 import {
   getActiveTags,
@@ -12,7 +13,7 @@ import {
  * 开放端点：表单/学生面板拉取预设标签 + 自定义标签上限（#94）+ 提交截止状态（#96，服务端计算）
  * + 图片上传体积上限（#206，选图前预检用；服务端校验仍是最终防线）
  */
-export async function GET() {
+async function GET_impl() {
   try {
     const tags = await getActiveTags();
     const maxCustomTags = await getMaxCustomTags();
@@ -43,3 +44,5 @@ export async function GET() {
     return NextResponse.json({ error: "获取标签失败" }, { status: 500 });
   }
 }
+
+export const GET = withDemoScope(GET_impl);

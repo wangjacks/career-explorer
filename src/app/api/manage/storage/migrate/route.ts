@@ -1,3 +1,4 @@
+import { withDemoScope } from "@/lib/demo-scope";
 import { NextRequest, NextResponse } from "next/server";
 import {
   getUsersByStorageId,
@@ -24,7 +25,7 @@ function extractLocalKey(url: string): string {
   return noQuery.startsWith(proxyPrefix) ? noQuery.slice(proxyPrefix.length) : noQuery;
 }
 
-export async function POST(request: NextRequest) {
+async function POST_impl(request: NextRequest) {
   const { ip, user_agent } = getRequestContext(request);
   const actor = await getAuditActor(request);
 
@@ -121,3 +122,5 @@ async function migrateUserFiles(
     return key;
   }
 }
+
+export const POST = withDemoScope(POST_impl);

@@ -1,3 +1,4 @@
+import { withDemoScope } from "@/lib/demo-scope";
 import { NextRequest, NextResponse } from "next/server";
 import { getStudentGroupRef, getUserById, moveGroupMember } from "@/lib/db";
 import { getRequestContext, recordAudit } from "@/lib/audit";
@@ -15,7 +16,7 @@ const AUDIT = {
  * PATCH：把一个成员移到本班的另一个组（手工调整）。
  * 允许移入已满的组（界面标注「超员」）：规模规则只约束自动分组，教师的手工决定不阻断。
  */
-export async function PATCH(request: NextRequest) {
+async function PATCH_impl(request: NextRequest) {
   const { ip, user_agent } = getRequestContext(request);
   // 被拒的调整也是审计对象（AGENTS.md：管理域写操作成败均记）
   const fail = groupFailureWriter(request, AUDIT);
@@ -86,3 +87,5 @@ export async function PATCH(request: NextRequest) {
     return NextResponse.json({ error: "移动成员失败" }, { status: 500 });
   }
 }
+
+export const PATCH = withDemoScope(PATCH_impl);

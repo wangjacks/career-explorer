@@ -1,3 +1,4 @@
+import { withDemoScope } from "@/lib/demo-scope";
 import { NextRequest, NextResponse } from "next/server";
 import {
   getAssessmentByCode,
@@ -34,7 +35,7 @@ import { onetDatasetInfo, ONET_ATTRIBUTION } from "@/lib/onet";
  *
  * 推荐本身是纯函数（`rankCareers`）：匹配不落库、不缓存，职业库变更后结果自然跟着变。
  */
-export async function GET(request: NextRequest) {
+async function GET_impl(request: NextRequest) {
   try {
     const token = request.cookies.get("auth_token")?.value;
     if (!token) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -143,3 +144,5 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "获取职业推荐失败" }, { status: 500 });
   }
 }
+
+export const GET = withDemoScope(GET_impl);

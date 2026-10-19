@@ -1,7 +1,8 @@
+import { withDemoScope } from "@/lib/demo-scope";
 import { NextResponse } from "next/server";
 import { getStats } from "@/lib/db";
 
-export async function GET() {
+async function GET_impl() {
   try {
     const stats = await getStats();
     return NextResponse.json(stats);
@@ -10,3 +11,5 @@ export async function GET() {
     return NextResponse.json({ error: "获取统计失败" }, { status: 500 });
   }
 }
+
+export const GET = withDemoScope(GET_impl);

@@ -1,7 +1,8 @@
+import { withDemoScope } from "@/lib/demo-scope";
 import { NextResponse } from "next/server";
 import { getCompareByClass } from "@/lib/db";
 
-export async function GET() {
+async function GET_impl() {
   try {
     const data = await getCompareByClass();
     return NextResponse.json(data);
@@ -10,3 +11,5 @@ export async function GET() {
     return NextResponse.json({ error: "获取对比数据失败" }, { status: 500 });
   }
 }
+
+export const GET = withDemoScope(GET_impl);
