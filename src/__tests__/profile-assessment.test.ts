@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   ASSESSMENT_LEAD_FILTERS,
   assessmentLeadOf,
+  hasAssessmentScores,
   isAssessed,
   matchesAssessmentLead,
   type AssessmentLeadFilter,
@@ -61,5 +62,19 @@ describe("主导型筛选口径（#234 数据列表）", () => {
     for (const filter of filters) {
       expect(() => matchesAssessmentLead({}, filter)).not.toThrow();
     }
+  });
+});
+
+describe("详情条形数据判定（#234）", () => {
+  it("快照缺失 / 损坏（解析为空）时不画条形", () => {
+    expect(hasAssessmentScores({ assessmentScores: null })).toBe(false);
+    expect(hasAssessmentScores({})).toBe(false);
+    expect(hasAssessmentScores({ assessmentScores: [] })).toBe(false);
+  });
+
+  it("有六维快照时才画条形", () => {
+    expect(
+      hasAssessmentScores({ assessmentScores: [{ key: "R", standard: 80 }] })
+    ).toBe(true);
   });
 });

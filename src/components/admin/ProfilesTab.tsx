@@ -11,6 +11,7 @@ import { buildRiasecBars } from "@/lib/assessment-view";
 import { typeColorOf } from "@/lib/assessment-colors";
 import {
   ASSESSMENT_LEAD_FILTERS,
+  hasAssessmentScores,
   isAssessed,
   matchesAssessmentLead,
   type AssessmentLeadFilter,
@@ -572,7 +573,7 @@ export default function ProfilesTab({ loadProfiles, loadStats }: Props) {
 
             {/* 职业兴趣测评（#234）：未测时整块不渲染；条形口径与结果页一致（buildRiasecBars） */}
             {isAssessed(detail) && (
-              <div className="border-t border-border-soft pt-3" aria-label="职业兴趣测评">
+              <div className="border-t border-border-soft pt-3" role="group" aria-label="职业兴趣测评">
                 <div className="flex items-center justify-between">
                   <p className="text-sm font-medium text-foreground">职业兴趣测评</p>
                   <span className="text-[11px] text-muted">{detail.assessmentAt || "完成时间未记录"}</span>
@@ -581,9 +582,8 @@ export default function ProfilesTab({ loadProfiles, loadStats }: Props) {
                   <AssessmentCodeBadge code={detail.assessmentCode as string} />
                   <span className="text-[11px] text-muted">霍兰德三字码 · 首位即主导型</span>
                 </div>
-                {(() => {
+                {hasAssessmentScores(detail) && (() => {
                   const bars = buildRiasecBars(detail.assessmentScores ?? [], detail.assessmentCode);
-                  if (bars.length === 0) return null;
                   return (
                     <div className="mt-3 space-y-1.5">
                       {bars.map((bar) => (
