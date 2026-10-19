@@ -59,7 +59,7 @@
 
 ## API 路由
 
-<!-- 对账：`find src/app/api -name route.ts | wc -l`（当前 48 条 = manage 35 + auth 3 + setup 3 + shared 4 + tags/upload/uploads 各 1） -->
+<!-- 对账：`find src/app/api -name route.ts | wc -l`（当前 55 条 = manage 41 + auth 3 + setup 3 + shared 5 + tags/upload/uploads 各 1） -->
 
 ### 认证层（proxy 之外，公开）
 
@@ -79,7 +79,7 @@
 
 ### 管理域 `/api/manage/*`（proxy 拦截：admin 全放行，teacher 按声明式权限表）
 
-<!-- 对账：路由清单 `find src/app/api/manage -name route.ts`（共 36 条）；teacher 权限列须与 src/proxy.ts 的 TEACHER_ALLOWED 逐条一致 -->
+<!-- 对账：路由清单 `find src/app/api/manage -name route.ts`（共 41 条）；teacher 权限列须与 src/proxy.ts 的 TEACHER_ALLOWED 逐条一致 -->
 
 **教师禁止（不在 `TEACHER_ALLOWED`，一律 403）**
 
@@ -127,7 +127,14 @@
 | `/api/manage/profiles` | GET / DELETE | GET + DELETE | 档案列表 / 清除档案字段 |
 | `/api/manage/profiles/submissions` | GET | GET | 管理端查看学生提交历史（#95）：admin 全量、teacher 仅管辖班级 |
 | `/api/manage/profiles/submissions/exceeding` | GET | GET | 超出版本上限的学生列表（#95） |
+| `/api/manage/groups` | GET / POST | 全方法 | 课堂分组（#101）：GET 读该班当前分组 + 指标 + 与最近一批的差异（读不限班级）；POST 触发自动分组，**完全覆盖**当前分组并追加一份历史批次归档 |
+| `/api/manage/groups/members` | PATCH | 全方法 | 手工换人（#101）：把一个成员移到本班另一个组，允许移入超员组 |
+| `/api/manage/groups/entries` | POST / DELETE | 全方法 | 手工建空组 / 删空组（#101）：非空组一律拒绝删除，先移人再删 |
+| `/api/manage/groups/batches` | GET | 全方法（实际只读） | 该班历史批次列表（#101，新→旧） |
+| `/api/manage/groups/batches/[id]` | GET | 全方法（实际只读） | 单批次明细：批次头 + 各组内聚度快照 + 成员姓名学号快照（#101） |
 | `/api/manage/audit-logs` | GET | 仅 GET | 操作审计只读查询（#110；教师强制限本人记录，查询自身也被审计） |
+
+> 分组（`/api/manage/groups*`）前缀整体放行给教师，**班级归属在路由内判定**（`canModifyClass`）：教师可看任意班的分组，但只能触发/调整自己带的班；被拒的写操作同样落审计（`status:"failed"`）。
 
 > 前缀匹配特性：`/api/manage/export` 覆盖 `export-images`；`/api/manage/profiles` 的 GET+DELETE 覆盖 submissions 子路由的 GET，但 `submissions/cleanup` 是 POST，教师被拒。
 >
@@ -140,7 +147,8 @@
 | `/api/shared/profile` | GET / POST | GET 会话查询本人档案（含提交截止状态，#96）；POST 仅学生本人会话保存（拒绝显式指定学号；超过提交时限强制 403），每次保存生成一个历史版本 |
 | `/api/shared/profile/submissions` | GET | 学生本人历史提交列表（#95，按版本倒序返回完整快照元数据） |
 | `/api/shared/profile/submissions/restore` | POST | 学生恢复历史版本（#95）：截止后 403 → 校验版本归属 → 生成新版本（不回写旧记录）→ 审计 `profile:restore` |
-| `/api/shared/storage-sign` | GET | 文件访问地址签发（#111）：本地后端回显代理路径；云后端按归属记录的 `storage_id` 签发 30 分钟签名 URL；权限校验：学生仅本人、教师仅管辖班级、管理员全量 |
+| `/api/shared/group` | GET | 学生读本组名单（#101）：只返回**本人所在组**的成员（姓名/学号/头像引用/标签），不提供遍历班级的接口；未分组返回 `grouped:false` |
+| `/api/shared/storage-sign` | GET | 文件访问地址签发（#111）：本地后端回显代理路径；云后端按归属记录的 `storage_id` 签发 30 分钟签名 URL；权限校验：学生仅本人与**同组同学的头像**（#101，词云不放行、非同组 403）、教师仅管辖班级、管理员全量 |
 
 ### 其他开放端点（proxy 之外）
 
@@ -152,9 +160,9 @@
 
 ## 数据库
 
-<!-- 对账：`grep -oE "CREATE TABLE IF NOT EXISTS \`?[a-z_]+" src/lib/db-sqlite.ts src/lib/db-mysql.ts`；两适配器表集合必须一致（当前 8 张） -->
+<!-- 对账：`grep -oE "CREATE TABLE IF NOT EXISTS \`?[a-z_]+" src/lib/db-sqlite.ts src/lib/db-mysql.ts`；两适配器表集合必须一致（当前 16 张） -->
 
-八张表，SQLite / MySQL 双适配器实现同一 `DbAdapter` 接口（`src/lib/db.ts`）。权威定义在两适配器的 `CREATE TABLE`，本表为索引：
+十六张表，SQLite / MySQL 双适配器实现同一 `DbAdapter` 接口（`src/lib/db.ts`）。权威定义在两适配器的 `CREATE TABLE`，本表为索引：
 
 | 表 | 用途 | 引入 | 纳入备份 |
 |---|---|---|---|
@@ -166,10 +174,54 @@
 | `audit_logs` | 操作审计（#110）：只追加 + 查询，操作者字段快照冗余，敏感键脱敏剔除、metadata 截断 2000 字符；索引 `created_at` / `actor_id` / `(resource_type, resource_id)` | #110 | ✅ |
 | `storage_backends` | 存储后端注册表（#111）：内置本地后端（不可删）+ 多个 S3 兼容实例；凭据不入库（走 `.env.local`）；`name` 唯一 | #111 | ✅（不含凭据） |
 | `profile_submissions` | 档案提交历史版本（#95）：`user_id` + `version` + 快照字段（`tags`/`avatar_url`/`evaluation_url`/`storage_id`/`submitted_at`）+ `is_current`；索引 `(user_id, version)`、`(user_id, is_current)` | #95 | ✅ |
+| `assessments` | 测评定义（#221）：`code`（唯一，如 `riasec`）、`name`、`question_count`、`dimensions_json`（`[{key,label}]`，顺序即计分与展示顺序）、`scoring_mode`（`typological` 取类型码 / `dimensional` 多维高低分档）、`scale_version`、`attribution`（署名）/ `license_text`（授权与修改声明）/ `disclaimer`（免责声明）、`enabled` | #221 | ✅ |
+| `assessment_questions` | 题库（#221）：`assessment_id` + `question_index`（量表内从 1 开始，`UNIQUE`）+ `prompt` + `dimension`（须是 `dimensions_json` 的 key）+ `reverse_scored` + `version`（题面版本，改动时自增） | #221 | ✅ |
+| `assessment_results` | 作答与结果**快照**（#221）：`user_id` + `assessment_id` + `status`（`in_progress` 草稿 / `completed` 完成）+ `answers_json` + `scores_json` + `type_code`（三字码，dimensional 量表为 NULL）+ `is_current` + `draft_slot`（草稿位：草稿为 1、完成为 NULL，`UNIQUE(user_id, assessment_id, draft_slot)`）+ `started_at` / `updated_at` / `completed_at` | #221 | ✅（学生个人数据） |
+
+**课堂分组（#101）五张表 —— 当前态与历史态物理分离**
+
+| 表 | 用途 | 纳入备份 |
+|---|---|---|
+| `class_groups` | **当前**分组的组：`class_id` + `group_no`，`UNIQUE(class_id, group_no)`；允许空组（教师手工建组先占位再移人） | ✅ |
+| `class_group_members` | **当前**分组的成员：`group_id` + `user_id`，`UNIQUE(user_id)` 全局——一个学生同时只能属于一个组，转班/删人必须清理旧行 | ✅ |
+| `group_batches` | 历史批次头（每次自动分组追加一条，永不覆盖）：`strategy`、`feature_sources`（本次用到的特征源 key/kind/weight）、`student_count` / `tagged_count`（覆盖率）、`metrics`（含两条基线）、操作者快照 | ✅ |
+| `group_batch_groups` | 批次内各组快照：`group_no` + `cohesion`（组内平均相似度）+ `member_count`；**内聚度必须存快照**，标签随时间变，事后算不出当时的质量 | ✅ |
+| `group_batch_members` | 批次内成员快照：`user_id` + **冗余的 `user_code` / `name`**，账号删除后历史批次仍可读；因此该列**不建外键**（当前侧 `class_group_members.user_id` 建外键，两侧职责不同） | ✅ |
 
 **班级名匹配口径（#191）**：`classes.name` 的比较统一为 **trim 后全等、区分大小写**，与前端 JS 全等对齐。`getClassByName()` 在两适配器内部均用 `getClasses()` + JS 全等实现（不依赖 SQL 排序规则），确保 SQLite / MySQL / MariaDB 行为恒等；归一化入口为 `resolveClassByName()`（`src/lib/class-utils.ts`），业务层禁止再写 `WHERE name = ?`。
 
-备份格式 `BackupData`（**version 4**，定义在 `src/lib/db.ts`）：八表全量，其中 `audit_logs` / `configs_profile` / `storage_backends` / `profile_submissions` 为可选字段（旧备份缺失时读取方容忍 `undefined`，`storage_backends` 缺失时保留当前后端表并回填本地后端）；含 `password_hash`，不含上传文件。
+备份格式 `BackupData`（**version 6**，定义在 `src/lib/db.ts`）：十六表全量，其中 `audit_logs` / `configs_profile` / `storage_backends` / `profile_submissions` / 分组五表 / 测评三表为可选字段（旧备份缺失时读取方容忍 `undefined`，`storage_backends` 缺失时保留当前后端表并回填本地后端）；含 `password_hash`，不含上传文件。
+
+> **分组五表是例外**：`users` / `classes` 是整表替换的，旧备份没有分组字段时若保留现状，成员行会指向已不存在或已换班的学生（恢复期间外键检查关闭，库不会拦）。所以恢复**一律先清空五表**，只有备份带字段才回填——旧备份恢复后即为「未分组」，这是有意为之，与 `profile_submissions` 的「缺字段保留不动」口径不同。
+
+> **测评三表是第二种例外**：`assessments` + `assessment_questions` 是参考数据，**两字段齐备才整体替换**，缺字段保留现状（可被种子自愈，不会出现「换了定义没换题库」）。`assessment_results` 则**一律先清空**、备份带字段才回填：它只靠数值 `user_id` 关联，而 `users` 恢复时已整表替换，保留旧结果会把甲的结果挂到乙名下（恢复到另一套库的旧备份时尤其明显）——与分组五表的「旧备份恢复后即为未分组」同口径。
+
+## 课堂分组（#101）
+
+<!-- 对账：规模规则与相似度口径见 `src/__tests__/grouping-utils.test.ts`；纯函数在 `src/lib/grouping-utils.ts` / `grouping-features.ts` -->
+
+- **目标函数**：同质聚类——最大化各组内两两相似度之和。全班相似度总和恒定，故「组内最大」等价于「组间最小」，无需另设间组项
+- **规模规则**：组数 `g = ⌈n/5⌉`，前 `n mod g` 组各多 1 人（54 人 → 10×5 + 1×4）。`n ≥ 3` 时**不产生 1–2 人组**；`n = 1 / 2` 只有一个组、就是一两个人（不拆分），`n ∈ {6,7,11}` 数学上只能到 3 人组，均属已知取舍
+- **相似度**：平滑 IDF 加权的二值余弦，`idf = ln((1+N)/(1+df)) + 1`（scikit-learn `smooth_idf` 口径）。平滑项**不可去掉**：`ln(N/df)` 在 df=N（全班都打同一标签）时退化为 0，会把所有相似度塌成 0、分组退回无意义
+- **分配两阶段**：① 容量优先贪心——有特征的学生按「最孤立者优先做种子 → 与当前组最相似者优先入组」；② FM 式交换精修——一轮内连续取当前最优交换（**允许暂时变差**），轮末回到本轮最优快照，只做等量交换所以容量天然守恒。`bestSwap` 的 delta 需要「每个学生 × 每个组」的相似度前缀和，只填自己所在组会让交叉项恒为 0（看似在精修，其实没优化目标）
+- **确定性**：输入先按 `user_code` 升序稳定排序，平局按 `user_code`，全流程无随机源；只有对比基线用固定种子（mulberry32，随机基线取 20 次均值）
+- **特征源注册表**：算法只认 `FeatureSourceDef {key,label,kind,weight,extract}`，**不碰 `users.tags`**。新增一个数据源 = 往 `FEATURE_SOURCES` 加一条（必要时新增一种 `kind` 的相似度实现），历史批次靠 `group_batches.feature_sources` 记下当时用了哪些源；某源覆盖人数 <2 时自动不参与，不会稀释其他源
+- **指标与零信号**：`coveredCount`（有特征的人）/ `nonZeroPairs`（有共同特征的配对数）如实反映信号强弱，两条基线给出「比随机好多少」。全班没标签时不报错、指标为 0，界面显示警告但**不阻断**（开学第一天必然零提交）
+- **端点边界**：读不限班级（教师可看全校），写限自建班级；触发自动分组 = **完全覆盖当前分组**（手工调整不可恢复）+ 追加一份历史归档，两步在同一事务内完成
+- **学生侧可见性**：`/api/shared/group` 只返回请求者所在组的名单；`/api/shared/storage-sign` 为学生放行**同组同学的头像**（仅此一项，词云不放行），同组判定用单条查询按 `group_id` 比对，避免两次读之间被原子重分组复用组号
+
+## 职业测评数据层（#221）
+
+<!-- 对账：表结构见上「数据库」；题库种子在 `src/lib/assessment-data.ts`，行为测试在 `src/__tests__/assessment-db.test.ts` -->
+
+- **量表进库、不写死代码**：`assessments` 存定义（维度 JSON / 计分类型 / 量表版本 / 署名授权），`assessment_questions` 存题面；首套量表为 O*NET Interest Profiler Mini-IP 30 题中文改编版（RIASEC，6 维各 5 题，原始量表无反向题）。种子由两适配器 `init()` 写入，判定口径是「`code` 不存在 **或** 该量表题库为空」——**非空题库一律不碰**（后台维护过的题面不会被覆盖），空题库（如恢复了一份 `assessment_questions: []` 的备份）会补种并校正 `question_count`，避免留下「可用但 0 题」的量表。坏种子在落库前被 `validateAssessmentSeed` 挡住（题数、题号连续、维度归属、题干非空）
+- **题号即作答键**：`question_index` 从 1 连续到 n，作答 JSON 以它为键，故跳号会让「已答 n 题 / 总 n 题」的进度口径失真；`dimension` 必须是 `dimensions_json` 里的 key，且每个维度至少一题（零题维度恒 0 分，会与真实低分混淆）
+- **草稿与结果同表**：`in_progress` 草稿在同一 `user_id + assessment_id` 下至多一条，靠 **可空 `draft_slot` + 唯一约束**兜住（草稿恒填 1、完成记录置 NULL，两库都允许多个 NULL，正好当「部分唯一索引」的可移植替代；MySQL 无部分唯一索引）。写入用单条 upsert（`ON CONFLICT` / `ON DUPLICATE KEY UPDATE`），并发自动保存不会插出第二条草稿。完成时**沿用草稿行**翻状态（保留 `started_at`、把 `draft_slot` 置 NULL 释放草稿位），同事务内把该用户该量表其他完成版本 `is_current` 置 0，保证当前版本唯一；历史版本用 `getAssessmentResults`（完成时间新→旧）
+- **结果是快照**：`answers_json` / `scores_json` / `type_code` 落库，学生回看是当时的结论，不随改题或重算漂移。计分由计分引擎（#220）在写入前算好，数据层不重复实现算法，`dimensional` 量表不产出三字码（该列为 NULL）。注意作答明细以**题号**为键、不含题面文本：若后续要做「逐题作答明细回看」，需先补一列记录当时的量表/题面版本，否则改题后可能套错题面（当前结果页只呈现得分快照，不受影响）
+- **两库一致性靠三条硬约束**（都在 `assessment-db.test.ts` 的 Schema 对账里锁住）：① 列名/可空性逐列相同；② 外键相同——SQLite 的 `REFERENCES`（本机 `foreign_keys=ON`，真实生效）与 MySQL 的 `FOREIGN KEY` 必须成对存在；③ `code` 的唯一比较语义相同——MySQL 显式 `COLLATE utf8mb4_bin`，否则默认 collation 不区分大小写，`riasec` / `RIASEC` 在 MySQL 里撞唯一键、在 SQLite 里共存，跨库迁移直接失败
+- **完成动作串行化**：MySQL 侧事务开头 `SELECT ... FOR UPDATE` 锁学生行（与档案归档提交同款做法），否则两个「首次完成」并发时都 UPDATE 到 0 行、再各自插入 `is_current = 1`，当前版本就不唯一了；SQLite 由单写者事务天然串行
+- **个人数据随账号删除**：`deleteStudents` 一并清 `assessment_results`；历史档案快照 `profile_submissions` 仍按 #95 口径保留
+- **授权合规**：`attribution`（署名）/ `license_text`（授权与修改声明）/ `disclaimer`（免责声明）三列随量表下发，作答页与结果页必须展示。O*NET Tools Developer License 要求署名并声明「修改未经 USDOL/ETA 审核、认可或测试」（https://www.onetcenter.org/license_tools.html ）
 
 ## 文件存储（#111 对象存储）
 

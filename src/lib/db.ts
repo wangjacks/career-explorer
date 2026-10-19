@@ -202,6 +202,170 @@ export interface ClassTrendSeries {
   points: { date: string; counts: Record<string, number> }[];
 }
 
+/* ---------- 分组（#101） ---------- */
+
+/** class_groups 行：当前分组里的一个组（允许空组，手工调整时会出现） */
+export interface ClassGroupRow {
+  id: number;
+  class_id: number;
+  group_no: number;
+  created_at: string;
+}
+
+/** class_group_members 行：当前分组的成员归属 */
+export interface ClassGroupMemberRow {
+  id: number;
+  group_id: number;
+  user_id: number;
+  created_at: string;
+}
+
+/** 覆盖当前分组的入参：组号 + 成员（成员只需 user_id，展示字段由路由用班级名单拼装） */
+export interface ClassGroupingInput {
+  group_no: number;
+  user_ids: number[];
+}
+
+/** group_batches 行：一次自动分组的批次头（历史归档，只追加） */
+export interface GroupBatchRow {
+  id: number;
+  class_id: number;
+  /** 本次使用的策略名（算法标识） */
+  strategy: string;
+  /** 本次用到的特征源（JSON 文本：key / kind / weight）——新增数据源只需扩充这一列 */
+  feature_sources: string | null;
+  /** 目标组容量（每组上限） */
+  group_size: number;
+  student_count: number;
+  /** 有特征的学生数（本期即「有标签人数」） */
+  tagged_count: number;
+  /** 指标快照（JSON 文本；标签会随时间变，故质量指标必须快照） */
+  metrics: string | null;
+  created_by_id: number | null;
+  created_by_name: string | null;
+  created_by_role: string | null;
+  created_at: string;
+}
+
+/** group_batch_groups 行：批次内的一个组 */
+export interface GroupBatchGroupRow {
+  id: number;
+  batch_id: number;
+  group_no: number;
+  /** 组内平均相似度快照 */
+  cohesion: number | null;
+  member_count: number;
+  created_at: string;
+}
+
+/** group_batch_members 行：批次某组的成员（姓名/学号为快照，账号删除后历史仍可读） */
+export interface GroupBatchMemberRow {
+  id: number;
+  /** 冗余批次号：用于在库层保证「同批次一个学生只出现一次」 */
+  batch_id: number;
+  group_id: number;
+  user_id: number;
+  user_code: string | null;
+  name: string | null;
+  created_at: string;
+}
+
+/** 追加一个历史批次的入参（头 + 组 + 成员，由适配器在同一事务内写入） */
+export interface NewGroupBatchInput {
+  classId: number;
+  strategy: string;
+  featureSources: string;
+  groupSize: number;
+  studentCount: number;
+  taggedCount: number;
+  metrics: string;
+  actorId: number | null;
+  actorName: string | null;
+  actorRole: string | null;
+  groups: {
+    groupNo: number;
+    cohesion: number | null;
+    members: { userId: number; userCode: string | null; name: string | null }[];
+  }[];
+}
+
+/* ---------- 职业测评（#221：测评定义 / 题库 / 作答结果三表） ---------- */
+
+/** assessments 行：测评定义。题库进库而非写死代码，便于扩充第二套量表与后台维护中文题面 */
+export interface AssessmentRow {
+  id: number;
+  /** 量表标识，如 `riasec`；跨环境稳定的业务主键 */
+  code: string;
+  name: string;
+  question_count: number;
+  /** 维度定义 JSON 文本 `[{ key, label }]`，顺序即展示与计分顺序 */
+  dimensions_json: string;
+  /** `typological`（取类型码，如霍兰德三字码）/ `dimensional`（多维高低分档） */
+  scoring_mode: "typological" | "dimensional";
+  scale_version: string;
+  /** 署名文本：第三方量表（如 O*NET）授权要求，必须随作答与结果下发 */
+  attribution: string;
+  /** 授权条款与「修改未经官方审核」声明 */
+  license_text: string;
+  /** 免责声明：结果是探索参考，不作诊断或录用依据 */
+  disclaimer: string;
+  /** 0/1：是否在学生测评中心可见；下线量表保留数据只改这一列 */
+  enabled: number;
+  created_at: string;
+  updated_at: string;
+}
+
+/** assessment_questions 行：题库（题面 + 计分元数据） */
+export interface AssessmentQuestionRow {
+  id: number;
+  assessment_id: number;
+  /** 作答题号，量表内从 1 开始唯一（唯一约束 `assessment_id + question_index`） */
+  question_index: number;
+  prompt: string;
+  /** 所属维度：必须是该量表 `dimensions_json` 里的某个 key */
+  dimension: string;
+  /** 0/1：反向计分（Mini-IP 全为正向，字段为后续量表预留） */
+  reverse_scored: number;
+  /** 题面版本，题面改动时自增；作答快照另存 answers/scores，历史结果不因此漂移 */
+  version: number;
+  created_at: string;
+}
+
+/** assessment_results 行：一次作答 + 结果快照（快照而非实时计算，学生回看仍是当时的结论） */
+export interface AssessmentResultRow {
+  id: number;
+  user_id: number;
+  assessment_id: number;
+  /** `in_progress` 草稿（同 (user_id, assessment_id) 至多一条）/ `completed` 完成记录（可多条） */
+  status: "in_progress" | "completed";
+  /** 作答 JSON 文本：题号 → 1-5 作答值；草稿即未答全 */
+  answers_json: string;
+  /** 得分 JSON 文本：完成时写入（维度得分快照），草稿为 NULL */
+  scores_json: string | null;
+  /** 类型码（`typological` 模式的三字码，如 `SIA`）；`dimensional` 量表为 NULL */
+  type_code: string | null;
+  /** 0/1：是否为该用户该量表的当前有效完成结果（仅 completed 会置 1） */
+  is_current: number;
+  /**
+   * 草稿位：草稿恒为 1、完成记录恒为 NULL，配合 `UNIQUE(user_id, assessment_id, draft_slot)`
+   * 让「同一学生同一量表至多一条草稿」成为**数据库级**不变量（两库都允许多个 NULL，故完成记录不受限）。
+   */
+  draft_slot: number | null;
+  started_at: string;
+  updated_at: string;
+  /** 完成时间；草稿为 NULL */
+  completed_at: string | null;
+}
+
+/** completeAssessmentResult 入参（计分由调用方用计分引擎算好再落库，数据层不重复实现算法） */
+export interface CompleteAssessmentInput {
+  userId: number;
+  assessmentId: number;
+  answersJson: string;
+  scoresJson: string | null;
+  typeCode: string | null;
+}
+
 export interface BackupData {
   version: number;
   sourceType: string;
@@ -218,6 +382,22 @@ export interface BackupData {
   storage_backends?: StorageBackendRow[];
   /** 档案提交历史版本（#95；旧备份可能缺失，读取方容忍 undefined） */
   profile_submissions?: ProfileSubmissionRow[];
+  /** 当前分组：组（#101；旧备份可能缺失，读取方容忍 undefined） */
+  class_groups?: ClassGroupRow[];
+  /** 当前分组：成员归属（#101；旧备份可能缺失） */
+  class_group_members?: ClassGroupMemberRow[];
+  /** 历史批次头（#101；旧备份可能缺失） */
+  group_batches?: GroupBatchRow[];
+  /** 历史批次内的组（#101；旧备份可能缺失） */
+  group_batch_groups?: GroupBatchGroupRow[];
+  /** 历史批次的成员快照（#101；旧备份可能缺失） */
+  group_batch_members?: GroupBatchMemberRow[];
+  /** 测评定义（#221；旧备份可能缺失，恢复时保留当前题库不动） */
+  assessments?: AssessmentRow[];
+  /** 题库（#221；旧备份可能缺失） */
+  assessment_questions?: AssessmentQuestionRow[];
+  /** 学生作答与结果快照（#221；旧备份可能缺失） */
+  assessment_results?: AssessmentResultRow[];
 }
 
 /** configs_profile 表行 */
@@ -444,6 +624,78 @@ export interface DbAdapter {
     filters: AuditLogFilters
   ): Promise<{ rows: AuditLogRow[]; total: number }> | { rows: AuditLogRow[]; total: number };
 
+  // grouping（#101：当前分组可写；历史批次只追加）
+  /** 读某班当前分组的组（含空组） */
+  getClassGroups(classId: number): Promise<ClassGroupRow[]> | ClassGroupRow[];
+  /** 读某班当前分组的成员归属（与班级名单在路由层拼装，避免适配器做多表 join） */
+  getClassGroupMembers(classId: number): Promise<ClassGroupMemberRow[]> | ClassGroupMemberRow[];
+  /** 事务：整体覆盖某班当前分组（自动分组 / 导入 / 清空共用；空数组 = 清空） */
+  replaceClassGrouping(classId: number, groups: ClassGroupingInput[]): Promise<void> | void;
+  /** 建一个空组（组号由调用方给出，唯一约束保证不与既有冲突） */
+  insertGroupEntry(classId: number, groupNo: number): Promise<void> | void;
+  /** 删除一个空的组（非空由调用方先校验；本方法只删组行，不动成员） */
+  deleteGroupEntry(classId: number, groupNo: number): Promise<void> | void;
+  /** 把成员移到本班的另一个组（目标组必须已存在） */
+  moveGroupMember(classId: number, userId: number, toGroupNo: number): Promise<void> | void;
+  /** 事务：追加一个历史批次（头 + 组 + 成员），返回批次 id */
+  insertGroupBatch(input: NewGroupBatchInput): Promise<number> | number;
+  /**
+   * 自动分组落库：**同一事务**内「覆盖当前分组 + 追加历史批次」。
+   * 拆成两次调用会在中途失败时留下「当前已覆盖但没有归档」的不一致态。
+   */
+  applyGroupingResult(
+    classId: number,
+    groups: ClassGroupingInput[],
+    batch: NewGroupBatchInput
+  ): Promise<number> | number;
+  /** 按班列历史批次（新→旧） */
+  getGroupBatches(classId: number): Promise<GroupBatchRow[]> | GroupBatchRow[];
+  /** 读批次明细（头 + 组 + 成员） */
+  getGroupBatchDetail(
+    batchId: number
+  ):
+    | Promise<{ batch: GroupBatchRow | undefined; groups: GroupBatchGroupRow[]; members: GroupBatchMemberRow[] }>
+    | { batch: GroupBatchRow | undefined; groups: GroupBatchGroupRow[]; members: GroupBatchMemberRow[] };
+  /** 学生端：本人当前所在的组（无分组或未入组返回 undefined） */
+  getStudentGroupRef(
+    userId: number
+  ): Promise<{ class_id: number; group_no: number } | undefined> | { class_id: number; group_no: number } | undefined;
+  /**
+   * 两人是否同属一个「当前分组」的同一组（#101 同组头像放行判定）。
+   * 单条查询比对 group_id，避免两次读之间落入原子重分组而读到跨批次的组号。
+   */
+  areStudentsInSameCurrentGroup(userIdA: number, userIdB: number): Promise<boolean> | boolean;
+
+  // assessments / assessment_questions / assessment_results（#221 职业测评数据层）
+  /** 启用中的测评定义（学生测评中心列表；按 id 稳定排序） */
+  getEnabledAssessments(): Promise<AssessmentRow[]> | AssessmentRow[];
+  /** 按 code 取测评定义（含未启用：后台维护要能读到，启用与否由调用方判定） */
+  getAssessmentByCode(code: string): Promise<AssessmentRow | undefined> | AssessmentRow | undefined;
+  /** 按测评 id 取题库，按题号升序 */
+  getAssessmentQuestions(assessmentId: number): Promise<AssessmentQuestionRow[]> | AssessmentQuestionRow[];
+  /** 按 code 取题库（作答页一次调用拿全量），按题号升序 */
+  getAssessmentQuestionsByCode(code: string): Promise<AssessmentQuestionRow[]> | AssessmentQuestionRow[];
+  /**
+   * 草稿 upsert：同一 (user_id, assessment_id) 至多一条 `in_progress` 记录，返回该行 id。
+   * 幂等——续答只覆盖作答内容，不新增行；唯一性由 `draft_slot` 唯一约束兜住（并发自动保存不会插出第二条）。
+   */
+  upsertAssessmentDraft(userId: number, assessmentId: number, answersJson: string): Promise<number> | number;
+  /** 读草稿（续答）；没有草稿返回 undefined */
+  getAssessmentDraft(userId: number, assessmentId: number): Promise<AssessmentResultRow | undefined> | AssessmentResultRow | undefined;
+  /**
+   * 写完成结果：有草稿则沿用该行翻成 `completed`（保留 `started_at` 并释放草稿位），否则新插入；
+   * 同一事务内把该用户该量表其他完成版本的 `is_current` 置 0，保证当前版本唯一。
+   * @returns 写入（或沿用）的结果行 id
+   */
+  completeAssessmentResult(input: CompleteAssessmentInput): Promise<number> | number;
+  /** 当前有效的完成结果（`is_current=1`）；未完成过返回 undefined */
+  getCurrentAssessmentResult(
+    userId: number,
+    assessmentId: number
+  ): Promise<AssessmentResultRow | undefined> | AssessmentResultRow | undefined;
+  /** 完成记录历史（新→旧，不含草稿），供结果页回看与版本对比 */
+  getAssessmentResults(userId: number, assessmentId: number): Promise<AssessmentResultRow[]> | AssessmentResultRow[];
+
   backup(): Promise<BackupData> | BackupData;
   restore(data: BackupData): Promise<void> | void;
   close(): Promise<void> | void;
@@ -457,6 +709,15 @@ export function randomInviteCode(len = 8): string {
     code += chars[Math.floor(Math.random() * chars.length)];
   }
   return code;
+}
+
+/**
+ * 量表 code 归一化（#221）：SQLite 的 `=` 对 TEXT 区分大小写、MySQL 的默认 collation 不区分，
+ * 直接在 SQL 里比会让两适配器行为分叉（#191 同类教训）。归一化放在边界（写入的种子本身即小写），
+ * 两侧都用它查，行为恒等。
+ */
+export function normalizeAssessmentCode(code: string): string {
+  return code.trim().toLowerCase();
 }
 
 let currentAdapter: DbAdapter | null = null;
@@ -874,6 +1135,141 @@ export async function isSubmissionClosed(): Promise<boolean> {
   // 服务端统一按 Asia/Shanghai 计算，不依赖客户端时钟
   const now = new Date().toLocaleString("sv-SE", { timeZone: "Asia/Shanghai" }).slice(0, 16);
   return isAfterDeadline(now, deadline);
+}
+
+/* ---------- 分组（#101） ---------- */
+
+export async function getClassGroups(classId: number): Promise<ClassGroupRow[]> {
+  const adapter = await ensureInit();
+  return Promise.resolve(adapter.getClassGroups(classId));
+}
+
+export async function getClassGroupMembers(classId: number): Promise<ClassGroupMemberRow[]> {
+  const adapter = await ensureInit();
+  return Promise.resolve(adapter.getClassGroupMembers(classId));
+}
+
+export async function replaceClassGrouping(classId: number, groups: ClassGroupingInput[]): Promise<void> {
+  const adapter = await ensureInit();
+  return Promise.resolve(adapter.replaceClassGrouping(classId, groups));
+}
+
+export async function insertGroupEntry(classId: number, groupNo: number): Promise<void> {
+  const adapter = await ensureInit();
+  return Promise.resolve(adapter.insertGroupEntry(classId, groupNo));
+}
+
+export async function deleteGroupEntry(classId: number, groupNo: number): Promise<void> {
+  const adapter = await ensureInit();
+  return Promise.resolve(adapter.deleteGroupEntry(classId, groupNo));
+}
+
+export async function moveGroupMember(classId: number, userId: number, toGroupNo: number): Promise<void> {
+  const adapter = await ensureInit();
+  return Promise.resolve(adapter.moveGroupMember(classId, userId, toGroupNo));
+}
+
+export async function insertGroupBatch(input: NewGroupBatchInput): Promise<number> {
+  const adapter = await ensureInit();
+  return Promise.resolve(adapter.insertGroupBatch(input));
+}
+
+export async function applyGroupingResult(
+  classId: number,
+  groups: ClassGroupingInput[],
+  batch: NewGroupBatchInput
+): Promise<number> {
+  const adapter = await ensureInit();
+  return Promise.resolve(adapter.applyGroupingResult(classId, groups, batch));
+}
+
+export async function getGroupBatches(classId: number): Promise<GroupBatchRow[]> {
+  const adapter = await ensureInit();
+  return Promise.resolve(adapter.getGroupBatches(classId));
+}
+
+export async function getGroupBatchDetail(batchId: number): Promise<{
+  batch: GroupBatchRow | undefined;
+  groups: GroupBatchGroupRow[];
+  members: GroupBatchMemberRow[];
+}> {
+  const adapter = await ensureInit();
+  return Promise.resolve(adapter.getGroupBatchDetail(batchId));
+}
+
+export async function getStudentGroupRef(
+  userId: number
+): Promise<{ class_id: number; group_no: number } | undefined> {
+  const adapter = await ensureInit();
+  return Promise.resolve(adapter.getStudentGroupRef(userId));
+}
+
+export async function areStudentsInSameCurrentGroup(
+  userIdA: number,
+  userIdB: number
+): Promise<boolean> {
+  const adapter = await ensureInit();
+  return Promise.resolve(adapter.areStudentsInSameCurrentGroup(userIdA, userIdB));
+}
+
+/* ---------- 职业测评（#221） ---------- */
+
+export async function getEnabledAssessments(): Promise<AssessmentRow[]> {
+  const adapter = await ensureInit();
+  return Promise.resolve(adapter.getEnabledAssessments());
+}
+
+export async function getAssessmentByCode(code: string): Promise<AssessmentRow | undefined> {
+  const adapter = await ensureInit();
+  return Promise.resolve(adapter.getAssessmentByCode(code));
+}
+
+export async function getAssessmentQuestions(assessmentId: number): Promise<AssessmentQuestionRow[]> {
+  const adapter = await ensureInit();
+  return Promise.resolve(adapter.getAssessmentQuestions(assessmentId));
+}
+
+export async function getAssessmentQuestionsByCode(code: string): Promise<AssessmentQuestionRow[]> {
+  const adapter = await ensureInit();
+  return Promise.resolve(adapter.getAssessmentQuestionsByCode(code));
+}
+
+export async function upsertAssessmentDraft(
+  userId: number,
+  assessmentId: number,
+  answersJson: string
+): Promise<number> {
+  const adapter = await ensureInit();
+  return Promise.resolve(adapter.upsertAssessmentDraft(userId, assessmentId, answersJson));
+}
+
+export async function getAssessmentDraft(
+  userId: number,
+  assessmentId: number
+): Promise<AssessmentResultRow | undefined> {
+  const adapter = await ensureInit();
+  return Promise.resolve(adapter.getAssessmentDraft(userId, assessmentId));
+}
+
+export async function completeAssessmentResult(input: CompleteAssessmentInput): Promise<number> {
+  const adapter = await ensureInit();
+  return Promise.resolve(adapter.completeAssessmentResult(input));
+}
+
+export async function getCurrentAssessmentResult(
+  userId: number,
+  assessmentId: number
+): Promise<AssessmentResultRow | undefined> {
+  const adapter = await ensureInit();
+  return Promise.resolve(adapter.getCurrentAssessmentResult(userId, assessmentId));
+}
+
+export async function getAssessmentResults(
+  userId: number,
+  assessmentId: number
+): Promise<AssessmentResultRow[]> {
+  const adapter = await ensureInit();
+  return Promise.resolve(adapter.getAssessmentResults(userId, assessmentId));
 }
 
 export async function backup(): Promise<BackupData> {

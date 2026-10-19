@@ -11,6 +11,8 @@ const TEACHER_ALLOWED: { prefix: string; methods: "all" | string[] }[] = [
   { prefix: "/api/manage/profiles", methods: ["GET", "DELETE"] },
   { prefix: "/api/manage/profile-config", methods: "all" },
   { prefix: "/api/manage/audit-logs", methods: ["GET"] }, // #110：教师仅可查询本人记录，路由内强制 actor_id = 本人
+  // #101 分组：读不限（可看全校名单），写操作由路由用 canModifyClass 收紧到所带班级
+  { prefix: "/api/manage/groups", methods: "all" },
 ];
 
 export async function proxy(request: NextRequest) {
