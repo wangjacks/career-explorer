@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   ESTIMATE_SECONDS_PER_QUESTION,
   MIN_ESTIMATED_MINUTES,
+  buildAssessmentList,
   deriveAssessmentCenter,
   estimateMinutes,
   progressPercent,
@@ -162,6 +163,87 @@ describe("deriveAssessmentCenter：三种状态分支（#222）", () => {
       expect(view.questionCount).toBe(0);
       expect(view.estimatedMinutes).toBe(0);
       expect(view.percent).toBe(0);
+    }
+  });
+});
+
+describe("buildAssessmentList：测验列表卡（#225）", () => {
+  it("单套量表 → 一行，题量/耗时/状态/可开始都来自同一份归一结果", () => {
+    const payload = {
+      assessment: { code: "riasec", name: "霍兰德职业兴趣测评", questionCount: 30, enabled: true },
+      current: { typeCode: "RIA", completedAt: "2026-10-19 10:00:00" },
+      history: [{ id: 1 }],
+      inProgress: null,
+    };
+    const rows = buildAssessmentList(payload);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toEqual({
+      code: "riasec",
+      name: "霍兰德职业兴趣测评",
+      questionCount: 30,
+      estimatedMinutes: 4,
+      status: "completed",
+      enabled: true,
+      canStart: true,
+      isPrimary: true,
+    });
+  });
+
+  it("进行中/未开始的三态与顶部状态卡一致（复用同一次判定，不各算一套）", () => {
+    const assessment = { code: "riasec", name: "霍兰德", questionCount: 30, enabled: true };
+    expect(buildAssessmentList({ assessment, inProgress: { answered: 5, total: 30 } })[0].status).toBe("in-progress");
+    expect(buildAssessmentList({ assessment, current: null, history: [] })[0].status).toBe("not-started");
+  });
+
+  it("停用或题库为空时 canStart=false（列表卡不给入口，与状态卡口径一致）", () => {
+    const disabled = buildAssessmentList({ assessment: { code: "riasec", name: "霍兰德", questionCount: 30, enabled: false } });
+    expect(disabled[0]).toMatchObject({ enabled: false, canStart: false });
+
+    const empty = buildAssessmentList({ assessment: { code: "riasec", name: "霍兰德", questionCount: 0, enabled: true } });
+    expect(empty[0]).toMatchObject({ questionCount: 0, estimatedMinutes: 0, canStart: false });
+  });
+
+  it("多量表预留：接口返回 assessments 数组时每项一行，主测评保留本人状态，其余按未开始", () => {
+    const payload = {
+      assessment: { code: "riasec", name: "霍兰德", questionCount: 30, enabled: true },
+      assessments: [
+        { code: "riasec", name: "霍兰德", questionCount: 30, enabled: true },
+        { code: "big-five", name: "大五人格", questionCount: 60, enabled: true },
+      ],
+      current: { typeCode: "RIA", completedAt: "2026-10-19 10:00:00" },
+      history: [],
+    };
+    const rows = buildAssessmentList(payload);
+    expect(rows.map((row) => row.code)).toEqual(["riasec", "big-five"]);
+    expect(rows[0].status).toBe("completed");
+    expect(rows[1].status).toBe("not-started");
+    expect(rows[1].estimatedMinutes).toBe(estimateMinutes(60));
+    // 只有主测评带作答入口：答题页目前只认 RIASEC，预留项给「即将开放」而不是错链接
+    expect(rows.map((row) => row.isPrimary)).toEqual([true, false]);
+    expect(rows.map((row) => row.canStart)).toEqual([true, true]);
+  });
+
+  it("缺 code 的行被丢弃（列表卡必须能定位到可作答的量表），脏字段不产生 NaN", () => {
+    const rows = buildAssessmentList({
+      assessment: { code: "  ", name: "幽灵量表", questionCount: 30 },
+      assessments: [
+        { code: "riasec", name: "霍兰德", questionCount: "30", enabled: "yes" },
+        { code: "", name: "废行" },
+      ],
+    });
+    expect(rows.map((row) => row.code)).toEqual(["riasec"]);
+    expect(rows[0].questionCount).toBe(0); // 字符串题量按 0，页面显示「题库准备中」
+    expect(Number.isFinite(rows[0].estimatedMinutes)).toBe(true);
+  });
+
+  it("只有 assessments 数组、没有主量表时全部按预留项处理（不给作答入口）", () => {
+    const rows = buildAssessmentList({ assessments: [{ code: "riasec", name: "霍兰德", questionCount: 30 }] });
+    expect(rows[0]).toMatchObject({ isPrimary: false, status: "not-started", canStart: true });
+  });
+
+  it("payload 为空或没有量表 → 空列表（页面据此不渲染列表卡）", () => {
+    for (const payload of [null, undefined, {}, { assessment: null }]) {
+      expect(buildAssessmentList(payload)).toEqual([]);
     }
   });
 });

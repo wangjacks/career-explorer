@@ -552,3 +552,65 @@ describe("RIASEC 维度常量", () => {
 function dimensionKeys(): string[] {
   return RIASEC_DIMENSIONS.map((d) => d.key);
 }
+
+describe("按学号批量取当前测评结果快照（#233 教师导出）", () => {
+  it("只回当前有效版本、未测评学号不出现、空入参短路", () => {
+    const { dbPath, adapter, studentId, assessment } = setup();
+    const otherId = adapter.insertUser({ user_code: "202505050102", role: "student", name: "李四" });
+    expect(otherId).toBeGreaterThan(0);
+
+    // 同一学生两次完成：只应返回 is_current 的那条（最新）
+    adapter.completeAssessmentResult({
+      userId: studentId,
+      assessmentId: assessment.id,
+      answersJson: JSON.stringify({ 1: 4 }),
+      scoresJson: JSON.stringify([{ key: "R", standard: 75 }]),
+      typeCode: "RIA",
+    });
+    adapter.completeAssessmentResult({
+      userId: studentId,
+      assessmentId: assessment.id,
+      answersJson: JSON.stringify({ 1: 5 }),
+      scoresJson: JSON.stringify([{ key: "R", standard: 100 }]),
+      typeCode: "RIC",
+    });
+
+    const summaries = adapter.getCurrentAssessmentResultsByUserCodes(assessment.id, [
+      "202505050101", // 已完测
+      "202505050102", // 在册但未测评
+      "999999999999", // 不存在的学号
+    ]);
+
+    expect(summaries).toHaveLength(1);
+    expect(summaries[0].user_code).toBe("202505050101");
+    expect(summaries[0].type_code).toBe("RIC");
+    expect(summaries[0].scores_json).toContain("100");
+    expect(summaries[0].completed_at).toBeTruthy();
+    // 不返回作答内容（导出列不需要，少搬个人数据）
+    expect(summaries[0]).not.toHaveProperty("answers_json");
+    expect(adapter.getCurrentAssessmentResultsByUserCodes(assessment.id, [])).toEqual([]);
+
+    adapter.close();
+    cleanup(dbPath);
+  });
+
+  it("名单跨分片仍返回完整结果（#193 批查分片口径复用）", () => {
+    const { dbPath, adapter, studentId, assessment } = setup();
+    adapter.completeAssessmentResult({
+      userId: studentId,
+      assessmentId: assessment.id,
+      answersJson: "{}",
+      scoresJson: JSON.stringify([{ key: "S", standard: 80 }]),
+      typeCode: "SIA",
+    });
+
+    // 第二片里才命中（分片大小 500）
+    const codes = Array.from({ length: 600 }, (_, index) => String(100000000000 + index));
+    codes[codes.length - 1] = "202505050101";
+    const summaries = adapter.getCurrentAssessmentResultsByUserCodes(assessment.id, codes);
+    expect(summaries.map((row) => row.user_code)).toEqual(["202505050101"]);
+
+    adapter.close();
+    cleanup(dbPath);
+  });
+});

@@ -84,6 +84,17 @@ async function GET_impl(request: NextRequest) {
       lead = normalized;
     }
 
+    // 三字码精确过滤（#232 大屏胶囊下钻）：1–3 位 RIASEC 字母，与 lead 是「且」关系
+    const codeParam = params.get("code");
+    let code: string | null = null;
+    if (codeParam !== null && codeParam.trim() !== "") {
+      const normalized = codeParam.trim().toUpperCase();
+      if (!/^[RIASEC]{1,3}$/.test(normalized)) {
+        return await deny("code 只支持 1–3 位 RIASEC 字母", 400);
+      }
+      code = normalized;
+    }
+
     // 教师只能取本人归属班级；集合为空说明该教师还没带班，直接按空范围查询（不会越权到全校）
     let classIds: number[] | null = null;
     if (session.role === "teacher") {
@@ -95,10 +106,10 @@ async function GET_impl(request: NextRequest) {
 
     const assessment = await getAssessmentByCode(RIASEC_CODE);
     if (!assessment) {
-      return await deny("测评量表未配置", 404, { classId, lead, scope });
+      return await deny("测评量表未配置", 404, { classId, lead, code, scope });
     }
 
-    const rows = await getAssessmentRoster(assessment.id, classIds, { classId, lead });
+    const rows = await getAssessmentRoster(assessment.id, classIds, { classId, lead, code });
     const data: RosterItem[] = rows.map((row) => ({
       classId: row.class_id,
       className: row.class_name,
@@ -118,6 +129,7 @@ async function GET_impl(request: NextRequest) {
         scope,
         classId,
         lead,
+        code,
         rowCount: data.length,
         // 教师只看得到归属班级，记下范围便于审计核对；管理员为 null（未收窄）
         classScope: classIds,
@@ -126,7 +138,7 @@ async function GET_impl(request: NextRequest) {
 
     return NextResponse.json({
       scope,
-      filters: { classId, lead },
+      filters: { classId, lead, code },
       total: data.length,
       data,
     });

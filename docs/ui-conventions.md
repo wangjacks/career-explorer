@@ -74,6 +74,7 @@
 | 线 / 面积 / 柱 / 饼 | 数据色用 `DATA_GREEN`（`#059669`）等固定色板；网格与轴用 `currentColor` + `strokeOpacity`，随深浅色自动适配 |
 | 雷达图 | `PolarGrid` / `PolarAngleAxis` 用 `currentColor`；量程固定 0–100 且**不画半径刻度**（看的是形状，精确值交给并列的条状排名）；填充用主色 25% 透明度 |
 | 进度条 / 排名条 | `bg-primary` 填充 + `bg-gray-100 dark:bg-gray-800` 轨道，高度 `h-2`（密集处 `h-1.5`） |
+| 按钮 | 主操作 `bg-primary` 等语义 token；**数据分类色**（如 RIASEC 六型）属于数据而不是品牌语义，按数据给色并在组件旁注明来源，不混进语义 token（#232 的做法：六型配色表 + 单测校验对比度） |
 | 读数 | Tooltip/读数用 `font-mono tabular-nums`；图与读数并列时图在左、读数在右（窄屏上下堆叠） |
 
 - 卡片内边距统一 `p-5`/`p-6`；区块间距 `space-y-6`/`space-y-8`
