@@ -132,7 +132,7 @@
 | `/api/manage/tags/batch` | POST | 前缀随 tags | 标签批量导入 / 批量删除：教师被 proxy 前缀挡下，路由内亦二次拒绝 |
 | `/api/manage/tags/restore` | POST | 前缀随 tags | 恢复默认预设（#94，清空后重插，前端二次确认）：仅管理员 |
 | `/api/manage/profile-config` | GET / PUT | 仅 GET | 档案功能配置：自定义标签上限（#94）、提交截止时间（#96）、上传大小上限（#111）、历史版本上限（#95）；这些项全站生效，写入只归管理员（#171） |
-| `/api/manage/export` | GET / POST | 全方法 | Excel/CSV 导出（XLSX 支持原生单元格图片与浮动图片双模式，默认单元格图片） |
+| `/api/manage/export` | GET / POST | 全方法 | Excel/CSV 导出（XLSX 支持原生单元格图片与浮动图片双模式，默认单元格图片）；列按「基础信息 / 职业兴趣测评」两组可选（#233，含班级与六型分/推荐职业），默认列不变；`?capabilities=1` 只探测职业库是否就绪（不下数据） |
 | `/api/manage/export-images` | GET | 全方法 | 图片打包导出（ZIP） |
 | `/api/manage/stats` | GET | 仅 GET | 统计汇总 |
 | `/api/manage/stats/compare` | GET | 仅 GET | 班级对比：每班在册 / 已提交 / 提交率（#165） |
@@ -323,6 +323,18 @@
 - **推荐职业渐进增强**：只在有当前结果时补拉 `/careers`；接口失败 / 为空 / 无中文数据时**整块静默不渲染**（`console.error` 留痕，不打断学生），与「A3 未就绪也能上线」的验收口径一致；渲染时必须展示接口下发的 **CC BY 4.0 署名**
 - **无结果空态**：引导去答题页（`/dashboard/student/assessment/quiz`，约 10 分钟）；有未完成草稿时提示「上次答到 N/M」并把 CTA 改成「继续作答」。测评中心（#222）上线后由它承担总入口，本卡片的空态链接不依赖它
 - **容错**：结果接口失败显示「暂时读不到」+ 重试，不会把失败说成「没做过测评」；得分缺 `standard` 等脏数据在 `parseScores`（#223）与视图模型两层过滤，不用坏数据渲染
+
+## 数据导出（#233）
+
+<!-- 对账：列定义与格式化纯函数在 `src/lib/export-columns.ts`（测试 `export-columns.test.ts`）；路由 `src/app/api/manage/export/route.ts`；界面 `src/components/admin/ExportTab.tsx` -->
+
+- **列分两组**：基础信息（班级 / 学号 / 姓名 / 标签 / 学生头像 / 评价词云 / 头像 URL / 评价词云 URL / 提交时间）与职业兴趣测评（测评状态 / 测评完成时间 / 霍兰德三字码 / 六型得分 / 推荐职业 Top3）。**默认列集合与 #233 之前一致**（学号、姓名、标签、学生头像、评价词云、提交时间），新增列是增量勾选
+- **列顺序以 `EXPORT_COLUMNS` 为准**（与前端勾选顺序无关）：xlsx 的图片锚点由**最终列下标**算出（`columnLetter` / `imageColumnIndex`），因此插入班级/测评列后头像与词云仍落在各自列上
+- **六型得分两种形态**：合成一列 `R42 I38 A20 S74 E31 C25`，或拆成 R/I/A/S/E/C 六列；取结果快照的 0–100 标准分并取整，两种形态共用同一口径
+- **班级名**：学生行自带 `class_id`，内存关联班级表得到班名（不新增 SQL 联表）；未分班为空串
+- **测评列取值**：只认 `assessment_results` 的当前有效完成结果（`status=completed` + `is_current=1`），按学号集合**一次批查**（`getCurrentAssessmentResultsByUserCodes`，适配器内 500 分片）；未测评学生整格留空（不填 0 / undefined），状态列为「未测」
+- **推荐职业 Top3**：复用 #226 的匹配纯函数（画像取结果快照六维分、候选由 `toCareerCandidates` 从 `onet_occupations` 转），输出中文名（无译名回退英文名）分号分隔；职业库为空时该列不输出内容，界面按钮置灰并悬停说明（`?capabilities=1` 探测），**不隐藏**
+- **审计沿用**：导出动作仍记 `export:excel`（只记范围/列数/格式，明细不入库）；本 Issue 不做脱敏（教师本地留存）
 
 ## 数据流
 
