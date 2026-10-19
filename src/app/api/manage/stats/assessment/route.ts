@@ -55,6 +55,8 @@ export async function GET(request: NextRequest) {
         code: assessment.code,
         name: assessment.name,
         scaleVersion: assessment.scale_version,
+        /** 是否开放（#232 大屏测评栏据此区分「还没开放」与「还没人完成」两种空态） */
+        enabled: assessment.enabled === 1,
       },
       ...stats,
     });

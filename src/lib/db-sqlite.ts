@@ -1954,7 +1954,7 @@ export class SqliteAdapter implements DbAdapter {
   getAssessmentRoster(
     assessmentId: number,
     classIds: number[] | null,
-    filters: { classId?: number | null; lead?: string | null } = {}
+    filters: { classId?: number | null; lead?: string | null; code?: string | null } = {}
   ): AssessmentRosterRow[] {
     if (classIds !== null && classIds.length === 0) return [];
     const conditions = [
@@ -1975,6 +1975,11 @@ export class SqliteAdapter implements DbAdapter {
     if (filters.lead) {
       conditions.push("SUBSTR(r.type_code, 1, 1) = ?");
       params.push(filters.lead);
+    }
+    if (filters.code) {
+      // 三字码精确过滤（#232 胶囊下钻）：与 lead 可同时出现，二者是「且」关系
+      conditions.push("r.type_code = ?");
+      params.push(filters.code);
     }
     // 班级名 + 学号排序：下钻列表要稳定（库内 collation 差异不影响，因为教师只按单班看）
     return this.db
