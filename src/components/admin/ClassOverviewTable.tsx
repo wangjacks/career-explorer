@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { Student } from "@/hooks/useAdminAuth";
 import {
+  CELL_PLACEHOLDER,
   classAssessmentCells,
   formatPercent,
   totalAssessmentCells,
@@ -135,8 +136,8 @@ export default function ClassOverviewTable({ students, assessment = null }: Prop
                   {formatPercent((classOverview.unassigned.submitted / classOverview.unassigned.total) * 100)}
                 </td>
                 {/* 测评聚合按班级归属统计，未分班学生只在合计里体现 */}
-                <td className="px-5 py-3 text-gray-600 dark:text-gray-300">-</td>
-                <td className="px-5 py-3 text-gray-600 dark:text-gray-300">-</td>
+                <td className="px-5 py-3 text-gray-600 dark:text-gray-300">{CELL_PLACEHOLDER}</td>
+                <td className="px-5 py-3 text-gray-600 dark:text-gray-300">{CELL_PLACEHOLDER}</td>
               </tr>
             )}
             <tr className="bg-gray-50 dark:bg-gray-800 font-medium">

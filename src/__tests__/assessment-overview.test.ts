@@ -126,4 +126,35 @@ describe("班级/合计单元格", () => {
   it("合计行用全校小结（含未分班学生）", () => {
     expect(totalAssessmentCells(STATS)).toEqual({ assessed: "4", rate: "67%" });
   });
+
+  it("空班（在册 0 人）的比例列显示 `-`，与同一行的提交率口径一致", () => {
+    // 空班的「测评完成」仍显示 0（与「已提交」列一致），但比例不能写成 0%
+    expect(classAssessmentCells(STATS, 11)).toEqual({
+      assessed: CELL_PLACEHOLDER,
+      rate: CELL_PLACEHOLDER,
+    });
+    const withEmptyClass: AssessmentOverviewStats = {
+      classes: [{ classId: 11, name: "空班", enrolled: 0, assessed: 0, rate: 0 }],
+      total: { enrolled: 0, assessed: 0, rate: 0 },
+    };
+    expect(classAssessmentCells(withEmptyClass, 11)).toEqual({ assessed: "0", rate: CELL_PLACEHOLDER });
+    expect(totalAssessmentCells(withEmptyClass)).toEqual({ assessed: "0", rate: CELL_PLACEHOLDER });
+  });
+});
+
+describe("接口缺 rate 时的兜底", () => {
+  it("班级 / 总计的 rate 缺失时按 assessed ÷ enrolled 现算，而不是显示 0%", () => {
+    const stats = normalizeAssessmentOverview({
+      classes: [
+        { classId: 7, name: "A班", enrolled: 3, assessed: 2 },
+        { classId: 8, name: "B班", enrolled: 0, assessed: 0 },
+      ],
+      total: { enrolled: 4, assessed: 3 },
+    });
+    expect(stats?.classes[0].rate).toBeCloseTo(66.666, 2);
+    expect(stats?.classes[1].rate).toBe(0);
+    expect(stats?.total.rate).toBe(75);
+    expect(classAssessmentCells(stats, 7)).toEqual({ assessed: "2", rate: "67%" });
+    expect(classAssessmentCells(stats, 8)).toEqual({ assessed: "0", rate: CELL_PLACEHOLDER });
+  });
 });

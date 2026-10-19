@@ -32,6 +32,12 @@ function clampPercent(value: number | null): number {
   return Math.min(100, Math.max(0, value));
 }
 
+/** 缺 `rate` 时的兜底：与后端一致的 `assessed / enrolled`，分母为 0 记 0 */
+function deriveRate(assessed: number, enrolled: number): number {
+  if (enrolled <= 0) return 0;
+  return (assessed / enrolled) * 100;
+}
+
 /**
  * 解析聚合接口返回：形状不对或关键字段缺失时返回 `null`（= 没有测评数据）。
  * 单个班级行脏（缺 classId / 非数字）只丢这一行，不牵连整份数据——概览页宁可少一行也不能白屏。
@@ -53,22 +59,27 @@ export function normalizeAssessmentOverview(payload: unknown): AssessmentOvervie
       const rowEnrolled = finiteNumber(row.enrolled);
       const rowAssessed = finiteNumber(row.assessed);
       if (classId === null || rowEnrolled === null || rowAssessed === null) continue;
+      const enrolledCount = Math.max(0, rowEnrolled);
+      const assessedCount = Math.min(enrolledCount, Math.max(0, rowAssessed));
       classes.push({
         classId,
         name: typeof row.name === "string" ? row.name : "",
-        enrolled: Math.max(0, rowEnrolled),
-        assessed: Math.min(Math.max(0, rowEnrolled), Math.max(0, rowAssessed)),
-        rate: clampPercent(finiteNumber(row.rate)),
+        enrolled: enrolledCount,
+        assessed: assessedCount,
+        // 接口没给 rate（或给了非数字）时按同样的分母口径自己算，别把缺字段显示成 0%
+        rate: clampPercent(finiteNumber(row.rate) ?? deriveRate(assessedCount, enrolledCount)),
       });
     }
   }
 
+  const totalEnrolled = Math.max(0, enrolled);
+  const totalAssessed = Math.min(totalEnrolled, Math.max(0, assessed));
   return {
     classes,
     total: {
-      enrolled: Math.max(0, enrolled),
-      assessed: Math.min(Math.max(0, enrolled), Math.max(0, assessed)),
-      rate: clampPercent(finiteNumber(totalRecord?.rate)),
+      enrolled: totalEnrolled,
+      assessed: totalAssessed,
+      rate: clampPercent(finiteNumber(totalRecord?.rate) ?? deriveRate(totalAssessed, totalEnrolled)),
     },
   };
 }
@@ -96,6 +107,9 @@ export const CELL_PLACEHOLDER = "-";
 /**
  * 班级行的两个测评单元格。按 `classId` 匹配（班级改名不影响）；未分班行、无数据、
  * 接口不可用一律 `-`——概览页不展示个人明细，也不替缺失数据编数字。
+ *
+ * 空班（`enrolled = 0`）的「交齐比例」显示 `-` 而不是 `0%`：同一行左侧「提交率」
+ * 在零学生时本来就是 `-`，两列口径必须一致（0% 会被读成「有人但都没做」）。
  */
 export function classAssessmentCells(
   stats: AssessmentOverviewStats | null,
@@ -104,13 +118,19 @@ export function classAssessmentCells(
   if (!stats || classId === null) return { assessed: CELL_PLACEHOLDER, rate: CELL_PLACEHOLDER };
   const row = stats.classes.find((item) => item.classId === classId);
   if (!row) return { assessed: CELL_PLACEHOLDER, rate: CELL_PLACEHOLDER };
-  return { assessed: String(row.assessed), rate: formatPercent(row.rate) };
+  return {
+    assessed: String(row.assessed),
+    rate: row.enrolled > 0 ? formatPercent(row.rate) : CELL_PLACEHOLDER,
+  };
 }
 
-/** 合计行：用全校小结（含未分班学生），口径与「测评完成」卡一致 */
+/** 合计行：用全校小结（含未分班学生），口径与「测评完成」卡一致；零学生时比例显示 `-` */
 export function totalAssessmentCells(
   stats: AssessmentOverviewStats | null
 ): { assessed: string; rate: string } {
   if (!stats) return { assessed: CELL_PLACEHOLDER, rate: CELL_PLACEHOLDER };
-  return { assessed: String(stats.total.assessed), rate: formatPercent(stats.total.rate) };
+  return {
+    assessed: String(stats.total.assessed),
+    rate: stats.total.enrolled > 0 ? formatPercent(stats.total.rate) : CELL_PLACEHOLDER,
+  };
 }
