@@ -54,7 +54,7 @@ export default function AssessmentListCard({ rows }: { rows: AssessmentListRow[]
                   )}
                 </p>
               </div>
-              {row.canStart && (
+              {row.canStart && row.isPrimary ? (
                 <Link
                   href={QUIZ_HREF}
                   className="inline-flex items-center justify-center gap-1.5 px-4 py-2 bg-gray-100 hover:bg-gray-200 dark:bg-gray-800 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-200 text-sm font-medium rounded-lg transition-colors sm:flex-shrink-0"
@@ -62,6 +62,8 @@ export default function AssessmentListCard({ rows }: { rows: AssessmentListRow[]
                   <Play size={14} aria-hidden />
                   {row.status === "completed" ? "再测一次" : "去作答"}
                 </Link>
+              ) : (
+                <span className="text-xs text-muted sm:flex-shrink-0">即将开放</span>
               )}
             </li>
           );

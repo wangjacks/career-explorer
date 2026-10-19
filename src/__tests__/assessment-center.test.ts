@@ -185,6 +185,7 @@ describe("buildAssessmentList：测验列表卡（#225）", () => {
       status: "completed",
       enabled: true,
       canStart: true,
+      isPrimary: true,
     });
   });
 
@@ -217,6 +218,9 @@ describe("buildAssessmentList：测验列表卡（#225）", () => {
     expect(rows[0].status).toBe("completed");
     expect(rows[1].status).toBe("not-started");
     expect(rows[1].estimatedMinutes).toBe(estimateMinutes(60));
+    // 只有主测评带作答入口：答题页目前只认 RIASEC，预留项给「即将开放」而不是错链接
+    expect(rows.map((row) => row.isPrimary)).toEqual([true, false]);
+    expect(rows.map((row) => row.canStart)).toEqual([true, true]);
   });
 
   it("缺 code 的行被丢弃（列表卡必须能定位到可作答的量表），脏字段不产生 NaN", () => {
@@ -230,6 +234,11 @@ describe("buildAssessmentList：测验列表卡（#225）", () => {
     expect(rows.map((row) => row.code)).toEqual(["riasec"]);
     expect(rows[0].questionCount).toBe(0); // 字符串题量按 0，页面显示「题库准备中」
     expect(Number.isFinite(rows[0].estimatedMinutes)).toBe(true);
+  });
+
+  it("只有 assessments 数组、没有主量表时全部按预留项处理（不给作答入口）", () => {
+    const rows = buildAssessmentList({ assessments: [{ code: "riasec", name: "霍兰德", questionCount: 30 }] });
+    expect(rows[0]).toMatchObject({ isPrimary: false, status: "not-started", canStart: true });
   });
 
   it("payload 为空或没有量表 → 空列表（页面据此不渲染列表卡）", () => {

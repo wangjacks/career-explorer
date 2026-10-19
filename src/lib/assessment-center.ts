@@ -121,6 +121,12 @@ export interface AssessmentListRow {
   enabled: boolean;
   /** 题库非空且量表开放时才给「开始 / 继续作答」入口 */
   canStart: boolean;
+  /**
+   * 是否当前唯一有作答页的量表（接口里的主测评）。
+   * 列表卡只给主测评渲染「去作答」——答题页目前只认 RIASEC，多量表预留项若也放按钮，
+   * 会把学生带到错的量表（宁可显示「即将开放」也不给错入口）。
+   */
+  isPrimary: boolean;
 }
 
 function toText(value: unknown): string {
@@ -134,6 +140,7 @@ function toText(value: unknown): string {
  * 列表只消费 `assessment` / `assessments` 的**展示字段**（code / name / 题量 / 是否开放），
  * 三态与耗时沿用 `deriveAssessmentCenter` / `estimateMinutes`，不另算一套。
  * 没有 code 的行直接丢弃：列表卡要能点进对应量表，缺标识的行没有渲染价值。
+ * 只有主测评（`isPrimary`）带作答入口：新增量表要等它自己的答题路由落地后再放开。
  */
 export function buildAssessmentList(
   payload: AssessmentCenterPayload | null | undefined,
@@ -154,15 +161,17 @@ export function buildAssessmentList(
       const code = toText(item.code);
       const questionCount = toCount(item.questionCount);
       const enabled = item.enabled !== false;
+      const isPrimary = index === 0 && single !== null;
       return {
         code,
         name: toText(item.name) || code,
         questionCount,
         estimatedMinutes: estimateMinutes(questionCount),
         // 只有主测评（单套量表的那个）知道本人进度；多量表预留项先按未开始算
-        status: index === 0 && single ? center.status : ("not-started" as AssessmentCenterStatus),
+        status: isPrimary ? center.status : ("not-started" as AssessmentCenterStatus),
         enabled,
         canStart: enabled && questionCount > 0,
+        isPrimary,
       };
     })
     .filter((row) => row.code !== "");
