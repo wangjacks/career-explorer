@@ -133,6 +133,7 @@ find src/app -name page.tsx && find src/app/api -name route.ts
 - 测评结果展示（#224）：「我的档案」hero 之下常驻测评结果卡（三字码徽章 + 六型雷达图 + 条状排名 + 逐条解读 + 推荐职业），**自己读 `/results`、与档案提交流程完全解耦**——不受 `submissionClosed` 门控、不进档案版本快照、不显示归档状态；推荐职业是渐进增强（接口失败/为空整块静默不渲染）；视图模型纯函数在 `assessment-view.ts`（仓库无 DOM 测试环境，界面逻辑先落纯函数再测）（口径见 `docs/architecture.md`「职业测评结果展示」）
 - 教师端测评统计（#229）：两个端点分工是安全边界——`/api/manage/stats/assessment` **纯聚合**（班级完成度/六型计数/三字码 Top-10/总数，响应无个人标识，可投屏），`/api/manage/assessment/roster` 是唯一「测评结果 + 姓名学号」同体的端点，教师**恒收窄到本人归属班级**（越权 `classId` 直接 403）且每次读取（含被拒）都记审计 `assessment:roster`；归型依据是结果快照三字码首位（不重算分数，与学生端必然一致），分母是在册学生且完成率钳到 100%；适配器只出原始计数，完成率/排序/标签统一在 `assessment-stats.ts` 纯函数里（口径见 `docs/architecture.md`「教师端测评统计」）
 - 上传与导出：上传走服务端压缩 + 可配置大小上限 + 唯一命名不覆盖；导出用 ExcelJS（XLSX 默认原生单元格图片，可切浮动图片）+ JSZip 打包图片
+- 数据导出自定义列（#233）：列定义与格式化是纯函数（`export-columns.ts`，含列顺序、CSV/Excel 表头差异、六型分合成/拆列、图片锚点列字母），路由与界面只消费它；**默认列集合永不因加列而变**，新列一律增量勾选；列顺序以定义为准（与勾选顺序无关），xlsx 图片锚点按最终列下标算；测评列来自结果快照的当前有效版本（按学号一次批查，未测评整格留空），推荐职业列依赖职业库、未就绪时按钮置灰不隐藏（`?capabilities=1` 探测）（口径见 `docs/architecture.md`「数据导出」）
 - 面板结构：Tab 式布局，管理/教师面板的 Tab 页命名 `*Tab.tsx`（同目录共用 UI 组件不套用该后缀）；词云为客户端 canvas 组件
 
 ## 8. Development Environment Notes
