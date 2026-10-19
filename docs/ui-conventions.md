@@ -61,6 +61,8 @@
 |---|---|
 | 内容卡片 | `bg-white rounded-xl border border-border-soft shadow-sm` |
 | 统计卡 | 内容卡规格 + 顶部 `h-1` 渐变色条 + hover 上浮 |
+| 品牌 hero | `bg-brand rounded-2xl p-5 sm:p-6 shadow-sm` + 白色文字（问候 / 日期 / 引导语） |
+| 快捷入口卡 | `bg-card rounded-xl border border-border-soft p-4` + hover 上浮与阴影 + 顶部 `bg-accent` 悬停条（琥珀不承载小字） |
 | 弹窗/模态 | `rounded-2xl shadow-xl`（全屏遮罩 `bg-black/40`） |
 
 - 卡片内边距统一 `p-5`/`p-6`；区块间距 `space-y-6`/`space-y-8`
