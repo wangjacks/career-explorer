@@ -140,8 +140,8 @@
 | `/api/manage/stats/distribution` | GET | 仅 GET | 标签分布 |
 | `/api/manage/stats/trends` | GET | 仅 GET | 提交趋势（全校合计，缺日补 0） |
 | `/api/manage/stats/class-trends` | GET | 仅 GET | 按班级分层的提交趋势（#165，时间 × 班级交叉维度） |
-| `/api/manage/stats/assessment` | GET | 仅 GET | 测评聚合统计（#229）：班级完成度 / 六型计数 / 三字码排行 / 总数小结，**不含任何个人标识**；`?scope=all`（默认，全校）或 `scope=mine`（仅本人归属班级） |
-| `/api/manage/assessment/roster` | GET | 仅 GET | 测评名册（#229）：已完测学生的姓名 / 学号 / 三字码 / 完成时间，供下钻；教师恒收窄到本人归属班级（越权 403），每次读取记审计 `assessment:roster` |
+| `/api/manage/stats/assessment` | GET | 仅 GET | 测评聚合统计（#229）：班级完成度 / 六型计数 / 三字码排行 / 总数小结，**不含任何个人标识**；`?scope=all`（默认，全校）或 `scope=mine`（仅本人归属班级）；`assessment.enabled` 供大屏区分「还没开放」与「还没人做」（#232） |
+| `/api/manage/assessment/roster` | GET | 仅 GET | 测评名册（#229）：已完测学生的姓名 / 学号 / 三字码 / 完成时间，供下钻；过滤参数 `classId` / `lead`（三字码首位）/ `code`（完整三字码，#232）+ `scope`；教师恒收窄到本人归属班级（越权 403），每次读取记审计 `assessment:roster` |
 | `/api/manage/profiles` | GET / DELETE | GET + DELETE | 档案列表 / 清除档案字段 |
 | `/api/manage/profiles/submissions` | GET | GET | 管理端查看学生提交历史（#95）：admin 全量、teacher 仅管辖班级 |
 | `/api/manage/profiles/submissions/exceeding` | GET | GET | 超出版本上限的学生列表（#95） |
@@ -292,9 +292,21 @@
 - **完成率**：`assessed / enrolled` 乘 100 保留一位小数，分母是**在册学生数**（未测评也计入），并在纯函数里钳到 100% 以内——脏数据（重复当前结果、跨班归属不一致）不会把完成度刷成 150%。`enrolled`/`assessed` 都数学生而不是行数，`assessed` 用 `COUNT(DISTINCT user_id)`
 - **六型归型依据是结果快照的三字码首位**（`type_code[0]`）：计分引擎（#220）产码时已按「标准分降序 + RIASEC 破平序」选维度，统计层**不重算分数**，因此聚合计数与学生端逐人展示必然一致（单测逐人核对）。六型输出以量表 `dimensions_json` 的顺序为准、计数为 0 也返回，前端画图不用自己补零
 - **范围参数与取舍**：聚合沿用既有 `/stats/*` 的全校口径（`scope=all` 默认，教师与管理员同数据，#165 的决策），`scope=mine` 才按 `teacher_classes` 收窄到本人班级；管理员没有班级归属，`scope=mine` 等同全校（要看单班结构用名册按 `classId` 下钻）。**明细接口例外：教师恒为本人归属班级**（`scope=all/mine` 都不放大范围，显式传别的班 `classId` 直接 403，不静默返回空列表）；管理员不受限
-- **审计**：名册接口每次读取都记 `assessment:roster`（成功/失败都记：被拒的越权请求、非法参数、量表未配置各记一条 failed，含 `classId` / `lead` / 教师可查班级集合），便于回答「谁查过谁」；聚合接口不记（无个人信息，与既有 stats 同口径）
+- **审计**：名册接口每次读取都记 `assessment:roster`（成功/失败都记：被拒的越权请求、非法参数、量表未配置各记一条 failed，含 `classId` / `lead` / `code` / 教师可查班级集合），便于回答「谁查过谁」；聚合接口不记（无个人信息，与既有 stats 同口径）
 - **双适配器一致性**：适配器只做 SQL 计数（同一套 SQL 语义，表 `idx_assessment_results_assessment` 支撑），完成率、排序破平、Top-N 截断与中文标签统一在 `assessment-stats.ts` 的纯函数里算——口径不落在两个适配器上，避免 SQLite / MySQL 慢慢分叉；班级排序也在纯函数里做，不依赖两库的排序规则
 - **性能**：按全表聚合（一所学校几百到几千行结果），走 `assessment_id` 索引即可，不额外建索引；高频轮询投屏时才需要考虑缓存，当前不做
+
+## 数据大屏测评栏（#232）
+
+<!-- 对账：视图口径纯函数 `src/lib/assessment-dashboard.ts`（测试 `assessment-dashboard.test.ts`）；组件 `TeacherAssessmentCard` + `AssessmentRosterDialog`；文案 `ASSESSMENT_DASHBOARD_COPY`（`dashboard-copy.test.ts` 锁词表与对比度） -->
+
+- **一栏三视图 + 点击下钻**：教师端大屏全宽栏（`lg:col-span-12`）替换原占位卡。三个视图（完成进度 / 类型分布 / 热门三字码）共用**一次**聚合请求——切换视图不重取、不影响同屏其他图表；只有切换「全校 / 只看我的班」才重取聚合。点班级行 / 类型条 / 三字码胶囊才去取名册（个人明细，服务端记审计）
+- **完成进度**：按交齐比例**升序**（最该催的在前），同比例按班名排序，「还没分班」恒置末（它不是一个可催的班，且不是可下钻对象）；每行是 `班名 · 已交/共 N 人 · 内联进度条`
+- **类型分布**：六型**横向条**（不用雷达图——投屏读不出绝对量），宽度按最大值归一、右侧标人数；悬停/聚焦时读数固定显示在栏中心（不给每段挂 tooltip，同标签分布卡的理由）；点条按 `lead` 下钻
+- **热门三字码**：Top-10 胶囊，底色取首位类型色；点胶囊按**完整 `code`** 下钻（为此名册接口新增 `code` 过滤，与 `lead` 是「且」关系）
+- **配色与对比度**：六型色由数据决定（不走语义 token），每型给浅色/深色两档类型条、一档胶囊底色 + 文字色；单测按 WCAG 校验类型条与轨道 ≥ 3:1、胶囊文字 ≥ 4.5:1。issue 写的 E 型 `#f59e0b` 对浅色底只有 2.15:1，改用同色相深一档 `#b45309`（理由写进配色表注释）
+- **下钻弹窗**：复用班级名册弹窗的范式（`dialog` 语义 + Escape + Tab 焦点捕获 + 关闭后焦点还原；窄屏全屏抽屉、桌面 `max-h-[85vh] max-w-2xl`），标题下与页脚**常驻**「投屏提醒」；列只展示姓名 / 学号（首 4 末 4 脱敏）/ 三字码 / 完成时间，支持关键字搜索与「只看某一型」二级筛选，弹窗内还会按 `lead` 再向服务端收窄一次
+- **降级**：本栏自管加载 / 失败 / 未开放 / 无人完成四种状态——失败态只坏这一栏且带重试；量表停用（`assessment.enabled=false`）或量表未配置（404）显示「还没开放」的行动邀请，**不写「暂无数据」**；无人完成时提示去哪儿做测评
 
 ## 文件存储（#111 对象存储）
 
