@@ -7,6 +7,13 @@ import { LIKERT_MAX, LIKERT_MIN, type DimensionConfig, type DimensionScore } fro
  * 路由共用同一套口径，避免「前端放行的值后端不认」这类分叉。计分本身在 `assessment-scoring.ts`。
  */
 
+/**
+ * 结果版本最多回传条数（`GET /api/shared/assessment/results` 的 `history` 上限）：
+ * 界面只需要「当前 + 最近几版」，防止响应随作答次数无限膨胀。
+ * 测评中心（#222）也用它判断「累计版本数」是否被截断（显示 `10+` 而不是谎报 10 次）。
+ */
+export const MAX_RESULT_VERSIONS = 10;
+
 /** 作答值的中文锚点：RIASEC 兴趣量表问的是「愿不愿意做」，不是「准不准确」（1-5 与计分引擎同一量程） */
 export const LIKERT_ANCHORS: { value: number; label: string }[] = [
   { value: 1, label: "非常不愿意" },

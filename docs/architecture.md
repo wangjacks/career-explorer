@@ -20,7 +20,7 @@
 
 ## 页面路由
 
-<!-- 对账：`find src/app -name page.tsx`（当前 10 个） -->
+<!-- 对账：`find src/app -name page.tsx`（当前 11 个） -->
 
 | 路由 | 说明 |
 |---|---|
@@ -31,7 +31,8 @@
 | `/form` | 表单列表（标准化测评入口，#168）；数据源为页内常量空数组，当前仅渲染空态，不接 API |
 | `/dashboard/admin` | 管理面板（分组见「面板导航结构」） |
 | `/dashboard/teacher` | 教师面板（分组见「面板导航结构」） |
-| `/dashboard/student` | 学生面板（我的档案：未提交可就地填写与提交、已提交可就地修改 / 历史提交 #95，两个 Tab） |
+| `/dashboard/student` | 学生面板（我的档案：未提交可就地填写与提交、已提交可就地修改 / 历史提交 #95，两个 Tab；档案内容上方常驻**职业兴趣测评结果区** #224——雷达图 + 条状排名 + 三字码 + 六型解读 + 推荐职业，与档案提交流程解耦） |
+| `/dashboard/student/assessment` | 职业测评中心（#222）：入口、状态与说明——三态状态卡（未开始 / 进行中 / 已完成）+ 免责声明与署名入口；结果解读在「我的档案」测评区（#224） |
 | `/dashboard/student/assessment/quiz` | 职业兴趣测评答题页（#223）：单题单屏 + 进度条 + Likert 1-5，自动存草稿、可续答，提交前二次确认 |
 | `/setup` | 安装引导（首次配置数据库 + 管理员密码） |
 
@@ -58,7 +59,9 @@
 
 > **主页只负责问候与分流（#228）**：主页 = 品牌 hero（时段问候 + 日期 + 一句引导）+ 按上面三个分组排成的快捷入口卡片网格，**不渲染任何统计数字与班级概览**（统计能力的唯一入口是「数据概览」）。卡片与侧边栏**共用 `page.tsx` 的同一份 `MENU_GROUPS`**（`description` 是卡片的一句话说明，侧边栏不渲染），新增栏目只改这一处；点击卡片即切 Tab，不做路由跳转。
 
-**学生面板 `/dashboard/student`** — 两个 Tab：我的档案（通览 + 就地修改，二次确认）/ 历史提交（#95，懒加载，恢复生成新版本）。
+**学生面板 `/dashboard/student`** — 两个 Tab：我的档案（通览 + 就地修改，二次确认）/ 历史提交（#95，懒加载，恢复生成新版本）。侧边栏四项：我的档案 / 职业测评（#222）/ 我的班级（即将上线）/ 成长记录（即将上线）；高亮按路径判定（「我的档案」精确匹配、「职业测评」前缀匹配覆盖答题页），条目与判定规则在 `src/lib/student-nav.ts`。
+
+**学生测评中心 `/dashboard/student/assessment`（#222）** — 只承载入口、状态与说明，结果解读与职业推荐留给「我的档案」测评区（#224）。状态来自 `GET /api/shared/assessment/results`（`current` / `inProgress`），三态判定在 `src/lib/assessment-center.ts`：**进行中 > 已完成 > 未开始**（重测中的草稿优先，旧三字码作为次要信息）；量表停用（`assessment.enabled=false`）时收掉「开始 / 继续作答」入口但历史结果照常展示。
 
 ## API 路由
 
@@ -128,6 +131,8 @@
 | `/api/manage/stats/distribution` | GET | 仅 GET | 标签分布 |
 | `/api/manage/stats/trends` | GET | 仅 GET | 提交趋势（全校合计，缺日补 0） |
 | `/api/manage/stats/class-trends` | GET | 仅 GET | 按班级分层的提交趋势（#165，时间 × 班级交叉维度） |
+| `/api/manage/stats/assessment` | GET | 仅 GET | 测评聚合统计（#229）：班级完成度 / 六型计数 / 三字码排行 / 总数小结，**不含任何个人标识**；`?scope=all`（默认，全校）或 `scope=mine`（仅本人归属班级） |
+| `/api/manage/assessment/roster` | GET | 仅 GET | 测评名册（#229）：已完测学生的姓名 / 学号 / 三字码 / 完成时间，供下钻；教师恒收窄到本人归属班级（越权 403），每次读取记审计 `assessment:roster` |
 | `/api/manage/profiles` | GET / DELETE | GET + DELETE | 档案列表 / 清除档案字段 |
 | `/api/manage/profiles/submissions` | GET | GET | 管理端查看学生提交历史（#95）：admin 全量、teacher 仅管辖班级 |
 | `/api/manage/profiles/submissions/exceeding` | GET | GET | 超出版本上限的学生列表（#95） |
@@ -147,6 +152,8 @@
 > 前缀匹配特性：`/api/manage/export` 覆盖 `export-images`；`/api/manage/profiles` 的 GET+DELETE 覆盖 submissions 子路由的 GET，但 `submissions/cleanup` 是 POST，教师被拒。
 >
 > 数据范围：`/api/manage/stats/*` 只做角色放行，不按班级裁剪，教师与管理员读到同一份全校数据（#165 的决策，界面已在面板标题与各卡片标注，非缺陷）。
+>
+> **#229 测评统计的两层范围**：聚合 `/stats/assessment` 沿用上面这条口径（默认全校，`scope=mine` 才收窄到本人归属班级）；**个人明细 `/assessment/roster` 例外**——它是全仓唯一把测评结果与姓名学号放在一起的端点，教师恒为本人归属班级（`classId` 越权直接 403），并每次读取记审计。两者的取舍见「教师端测评统计（#229）」。
 
 ### 共享域 `/api/shared/*`（不进 proxy，路由自鉴权）
 
@@ -160,7 +167,7 @@
 | `/api/shared/assessment/start` | GET | 进入答题页（#223）：下发题面（不含维度，避免暗示答案）+ 量表元信息（署名/授权/免责）+ 草稿进度与续答落点；**只读，不建草稿行** |
 | `/api/shared/assessment/answer` | POST | 保存一次作答（#223）：服务端**合并**进 `status=in_progress` 草稿并回进度 + 下一个未答题；非法题号/取值 400，停用量表 403 |
 | `/api/shared/assessment/submit` | POST | 提交作答（#223）：未答完 400（回带 `missingIndexes`）→ 复用 #220 引擎计分 → 结果快照落库（`is_current` 唯一，重复提交生成新版本）→ 审计 `assessment:submit` |
-| `/api/shared/assessment/results` | GET | 结果查询（#223）：当前有效结果 + 最近 10 个历史版本 + 进行中进度，供「我的档案」测评区（#224）消费；只按会话 uid 读取，**无 userId 参数**，因此没有越权读他人结果的路径 |
+| `/api/shared/assessment/results` | GET | 结果查询（#223）：当前有效结果 + 最近 10 个历史版本 + 进行中进度，供「我的档案」测评区（#224）与测评中心（#222）消费；量表元信息带 `enabled`（停用时测评中心收掉作答入口，历史结果仍可读）；只按会话 uid 读取，**无 userId 参数**，因此没有越权读他人结果的路径 |
 | `/api/shared/assessment/careers` | GET | 本人最新霍兰德结果 → Top-N 推荐职业（#226）：只认会话 uid（显式传别人的 `user_id` 直接 403，非学生 403），`?limit=1–20`（非法值 400），返回推荐列表 + O*NET 署名与快照版本；没完成测评 404、结果里既无六维分也无三字码 409、职业库为空 503 |
 
 ### 其他开放端点（proxy 之外）
@@ -242,6 +249,7 @@
 - **完成动作串行化**：MySQL 侧事务开头 `SELECT ... FOR UPDATE` 锁学生行（与档案归档提交同款做法），否则两个「首次完成」并发时都 UPDATE 到 0 行、再各自插入 `is_current = 1`，当前版本就不唯一了；SQLite 由单写者事务天然串行
 - **个人数据随账号删除**：`deleteStudents` 一并清 `assessment_results`；历史档案快照 `profile_submissions` 仍按 #95 口径保留
 - **授权合规**：`attribution`（署名）/ `license_text`（授权与修改声明）/ `disclaimer`（免责声明）三列随量表下发，作答页与结果页必须展示。O*NET Tools Developer License 要求署名并声明「修改未经 USDOL/ETA 审核、认可或测试」（https://www.onetcenter.org/license_tools.html ）
+- **信效度验证（#227）**：同一授权还要求「对整合了 Tools 内容的产品做验证」。验证方案、判定线（α / CITC / 重测 / 样本量）、施测 SOP 与常模实施预案见 `docs/assessment-validation-plan.md`；统计口径在 `src/lib/assessment-validation.ts`（单测锁定），一键报告用 `npm run validate:assessment -- --db ./data/career.db`（只用聚合值，不含个人数据）
 
 ## 职业测评作答流程（#223）
 
@@ -266,6 +274,19 @@
 - **接口**：`GET /api/shared/assessment/careers`，自鉴权（只认会话 uid，显式传别人 `user_id` 403、非学生 403），返回 `careers`（含中文译名 / 学历 / 职业群 / 相似度）、画像来源（`scores` / `typeCode`）、快照版本与 **CC BY 4.0 署名文本**（前端必须展示署名）。**不记审计**：与 `/api/shared/profile`、`/submissions` 等本人读本人的 GET 同口径（#110 的审计范围是管理域写操作、认证事件、档案提交、导出/备份）
 - **已知边界**：职业分是 2026-02 的快照，不随 O\*NET 后续版本自动更新；Job Zone → 学历是归纳口径（如「本科」不是硬性要求）；`name_zh` 未覆盖的职业回退英文名
 
+## 教师端测评统计（#229）
+
+<!-- 对账：口径纯函数 `src/lib/assessment-stats.ts`（测试 `assessment-stats.test.ts`）；SQL 在两适配器的 getAssessmentStats / getAssessmentRoster；行为与越权测试 `assessment-stats-db.test.ts` / `assessment-stats-api.test.ts` -->
+
+- **两个端点、两种数据敏感度**：`/api/manage/stats/assessment` 是**纯聚合**（班级完成度 / 六型计数 / 三字码 Top-10 / 总数），响应里没有姓名学号，可直接投屏；`/api/manage/assessment/roster` 才返回个人明细，因此它是全仓唯一「测评结果 + 姓名学号」同体的端点，边界单独收紧（见下）
+- **关联口径**（表关系）：`assessment_results.user_id → users.id`（只取 `role='student'` 且在册）→ `users.class_id → classes.id`。三个条件缺一不可：`status='completed'`（草稿不算）、`is_current=1`（旧版本不算）、学生账号（教师/管理员本人作答不算）。未分班学生（`class_id IS NULL`）进**总分母**但不进任何班级分母，所以各班级完成率之和不等于全校完成率（有意为之，否则未分班学生凭空消失）
+- **完成率**：`assessed / enrolled` 乘 100 保留一位小数，分母是**在册学生数**（未测评也计入），并在纯函数里钳到 100% 以内——脏数据（重复当前结果、跨班归属不一致）不会把完成度刷成 150%。`enrolled`/`assessed` 都数学生而不是行数，`assessed` 用 `COUNT(DISTINCT user_id)`
+- **六型归型依据是结果快照的三字码首位**（`type_code[0]`）：计分引擎（#220）产码时已按「标准分降序 + RIASEC 破平序」选维度，统计层**不重算分数**，因此聚合计数与学生端逐人展示必然一致（单测逐人核对）。六型输出以量表 `dimensions_json` 的顺序为准、计数为 0 也返回，前端画图不用自己补零
+- **范围参数与取舍**：聚合沿用既有 `/stats/*` 的全校口径（`scope=all` 默认，教师与管理员同数据，#165 的决策），`scope=mine` 才按 `teacher_classes` 收窄到本人班级；管理员没有班级归属，`scope=mine` 等同全校（要看单班结构用名册按 `classId` 下钻）。**明细接口例外：教师恒为本人归属班级**（`scope=all/mine` 都不放大范围，显式传别的班 `classId` 直接 403，不静默返回空列表）；管理员不受限
+- **审计**：名册接口每次读取都记 `assessment:roster`（成功/失败都记：被拒的越权请求、非法参数、量表未配置各记一条 failed，含 `classId` / `lead` / 教师可查班级集合），便于回答「谁查过谁」；聚合接口不记（无个人信息，与既有 stats 同口径）
+- **双适配器一致性**：适配器只做 SQL 计数（同一套 SQL 语义，表 `idx_assessment_results_assessment` 支撑），完成率、排序破平、Top-N 截断与中文标签统一在 `assessment-stats.ts` 的纯函数里算——口径不落在两个适配器上，避免 SQLite / MySQL 慢慢分叉；班级排序也在纯函数里做，不依赖两库的排序规则
+- **性能**：按全表聚合（一所学校几百到几千行结果），走 `assessment_id` 索引即可，不额外建索引；高频轮询投屏时才需要考虑缓存，当前不做
+
 ## 文件存储（#111 对象存储）
 
 - **统一抽象**：`src/lib/storage.ts` 定义 `StorageAdapter`（上传 / 读取 / 删除 / 存在性 / 访问地址签发），文件类型中立；本地实现 `storage-local.ts`（uploads/ 目录）+ S3 兼容实现 `storage-s3.ts`（`@aws-sdk/client-s3`，覆盖腾讯云 COS / 阿里云 OSS / MinIO / AWS S3）
@@ -282,13 +303,25 @@
 - **缩略图**：key 派生规则 `{base}.jpg` → `{base}_thumb.jpg`（仅 `.jpg` 派生，常量在 `src/lib/thumbnail-utils.ts`，生成逻辑 `src/lib/thumbnail.ts` 仅服务端）；`generate-thumbnails/status` 只读检测缺失，`generate-thumbnails` 补生成（单文件失败不中断，返回统计）
 - **权限**：媒体治理不开放教师，路由内二次校验仅 admin
 
+## 职业测评结果展示（#224）
+
+<!-- 对账：视图模型纯函数在 `src/lib/assessment-view.ts`（测试 `assessment-view.test.ts`）；组件在 `src/components/student/`；数据来自 `/api/shared/assessment/results`（#223）与 `/careers`（#226） -->
+
+- **位置**：学生面板「我的档案」内容区（hero 之下、Tab/表单之上）常驻一张卡片，不区分「已提交 / 建档中 / 编辑态」——这样无论档案提交流程处于哪一步，结果都能看到
+- **与档案提交流程完全解耦**：卡片自己读 `/api/shared/assessment/results`，**不看 `submissionClosed` / 截止日期**（档案截止后仍可查看与重测）、不进档案版本快照、不显示「已归档 / 未提交」状态。测评的截止/停用规则只由测评自身（量表 `enabled`）决定
+- **内容构成**：三字码徽章（`bg-brand` 深绿块 + 每枚字母的中文型名）→ 六型雷达图（recharts `RadarChart`，量程固定 0–100、不画半径刻度）与条状排名并列（排名标出三字码里的「主要兴趣」）→ 六型逐条通俗解读（按排名顺序，不出现「维度 / 标准分 / 口径」等术语）→ 推荐职业（#226，渐进增强）→ 免责声明 + 署名
+- **视图模型先行**：`assessment-view.ts` 是纯函数层（补齐缺失维度、固定 RIASEC 顺序、排序破平、三字码规范化、职业卡清洗），组件只负责画。仓库没有 DOM 测试环境，界面逻辑一律先落到这里再被单测覆盖
+- **推荐职业渐进增强**：只在有当前结果时补拉 `/careers`；接口失败 / 为空 / 无中文数据时**整块静默不渲染**（`console.error` 留痕，不打断学生），与「A3 未就绪也能上线」的验收口径一致；渲染时必须展示接口下发的 **CC BY 4.0 署名**
+- **无结果空态**：引导去答题页（`/dashboard/student/assessment/quiz`，约 10 分钟）；有未完成草稿时提示「上次答到 N/M」并把 CTA 改成「继续作答」。测评中心（#222）上线后由它承担总入口，本卡片的空态链接不依赖它
+- **容错**：结果接口失败显示「暂时读不到」+ 重试，不会把失败说成「没做过测评」；得分缺 `standard` 等脏数据在 `parseScores`（#223）与视图模型两层过滤，不用坏数据渲染
+
 ## 数据流
 
 ```
 学生端（档案提交，#168 / #208）：登录 → 学生面板「我的档案」→ 未提交学生直接就地填写（标签为必填项、虚拟形象与评价词云可选填，空标签由服务端 400 拦截）→ 二次确认后提交；已提交学生走「修改数据」就地修改；每次保存生成新版本（#95）
-学生端（登录态）：学生面板「我的档案」通览本人档案；「历史提交」Tab 查看/恢复旧版本（#95）
+学生端（登录态）：学生面板「我的档案」通览本人档案；「历史提交」Tab 查看/恢复旧版本（#95）；档案内容上方的职业兴趣测评区（#224）独立读取本人结果快照，包含三字码、六型雷达图/排名/解读与推荐职业（推荐为渐进增强）
 学生端（激活）：/activate 第一步 verify 三要素核验（#93）→ 第二步设置密码并自动登录
-学生端（职业测评，#223）：测评中心「开始作答」→ 答题页单题单屏（每题自动存草稿，可退出续答）→ 全部答完后二次确认提交 → 服务端计分并按快照落库 → 答题页展示三字码与六维分；完整解读在「我的档案」测评区（#224）
+学生端（职业测评，#222/#223）：侧边栏「职业测评」→ 测评中心（三态状态卡：未开始 / 进行中 / 已完成 + 说明与署名）→「开始 / 继续作答」进答题页单题单屏（每题自动存草稿，可退出续答）→ 全部答完后二次确认提交 → 服务端计分并按快照落库 → 答题页展示三字码与六维分；完整解读在「我的档案」测评区（#224）
 教师端：登录 → 主页（问候 + 分组快捷入口，**不含统计数字**）→ 数据中心（概览/大屏/导出）→ 数据管理（数据列表/学生/班级/标签）→ 系统设置（功能设置/操作审计）
 管理端：登录 → 数据中心（概览/大屏/导出/提交历史）→ 用户管理（学生/教师/班级/标签）→ 系统设置（数据源/功能设置/存储管理/媒体管理/操作审计）
 ```

@@ -11,6 +11,7 @@ import {
 } from "@/lib/db";
 import { RIASEC_CODE } from "@/lib/assessment-data";
 import {
+  MAX_RESULT_VERSIONS,
   answerProgress,
   filterAnswersToBank,
   formatResultTime,
@@ -21,8 +22,8 @@ import {
 import { verifyToken } from "@/lib/token";
 import { getRequestContext, recordAudit } from "@/lib/audit";
 
-/** 历史版本最多回传条数：界面只需要「当前 + 最近几版」，防止响应随作答次数无限膨胀 */
-const MAX_HISTORY = 10;
+/** 历史版本最多回传条数（与测评中心共用的常量，避免两处各写一个 10） */
+const MAX_HISTORY = MAX_RESULT_VERSIONS;
 
 /**
  * 结果查询（#223）：当前有效结果 + 历史版本 + 进行中的作答进度，供「我的档案」测评区（#224）消费。
@@ -89,6 +90,8 @@ async function GET_impl(request: NextRequest) {
         code: assessment.code,
         name: assessment.name,
         questionCount: bankIndexes.length,
+        /** 是否开放（#222 测评中心据此决定给不给「开始 / 继续作答」入口；停用后历史结果仍可读） */
+        enabled: assessment.enabled === 1,
         scaleVersion: assessment.scale_version,
         dimensions: parseDimensions(assessment.dimensions_json),
         attribution: assessment.attribution,

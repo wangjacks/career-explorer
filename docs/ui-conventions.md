@@ -64,7 +64,17 @@
 | 统计卡 | 内容卡规格 + 顶部 `h-1` 渐变色条 + hover 上浮 |
 | 品牌 hero | `bg-brand rounded-2xl p-5 sm:p-6 shadow-sm` + 白色文字（问候 / 日期 / 引导语） |
 | 快捷入口卡 | `bg-card rounded-xl border border-border-soft p-4` + hover 上浮与阴影 + 顶部 `bg-accent` 悬停条（琥珀不承载小字） |
+| 结果徽章 | `bg-brand rounded-xl` + 白色大字母（如三字码）+ `text-white/70` 小字标签，与品牌 hero 同族 |
 | 弹窗/模态 | `rounded-2xl shadow-xl`（全屏遮罩 `bg-black/40`） |
+
+## 图表（recharts）
+
+| 场景 | 口径 |
+|---|---|
+| 线 / 面积 / 柱 / 饼 | 数据色用 `DATA_GREEN`（`#059669`）等固定色板；网格与轴用 `currentColor` + `strokeOpacity`，随深浅色自动适配 |
+| 雷达图 | `PolarGrid` / `PolarAngleAxis` 用 `currentColor`；量程固定 0–100 且**不画半径刻度**（看的是形状，精确值交给并列的条状排名）；填充用主色 25% 透明度 |
+| 进度条 / 排名条 | `bg-primary` 填充 + `bg-gray-100 dark:bg-gray-800` 轨道，高度 `h-2`（密集处 `h-1.5`） |
+| 读数 | Tooltip/读数用 `font-mono tabular-nums`；图与读数并列时图在左、读数在右（窄屏上下堆叠） |
 
 - 卡片内边距统一 `p-5`/`p-6`；区块间距 `space-y-6`/`space-y-8`
 - 含弹层（下拉/tooltip）的卡片容器禁止 `overflow-hidden`，圆角由子区块 `rounded-t-lg`/`rounded-b-lg` 各自承担

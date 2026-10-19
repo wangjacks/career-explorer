@@ -185,6 +185,8 @@ describe("提交与结果落库", () => {
     expect(body.history[0].id).toBe(body.current.id);
     expect(body.inProgress).toBeNull(); // 提交后草稿已转成完成记录
     expect(body.assessment.attribution).toContain("O*NET");
+    // #222 测评中心据此决定给不给「开始 / 继续作答」入口
+    expect(body.assessment.enabled).toBe(true);
 
     const audit = await queryAuditLogs({ page: 1, pageSize: 20, action: "assessment:results" });
     expect(audit.total).toBeGreaterThan(0);
@@ -273,10 +275,12 @@ describe("量表停用", () => {
         expect(disabled.length, `${action} 的停用拒绝应有 failed 审计`).toBeGreaterThan(0);
       }
 
-      // 已有结果不能因为量表下线就读不到
+      // 已有结果不能因为量表下线就读不到；但 #222 测评中心需要知道「已关闭」才能收掉作答入口
       const resultsRes = await resultsGet(getRequest(`/api/shared/assessment/results?code=${RIASEC_CODE}`, users.A.token));
       expect(resultsRes.status).toBe(200);
-      expect((await resultsRes.json()).current.typeCode).toBe("RIA");
+      const resultsBody = await resultsRes.json();
+      expect(resultsBody.current.typeCode).toBe("RIA");
+      expect(resultsBody.assessment.enabled).toBe(false);
     } finally {
       const restore = new Database(state.dbPath);
       restore.prepare("UPDATE assessments SET enabled = 1 WHERE code = ?").run(RIASEC_CODE);

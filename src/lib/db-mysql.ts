@@ -45,6 +45,8 @@ import type {
   AssessmentResultRow,
   CompleteAssessmentInput,
   OnetOccupationRow,
+  AssessmentStatsRaw,
+  AssessmentRosterRow,
 } from "./db";
 import { fillGroupedTrend, fillTrendSeries, shiftDate } from "./stats-utils";
 
@@ -2097,6 +2099,123 @@ export class MysqlAdapter implements DbAdapter {
   async getOnetOccupations(): Promise<OnetOccupationRow[]> {
     const [rows] = await this.pool.execute("SELECT * FROM onet_occupations ORDER BY code");
     return rows as OnetOccupationRow[];
+  }
+
+  // 教师端测评统计（#229）：与 SQLite 适配器同构（同一套 SQL 口径），只数数，口径统一在 assessment-stats.ts
+  async getAssessmentStats(assessmentId: number, classIds: number[] | null): Promise<AssessmentStatsRaw> {
+    if (classIds !== null && classIds.length === 0) {
+      return { classes: [], types: [], codes: [], total: { enrolled: 0, assessed: 0, last_completed_at: null } };
+    }
+    const inClause = classIds === null ? "" : ` AND u.class_id IN (${classIds.map(() => "?").join(",")})`;
+    const params = classIds ?? [];
+    const resultWhere = `r.assessment_id = ? AND r.status = 'completed' AND r.is_current = 1 AND u.role = 'student'${inClause}`;
+
+    const classSql =
+      classIds === null
+        ? `SELECT c.id AS class_id, c.name AS name, COUNT(u.id) AS enrolled
+           FROM classes c LEFT JOIN users u ON u.class_id = c.id AND u.role = 'student'
+           GROUP BY c.id, c.name`
+        : `SELECT c.id AS class_id, c.name AS name, COUNT(u.id) AS enrolled
+           FROM classes c LEFT JOIN users u ON u.class_id = c.id AND u.role = 'student'
+           WHERE c.id IN (${classIds.map(() => "?").join(",")})
+           GROUP BY c.id, c.name`;
+    const [classRows] = await this.pool.execute(classSql, classIds ?? []);
+    const [assessedRows] = await this.pool.execute(
+      `SELECT u.class_id AS class_id, COUNT(DISTINCT r.user_id) AS assessed
+       FROM assessment_results r JOIN users u ON u.id = r.user_id
+       WHERE ${resultWhere} AND u.class_id IS NOT NULL
+       GROUP BY u.class_id`,
+      [assessmentId, ...params]
+    );
+    const [typeRows] = await this.pool.execute(
+      `SELECT SUBSTR(r.type_code, 1, 1) AS \`key\`, COUNT(*) AS count
+       FROM assessment_results r JOIN users u ON u.id = r.user_id
+       WHERE ${resultWhere} AND r.type_code IS NOT NULL AND TRIM(r.type_code) <> ''
+       GROUP BY SUBSTR(r.type_code, 1, 1)`,
+      [assessmentId, ...params]
+    );
+    const [codeRows] = await this.pool.execute(
+      `SELECT r.type_code AS code, COUNT(*) AS count
+       FROM assessment_results r JOIN users u ON u.id = r.user_id
+       WHERE ${resultWhere} AND r.type_code IS NOT NULL AND TRIM(r.type_code) <> ''
+       GROUP BY r.type_code`,
+      [assessmentId, ...params]
+    );
+    const [totalRows] = await this.pool.execute(
+      `SELECT COUNT(*) AS c FROM users WHERE role = 'student'${
+        classIds === null ? "" : ` AND class_id IN (${classIds.map(() => "?").join(",")})`
+      }`,
+      classIds ?? []
+    );
+    const [assessedTotalRows] = await this.pool.execute(
+      `SELECT COUNT(DISTINCT r.user_id) AS c, MAX(r.completed_at) AS last
+       FROM assessment_results r JOIN users u ON u.id = r.user_id
+       WHERE ${resultWhere}`,
+      [assessmentId, ...params]
+    );
+
+    const assessedByClass = new Map(
+      (assessedRows as { class_id: number; assessed: number }[]).map((row) => [Number(row.class_id), Number(row.assessed)])
+    );
+    const totalRow = (totalRows as { c: number }[])[0];
+    const assessedTotalRow = (assessedTotalRows as { c: number; last: string | null }[])[0];
+    return {
+      classes: (classRows as { class_id: number; name: string; enrolled: number }[]).map((row) => ({
+        class_id: Number(row.class_id),
+        name: row.name,
+        enrolled: Number(row.enrolled),
+        assessed: assessedByClass.get(Number(row.class_id)) ?? 0,
+      })),
+      types: (typeRows as { key: string; count: number }[]).map((row) => ({
+        key: String(row.key),
+        count: Number(row.count),
+      })),
+      codes: (codeRows as { code: string; count: number }[]).map((row) => ({
+        code: String(row.code),
+        count: Number(row.count),
+      })),
+      total: {
+        enrolled: Number(totalRow?.c ?? 0),
+        assessed: Number(assessedTotalRow?.c ?? 0),
+        last_completed_at: assessedTotalRow?.last ?? null,
+      },
+    };
+  }
+
+  async getAssessmentRoster(
+    assessmentId: number,
+    classIds: number[] | null,
+    filters: { classId?: number | null; lead?: string | null } = {}
+  ): Promise<AssessmentRosterRow[]> {
+    if (classIds !== null && classIds.length === 0) return [];
+    const conditions = ["r.assessment_id = ?", "r.status = 'completed'", "r.is_current = 1", "u.role = 'student'"];
+    const params: (string | number)[] = [assessmentId];
+    if (classIds !== null) {
+      conditions.push(`u.class_id IN (${classIds.map(() => "?").join(",")})`);
+      params.push(...classIds);
+    }
+    if (filters.classId != null) {
+      conditions.push("u.class_id = ?");
+      params.push(filters.classId);
+    }
+    if (filters.lead) {
+      conditions.push("SUBSTR(r.type_code, 1, 1) = ?");
+      params.push(filters.lead);
+    }
+    const [rows] = await this.pool.execute(
+      `SELECT u.class_id AS class_id, c.name AS class_name, u.name AS name, u.user_code AS user_code,
+              r.type_code AS code, r.completed_at AS assessed_at
+       FROM assessment_results r
+       JOIN users u ON u.id = r.user_id
+       LEFT JOIN classes c ON c.id = u.class_id
+       WHERE ${conditions.join(" AND ")}
+       ORDER BY COALESCE(c.name, ''), u.user_code`,
+      params
+    );
+    return (rows as AssessmentRosterRow[]).map((row) => ({
+      ...row,
+      class_id: row.class_id === null ? null : Number(row.class_id),
+    }));
   }
 
   async backup(): Promise<BackupData> {
