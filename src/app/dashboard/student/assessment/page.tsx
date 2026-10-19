@@ -3,21 +3,20 @@
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import {
-  ArrowRight,
-  ChevronDown,
-  Compass,
-  ListChecks,
-  Play,
-  RotateCcw,
-  Timer,
-  type LucideIcon,
-} from "lucide-react";
+import { ArrowRight, Compass, ListChecks, Play, RotateCcw, Timer, type LucideIcon } from "lucide-react";
 import NavigationBar from "@/components/NavigationBar";
 import StudentSidebar from "@/components/student/StudentSidebar";
+import AssessmentListCard from "@/components/student/assessment/AssessmentListCard";
+import AssessmentLinksCard from "@/components/student/assessment/AssessmentLinksCard";
+import AssessmentAttributionCard from "@/components/student/assessment/AssessmentAttributionCard";
+import RiasecGuideCard from "@/components/student/assessment/RiasecGuideCard";
 import { useSession } from "@/hooks/useSession";
 import { RIASEC_CODE } from "@/lib/assessment-data";
-import { deriveAssessmentCenter, type AssessmentCenterView } from "@/lib/assessment-center";
+import {
+  buildAssessmentList,
+  deriveAssessmentCenter,
+  type AssessmentCenterView,
+} from "@/lib/assessment-center";
 
 /** `GET /api/shared/assessment/results` 的返回（只声明本页用到的字段） */
 interface AssessmentResultsPayload {
@@ -99,10 +98,13 @@ function ProgressTrack({ view }: { view: AssessmentCenterView }) {
 }
 
 /**
- * 职业测评中心（#222）：只承载**入口、状态与说明**——结果解读与职业推荐在「我的档案」（#224）。
+ * 职业测评中心（#222 骨架 + #225 内容卡）：入口、状态、科普与授权说明。
+ * 结果解读与职业推荐在「我的档案」（#224）。
  *
  * 三态来自服务端草稿 / 结果（`GET /api/shared/assessment/results`），判定在
  * `src/lib/assessment-center.ts`（纯函数，可单测）；本页不缓存作答内容，也不做任何计分。
+ * 内容卡（清单 / 六型科普 / 权威渠道 / 授权免责）的文案与结构在
+ * `src/lib/assessment-center-content.ts` + `src/components/student/assessment/`，接口不可用时也常驻。
  */
 export default function AssessmentCenterPage() {
   const router = useRouter();
@@ -120,7 +122,6 @@ export default function AssessmentCenterPage() {
   const [loadError, setLoadError] = useState<string | null>(null);
   /** 404 = 后端没有这套量表（未安装 / 被清空），与「加载失败」区分成空态 */
   const [unavailable, setUnavailable] = useState(false);
-  const [showTerms, setShowTerms] = useState(false);
 
   useEffect(() => {
     if (!checking && (!session || session.role !== "student")) {
@@ -170,10 +171,9 @@ export default function AssessmentCenterPage() {
   }
 
   const view = deriveAssessmentCenter(payload);
+  const listRows = buildAssessmentList(payload, view);
   const canStart = view.enabled && view.questionCount > 0;
   const meta = payload?.assessment;
-  /** 没有署名/授权/免责文本时（接口未返回或量表现场配置为空）不渲染空白的说明面板 */
-  const hasTerms = Boolean(meta?.attribution || meta?.licenseText || meta?.disclaimer);
 
   return (
     <div className="min-h-screen bg-background">
@@ -209,30 +209,15 @@ export default function AssessmentCenterPage() {
                     约 {view.estimatedMinutes} 分钟
                   </span>
                 )}
-                {hasTerms && (
-                  <button
-                    type="button"
-                    onClick={() => setShowTerms((v) => !v)}
-                    aria-expanded={showTerms}
-                    aria-controls="assessment-terms"
-                    className="ml-auto inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs bg-white/10 text-white/85 border border-white/20 hover:bg-white/20 transition-colors"
-                  >
-                    测评说明与署名
-                    <ChevronDown
-                      size={13}
-                      aria-hidden
-                      className={`transition-transform ${showTerms ? "rotate-180" : ""}`}
-                    />
-                  </button>
-                )}
+                {/* 跳到页底授权区（#225）：署名与免责全文在那里常驻，hero 里不再收一份折叠面板 */}
+                <a
+                  href="#assessment-attribution"
+                  className="ml-auto inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs bg-white/10 text-white/85 border border-white/20 hover:bg-white/20 transition-colors"
+                >
+                  测评说明与署名
+                  <ArrowRight size={13} aria-hidden />
+                </a>
               </div>
-              {showTerms && hasTerms && (
-                <div id="assessment-terms" className="mt-3 rounded-xl bg-white/10 border border-white/15 p-3 space-y-1.5">
-                  <p className="text-xs text-white/80 leading-relaxed">{meta?.attribution}</p>
-                  <p className="text-xs text-white/70 leading-relaxed">{meta?.licenseText}</p>
-                  <p className="text-xs text-white/70 leading-relaxed">{meta?.disclaimer}</p>
-                </div>
-              )}
             </section>
 
             {/* 加载 / 失败 / 未开放 / 三态 */}
@@ -356,34 +341,19 @@ export default function AssessmentCenterPage() {
                     </>
                   )}
                 </section>
-
-                {/* 科普说明（内容卡细节由 B3 扩展，这里先给最小可用版本） */}
-                <section className="bg-card rounded-xl border border-border-soft p-5 space-y-3">
-                  <div className="flex items-center gap-2">
-                    <span className="w-1 h-4 rounded-full bg-accent" aria-hidden />
-                    <h2 className="text-sm font-semibold text-foreground">关于这个测评</h2>
-                  </div>
-                  <ul className="space-y-2 text-sm text-muted leading-relaxed">
-                    <li>· 题目问的是「你愿不愿意做这类事」，没有对错，按第一感觉选就好。</li>
-                    <li>· 每题作答后立即保存；中途关掉页面，下次进来会从上次的题继续。</li>
-                    <li>· 提交后立刻生成三字码与六型兴趣得分，结果只用于职业兴趣探索参考。</li>
-                  </ul>
-                  {meta?.dimensions && meta.dimensions.length > 0 && (
-                    <div className="flex flex-wrap gap-1.5 pt-1">
-                      {meta.dimensions.map((d) => (
-                        <span
-                          key={d.key}
-                          className="px-2.5 py-1 rounded-full text-xs bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-300"
-                        >
-                          {d.label}
-                          <span className="ml-1 text-[10px] text-muted">{d.key}</span>
-                        </span>
-                      ))}
-                    </div>
-                  )}
-                </section>
               </>
             )}
+
+            {/* 内容卡（#225）：科普、清单、权威渠道与授权说明——接口不可用 / 加载失败时也常驻，
+                学生至少能看到「六型是什么」和去哪儿做别的测评 */}
+            {listRows.length > 0 && <AssessmentListCard rows={listRows} />}
+            <RiasecGuideCard />
+            <AssessmentLinksCard />
+            <AssessmentAttributionCard
+              attribution={meta?.attribution}
+              licenseText={meta?.licenseText}
+              disclaimer={meta?.disclaimer}
+            />
           </div>
         </main>
       </div>

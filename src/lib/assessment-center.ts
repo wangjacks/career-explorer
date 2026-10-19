@@ -18,7 +18,12 @@ export type AssessmentCenterStatus = "not-started" | "in-progress" | "completed"
 
 /** 接口返回的字段都当作不可信：UI 只消费归一后的值 */
 export interface AssessmentCenterPayload {
-  assessment?: { questionCount?: unknown; enabled?: unknown } | null;
+  assessment?: { questionCount?: unknown; enabled?: unknown; code?: unknown; name?: unknown } | null;
+  /**
+   * 多量表预留（#225）：接口将来若一次返回多套量表，就用这个数组（每项形状同 `assessment`）；
+   * 当前接口只返回单个 `assessment`，列表卡退化成一条。
+   */
+  assessments?: unknown[] | null;
   current?: { typeCode?: unknown; completedAt?: unknown } | null;
   history?: unknown;
   inProgress?: { answered?: unknown; total?: unknown } | null;
@@ -103,4 +108,62 @@ export function deriveAssessmentCenter(payload: AssessmentCenterPayload | null |
     draftComplete: inProgress && draftTotal > 0 && draftAnswered >= draftTotal,
     enabled,
   };
+}
+
+/** 测验列表卡（#225）的一行 */
+export interface AssessmentListRow {
+  code: string;
+  name: string;
+  questionCount: number;
+  estimatedMinutes: number;
+  /** 主测评沿用三态判定；后续新增量表没有作答进度，先按「未开始」展示 */
+  status: AssessmentCenterStatus;
+  enabled: boolean;
+  /** 题库非空且量表开放时才给「开始 / 继续作答」入口 */
+  canStart: boolean;
+}
+
+function toText(value: unknown): string {
+  return typeof value === "string" ? value.trim() : "";
+}
+
+/**
+ * 把接口返回归一成「测验列表」（#225）：当前接口只返回单套 RIASEC，列表就是 1 行；
+ * 将来多量表时让接口返回 `assessments` 数组即可，渲染结构不用改。
+ *
+ * 列表只消费 `assessment` / `assessments` 的**展示字段**（code / name / 题量 / 是否开放），
+ * 三态与耗时沿用 `deriveAssessmentCenter` / `estimateMinutes`，不另算一套。
+ * 没有 code 的行直接丢弃：列表卡要能点进对应量表，缺标识的行没有渲染价值。
+ */
+export function buildAssessmentList(
+  payload: AssessmentCenterPayload | null | undefined,
+  view?: AssessmentCenterView
+): AssessmentListRow[] {
+  const center = view ?? deriveAssessmentCenter(payload);
+  const single = payload?.assessment ?? null;
+  const rawList: unknown[] =
+    Array.isArray(payload?.assessments) && payload.assessments.length > 0
+      ? payload.assessments
+      : single
+        ? [single]
+        : [];
+
+  return rawList
+    .map((raw, index) => {
+      const item = (raw ?? {}) as { code?: unknown; name?: unknown; questionCount?: unknown; enabled?: unknown };
+      const code = toText(item.code);
+      const questionCount = toCount(item.questionCount);
+      const enabled = item.enabled !== false;
+      return {
+        code,
+        name: toText(item.name) || code,
+        questionCount,
+        estimatedMinutes: estimateMinutes(questionCount),
+        // 只有主测评（单套量表的那个）知道本人进度；多量表预留项先按未开始算
+        status: index === 0 && single ? center.status : ("not-started" as AssessmentCenterStatus),
+        enabled,
+        canStart: enabled && questionCount > 0,
+      };
+    })
+    .filter((row) => row.code !== "");
 }
