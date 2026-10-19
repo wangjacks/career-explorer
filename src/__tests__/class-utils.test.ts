@@ -69,12 +69,12 @@ describe("resolveClassNames（#193 批量导入去重解析）", () => {
     vi.clearAllMocks();
   });
 
-  it("同名（含仅空格差异）只解析一次，查库次数等于去重后的名称数", async () => {
+  it("同名（含仅空格差异）只解析一次，查库次数等于去重后的名称数；结果与入参一一对应", async () => {
     vi.mocked(getClassByName).mockImplementation(async (name: string) =>
       name === "2025级1班" ? ({ id: 7, name: "2025级1班" } as never) : (undefined as never)
     );
 
-    const resolve = await resolveClassNames([
+    const resolutions = await resolveClassNames([
       "2025级1班",
       " 2025级1班 ",
       "幽灵班",
@@ -85,21 +85,22 @@ describe("resolveClassNames（#193 批量导入去重解析）", () => {
     expect(getClassByName).toHaveBeenCalledTimes(2);
     expect(getClassByName).toHaveBeenCalledWith("2025级1班");
     expect(getClassByName).toHaveBeenCalledWith("幽灵班");
-    expect(resolve(" 2025级1班 ")).toEqual({
-      provided: true,
-      className: "2025级1班",
-      classId: 7,
-    });
-    expect(resolve("幽灵班")).toEqual({ provided: true, className: "幽灵班", classId: null });
+    expect(resolutions).toHaveLength(5);
+    expect(resolutions[0]).toEqual({ provided: true, className: "2025级1班", classId: 7 });
+    expect(resolutions[1]).toEqual({ provided: true, className: "2025级1班", classId: 7 });
+    expect(resolutions[2]).toEqual({ provided: true, className: "幽灵班", classId: null });
+    // 不依赖「调用方用同一字段查询」：查不中的路径在类型上已不存在
   });
 
-  it("空名单与纯空白名称都不查库，按未提交返回", async () => {
-    const empty = await resolveClassNames([]);
+  it("空名单与纯空白名称都不查库，按未提交返回且位置保持", async () => {
+    expect(await resolveClassNames([])).toEqual([]);
     expect(getClassByName).not.toHaveBeenCalled();
-    expect(empty(undefined)).toEqual({ provided: false, className: "", classId: null });
 
     const blank = await resolveClassNames(["   ", null]);
     expect(getClassByName).not.toHaveBeenCalled();
-    expect(blank("   ")).toEqual({ provided: false, className: "", classId: null });
+    expect(blank).toEqual([
+      { provided: false, className: "", classId: null },
+      { provided: false, className: "", classId: null },
+    ]);
   });
 });

@@ -32,29 +32,21 @@ export async function resolveClassByName(raw: unknown): Promise<ClassResolution>
   return { provided: true, className, classId: klass ? klass.id : null };
 }
 
-/** 批量解析后的名称查找器：对任意原始输入给出与单条解析一致的结果 */
-export type ClassNameResolver = (raw: unknown) => ClassResolution;
-
 /**
  * 批量班级名解析（#193 批量导入去重）：
  * 先按归一化名称去重，再逐个走 `resolveClassByName`，因此查库次数只与
- * **去重后的名称数**有关，与名单行数无关；同时解析口径与单条添加完全一致
+ * **去重后的名称数**有关，与名单行数无关；解析口径与单条添加完全一致
  * （口径统一交给 `resolveClassByName`，不另起一套内存比较语义）。
  *
- * 名单内未出现过的名称按「未提交」返回（不额外查库）：批量场景的输入必然
- * 取自同一份名单，调用方用同一字段喂入即可保证命中。
+ * 返回数组与入参**一一对应**（同长度、同顺序），调用方按下标取用，
+ * 不存在「索引来自 A 字段、查询用 B 字段导致查不中」的静默失败路径。
  */
-export async function resolveClassNames(rawNames: unknown[]): Promise<ClassNameResolver> {
+export async function resolveClassNames(rawNames: unknown[]): Promise<ClassResolution[]> {
   const resolutions = new Map<string, ClassResolution>();
   for (const raw of rawNames) {
     const className = normalizeClassName(raw);
     if (resolutions.has(className)) continue;
     resolutions.set(className, await resolveClassByName(className));
   }
-  return (raw: unknown) =>
-    resolutions.get(normalizeClassName(raw)) ?? {
-      provided: false,
-      className: "",
-      classId: null,
-    };
+  return rawNames.map((raw) => resolutions.get(normalizeClassName(raw)) as ClassResolution);
 }

@@ -18,6 +18,13 @@ export function chunkArray<T>(items: T[], size: number = BATCH_QUERY_CHUNK_SIZE)
   return chunks;
 }
 
+/** 按学号批查时的轻量投影（#193）：批量导入只需要「标识 + 班级归属」，不取整行（含 password_hash） */
+export interface UserCodeRef {
+  id: number;
+  user_code: string;
+  class_id: number | null;
+}
+
 export interface UserRow {
   id: number;
   user_code: string;
@@ -366,6 +373,33 @@ export interface CompleteAssessmentInput {
   typeCode: string | null;
 }
 
+/**
+ * onet_occupations 行（#226）：O*NET 职业库，**离线导入的只读参考数据**。
+ * 不进备份（可离线重灌，且体量远大于业务数据），恢复后按种子自愈。
+ */
+export interface OnetOccupationRow {
+  id: number;
+  /** O*NET-SOC Code，如 `15-1252.00` */
+  code: string;
+  /** 英文职业名（O*NET 原始 Title） */
+  name: string;
+  /** 中文译名；首批未覆盖的职业为 NULL（展示回退英文名） */
+  name_zh: string | null;
+  /** O*NET 官方兴趣高码（1–3 位字母，由官方 Interest High-Point 指标推导） */
+  interest_code: string;
+  /** 六型原始分 JSON：`{"R":3.61,"I":6.05,"A":2.37,"S":1.81,"E":1.87,"C":5.62}`（O*NET 1–7 分） */
+  interests_json: string;
+  /** O*NET Job Zone 1–5 */
+  job_zone: number;
+  /** 由 Job Zone 归纳的常见学历要求（中文） */
+  education_level: string;
+  /** SOC 大类（所属职业群，中文） */
+  cluster: string;
+  /** 数据快照版本，如 `30.2` */
+  dataset_version: string;
+  created_at: string;
+}
+
 export interface BackupData {
   version: number;
   sourceType: string;
@@ -374,29 +408,29 @@ export interface BackupData {
   classes: ClassRow[];
   teacher_classes: TeacherClassRow[];
   tags: BackupTagRow[];
-  /** 审计日志（#110；旧备份可能缺失，读取方容忍 undefined） */
+  /** 审计日志（#110；旧备份可能缺失，读取方容忍 undefined；恢复时缺字段 → 保留现状：记录本身要不可篡改，操作者另有 actor_user_code/姓名冗余快照兜底） */
   audit_logs?: AuditLogRow[];
-  /** 档案功能配置（configs_profile 键值对；旧备份可能缺失，读取方容忍 undefined） */
+  /** 档案功能配置（configs_profile 键值对；旧备份可能缺失，读取方容忍 undefined；恢复时缺字段 → 保留当前配置） */
   configs_profile?: { key: string; value: string }[];
-  /** 存储后端注册表（#111；不含凭据；旧备份可能缺失，读取方容忍 undefined） */
+  /** 存储后端注册表（#111；不含凭据；旧备份可能缺失，读取方容忍 undefined；恢复时缺字段 → 保留当前后端表并回填本地后端） */
   storage_backends?: StorageBackendRow[];
-  /** 档案提交历史版本（#95；旧备份可能缺失，读取方容忍 undefined） */
+  /** 档案提交历史版本（#95；旧备份可能缺失。**按 user_id 引用 users，恢复时缺字段一律清空**，否则同 id 换人后会把甲的历史交给乙） */
   profile_submissions?: ProfileSubmissionRow[];
-  /** 当前分组：组（#101；旧备份可能缺失，读取方容忍 undefined） */
+  /** 当前分组：组（#101；旧备份可能缺失，恢复时缺字段一律清空） */
   class_groups?: ClassGroupRow[];
-  /** 当前分组：成员归属（#101；旧备份可能缺失） */
+  /** 当前分组：成员归属（#101；旧备份可能缺失，恢复时缺字段一律清空） */
   class_group_members?: ClassGroupMemberRow[];
-  /** 历史批次头（#101；旧备份可能缺失） */
+  /** 历史批次头（#101；旧备份可能缺失，恢复时缺字段一律清空） */
   group_batches?: GroupBatchRow[];
-  /** 历史批次内的组（#101；旧备份可能缺失） */
+  /** 历史批次内的组（#101；旧备份可能缺失，恢复时缺字段一律清空） */
   group_batch_groups?: GroupBatchGroupRow[];
-  /** 历史批次的成员快照（#101；旧备份可能缺失） */
+  /** 历史批次的成员快照（#101；旧备份可能缺失，恢复时缺字段一律清空） */
   group_batch_members?: GroupBatchMemberRow[];
   /** 测评定义（#221；旧备份可能缺失，恢复时保留当前题库不动） */
   assessments?: AssessmentRow[];
   /** 题库（#221；旧备份可能缺失） */
   assessment_questions?: AssessmentQuestionRow[];
-  /** 学生作答与结果快照（#221；旧备份可能缺失） */
+  /** 学生作答与结果快照（#221；旧备份可能缺失。**按 user_id 引用 users，恢复时缺字段一律清空**，口径同 profile_submissions） */
   assessment_results?: AssessmentResultRow[];
 }
 
@@ -514,7 +548,7 @@ export interface DbAdapter {
   // users
   insertUser(user: NewUser): Promise<number> | number;
   getUserByCode(userCode: string): Promise<UserRow | undefined> | UserRow | undefined;
-  getUsersByCodes(userCodes: string[]): Promise<UserRow[]> | UserRow[];
+  getUsersByCodes(userCodes: string[]): Promise<UserCodeRef[]> | UserCodeRef[];
   getUserById(id: number): Promise<UserRow | undefined> | UserRow | undefined;
   getAdminUser(): Promise<UserRow | undefined> | UserRow | undefined;
   updateUser(id: number, fields: UserUpdateFields): Promise<void> | void;
@@ -696,6 +730,10 @@ export interface DbAdapter {
   /** 完成记录历史（新→旧，不含草稿），供结果页回看与版本对比 */
   getAssessmentResults(userId: number, assessmentId: number): Promise<AssessmentResultRow[]> | AssessmentResultRow[];
 
+  // onet_occupations（#226 O*NET 职业库：离线导入的只读参考数据）
+  /** 全部职业（按 code 升序）。匹配在内存里做（余弦），一次读全量比逐条查省事且结果稳定 */
+  getOnetOccupations(): Promise<OnetOccupationRow[]> | OnetOccupationRow[];
+
   backup(): Promise<BackupData> | BackupData;
   restore(data: BackupData): Promise<void> | void;
   close(): Promise<void> | void;
@@ -766,8 +804,8 @@ export async function getUserByCode(userCode: string): Promise<UserRow | undefin
   return Promise.resolve(adapter.getUserByCode(userCode));
 }
 
-/** 按学号集合批查（#193 批量导入）：避免逐行查库；适配器内部分块，调用方无需限制入参长度 */
-export async function getUsersByCodes(userCodes: string[]): Promise<UserRow[]> {
+/** 按学号集合批查（#193 批量导入）：避免逐行查库；适配器内部分块，调用方无需限制入参长度。只返回标识与班级归属 */
+export async function getUsersByCodes(userCodes: string[]): Promise<UserCodeRef[]> {
   const adapter = await ensureInit();
   return Promise.resolve(adapter.getUsersByCodes(userCodes));
 }
@@ -1270,6 +1308,12 @@ export async function getAssessmentResults(
 ): Promise<AssessmentResultRow[]> {
   const adapter = await ensureInit();
   return Promise.resolve(adapter.getAssessmentResults(userId, assessmentId));
+}
+
+/** #226：O*NET 职业库全量（按 code 升序），推荐接口在内存里做余弦匹配 */
+export async function getOnetOccupations(): Promise<OnetOccupationRow[]> {
+  const adapter = await ensureInit();
+  return Promise.resolve(adapter.getOnetOccupations());
 }
 
 export async function backup(): Promise<BackupData> {
