@@ -1,3 +1,4 @@
+import { withDemoScope } from "@/lib/demo-scope";
 import { NextRequest, NextResponse } from "next/server";
 import {
   getMaxAvatarSizeMb,
@@ -25,7 +26,7 @@ const CONFIG: AuditTarget = {
 };
 const CONFIG_ONLY_ADMIN = "档案功能设置全站生效，仅管理员可修改";
 
-export async function GET() {
+async function GET_impl() {
   try {
     const maxCustomTags = await getMaxCustomTags();
     const submissionDeadline = await getSubmissionDeadline();
@@ -58,7 +59,7 @@ function parseDeadline(raw: unknown): string | null {
   return value.slice(0, 16).replace("T", " ");
 }
 
-export async function PUT(request: NextRequest) {
+async function PUT_impl(request: NextRequest) {
   const { ip, user_agent } = getRequestContext(request);
   const guard = await WriteGuard.from(request);
   const actor = guard.actor;
@@ -148,3 +149,6 @@ export async function PUT(request: NextRequest) {
     return NextResponse.json({ error: "保存配置失败" }, { status: 500 });
   }
 }
+
+export const GET = withDemoScope(GET_impl);
+export const PUT = withDemoScope(PUT_impl);

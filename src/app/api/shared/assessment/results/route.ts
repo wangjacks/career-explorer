@@ -1,3 +1,4 @@
+import { withDemoScope } from "@/lib/demo-scope";
 import { NextRequest, NextResponse } from "next/server";
 import {
   getAssessmentByCode,
@@ -30,7 +31,7 @@ const MAX_HISTORY = MAX_RESULT_VERSIONS;
  * 自鉴权：只按会话 uid 读取本人结果，**不提供任何 userId 参数**，因此不存在越权读他人结果的路径。
  * 结果里的得分是**快照**（当时算出的六维分 + 三字码），不随题库/换算改动重算。
  */
-export async function GET(request: NextRequest) {
+async function GET_impl(request: NextRequest) {
   const { ip, user_agent } = getRequestContext(request);
   try {
     const token = request.cookies.get("auth_token")?.value;
@@ -110,3 +111,5 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "服务器错误" }, { status: 500 });
   }
 }
+
+export const GET = withDemoScope(GET_impl);

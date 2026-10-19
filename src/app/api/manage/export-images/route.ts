@@ -1,9 +1,10 @@
+import { withDemoScope } from "@/lib/demo-scope";
 import { NextRequest, NextResponse } from "next/server";
 import { getAllSubmitted } from "@/lib/db";
 import JSZip from "jszip";
 import { getAuditActor, getRequestContext, recordAudit } from "@/lib/audit";
 
-export async function GET(request: NextRequest) {
+async function GET_impl(request: NextRequest) {
   const { ip, user_agent } = getRequestContext(request);
   const actor = await getAuditActor(request);
   const { searchParams } = new URL(request.url);
@@ -74,3 +75,5 @@ export async function GET(request: NextRequest) {
     },
   });
 }
+
+export const GET = withDemoScope(GET_impl);

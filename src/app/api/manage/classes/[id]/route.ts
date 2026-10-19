@@ -1,3 +1,4 @@
+import { withDemoScope } from "@/lib/demo-scope";
 import { NextRequest, NextResponse } from "next/server";
 import { getClassByName, getClasses, updateClass, deleteClass } from "@/lib/db";
 import { getSession, canModifyClass } from "../helpers";
@@ -6,7 +7,7 @@ import { getRequestContext, recordAudit } from "@/lib/audit";
 type Ctx = { params: Promise<{ id: string }> };
 
 /** PATCH：班级改名（#110：记 old/new） */
-export async function PATCH(request: NextRequest, { params }: Ctx) {
+async function PATCH_impl(request: NextRequest, { params }: Ctx) {
   const { ip, user_agent } = getRequestContext(request);
   try {
     const { id: idParam } = await params;
@@ -49,7 +50,7 @@ export async function PATCH(request: NextRequest, { params }: Ctx) {
   }
 }
 
-export async function DELETE(request: NextRequest, { params }: Ctx) {
+async function DELETE_impl(request: NextRequest, { params }: Ctx) {
   const { ip, user_agent } = getRequestContext(request);
   try {
     const { id: idParam } = await params;
@@ -84,3 +85,6 @@ export async function DELETE(request: NextRequest, { params }: Ctx) {
     return NextResponse.json({ error: "删除班级失败" }, { status: 500 });
   }
 }
+
+export const PATCH = withDemoScope(PATCH_impl);
+export const DELETE = withDemoScope(DELETE_impl);

@@ -1,3 +1,4 @@
+import { withDemoScope } from "@/lib/demo-scope";
 import { NextRequest, NextResponse } from "next/server";
 import {
   getStudents,
@@ -273,7 +274,7 @@ function quoteCsv(value: string): string {
   return `"${value.replace(/"/g, '""')}"`;
 }
 
-export async function GET(request: NextRequest) {
+async function GET_impl(request: NextRequest) {
   const { ip, user_agent } = getRequestContext(request);
   const actor = await getAuditActor(request);
   const { searchParams } = new URL(request.url);
@@ -428,7 +429,7 @@ export async function GET(request: NextRequest) {
 }
 
 // Preview endpoint
-export async function POST(request: NextRequest) {
+async function POST_impl(request: NextRequest) {
   const { ip, user_agent } = getRequestContext(request);
   const actor = await getAuditActor(request);
   const body = await request.json();
@@ -455,3 +456,6 @@ export async function POST(request: NextRequest) {
     preview,
   });
 }
+
+export const GET = withDemoScope(GET_impl);
+export const POST = withDemoScope(POST_impl);

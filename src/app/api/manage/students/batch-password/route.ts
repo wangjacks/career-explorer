@@ -1,3 +1,4 @@
+import { withDemoScope } from "@/lib/demo-scope";
 import { NextRequest, NextResponse } from "next/server";
 import { getUserByCode, updateUser, type UserRow } from "@/lib/db";
 import { hashPassword } from "@/lib/auth";
@@ -13,7 +14,7 @@ const ENTRY = {
 } as const;
 
 /** POST：为多名学生批量重置密码，每人生成不同的随机密码并哈希落库 */
-export async function POST(request: NextRequest) {
+async function POST_impl(request: NextRequest) {
   const { ip, user_agent } = getRequestContext(request);
   const guard = await WriteGuard.from(request);
   const actor = guard.actor;
@@ -75,3 +76,5 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "批量重置密码失败" }, { status: 500 });
   }
 }
+
+export const POST = withDemoScope(POST_impl);

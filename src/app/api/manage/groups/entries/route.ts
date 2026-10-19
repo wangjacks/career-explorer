@@ -1,3 +1,4 @@
+import { withDemoScope } from "@/lib/demo-scope";
 import { NextRequest, NextResponse } from "next/server";
 import { deleteGroupEntry, getClassGroupMembers, getClassGroups, insertGroupEntry } from "@/lib/db";
 import { getRequestContext, recordAudit } from "@/lib/audit";
@@ -19,7 +20,7 @@ const DELETE_AUDIT = {
 } as const;
 
 /** POST：新建一个空组（组号缺省时取「当前最大组号 + 1」） */
-export async function POST(request: NextRequest) {
+async function POST_impl(request: NextRequest) {
   const { ip, user_agent } = getRequestContext(request);
   const fail = groupFailureWriter(request, CREATE_AUDIT);
   let session: Awaited<ReturnType<typeof getSession>> = null;
@@ -84,7 +85,7 @@ export async function POST(request: NextRequest) {
  * DELETE：删除一个**空组**（`?classId=&groupNo=`）。
  * 非空组一律拒绝——避免一次误操作把整组学生带走；要删先移人。
  */
-export async function DELETE(request: NextRequest) {
+async function DELETE_impl(request: NextRequest) {
   const { ip, user_agent } = getRequestContext(request);
   const fail = groupFailureWriter(request, DELETE_AUDIT);
   let session: Awaited<ReturnType<typeof getSession>> = null;
@@ -132,3 +133,6 @@ export async function DELETE(request: NextRequest) {
     return NextResponse.json({ error: "删除分组失败" }, { status: 500 });
   }
 }
+
+export const POST = withDemoScope(POST_impl);
+export const DELETE = withDemoScope(DELETE_impl);
