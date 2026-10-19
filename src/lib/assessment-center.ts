@@ -1,0 +1,99 @@
+import { formatResultTime } from "./assessment-flow";
+
+/**
+ * 测评中心页（#222）的纯逻辑：把 `GET /api/shared/assessment/results` 的返回归一成
+ * 「未开始 / 进行中 / 已完成」三态视图，并算题目耗时估算与进度百分比。
+ *
+ * 页面只负责渲染，三态判定不写进组件，这样「三种状态分支」可以直接单测
+ * （`assessment-center.test.ts`），也避免页面与服务端进度口径各算一遍。
+ */
+
+/** 单题耗时估算（秒）：30 题 ≈ 4 分钟；只为给一个量级，不需要精确 */
+export const ESTIMATE_SECONDS_PER_QUESTION = 8;
+
+/** 最小耗时（分钟）：题量少时也显示「约 1 分钟」，避免出现「约 0 分钟」 */
+export const MIN_ESTIMATED_MINUTES = 1;
+
+export type AssessmentCenterStatus = "not-started" | "in-progress" | "completed";
+
+/** 接口返回的字段都当作不可信：UI 只消费归一后的值 */
+export interface AssessmentCenterPayload {
+  assessment?: { questionCount?: unknown; enabled?: unknown } | null;
+  current?: { typeCode?: unknown; completedAt?: unknown } | null;
+  history?: unknown;
+  inProgress?: { answered?: unknown; total?: unknown } | null;
+}
+
+export interface AssessmentCenterView {
+  status: AssessmentCenterStatus;
+  /** 本次测评题量（接口题库为空时为 0） */
+  questionCount: number;
+  estimatedMinutes: number;
+  /** 进行中已答题数 / 总题数（未进行中时为 0） */
+  answered: number;
+  total: number;
+  /** 已答百分比（0–100 整数） */
+  percent: number;
+  /** 最近一次完成的三字码（dimensional 量表为 null） */
+  typeCode: string | null;
+  /** 最近一次完成时间（`YYYY-MM-DD HH:mm`；无完成为空串） */
+  completedAt: string;
+  /** 历史版本条数（不含当前版本之外的截断，接口最多给 10 条） */
+  historyCount: number;
+  /** 量表是否开放；关闭时页面不提供「开始 / 继续作答」入口 */
+  enabled: boolean;
+}
+
+function toCount(value: unknown): number {
+  return typeof value === "number" && Number.isFinite(value) && value > 0 ? Math.floor(value) : 0;
+}
+
+/** 进度百分比：总数为 0 返回 0，并钳在 0–100（数据异常时进度条不越界） */
+export function progressPercent(answered: number, total: number): number {
+  if (!Number.isFinite(answered) || !Number.isFinite(total) || total <= 0) return 0;
+  return Math.max(0, Math.min(100, Math.round((answered / total) * 100)));
+}
+
+/** 耗时估算（分钟）：按单题秒数向上取整，最少 1 分钟；题量为 0 返回 0（页面显示「—」） */
+export function estimateMinutes(questionCount: number): number {
+  if (!Number.isFinite(questionCount) || questionCount <= 0) return 0;
+  return Math.max(MIN_ESTIMATED_MINUTES, Math.ceil((questionCount * ESTIMATE_SECONDS_PER_QUESTION) / 60));
+}
+
+/**
+ * 三态判定（优先级：进行中 > 已完成 > 未开始）。
+ *
+ * 「已完成」之后又开了一轮（重测）时，草稿优先于旧结果：此时学生最该做的是把这一轮答完，
+ * 旧结果的三字码仍保留在 `typeCode` 里，页面可作为次要信息展示。
+ */
+export function deriveAssessmentCenter(payload: AssessmentCenterPayload | null | undefined): AssessmentCenterView {
+  const questionCount = toCount(payload?.assessment?.questionCount);
+  const enabled = payload?.assessment?.enabled !== false;
+
+  const rawDraft = payload?.inProgress;
+  const draftTotal = Math.max(0, toCount(rawDraft?.total) || questionCount);
+  const draftAnswered = Math.min(toCount(rawDraft?.answered), draftTotal);
+  const inProgress = draftAnswered > 0;
+
+  const rawTypeCode = payload?.current?.typeCode;
+  const typeCode = typeof rawTypeCode === "string" && rawTypeCode.trim() !== "" ? rawTypeCode.trim() : null;
+  const rawCompletedAt = payload?.current?.completedAt;
+  const completedAt = typeof rawCompletedAt === "string" ? formatResultTime(rawCompletedAt) : "";
+  const hasCurrent = Boolean(payload?.current) && (typeCode !== null || completedAt !== "");
+  const historyCount = Array.isArray(payload?.history) ? payload.history.length : 0;
+
+  const status: AssessmentCenterStatus = inProgress ? "in-progress" : hasCurrent ? "completed" : "not-started";
+
+  return {
+    status,
+    questionCount,
+    estimatedMinutes: estimateMinutes(questionCount),
+    answered: inProgress ? draftAnswered : 0,
+    total: inProgress ? draftTotal : questionCount,
+    percent: inProgress ? progressPercent(draftAnswered, draftTotal) : 0,
+    typeCode,
+    completedAt,
+    historyCount,
+    enabled,
+  };
+}
