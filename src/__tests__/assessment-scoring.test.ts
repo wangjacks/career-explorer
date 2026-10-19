@@ -83,6 +83,12 @@ describe("standardizeLinear", () => {
     expect(standardizeLinear({ raw: 0, minPossible: 0, maxPossible: 0, answered: 0, questionCount: 5, dimension: { key: "A", label: "艺术型" } })).toBe(0);
   });
 
+  it("量程本身非法时抛错，与「该维度未作答」区分开", () => {
+    expect(() =>
+      standardizeLinear({ raw: 5, minPossible: 25, maxPossible: 5, answered: 5, questionCount: 5, dimension: { key: "R", label: "现实型" } })
+    ).toThrowError(/标准分换算量程非法/);
+  });
+
   it("越界输入钳制在 0-100", () => {
     expect(standardizeLinear({ ...base, raw: 0 })).toBe(0);
     expect(standardizeLinear({ ...base, raw: 99 })).toBe(100);
@@ -362,6 +368,41 @@ describe("scoreAssessment · 非法输入", () => {
     const result = scoreAssessment(dimensions, questions, { "1": 5 });
     expect(result.scores[0].standard).toBe(100);
     expect(result.complete).toBe(true);
+  });
+});
+
+describe("scoreAssessment · 字符串形态的草稿 JSON", () => {
+  const dimensions: DimensionConfig[] = [
+    { key: "R", label: "现实型" },
+    { key: "I", label: "研究型" },
+  ];
+  const questions: QuestionConfig[] = [
+    { index: 1, dimension: "R" },
+    { index: 2, dimension: "R", reverseScored: true },
+    { index: 3, dimension: "I" },
+  ];
+
+  it("数字字符串作答与数字作答结果完全一致", () => {
+    expect(scoreAssessment(dimensions, questions, { 1: "5", 2: "1", 3: "3" })).toEqual(
+      scoreAssessment(dimensions, questions, { 1: 5, 2: 1, 3: 3 })
+    );
+  });
+
+  it("非数字或量程外的字符串作答报错，不带病计分", () => {
+    for (const value of ["六", "6", "3.5", " ", ""]) {
+      expect(() => scoreAssessment(dimensions, questions, { 1: value })).toThrowError(/第 1 题的作答值必须是 1-5 的整数/);
+    }
+  });
+
+  it("整卷草稿序列化成字符串键值后再读回，得分不变", () => {
+    const pick = (index: number, dimension: string, reverseScored: boolean) => (reverseScored ? 1 : dimension === "S" ? 4 : 5);
+    const numeric = scoreAssessment(RIASEC_DIMENSIONS, RIASEC_QUESTIONS, answersFor(pick));
+    const draft: Record<string, string> = {};
+    for (const [key, value] of Object.entries(answersFor(pick))) draft[key] = String(value);
+
+    expect(scoreAssessment(RIASEC_DIMENSIONS, RIASEC_QUESTIONS, draft)).toEqual(numeric);
+    // 除 S（正向题答 4 分）外五维并列满分，破平序取 R、I、A
+    expect(numeric.code).toBe("RIA");
   });
 });
 

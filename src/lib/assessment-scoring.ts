@@ -8,6 +8,18 @@
  * 管线：Likert 1-5 作答 →（反向题先 `6 - x` 取反）→ 各维度原始分 → 0-100 标准分 → 三字码 / 高低分档。
  * 标准分换算通过 `standardize` 注入，默认线性；常模数据到位后（#227）只替换该函数，签名不变。
  * 草稿续答允许题目缺答：未答维度按已答题折算，`complete=false` 交调用方决定是否呈现结果。
+ *
+ * ## 对接契约（#221 数据层 / #223 作答 API）
+ *
+ * - `dimensions` ← `assessments.dimensions_json` 解析结果，元素为 `{ key, label }`；`key` 是维度标识（如 `R`），
+ *   `label` 是中文名（如 现实型），两者在量表内均不可重复。
+ * - `questions` ← `assessment_questions` 行，只取 `{ index, dimension, reverseScored }`：`index` 为量表内从 1
+ *   开始的题号，`dimension` 必须是 `dimensions` 里的某个 `key`，`reverseScored` 对应反向计分列。
+ * - `answers` ← `assessment_results.answers_json`：「题号 → 作答值」映射。键可为数字或字符串（`JSON.parse`
+ *   出来是字符串），值可为数字或数字字符串（`"4"` 等同 `4`）；取值必须是 1-5 的整数，题号必须是题库内题号，
+ *   否则抛错——脏数据应在落库前挡住，不带病计分。
+ * - 返回的 `scores` 按 `dimensions` 声明顺序排列，可整体序列化进 `assessment_results.scores_json`；
+ *   `code` 写三字码列，`missingIndexes` 供续答提示，`complete` 决定能否作为有效结果。
  */
 
 export const LIKERT_MIN = 1;
@@ -46,8 +58,9 @@ export interface QuestionConfig {
   reverseScored?: boolean;
 }
 
-/** 题号 → Likert 值。数据库作答 JSON 的键是字符串，数字键同样接受 */
-export type AnswerInput = Record<string | number, number>;
+/** 题号 → Likert 值。数据库草稿 JSON 的键与值都可能是字符串（`JSON.parse` 的结果），一律接受 */
+export type AnswerValue = number | string;
+export type AnswerInput = Record<string | number, AnswerValue>;
 
 /** 标准分换算入参 */
 export interface StandardizeInput {
@@ -110,10 +123,13 @@ export function scoreItem(value: number, reverseScored = false): number {
 
 /**
  * 线性换算：`[minPossible .. maxPossible] → [0 .. 100]`，越界钳制、保留一位小数。
- * 无可折算范围（该维度一题未答）时为 0，避免出现 NaN。
+ * 该维度一题未答时为 0（草稿的正常状态，不算异常）；量程本身非法则是配置错误，直接抛错区分两者。
  */
-export const standardizeLinear: StandardizeFn = ({ raw, minPossible, maxPossible }) => {
-  if (maxPossible <= minPossible) return STANDARD_MIN;
+export const standardizeLinear: StandardizeFn = ({ raw, minPossible, maxPossible, answered }) => {
+  if (answered === 0) return STANDARD_MIN;
+  if (!Number.isFinite(minPossible) || !Number.isFinite(maxPossible) || maxPossible <= minPossible) {
+    throw new Error(`标准分换算量程非法：[${minPossible} .. ${maxPossible}]，已答题数 ${answered}`);
+  }
   const ratio = (raw - minPossible) / (maxPossible - minPossible);
   const clamped = Math.min(STANDARD_MAX, Math.max(STANDARD_MIN, ratio * STANDARD_MAX));
   return Math.round(clamped * 10) / 10;
@@ -128,11 +144,13 @@ export function bandOf(standard: number, highBand = DEFAULT_HIGH_BAND, mediumBan
 
 function readAnswers(input: AnswerInput): Map<number, number> {
   const answers = new Map<number, number>();
-  for (const [rawKey, value] of Object.entries(input)) {
+  for (const [rawKey, rawValue] of Object.entries(input)) {
     const index = Number(rawKey);
     if (!Number.isInteger(index) || index < 1) throw new Error(`作答题号非法：${rawKey}`);
+    // 草稿 JSON 里 `"4"` 与 4 同权：先折算再校验，脏数据在计分前挡住
+    const value = typeof rawValue === "string" ? Number(rawValue.trim()) : rawValue;
     if (!Number.isInteger(value) || value < LIKERT_MIN || value > LIKERT_MAX) {
-      throw new Error(`第 ${index} 题的作答值必须是 ${LIKERT_MIN}-${LIKERT_MAX} 的整数，当前为 ${value}`);
+      throw new Error(`第 ${index} 题的作答值必须是 ${LIKERT_MIN}-${LIKERT_MAX} 的整数，当前为 ${rawValue}`);
     }
     answers.set(index, value);
   }
