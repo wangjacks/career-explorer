@@ -1,8 +1,9 @@
+import { withDemoScope } from "@/lib/demo-scope";
 import { NextResponse } from "next/server";
 import { getAllSubmitted, getTags } from "@/lib/db";
 import { buildTagCategoryMap, buildTagCategoryMapByName } from "@/lib/tag-utils";
 
-export async function GET() {
+async function GET_impl() {
   try {
     const rows = await getAllSubmitted();
     const allTags = await getTags();
@@ -34,3 +35,5 @@ export async function GET() {
     return NextResponse.json({ error: "获取分布数据失败" }, { status: 500 });
   }
 }
+
+export const GET = withDemoScope(GET_impl);

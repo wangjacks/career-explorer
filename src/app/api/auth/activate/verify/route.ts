@@ -1,3 +1,4 @@
+import { withDemoScope } from "@/lib/demo-scope";
 import { NextRequest, NextResponse } from "next/server";
 import { resolveActivation } from "@/lib/activate";
 import { getRequestContext, recordAudit } from "@/lib/audit";
@@ -8,7 +9,7 @@ import { CAPTCHA_REQUIRED_MESSAGE, verifyCaptchaTicket } from "@/lib/captcha";
  * 校验学号 + 姓名 + 邀请码三要素，不设置密码。
  * 通过时返回名单姓名，供第二步问候语展示。
  */
-export async function POST(request: NextRequest) {
+async function POST_impl(request: NextRequest) {
   const { ip, user_agent } = getRequestContext(request);
   try {
     const body = await request.json();
@@ -60,3 +61,5 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ ok: false, error: "服务器错误" }, { status: 500 });
   }
 }
+
+export const POST = withDemoScope(POST_impl);

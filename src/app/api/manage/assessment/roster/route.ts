@@ -1,3 +1,4 @@
+import { withDemoScope } from "@/lib/demo-scope";
 import { NextRequest, NextResponse } from "next/server";
 import { getAssessmentByCode, getAssessmentRoster } from "@/lib/db";
 import { RIASEC_CODE } from "@/lib/assessment-data";
@@ -28,7 +29,7 @@ interface RosterItem {
  * - 管理员不受班级限制（全校排查）；
  * - **每次读取都记审计**（`assessment:roster`），被拒的请求同样记 failed，便于事后追溯谁查过谁。
  */
-export async function GET(request: NextRequest) {
+async function GET_impl(request: NextRequest) {
   const { ip, user_agent } = getRequestContext(request);
   const auditBase = {
     method: "GET",
@@ -134,3 +135,5 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "获取测评名册失败" }, { status: 500 });
   }
 }
+
+export const GET = withDemoScope(GET_impl);

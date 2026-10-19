@@ -1,3 +1,4 @@
+import { withDemoScope } from "@/lib/demo-scope";
 import { NextRequest, NextResponse } from "next/server";
 import { getProfileSubmissions } from "@/lib/db";
 import { verifyToken } from "@/lib/token";
@@ -14,7 +15,7 @@ function parseTags(raw: string | null): string[] {
 }
 
 /** 学生历史提交列表（#95）：仅本人可见，按版本倒序返回完整快照元数据 */
-export async function GET(request: NextRequest) {
+async function GET_impl(request: NextRequest) {
   try {
     const token = request.cookies.get("auth_token")?.value;
     if (!token) {
@@ -46,3 +47,5 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "服务器错误" }, { status: 500 });
   }
 }
+
+export const GET = withDemoScope(GET_impl);

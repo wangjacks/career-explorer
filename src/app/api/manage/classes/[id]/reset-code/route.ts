@@ -1,3 +1,4 @@
+import { withDemoScope } from "@/lib/demo-scope";
 import { NextRequest, NextResponse } from "next/server";
 import { getClasses, updateClass, randomInviteCode } from "@/lib/db";
 import { getSession, canModifyClass } from "../../helpers";
@@ -5,7 +6,7 @@ import { getRequestContext, recordAudit } from "@/lib/audit";
 
 type Ctx = { params: Promise<{ id: string }> };
 
-export async function POST(request: NextRequest, { params }: Ctx) {
+async function POST_impl(request: NextRequest, { params }: Ctx) {
   const { ip, user_agent } = getRequestContext(request);
   try {
     const { id: idParam } = await params;
@@ -44,3 +45,5 @@ export async function POST(request: NextRequest, { params }: Ctx) {
     return NextResponse.json({ error: "重置邀请码失败" }, { status: 500 });
   }
 }
+
+export const POST = withDemoScope(POST_impl);

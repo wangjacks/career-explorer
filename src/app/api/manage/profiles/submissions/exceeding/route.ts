@@ -1,9 +1,10 @@
+import { withDemoScope } from "@/lib/demo-scope";
 import { NextRequest, NextResponse } from "next/server";
 import { getMaxProfileSubmissions, getStudentsExceedingSubmissionLimit, getTeacherClassPairs } from "@/lib/db";
 import { verifyToken } from "@/lib/token";
 
 /** 超限学生列表（#95）：admin 全量；teacher 仅限管辖班级 */
-export async function GET(request: NextRequest) {
+async function GET_impl(request: NextRequest) {
   try {
     const token = request.cookies.get("auth_token")?.value;
     if (!token) {
@@ -36,3 +37,5 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "服务器错误" }, { status: 500 });
   }
 }
+
+export const GET = withDemoScope(GET_impl);
