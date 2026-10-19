@@ -4,7 +4,7 @@
  * 题库进数据库而非写死代码，本文件只是**首次安装的种子**；后台维护题面后，种子以 `code`
  * 存在性判定幂等，不会覆盖已维护的数据（见两适配器的 `seedAssessments`）。
  *
- * 数据来源与授权（见 `docs/plan-assessment.md` 第 2 节）：
+ * 数据来源与授权：
  * - 题目出自 O*NET Mini Interest Profiler 技术报告 Appendix A「O*NET Mini Interest Profiler Items」
  *   （https://www.onetcenter.org/dl_files/Mini-IP.pdf），6 个维度各 5 题，题号为原报告建议的呈现顺序；
  * - 原始 60 题纸笔版见 https://www.onetcenter.org/dl_tools/ipsf/Interest_Profiler.pdf ；
@@ -157,7 +157,7 @@ export const RIASEC_QUESTIONS: QuestionSeed[] = [
     index: 22,
     dimension: "S",
     reverseScored: false,
-    prompt: "在公益组织做志愿服务",
+    prompt: "在非营利组织做志愿服务",
     source: "Do volunteer work at a non-profit organization",
   },
   {

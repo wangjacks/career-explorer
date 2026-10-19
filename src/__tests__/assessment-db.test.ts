@@ -112,6 +112,9 @@ describe("RIASEC 题库种子（#221）", () => {
     const byCode = adapter.getAssessmentQuestionsByCode(RIASEC_CODE);
     expect(byCode).toEqual(adapter.getAssessmentQuestions(assessment.id));
     expect(adapter.getAssessmentQuestionsByCode("nope")).toEqual([]);
+    // code 大小写归一化在边界做：SQLite 的 = 区分大小写、MySQL 不区分，两侧行为必须一致
+    expect(adapter.getAssessmentByCode(" RIASEC ")?.id).toBe(assessment.id);
+    expect(adapter.getAssessmentQuestionsByCode("RIASEC")).toHaveLength(30);
 
     const raw = new Database(dbPath);
     raw.prepare("UPDATE assessments SET enabled = 0 WHERE id = ?").run(assessment.id);
@@ -148,11 +151,57 @@ describe("草稿与结果（#221）", () => {
     expect(second).toBe(first);
 
     const draft = adapter.getAssessmentDraft(studentId, assessment.id);
-    expect(draft).toMatchObject({ id: first, status: "in_progress", is_current: 0 });
+    expect(draft).toMatchObject({ id: first, status: "in_progress", is_current: 0, draft_slot: 1 });
     expect(JSON.parse(draft!.answers_json)).toEqual({ 1: 2 });
     // 草稿不算完成记录
     expect(adapter.getCurrentAssessmentResult(studentId, assessment.id)).toBeUndefined();
     expect(adapter.getAssessmentResults(studentId, assessment.id)).toEqual([]);
+
+    adapter.close();
+    cleanup(dbPath);
+  });
+
+  it("草稿唯一性由唯一约束兜住：绕过适配器也插不进第二条草稿", () => {
+    const { dbPath, adapter, studentId, assessment } = setup();
+
+    adapter.upsertAssessmentDraft(studentId, assessment.id, JSON.stringify({ 1: 4 }));
+
+    // draft_slot = 1 是草稿位；唯一约束 (user_id, assessment_id, draft_slot) 让并发自动保存也插不出第二条
+    const raw = new Database(dbPath);
+    expect(() =>
+      raw
+        .prepare(
+          `INSERT INTO assessment_results
+             (user_id, assessment_id, status, answers_json, is_current, draft_slot, started_at, updated_at)
+           VALUES (?, ?, 'in_progress', '{}', 0, 1, '2026-10-20 10:00:00', '2026-10-20 10:00:00')`
+        )
+        .run(studentId, assessment.id)
+    ).toThrow(/UNIQUE/);
+    raw.close();
+
+    adapter.close();
+    cleanup(dbPath);
+  });
+
+  it("完成时释放草稿位：完成后可再开新草稿，不覆盖已完成的版本", () => {
+    const { dbPath, adapter, studentId, assessment } = setup();
+
+    adapter.upsertAssessmentDraft(studentId, assessment.id, JSON.stringify({ 1: 4 }));
+    const completedId = adapter.completeAssessmentResult({
+      userId: studentId,
+      assessmentId: assessment.id,
+      answersJson: JSON.stringify({ 1: 4 }),
+      scoresJson: null,
+      typeCode: "RIA",
+    });
+    expect(adapter.getAssessmentDraft(studentId, assessment.id)).toBeUndefined();
+
+    // 再开新一轮：新草稿占回草稿位，已完成版本不受影响
+    const newDraftId = adapter.upsertAssessmentDraft(studentId, assessment.id, JSON.stringify({ 1: 5 }));
+    expect(newDraftId).not.toBe(completedId);
+    expect(adapter.getAssessmentDraft(studentId, assessment.id)?.answers_json).toBe(JSON.stringify({ 1: 5 }));
+    expect(adapter.getCurrentAssessmentResult(studentId, assessment.id)?.id).toBe(completedId);
+    expect(adapter.getAssessmentResults(studentId, assessment.id)).toHaveLength(1);
 
     adapter.close();
     cleanup(dbPath);

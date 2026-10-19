@@ -330,6 +330,11 @@ export interface AssessmentResultRow {
   type_code: string | null;
   /** 0/1：是否为该用户该量表的当前有效完成结果（仅 completed 会置 1） */
   is_current: number;
+  /**
+   * 草稿位：草稿恒为 1、完成记录恒为 NULL，配合 `UNIQUE(user_id, assessment_id, draft_slot)`
+   * 让「同一学生同一量表至多一条草稿」成为**数据库级**不变量（两库都允许多个 NULL，故完成记录不受限）。
+   */
+  draft_slot: number | null;
   started_at: string;
   updated_at: string;
   /** 完成时间；草稿为 NULL */
@@ -655,14 +660,15 @@ export interface DbAdapter {
   getAssessmentQuestionsByCode(code: string): Promise<AssessmentQuestionRow[]> | AssessmentQuestionRow[];
   /**
    * 草稿 upsert：同一 (user_id, assessment_id) 至多一条 `in_progress` 记录，返回该行 id。
-   * 幂等——续答只覆盖作答内容，不新增行。
+   * 幂等——续答只覆盖作答内容，不新增行；唯一性由 `draft_slot` 唯一约束兜住（并发自动保存不会插出第二条）。
    */
   upsertAssessmentDraft(userId: number, assessmentId: number, answersJson: string): Promise<number> | number;
   /** 读草稿（续答）；没有草稿返回 undefined */
   getAssessmentDraft(userId: number, assessmentId: number): Promise<AssessmentResultRow | undefined> | AssessmentResultRow | undefined;
   /**
-   * 写完成结果：有草稿则沿用该行翻成 `completed`（保留 `started_at`），否则新插入；
+   * 写完成结果：有草稿则沿用该行翻成 `completed`（保留 `started_at` 并释放草稿位），否则新插入；
    * 同一事务内把该用户该量表其他完成版本的 `is_current` 置 0，保证当前版本唯一。
+   * @returns 写入（或沿用）的结果行 id
    */
   completeAssessmentResult(input: CompleteAssessmentInput): Promise<number> | number;
   /** 当前有效的完成结果（`is_current=1`）；未完成过返回 undefined */
@@ -686,6 +692,15 @@ export function randomInviteCode(len = 8): string {
     code += chars[Math.floor(Math.random() * chars.length)];
   }
   return code;
+}
+
+/**
+ * 量表 code 归一化（#221）：SQLite 的 `=` 对 TEXT 区分大小写、MySQL 的默认 collation 不区分，
+ * 直接在 SQL 里比会让两适配器行为分叉（#191 同类教训）。归一化放在边界（写入的种子本身即小写），
+ * 两侧都用它查，行为恒等。
+ */
+export function normalizeAssessmentCode(code: string): string {
+  return code.trim().toLowerCase();
 }
 
 let currentAdapter: DbAdapter | null = null;

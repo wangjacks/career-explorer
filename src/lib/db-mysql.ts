@@ -3,7 +3,7 @@ import { readFileSync, existsSync } from "fs";
 import path from "path";
 import { tagCategories } from "./tagData";
 import { ASSESSMENT_SEEDS, getQuestionSeeds, validateAssessmentSeed } from "./assessment-data";
-import { normalizeBackupTags, DEFAULT_MAX_CUSTOM_TAGS, DEFAULT_MAX_PROFILE_SUBMISSIONS, MAX_PROFILE_SUBMISSIONS_KEY, DEFAULT_MEDIA_ORPHAN_RETENTION_DAYS, MEDIA_ORPHAN_RETENTION_KEY } from "./db";
+import { normalizeBackupTags, normalizeAssessmentCode, DEFAULT_MAX_CUSTOM_TAGS, DEFAULT_MAX_PROFILE_SUBMISSIONS, MAX_PROFILE_SUBMISSIONS_KEY, DEFAULT_MEDIA_ORPHAN_RETENTION_DAYS, MEDIA_ORPHAN_RETENTION_KEY } from "./db";
 import type {
   UserRow,
   TagRow,
@@ -285,9 +285,10 @@ export class MysqlAdapter implements DbAdapter {
   }
 
   /**
-   * 职业测评三表（#221）：与 sqlite 适配器同构（列名/约束/索引一致），差异仅在方言：
-   * `INT AUTO_INCREMENT`、定长 VARCHAR、`TINYINT`。
-   * 语义与取舍（题库进库、结果快照、草稿唯一性由事务保证、无 ON DELETE CASCADE）见 sqlite 侧同名方法注释。
+   * 职业测评三表（#221）：与 sqlite 适配器同构——列名、可空性、唯一约束、索引集合一致，
+   * 差异只在方言：`INT AUTO_INCREMENT`、定长 VARCHAR、`TINYINT`（语义与取舍见 sqlite 侧同名方法注释）。
+   * `UNIQUE(user_id, assessment_id, draft_slot)` 在 MySQL 里同样允许多个 NULL，
+   * 故草稿位只有草稿占 1、完成记录全为 NULL，与 SQLite 行为一致。
    */
   private async migrateAssessmentSchema(): Promise<void> {
     await this.pool.execute(`
@@ -326,13 +327,15 @@ export class MysqlAdapter implements DbAdapter {
         user_id INT NOT NULL,
         assessment_id INT NOT NULL,
         status VARCHAR(20) NOT NULL DEFAULT 'in_progress',
-        answers_json MEDIUMTEXT NOT NULL,
+        answers_json TEXT NOT NULL,
         scores_json TEXT,
         type_code VARCHAR(16),
         is_current TINYINT NOT NULL DEFAULT 0,
+        draft_slot INT,
         started_at TEXT NOT NULL,
         updated_at TEXT NOT NULL,
         completed_at TEXT,
+        UNIQUE KEY uq_assessment_draft (user_id, assessment_id, draft_slot),
         INDEX idx_assessment_results_user (user_id, assessment_id, status),
         INDEX idx_assessment_results_current (user_id, assessment_id, is_current),
         INDEX idx_assessment_results_assessment (assessment_id)
@@ -1792,7 +1795,10 @@ export class MysqlAdapter implements DbAdapter {
   }
 
   async getAssessmentByCode(code: string): Promise<AssessmentRow | undefined> {
-    const [rows] = await this.pool.execute("SELECT * FROM assessments WHERE code = ?", [code]);
+    // code 归一化在边界做：SQLite 的 `=` 区分大小写、MySQL 默认不区分，直接比会分叉
+    const [rows] = await this.pool.execute("SELECT * FROM assessments WHERE code = ?", [
+      normalizeAssessmentCode(code),
+    ]);
     return (rows as AssessmentRow[])[0];
   }
 
@@ -1809,52 +1815,32 @@ export class MysqlAdapter implements DbAdapter {
       `SELECT q.* FROM assessment_questions q
        JOIN assessments a ON a.id = q.assessment_id
        WHERE a.code = ? ORDER BY q.question_index`,
-      [code]
+      [normalizeAssessmentCode(code)]
     );
     return rows as AssessmentQuestionRow[];
   }
 
   async upsertAssessmentDraft(userId: number, assessmentId: number, answersJson: string): Promise<number> {
-    const conn = await this.pool.getConnection();
-    try {
-      await conn.beginTransaction();
-      const now = getNow();
-      const [draftRows] = await conn.execute(
-        `SELECT id FROM assessment_results
-         WHERE user_id = ? AND assessment_id = ? AND status = 'in_progress'
-         ORDER BY id DESC LIMIT 1`,
-        [userId, assessmentId]
-      );
-      const draft = (draftRows as { id: number }[])[0];
-      if (draft) {
-        await conn.execute("UPDATE assessment_results SET answers_json = ?, updated_at = ? WHERE id = ?", [
-          answersJson,
-          now,
-          draft.id,
-        ]);
-        await conn.commit();
-        return draft.id;
-      }
-      const [result] = await conn.execute(
-        `INSERT INTO assessment_results
-           (user_id, assessment_id, status, answers_json, is_current, started_at, updated_at)
-         VALUES (?, ?, 'in_progress', ?, 0, ?, ?)`,
-        [userId, assessmentId, answersJson, now, now]
-      );
-      await conn.commit();
-      return (result as mysql.ResultSetHeader).insertId;
-    } catch (err) {
-      await conn.rollback();
-      throw err;
-    } finally {
-      conn.release();
-    }
+    // 单条原子 upsert（同 SQLite 侧）：`draft_slot = 1` 是草稿位，唯一键保证「至多一条草稿」
+    const now = getNow();
+    await this.pool.execute(
+      `INSERT INTO assessment_results
+         (user_id, assessment_id, status, answers_json, is_current, draft_slot, started_at, updated_at)
+       VALUES (?, ?, 'in_progress', ?, 0, 1, ?, ?)
+       ON DUPLICATE KEY UPDATE answers_json = VALUES(answers_json), updated_at = VALUES(updated_at)`,
+      [userId, assessmentId, answersJson, now, now]
+    );
+    const [rows] = await this.pool.execute(
+      "SELECT id FROM assessment_results WHERE user_id = ? AND assessment_id = ? AND draft_slot = 1",
+      [userId, assessmentId]
+    );
+    return (rows as { id: number }[])[0].id;
   }
 
   async getAssessmentDraft(userId: number, assessmentId: number): Promise<AssessmentResultRow | undefined> {
     const [rows] = await this.pool.execute(
       `SELECT * FROM assessment_results
-       WHERE user_id = ? AND assessment_id = ? AND status = 'in_progress'
+       WHERE user_id = ? AND assessment_id = ? AND draft_slot = 1
        ORDER BY id DESC LIMIT 1`,
       [userId, assessmentId]
     );
@@ -1874,17 +1860,17 @@ export class MysqlAdapter implements DbAdapter {
       );
       const [draftRows] = await conn.execute(
         `SELECT id FROM assessment_results
-         WHERE user_id = ? AND assessment_id = ? AND status = 'in_progress'
+         WHERE user_id = ? AND assessment_id = ? AND draft_slot = 1
          ORDER BY id DESC LIMIT 1`,
         [userId, assessmentId]
       );
       const draft = (draftRows as { id: number }[])[0];
       if (draft) {
-        // 沿用草稿行：保留 started_at，作答内容以本次提交为准
+        // 沿用草稿行：保留 started_at，作答内容以本次提交为准，草稿位释放（draft_slot → NULL）
         await conn.execute(
           `UPDATE assessment_results
            SET status = 'completed', answers_json = ?, scores_json = ?, type_code = ?,
-               is_current = 1, updated_at = ?, completed_at = ?
+               is_current = 1, draft_slot = NULL, updated_at = ?, completed_at = ?
            WHERE id = ?`,
           [answersJson, scoresJson, typeCode, now, now, draft.id]
         );
@@ -2159,10 +2145,15 @@ export class MysqlAdapter implements DbAdapter {
           );
         }
       }
-      // 测评恢复（#221）：含 assessments 字段 → 定义与题库**成对**整体替换（避免「换了题库没换定义」）；
-      // 旧备份无此字段 → 保留当前量表与题库不动（题库是参考数据，缺失时保留比清空安全）。
-      // 作答结果单独判字段：属学生个人数据，与 profile_submissions 同口径（缺字段保留现状）。
-      if (Array.isArray(data.assessments)) {
+      // 测评恢复（#221）：三表**作为一个整体**判断——`assessments` / `assessment_questions` /
+      // `assessment_results` 齐备才整体替换，否则三张表都保留现状。旧备份本就没有这三字段（等价保留现状）；
+      // 残缺备份（只有量表没题库、或换了定义却留着旧结果）不会造成「量表 0 题」「结果错配」这类半态。
+      if (
+        Array.isArray(data.assessments) &&
+        Array.isArray(data.assessment_questions) &&
+        Array.isArray(data.assessment_results)
+      ) {
+        await conn.execute("DELETE FROM assessment_results");
         await conn.execute("DELETE FROM assessment_questions");
         await conn.execute("DELETE FROM assessments");
         if (data.assessments.length > 0) {
@@ -2189,8 +2180,8 @@ export class MysqlAdapter implements DbAdapter {
             [values]
           );
         }
-        if ((data.assessment_questions ?? []).length > 0) {
-          const values = (data.assessment_questions ?? []).map((q) => [
+        if (data.assessment_questions.length > 0) {
+          const values = data.assessment_questions.map((q) => [
             q.id,
             q.assessment_id,
             q.question_index,
@@ -2207,9 +2198,6 @@ export class MysqlAdapter implements DbAdapter {
             [values]
           );
         }
-      }
-      if (Array.isArray(data.assessment_results)) {
-        await conn.execute("DELETE FROM assessment_results");
         if (data.assessment_results.length > 0) {
           const values = data.assessment_results.map((r) => [
             r.id,
@@ -2220,6 +2208,8 @@ export class MysqlAdapter implements DbAdapter {
             r.scores_json ?? null,
             r.type_code ?? null,
             r.is_current ?? 0,
+            // 旧备份没有 draft_slot 列：草稿补草稿位、完成记录补 NULL，恢复后不变量仍成立
+            r.draft_slot ?? (r.status === "in_progress" ? 1 : null),
             r.started_at ?? getNow(),
             r.updated_at ?? getNow(),
             r.completed_at ?? null,
@@ -2227,7 +2217,7 @@ export class MysqlAdapter implements DbAdapter {
           await conn.query(
             `INSERT INTO assessment_results
                (id, user_id, assessment_id, status, answers_json, scores_json, type_code, is_current,
-                started_at, updated_at, completed_at)
+                draft_slot, started_at, updated_at, completed_at)
              VALUES ?`,
             [values]
           );

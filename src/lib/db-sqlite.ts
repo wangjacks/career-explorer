@@ -4,7 +4,7 @@ import { tmpdir } from "os";
 import path from "path";
 import { tagCategories } from "./tagData";
 import { ASSESSMENT_SEEDS, getQuestionSeeds, validateAssessmentSeed } from "./assessment-data";
-import { normalizeBackupTags, DEFAULT_MAX_CUSTOM_TAGS, DEFAULT_MAX_PROFILE_SUBMISSIONS, MAX_PROFILE_SUBMISSIONS_KEY, DEFAULT_MEDIA_ORPHAN_RETENTION_DAYS, MEDIA_ORPHAN_RETENTION_KEY } from "./db";
+import { normalizeBackupTags, normalizeAssessmentCode, DEFAULT_MAX_CUSTOM_TAGS, DEFAULT_MAX_PROFILE_SUBMISSIONS, MAX_PROFILE_SUBMISSIONS_KEY, DEFAULT_MEDIA_ORPHAN_RETENTION_DAYS, MEDIA_ORPHAN_RETENTION_KEY } from "./db";
 import type {
   UserRow,
   TagRow,
@@ -291,8 +291,9 @@ export class SqliteAdapter implements DbAdapter {
    * 设计要点：
    * - 题库进库而非写死代码：扩充量表、后台维护题面都不必改代码；
    * - 结果是快照（作答 + 得分 JSON 落库），学生半年后回看仍是当时结论，不随后续改题漂移；
-   * - 草稿唯一性（同 user + 量表至多一条 in_progress）由适配器事务保证——MySQL 无部分唯一索引，
-   *   两侧都不建部分唯一约束，避免「SQLite 拦得住、MySQL 拦不住」的行为差异；
+   * - 草稿唯一性（同 user + 量表至多一条 in_progress）靠可空的 `draft_slot` + 唯一约束兜住：
+   *   草稿恒填 1、完成记录置 NULL，两库都允许多个 NULL，行为一致（MySQL 无部分唯一索引，
+   *   这是可移植的等价物，不再只靠「先查再写」的事务）；
    * - `user_id` / `assessment_id` 只写 REFERENCES 不建 ON DELETE CASCADE，与其余表一致。
    */
   private migrateAssessmentSchema(): void {
@@ -305,9 +306,9 @@ export class SqliteAdapter implements DbAdapter {
         dimensions_json TEXT NOT NULL,
         scoring_mode TEXT NOT NULL DEFAULT 'typological',
         scale_version TEXT NOT NULL,
-        attribution TEXT NOT NULL DEFAULT '',
-        license_text TEXT NOT NULL DEFAULT '',
-        disclaimer TEXT NOT NULL DEFAULT '',
+        attribution TEXT NOT NULL,
+        license_text TEXT NOT NULL,
+        disclaimer TEXT NOT NULL,
         enabled INTEGER NOT NULL DEFAULT 1,
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL
@@ -332,18 +333,17 @@ export class SqliteAdapter implements DbAdapter {
         user_id INTEGER NOT NULL REFERENCES users(id),
         assessment_id INTEGER NOT NULL REFERENCES assessments(id),
         status TEXT NOT NULL DEFAULT 'in_progress',
-        answers_json TEXT NOT NULL DEFAULT '{}',
+        answers_json TEXT NOT NULL,
         scores_json TEXT,
         type_code TEXT,
         is_current INTEGER NOT NULL DEFAULT 0,
+        draft_slot INTEGER,
         started_at TEXT NOT NULL,
         updated_at TEXT NOT NULL,
-        completed_at TEXT
+        completed_at TEXT,
+        UNIQUE(user_id, assessment_id, draft_slot)
       )
     `);
-    this.db.exec(
-      `CREATE INDEX IF NOT EXISTS idx_assessment_questions_assessment ON assessment_questions(assessment_id, question_index)`
-    );
     this.db.exec(
       `CREATE INDEX IF NOT EXISTS idx_assessment_results_user ON assessment_results(user_id, assessment_id, status)`
     );
@@ -1626,7 +1626,10 @@ export class SqliteAdapter implements DbAdapter {
   }
 
   getAssessmentByCode(code: string): AssessmentRow | undefined {
-    return this.db.prepare("SELECT * FROM assessments WHERE code = ?").get(code) as AssessmentRow | undefined;
+    // code 归一化在边界做：SQLite 的 `=` 区分大小写、MySQL 默认不区分，直接比会分叉
+    return this.db
+      .prepare("SELECT * FROM assessments WHERE code = ?")
+      .get(normalizeAssessmentCode(code)) as AssessmentRow | undefined;
   }
 
   getAssessmentQuestions(assessmentId: number): AssessmentQuestionRow[] {
@@ -1642,42 +1645,33 @@ export class SqliteAdapter implements DbAdapter {
          JOIN assessments a ON a.id = q.assessment_id
          WHERE a.code = ? ORDER BY q.question_index`
       )
-      .all(code) as AssessmentQuestionRow[];
+      .all(normalizeAssessmentCode(code)) as AssessmentQuestionRow[];
   }
 
   upsertAssessmentDraft(userId: number, assessmentId: number, answersJson: string): number {
-    const tx = this.db.transaction(() => {
-      const now = getNow();
-      const draft = this.db
-        .prepare(
-          `SELECT id FROM assessment_results
-           WHERE user_id = ? AND assessment_id = ? AND status = 'in_progress'
-           ORDER BY id DESC LIMIT 1`
-        )
-        .get(userId, assessmentId) as { id: number } | undefined;
-      if (draft) {
-        this.db
-          .prepare("UPDATE assessment_results SET answers_json = ?, updated_at = ? WHERE id = ?")
-          .run(answersJson, now, draft.id);
-        return draft.id;
-      }
-      const result = this.db
-        .prepare(
-          `INSERT INTO assessment_results
-             (user_id, assessment_id, status, answers_json, is_current, started_at, updated_at)
-           VALUES (?, ?, 'in_progress', ?, 0, ?, ?)`
-        )
-        .run(userId, assessmentId, answersJson, now, now);
-      return Number(result.lastInsertRowid);
-    });
-    return tx();
+    // 单条原子 upsert：`draft_slot = 1` 是草稿位，唯一约束保证「至多一条草稿」；
+    // 「先查再写」在并发自动保存下会插出第二条草稿，故用 ON CONFLICT 直接覆盖。
+    const now = getNow();
+    this.db
+      .prepare(
+        `INSERT INTO assessment_results
+           (user_id, assessment_id, status, answers_json, is_current, draft_slot, started_at, updated_at)
+         VALUES (?, ?, 'in_progress', ?, 0, 1, ?, ?)
+         ON CONFLICT(user_id, assessment_id, draft_slot)
+         DO UPDATE SET answers_json = excluded.answers_json, updated_at = excluded.updated_at`
+      )
+      .run(userId, assessmentId, answersJson, now, now);
+    const draft = this.db
+      .prepare("SELECT id FROM assessment_results WHERE user_id = ? AND assessment_id = ? AND draft_slot = 1")
+      .get(userId, assessmentId) as { id: number };
+    return draft.id;
   }
 
   getAssessmentDraft(userId: number, assessmentId: number): AssessmentResultRow | undefined {
     return this.db
       .prepare(
         `SELECT * FROM assessment_results
-         WHERE user_id = ? AND assessment_id = ? AND status = 'in_progress'
+         WHERE user_id = ? AND assessment_id = ? AND draft_slot = 1
          ORDER BY id DESC LIMIT 1`
       )
       .get(userId, assessmentId) as AssessmentResultRow | undefined;
@@ -1694,17 +1688,17 @@ export class SqliteAdapter implements DbAdapter {
       const draft = this.db
         .prepare(
           `SELECT id FROM assessment_results
-           WHERE user_id = ? AND assessment_id = ? AND status = 'in_progress'
+           WHERE user_id = ? AND assessment_id = ? AND draft_slot = 1
            ORDER BY id DESC LIMIT 1`
         )
         .get(userId, assessmentId) as { id: number } | undefined;
       if (draft) {
-        // 沿用草稿行：保留 started_at，作答内容以本次提交为准
+        // 沿用草稿行：保留 started_at，作答内容以本次提交为准，草稿位释放（draft_slot → NULL）
         this.db
           .prepare(
             `UPDATE assessment_results
              SET status = 'completed', answers_json = ?, scores_json = ?, type_code = ?,
-                 is_current = 1, updated_at = ?, completed_at = ?
+                 is_current = 1, draft_slot = NULL, updated_at = ?, completed_at = ?
              WHERE id = ?`
           )
           .run(answersJson, scoresJson, typeCode, now, now, draft.id);
@@ -1978,10 +1972,11 @@ export class SqliteAdapter implements DbAdapter {
           }
         }
       }
-      // 测评恢复（#221）：含 assessments 字段 → 定义与题库**成对**整体替换（避免「换了题库没换定义」）；
-      // 旧备份无此字段 → 保留当前量表与题库不动（题库是参考数据，缺失时保留比清空安全）。
-      // 作答结果单独判字段：属学生个人数据，与 profile_submissions 同口径（缺字段保留现状）。
-      if (Array.isArray(d.assessments)) {
+      // 测评恢复（#221）：三表**作为一个整体**判断——`assessments` / `assessment_questions` /
+      // `assessment_results` 齐备才整体替换，否则三张表都保留现状。旧备份本就没有这三字段（等价保留现状）；
+      // 残缺备份（只有量表没题库、或换了定义却留着旧结果）不会造成「量表 0 题」「结果错配」这类半态。
+      if (Array.isArray(d.assessments) && Array.isArray(d.assessment_questions) && Array.isArray(d.assessment_results)) {
+        this.db.exec("DELETE FROM assessment_results");
         this.db.exec("DELETE FROM assessment_questions");
         this.db.exec("DELETE FROM assessments");
         if (d.assessments.length > 0) {
@@ -2014,7 +2009,7 @@ export class SqliteAdapter implements DbAdapter {
              (id, assessment_id, question_index, prompt, dimension, reverse_scored, version, created_at)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
         );
-        for (const q of d.assessment_questions ?? []) {
+        for (const q of d.assessment_questions) {
           questionStmt.run(
             q.id,
             q.assessment_id,
@@ -2026,31 +2021,28 @@ export class SqliteAdapter implements DbAdapter {
             q.created_at ?? getNow()
           );
         }
-      }
-      if (Array.isArray(d.assessment_results)) {
-        this.db.exec("DELETE FROM assessment_results");
-        if (d.assessment_results.length > 0) {
-          const resultStmt = this.db.prepare(
-            `INSERT INTO assessment_results
-               (id, user_id, assessment_id, status, answers_json, scores_json, type_code, is_current,
-                started_at, updated_at, completed_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        const resultStmt = this.db.prepare(
+          `INSERT INTO assessment_results
+             (id, user_id, assessment_id, status, answers_json, scores_json, type_code, is_current,
+              draft_slot, started_at, updated_at, completed_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        );
+        for (const r of d.assessment_results) {
+          resultStmt.run(
+            r.id,
+            r.user_id,
+            r.assessment_id,
+            r.status,
+            r.answers_json ?? "{}",
+            r.scores_json ?? null,
+            r.type_code ?? null,
+            r.is_current ?? 0,
+            // 旧备份没有 draft_slot 列：草稿补草稿位、完成记录补 NULL，恢复后不变量仍成立
+            r.draft_slot ?? (r.status === "in_progress" ? 1 : null),
+            r.started_at ?? getNow(),
+            r.updated_at ?? getNow(),
+            r.completed_at ?? null
           );
-          for (const r of d.assessment_results) {
-            resultStmt.run(
-              r.id,
-              r.user_id,
-              r.assessment_id,
-              r.status,
-              r.answers_json ?? "{}",
-              r.scores_json ?? null,
-              r.type_code ?? null,
-              r.is_current ?? 0,
-              r.started_at ?? getNow(),
-              r.updated_at ?? getNow(),
-              r.completed_at ?? null
-            );
-          }
         }
       }
       // 分组恢复（#101；**含此字段才回填，旧备份恢复后即为未分组**——上面已统一清空）
