@@ -1,8 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getStudents, insertUser, getUserByCode, updateUser, deleteStudents } from "@/lib/db";
+import {
+  getStudents,
+  insertUser,
+  getUserByCode,
+  getUsersByCodes,
+  updateUser,
+  deleteStudents,
+} from "@/lib/db";
 import { hashPassword } from "@/lib/auth";
 import { getRequestContext, recordAudit } from "@/lib/audit";
-import { resolveClassByName } from "@/lib/class-utils";
+import { resolveClassByName, resolveClassNames } from "@/lib/class-utils";
 import { WriteGuard } from "../write-guard";
 
 const PATH = "/api/manage/students";
@@ -97,57 +104,68 @@ export async function POST(request: NextRequest) {
       if (rows.length === 0) {
         return guard.deny(entry, null, "没有有效的学生数据", 400, { submitted: body.students.length });
       }
+      // 批量解析与批查（#193）：班级名先去重解析、学生按学号集合一次查出，
+      // 查库次数只与「去重后的班级名数 + 1 次学生批查」有关，与名单行数无关。
+      // 班级解析口径统一交给 resolveClassByName（#160），结果与 rows 一一对应（无查不中的路径）。
+      const classResolutions = await resolveClassNames(rows.map((s) => s.className));
+      const studentCodes = [...new Set(rows.map((s) => String(s.studentId)))];
+      const existingUsers = await getUsersByCodes(studentCodes);
+      const existingIdByCode = new Map(existingUsers.map((u) => [u.user_code, u.id]));
+      const classIdOfCode = new Map(existingUsers.map((u) => [u.user_code, u.class_id]));
 
-      // 班级名一次解析、整批复用（与单条添加共用 #160 口径）
-      const nameOf = (s: { className?: string }) => String(s.className ?? "").trim();
-      const classIdByName = new Map<string, number | null>();
-      for (const className of new Set(rows.map(nameOf).filter(Boolean))) {
-        classIdByName.set(className, (await resolveClassByName(className)).classId);
-      }
-      const boundIdOf = (s: { className?: string }) => classIdByName.get(nameOf(s)) ?? null;
-
-      // 归属预检（#171）：任一行越界则整批拒绝，绝不半途写入
+      // 归属预检（#171）：任一行越界则整批拒绝，绝不半途写入。
+      // 班级归属直接复用上面那次批查结果，不再为预检额外扫一遍全表。
       if (!guard.canWriteGlobal) {
-        const classOfRoster = new Map((await getStudents()).map((s) => [s.user_code, s.class_id]));
-        const foreign = rows.filter(
-          (s) => classOfRoster.has(s.studentId) && !guard.canWriteClass(classOfRoster.get(s.studentId) ?? null)
-        );
+        const foreign = rows.filter((s) => {
+          const code = String(s.studentId);
+          return classIdOfCode.has(code) && !guard.canWriteClass(classIdOfCode.get(code) ?? null);
+        });
         if (foreign.length > 0) {
           return guard.deny(entry, null, OUT_OF_SCOPE_STUDENT, 403, { foreign: foreign.length, submitted: rows.length });
         }
-        const classNames = [...new Set(rows.map(nameOf))];
-        const missing = rows.filter((s) => !nameOf(s)).length;
+        const missing = classResolutions.filter((b) => !b.provided).length;
         if (missing > 0) {
           return guard.deny(entry, null, `每行须指定班级（${missing} 行未填写）`, 400, { missing });
         }
-        const unknown = classNames.filter((n) => !classIdByName.get(n));
+        const unknown = [
+          ...new Set(classResolutions.filter((b) => b.provided && b.classId === null).map((b) => b.className)),
+        ];
         if (unknown.length > 0) {
           return guard.deny(entry, null, `班级「${unknown.join("」「")}」不存在`, 400, { classNames: unknown });
         }
-        const outside = classNames.filter((n) => !guard.canWriteClass(classIdByName.get(n) ?? null));
+        const outside = [
+          ...new Set(
+            classResolutions
+              .filter((b) => b.classId !== null && !guard.canWriteClass(b.classId))
+              .map((b) => b.className)
+          ),
+        ];
         if (outside.length > 0) {
           return guard.deny(entry, null, OUT_OF_SCOPE_CLASS, 403, { classNames: outside });
         }
       }
 
       let unbound = 0;
-      for (const s of rows) {
-        const className = nameOf(s);
-        const classId = boundIdOf(s);
-        // 班级不存在时不绑定并计数（与单条添加共用解析口径）
-        if (className && classId === null) unbound++;
-        const existing = await getUserByCode(s.studentId);
-        if (existing) {
+      for (const [index, s] of rows.entries()) {
+        // 班级解析结果与 rows 按下标一一对应；班级不存在时不绑定并计数（与单条添加共用解析口径）
+        const binding = classResolutions[index];
+        if (binding.provided && binding.classId === null) unbound++;
+        const studentCode = String(s.studentId);
+        const existingId = existingIdByCode.get(studentCode);
+        if (existingId !== undefined) {
           const fields: { name: string; class_id?: number } = { name: s.name };
-          if (classId !== null) fields.class_id = classId;
-          await updateUser(existing.id, fields);
+          if (binding.classId !== null) fields.class_id = binding.classId;
+          await updateUser(existingId, fields);
         } else {
-          await insertUser({
+          const newId = await insertUser({
             user_code: s.studentId,
             role: "student",
             name: s.name,
-            ...(classId !== null ? { class_id: classId } : {}),
+            ...(binding.classId !== null ? { class_id: binding.classId } : {}),
           });
+          // 同一份名单里重复出现的学号：后续行按「已存在」走更新，
+          // 与改动前逐行查库的语义保持一致
+          existingIdByCode.set(studentCode, newId);
         }
       }
       void recordAudit({
