@@ -15,6 +15,7 @@ import {
   Table,
   Tags,
   Users,
+  UsersRound,
 } from "lucide-react";
 import NavigationBar from "@/components/NavigationBar";
 import PanelSidebar, { type PanelSidebarGroup } from "@/components/dashboard/PanelSidebar";
@@ -28,10 +29,11 @@ import ExportTab from "@/components/admin/ExportTab";
 import TagsTab from "@/components/admin/TagsTab";
 import ProfileConfigTab from "@/components/admin/ProfileConfigTab";
 import AuditLogsTab from "@/components/admin/AuditLogsTab";
+import GroupingTab from "@/components/admin/GroupingTab";
 import { useSession } from "@/hooks/useSession";
 import type { Student, Stats, PagedData } from "@/hooks/useAdminAuth";
 
-type Tab = "home" | "overview" | "dashboard" | "export" | "profiles" | "students" | "classes" | "tags" | "profile-config" | "audit-logs";
+type Tab = "home" | "overview" | "dashboard" | "export" | "profiles" | "students" | "classes" | "grouping" | "tags" | "profile-config" | "audit-logs";
 
 /** 教师面板：分组侧边栏导航（主页 + 数据中心 + 数据管理） */
 export default function TeacherDashboardPage() {
@@ -139,6 +141,7 @@ export default function TeacherDashboardPage() {
           description: "看名单、加学生、重置密码",
         },
         { key: "classes", label: "班级管理", icon: School, description: "建班级、看邀请码、生成海报" },
+        { key: "grouping", label: "课堂分组", icon: UsersRound, description: "按兴趣相似度自动分组、手工调整" },
         { key: "tags", label: "标签管理", icon: Tags, description: "调整学生能选的标签" },
       ],
     },
@@ -206,6 +209,8 @@ export default function TeacherDashboardPage() {
             )}
 
             {activeTab === "classes" && <ClassesTab mode="teacher" teacherUid={session.uid} />}
+
+            {activeTab === "grouping" && <GroupingTab mode="teacher" teacherUid={session.uid} />}
 
             {activeTab === "tags" && <TagsTab readOnly />}
 

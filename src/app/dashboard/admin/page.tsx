@@ -19,6 +19,7 @@ import {
   Tags,
   TriangleAlert,
   Users,
+  UsersRound,
 } from "lucide-react";
 import { useAdminAuth } from "@/hooks/useAdminAuth";
 import type { DbConfig, Student } from "@/hooks/useAdminAuth";
@@ -37,8 +38,9 @@ import AuditLogsTab from "@/components/admin/AuditLogsTab";
 import StorageTab from "@/components/admin/StorageTab";
 import ProfileSubmissionsTab from "@/components/admin/ProfileSubmissionsTab";
 import MediaTab from "@/components/admin/MediaTab";
+import GroupingTab from "@/components/admin/GroupingTab";
 
-type Tab = "overview" | "dashboard" | "settings" | "students" | "classes" | "teachers" | "export" | "tags" | "profile-config" | "profile-submissions" | "audit-logs" | "storage" | "media";
+type Tab = "overview" | "dashboard" | "settings" | "students" | "classes" | "teachers" | "grouping" | "export" | "tags" | "profile-config" | "profile-submissions" | "audit-logs" | "storage" | "media";
 
 /** 管理面板：分组侧边栏导航（数据中心 + 用户管理 + 系统设置） */
 export default function AdminPage() {
@@ -149,6 +151,7 @@ export default function AdminPage() {
         },
         { key: "teachers", label: "教师管理", icon: GraduationCap },
         { key: "classes", label: "班级管理", icon: School },
+        { key: "grouping", label: "课堂分组", icon: UsersRound },
         { key: "tags", label: "标签管理", icon: Tags },
       ],
     },
@@ -229,6 +232,8 @@ export default function AdminPage() {
             {activeTab === "teachers" && (
               <TeachersTab />
             )}
+
+            {activeTab === "grouping" && <GroupingTab mode="admin" />}
 
             {activeTab === "export" && (
               <ExportTab />

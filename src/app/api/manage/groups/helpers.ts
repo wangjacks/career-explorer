@@ -94,6 +94,11 @@ export interface GroupingView {
   /** 源的展示元信息：界面据此说明「按什么分组」 */
   sources: { key: string; label: string; kind: string }[];
   groups: GroupView[];
+  /**
+   * 本班还没进组的学生（自动分组之后新转入、批量导入漏填组号都会落到这里）。
+   * 界面必须列出他们并给「移动」入口，否则这个缺口只能靠重新自动分组来补，而那会覆盖手工调整。
+   */
+  ungrouped: GroupMemberView[];
   /** 最近一次自动分组（用于展示「上次自动分组于…」） */
   latestBatch: {
     id: number;
@@ -221,6 +226,14 @@ export async function buildGroupingView(classId: number): Promise<GroupingView> 
     for (const userId of previous.keys()) if (!current.has(userId)) diffCount += 1;
   }
 
+  // 未进组的学生：全班减去所有组里的 id（组里挂着已转走/已删除的学生时不会误判）
+  const groupedIds = new Set<number>();
+  for (const indexes of indexGroups) for (const index of indexes) groupedIds.add(index);
+  const ungrouped: GroupMemberView[] = roster
+    .map((user, index) => ({ user, index }))
+    .filter(({ index }) => !groupedIds.has(index))
+    .map(({ user, index }) => memberView(vectors[index], user));
+
   return {
     hasGrouping: classGroups.length > 0,
     studentCount: metrics.studentCount,
@@ -232,6 +245,7 @@ export async function buildGroupingView(classId: number): Promise<GroupingView> 
     activeSourceKeys: metrics.activeSourceKeys,
     sources: describeSourceMeta(FEATURE_SOURCES),
     groups,
+    ungrouped,
     latestBatch,
     diffCount,
   };
