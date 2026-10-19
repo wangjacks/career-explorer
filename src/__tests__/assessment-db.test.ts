@@ -553,65 +553,62 @@ function dimensionKeys(): string[] {
   return RIASEC_DIMENSIONS.map((d) => d.key);
 }
 
-describe("按学号批查当前测评结果（#234 数据列表 / #233 导出共用）", () => {
-  function complete(adapter: SqliteAdapter, userId: number, assessmentId: number, typeCode: string, scoresJson: string) {
-    return adapter.completeAssessmentResult({
-      userId,
-      assessmentId,
-      answersJson: JSON.stringify({ 1: 4 }),
-      scoresJson,
-      typeCode,
-    });
-  }
-
-  it("只返回 completed + is_current：草稿与历史版本都不算「测过」，也不带作答内容", () => {
+describe("按学号批量取当前测评结果快照（#233 教师导出）", () => {
+  it("只回当前有效版本、未测评学号不出现、空入参短路", () => {
     const { dbPath, adapter, studentId, assessment } = setup();
-    const second = adapter.insertUser({ user_code: "202505050102", role: "student", name: "李四" });
-    const third = adapter.insertUser({ user_code: "202505050103", role: "student", name: "王五" });
+    const otherId = adapter.insertUser({ user_code: "202505050102", role: "student", name: "李四" });
+    expect(otherId).toBeGreaterThan(0);
 
-    // 张三：完成两次，第二版才是当前有效版本
-    adapter.upsertAssessmentDraft(studentId, assessment.id, JSON.stringify({ 1: 4 }));
-    complete(adapter, studentId, assessment.id, "RIA", JSON.stringify([{ key: "R", standard: 90 }]));
-    adapter.upsertAssessmentDraft(studentId, assessment.id, JSON.stringify({ 1: 5 }));
-    complete(adapter, studentId, assessment.id, "SEC", JSON.stringify([{ key: "S", standard: 88 }]));
-    // 李四：只有草稿，没交卷
-    adapter.upsertAssessmentDraft(second, assessment.id, JSON.stringify({ 1: 3 }));
-    // 王五：完成一次
-    complete(adapter, third, assessment.id, "AIC", JSON.stringify([{ key: "A", standard: 77 }]));
+    // 同一学生两次完成：只应返回 is_current 的那条（最新）
+    adapter.completeAssessmentResult({
+      userId: studentId,
+      assessmentId: assessment.id,
+      answersJson: JSON.stringify({ 1: 4 }),
+      scoresJson: JSON.stringify([{ key: "R", standard: 75 }]),
+      typeCode: "RIA",
+    });
+    adapter.completeAssessmentResult({
+      userId: studentId,
+      assessmentId: assessment.id,
+      answersJson: JSON.stringify({ 1: 5 }),
+      scoresJson: JSON.stringify([{ key: "R", standard: 100 }]),
+      typeCode: "RIC",
+    });
 
-    const rows = adapter.getCurrentAssessmentResultsByUserCodes(assessment.id, [
-      "202505050101",
-      "202505050102",
-      "202505050103",
+    const summaries = adapter.getCurrentAssessmentResultsByUserCodes(assessment.id, [
+      "202505050101", // 已完测
+      "202505050102", // 在册但未测评
+      "999999999999", // 不存在的学号
     ]);
 
-    expect(rows).toHaveLength(2);
-    const byCode = new Map(rows.map((row) => [row.user_code, row]));
-    // 张三的当前版本是第二次交卷的结果，历史版本不返回
-    expect(byCode.get("202505050101")?.type_code).toBe("SEC");
-    expect(byCode.get("202505050101")?.scores_json).toContain('"standard":88');
-    expect(byCode.get("202505050101")?.completed_at).toBeTruthy();
-    // 只有草稿的学号不出现在结果里
-    expect(byCode.has("202505050102")).toBe(false);
-    expect(byCode.get("202505050103")?.type_code).toBe("AIC");
-    // 四列轻量快照，不搬作答内容
-    expect(rows[0]).not.toHaveProperty("answers_json");
+    expect(summaries).toHaveLength(1);
+    expect(summaries[0].user_code).toBe("202505050101");
+    expect(summaries[0].type_code).toBe("RIC");
+    expect(summaries[0].scores_json).toContain("100");
+    expect(summaries[0].completed_at).toBeTruthy();
+    // 不返回作答内容（导出列不需要，少搬个人数据）
+    expect(summaries[0]).not.toHaveProperty("answers_json");
+    expect(adapter.getCurrentAssessmentResultsByUserCodes(assessment.id, [])).toEqual([]);
 
     adapter.close();
     cleanup(dbPath);
   });
 
-  it("空集合短路返回空数组；名单跨分片仍返回完整结果（#193 同款分片）", () => {
+  it("名单跨分片仍返回完整结果（#193 批查分片口径复用）", () => {
     const { dbPath, adapter, studentId, assessment } = setup();
-    complete(adapter, studentId, assessment.id, "RIA", "[]");
+    adapter.completeAssessmentResult({
+      userId: studentId,
+      assessmentId: assessment.id,
+      answersJson: "{}",
+      scoresJson: JSON.stringify([{ key: "S", standard: 80 }]),
+      typeCode: "SIA",
+    });
 
-    expect(adapter.getCurrentAssessmentResultsByUserCodes(assessment.id, [])).toEqual([]);
-
-    // 第二片才命中：600 个学号里只有最后一个真实存在
+    // 第二片里才命中（分片大小 500）
     const codes = Array.from({ length: 600 }, (_, index) => String(100000000000 + index));
     codes[codes.length - 1] = "202505050101";
-    const rows = adapter.getCurrentAssessmentResultsByUserCodes(assessment.id, codes);
-    expect(rows.map((row) => row.user_code)).toEqual(["202505050101"]);
+    const summaries = adapter.getCurrentAssessmentResultsByUserCodes(assessment.id, codes);
+    expect(summaries.map((row) => row.user_code)).toEqual(["202505050101"]);
 
     adapter.close();
     cleanup(dbPath);

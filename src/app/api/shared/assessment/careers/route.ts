@@ -14,13 +14,11 @@ import {
   emptyRiasecVector,
   hollandWeights,
   normalizeHollandCode,
-  parseRiasecVector,
   profileFromDimensionScores,
   rankCareers,
-  type CareerCandidate,
   type RiasecVector,
 } from "@/lib/assessment-match";
-import { onetDatasetInfo, ONET_ATTRIBUTION } from "@/lib/onet";
+import { onetDatasetInfo, ONET_ATTRIBUTION, toCareerCandidates } from "@/lib/onet";
 
 /**
  * GET：当前学生最新霍兰德结果 → Top-N 推荐职业（#226，供 C1 推荐职业区块调用）。
@@ -98,16 +96,7 @@ async function GET_impl(request: NextRequest) {
       return NextResponse.json({ error: "职业库为空，请先导入 O*NET 数据" }, { status: 503 });
     }
 
-    const candidates: CareerCandidate[] = rows.map((row) => ({
-      code: row.code,
-      name: row.name,
-      nameZh: row.name_zh,
-      interestCode: row.interest_code,
-      scores: parseRiasecVector(row.interests_json),
-      jobZone: row.job_zone,
-      educationLevel: row.education_level,
-      cluster: row.cluster,
-    }));
+    const candidates = toCareerCandidates(rows);
 
     const careers = rankCareers(profile, candidates, { topN: limit });
     const dataset = onetDatasetInfo();

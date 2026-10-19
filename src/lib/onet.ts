@@ -19,6 +19,7 @@ import {
 } from "./onet-data";
 import { ONET_NAME_ZH } from "./onet-name-zh";
 import type { CareerCandidate, RiasecVector } from "./assessment-match";
+import { parseRiasecVector } from "./assessment-match";
 
 /**
  * 种子标记：写在 `configs_profile` 的配置键。
@@ -144,4 +145,33 @@ export function onetDatasetInfo() {
     /** 首批中文译名覆盖数（其余职业保留英文名） */
     translatedCount: ONET_OCCUPATIONS.filter((tuple) => ONET_NAME_ZH[tuple[0]]).length,
   };
+}
+
+/** `onet_occupations` 行的结构子集：只取匹配需要的字段，避免本文件依赖数据层类型 */
+export interface OnetOccupationCandidateRow {
+  code: string;
+  name: string;
+  name_zh: string | null;
+  interest_code: string;
+  interests_json: string;
+  job_zone: number;
+  education_level: string;
+  cluster: string;
+}
+
+/**
+ * 数据库行 → 匹配引擎的候选职业（#233 教师导出复用同一份转换，避免两处各写一遍）。
+ * `interests_json` 解析失败时按零向量处理（匹配引擎会给出 0 相似度，不会抛错污染整批导出）。
+ */
+export function toCareerCandidates(rows: readonly OnetOccupationCandidateRow[]): CareerCandidate[] {
+  return rows.map((row) => ({
+    code: row.code,
+    name: row.name,
+    nameZh: row.name_zh,
+    interestCode: row.interest_code,
+    scores: parseRiasecVector(row.interests_json),
+    jobZone: row.job_zone,
+    educationLevel: row.education_level,
+    cluster: row.cluster,
+  }));
 }
