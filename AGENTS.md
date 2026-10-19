@@ -35,7 +35,7 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 | `src/app/api/{tags,upload,uploads}/` | 开放端点：标签与配置读取、上传、本地文件静态服务（含路径穿越防护） |
 | `src/components/` | 全站公共组件；子目录 `admin/`（面板 Tab 页命名 `*Tab.tsx`，同目录另有共用 UI 组件如 `AdminUI` / `ConfirmDialog` / `*Table`）、`dashboard/`（管理/教师侧边栏）、`student/`（学生侧边栏） |
 | `src/hooks/` | 客户端自定义 hook，命名一律 `use*.ts` |
-| `src/lib/` | 服务端数据层与工具，按前缀分组（`db*` / `storage*` / `media-*` / `thumbnail*` / `profile-*` / `tag*` 等，分组表见 `docs/overview.md`） |
+| `src/lib/` | 服务端数据层与工具，按前缀分组（`db*` / `storage*` / `media-*` / `thumbnail*` / `profile-*` / `assessment-*` / `tag*` 等，分组表见 `docs/overview.md`） |
 | `src/proxy.ts` | 角色权限中间件（替代已删除的 `middleware.ts`），内置 `TEACHER_ALLOWED` 声明式权限表 |
 | `src/types/`、`src/__tests__/` | 类型定义；Vitest 测试按被测对象命名——lib / hook 用 `<模块名>.test.ts`，API 路由与跨模块行为用 `<资源>-api.test.ts` / `<行为>.test.ts`（如 `profile-api`、`submission-deadline`）；改代码必须同步改对应测试 |
 | `uploads/`、`data/` | 本地存储后端的上传文件（含 `*_thumb.jpg` 缩略图）、SQLite 库文件，均 gitignored |
@@ -51,7 +51,7 @@ find src/app -name page.tsx && find src/app/api -name route.ts
 
 - 抽象层：`src/lib/db.ts` 定义 `DbAdapter` 接口，**所有数据库操作必须走此接口**，两适配器（`db-mysql.ts` / `db-sqlite.ts`）行为须一致
 - 配置来源：`db-config.json`（运行时文件，gitignored），经 `db-config.ts` 读写；`DbConfig` 含 `type: "mysql" | "sqlite"`、`installed` 标志、连接参数
-- **十三张表**（权威定义在两适配器的 `CREATE TABLE`，完整字段与备份口径见 `docs/architecture.md`「数据库」）：
+- **十六张表**（权威定义在两适配器的 `CREATE TABLE`，完整字段与备份口径见 `docs/architecture.md`「数据库」）：
 
 | 表 | 一句话职责 |
 |---|---|
@@ -65,6 +65,7 @@ find src/app -name page.tsx && find src/app/api -name route.ts
 | `profile_submissions` | 档案提交历史版本（#95），`version` + 快照字段 + `is_current` |
 | `class_groups` / `class_group_members` | **当前**分组（#101）：组与成员，成员表 `user_id` 全局唯一（一人同时只属于一个组，转班/删人必须清理） |
 | `group_batches` / `group_batch_groups` / `group_batch_members` | 分组历史批次（#101）：每次自动分组追加一份不可变归档（策略、特征源、指标、组内聚度、成员姓名学号快照） |
+| `assessments` / `assessment_questions` / `assessment_results` | 职业测评（#221）：量表定义（维度 JSON、计分类型、量表版本、署名与授权文本）、题库（题号 + 题干 + 维度 + 反向计分 + 题面版本）、作答与结果快照（`in_progress` 草稿 / `completed` 完成 + 三字码 + `is_current`）；题库进库、种子在 `assessment-data.ts` |
 
 - 学生 `tags` 为**标签名称文本数组**（#94 起，预设 + 自定义直存，与 `tags` 表解耦）
 - 初始化流程：手动访问 `/setup` 配置数据库 + 管理员密码 → 写入 `db-config.json` 与 `users`；安装状态经 `isInstalled()` + `/api/setup/status`
@@ -141,7 +142,7 @@ find src/app -name page.tsx && find src/app/api -name route.ts
 | 信息 | 权威文件 |
 |---|---|
 | 技术栈全量清单、目录模块划分、路线图 | `docs/overview.md` |
-| 页面/API 路由表、数据库十三表、教师权限表、面板导航分组、课堂分组口径 | `docs/architecture.md` |
+| 页面/API 路由表、数据库十六表、教师权限表、面板导航分组、课堂分组口径 | `docs/architecture.md` |
 | 分支模型、提交/PR/发布规范、环境变量表 | `docs/standards.md` |
 | 色彩 token、组件与交互规范、z-index 层级 | `docs/ui-conventions.md` |
 | Issue 标题/标签/正文/验收标准 | `docs/issue-standard.md` |

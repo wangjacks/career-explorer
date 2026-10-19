@@ -160,9 +160,9 @@
 
 ## 数据库
 
-<!-- 对账：`grep -oE "CREATE TABLE IF NOT EXISTS \`?[a-z_]+" src/lib/db-sqlite.ts src/lib/db-mysql.ts`；两适配器表集合必须一致（当前 13 张） -->
+<!-- 对账：`grep -oE "CREATE TABLE IF NOT EXISTS \`?[a-z_]+" src/lib/db-sqlite.ts src/lib/db-mysql.ts`；两适配器表集合必须一致（当前 16 张） -->
 
-十三张表，SQLite / MySQL 双适配器实现同一 `DbAdapter` 接口（`src/lib/db.ts`）。权威定义在两适配器的 `CREATE TABLE`，本表为索引：
+十六张表，SQLite / MySQL 双适配器实现同一 `DbAdapter` 接口（`src/lib/db.ts`）。权威定义在两适配器的 `CREATE TABLE`，本表为索引：
 
 | 表 | 用途 | 引入 | 纳入备份 |
 |---|---|---|---|
@@ -174,6 +174,9 @@
 | `audit_logs` | 操作审计（#110）：只追加 + 查询，操作者字段快照冗余，敏感键脱敏剔除、metadata 截断 2000 字符；索引 `created_at` / `actor_id` / `(resource_type, resource_id)` | #110 | ✅ |
 | `storage_backends` | 存储后端注册表（#111）：内置本地后端（不可删）+ 多个 S3 兼容实例；凭据不入库（走 `.env.local`）；`name` 唯一 | #111 | ✅（不含凭据） |
 | `profile_submissions` | 档案提交历史版本（#95）：`user_id` + `version` + 快照字段（`tags`/`avatar_url`/`evaluation_url`/`storage_id`/`submitted_at`）+ `is_current`；索引 `(user_id, version)`、`(user_id, is_current)` | #95 | ✅ |
+| `assessments` | 测评定义（#221）：`code`（唯一，如 `riasec`）、`name`、`question_count`、`dimensions_json`（`[{key,label}]`，顺序即计分与展示顺序）、`scoring_mode`（`typological` 取类型码 / `dimensional` 多维高低分档）、`scale_version`、`attribution`（署名）/ `license_text`（授权与修改声明）/ `disclaimer`（免责声明）、`enabled` | #221 | ✅ |
+| `assessment_questions` | 题库（#221）：`assessment_id` + `question_index`（量表内从 1 开始，`UNIQUE`）+ `prompt` + `dimension`（须是 `dimensions_json` 的 key）+ `reverse_scored` + `version`（题面版本，改动时自增） | #221 | ✅ |
+| `assessment_results` | 作答与结果**快照**（#221）：`user_id` + `assessment_id` + `status`（`in_progress` 草稿 / `completed` 完成）+ `answers_json` + `scores_json` + `type_code`（三字码，dimensional 量表为 NULL）+ `is_current` + `started_at` / `updated_at` / `completed_at` | #221 | ✅（学生个人数据） |
 
 **课堂分组（#101）五张表 —— 当前态与历史态物理分离**
 
@@ -187,9 +190,11 @@
 
 **班级名匹配口径（#191）**：`classes.name` 的比较统一为 **trim 后全等、区分大小写**，与前端 JS 全等对齐。`getClassByName()` 在两适配器内部均用 `getClasses()` + JS 全等实现（不依赖 SQL 排序规则），确保 SQLite / MySQL / MariaDB 行为恒等；归一化入口为 `resolveClassByName()`（`src/lib/class-utils.ts`），业务层禁止再写 `WHERE name = ?`。
 
-备份格式 `BackupData`（**version 5**，定义在 `src/lib/db.ts`）：十三表全量，其中 `audit_logs` / `configs_profile` / `storage_backends` / `profile_submissions` / 分组五表为可选字段（旧备份缺失时读取方容忍 `undefined`，`storage_backends` 缺失时保留当前后端表并回填本地后端）；含 `password_hash`，不含上传文件。
+备份格式 `BackupData`（**version 6**，定义在 `src/lib/db.ts`）：十六表全量，其中 `audit_logs` / `configs_profile` / `storage_backends` / `profile_submissions` / 分组五表 / 测评三表为可选字段（旧备份缺失时读取方容忍 `undefined`，`storage_backends` 缺失时保留当前后端表并回填本地后端）；含 `password_hash`，不含上传文件。
 
 > **分组五表是例外**：`users` / `classes` 是整表替换的，旧备份没有分组字段时若保留现状，成员行会指向已不存在或已换班的学生（恢复期间外键检查关闭，库不会拦）。所以恢复**一律先清空五表**，只有备份带字段才回填——旧备份恢复后即为「未分组」，这是有意为之，与 `profile_submissions` 的「缺字段保留不动」口径不同。
+
+> **测评三表是第二种例外**：`assessments` 与 `assessment_questions` 必须**成对**替换（只换题库不换定义会留下指向旧维度集的题），故只判 `assessments` 字段；`assessment_results` 单独判字段、缺字段保留现状（学生个人数据，与 `profile_submissions` 同口径）。恢复后若内置量表缺失会按种子补种，已存在的量表不覆盖。
 
 ## 课堂分组（#101）
 
@@ -204,6 +209,17 @@
 - **指标与零信号**：`coveredCount`（有特征的人）/ `nonZeroPairs`（有共同特征的配对数）如实反映信号强弱，两条基线给出「比随机好多少」。全班没标签时不报错、指标为 0，界面显示警告但**不阻断**（开学第一天必然零提交）
 - **端点边界**：读不限班级（教师可看全校），写限自建班级；触发自动分组 = **完全覆盖当前分组**（手工调整不可恢复）+ 追加一份历史归档，两步在同一事务内完成
 - **学生侧可见性**：`/api/shared/group` 只返回请求者所在组的名单；`/api/shared/storage-sign` 为学生放行**同组同学的头像**（仅此一项，词云不放行），同组判定用单条查询按 `group_id` 比对，避免两次读之间被原子重分组复用组号
+
+## 职业测评数据层（#221）
+
+<!-- 对账：表结构见上「数据库」；题库种子在 `src/lib/assessment-data.ts`，行为测试在 `src/__tests__/assessment-db.test.ts` -->
+
+- **量表进库、不写死代码**：`assessments` 存定义（维度 JSON / 计分类型 / 量表版本 / 署名授权），`assessment_questions` 存题面；首套量表为 O*NET Interest Profiler Mini-IP 30 题中文改编版（RIASEC，6 维各 5 题，原始量表无反向题）。种子由两适配器 `init()` 写入，以 `code` 存在性判定幂等，**不覆盖后台维护过的题面**；坏种子在落库前被 `validateAssessmentSeed` 挡住（题数、题号连续、维度归属、题干非空）
+- **题号即作答键**：`question_index` 从 1 连续到 n，作答 JSON 以它为键，故跳号会让「已答 n 题 / 总 n 题」的进度口径失真；`dimension` 必须是 `dimensions_json` 里的 key，且每个维度至少一题（零题维度恒 0 分，会与真实低分混淆）
+- **草稿与结果同表**：`in_progress` 草稿在同一 `user_id + assessment_id` 下至多一条，由适配器事务保证（MySQL 无部分唯一索引，两侧都不建部分唯一约束，避免「SQLite 拦得住、MySQL 拦不住」的行为分叉）；完成时**沿用草稿行**翻状态（保留 `started_at`），同事务内把该用户该量表其他完成版本 `is_current` 置 0，保证当前版本唯一；历史版本用 `getAssessmentResults`（完成时间新→旧）
+- **结果是快照**：`answers_json` / `scores_json` / `type_code` 落库，学生回看是当时的结论，不随改题或重算漂移。计分由计分引擎（#220）在写入前算好，数据层不重复实现算法，`dimensional` 量表不产出三字码（该列为 NULL）
+- **个人数据随账号删除**：`deleteStudents` 一并清 `assessment_results`；历史档案快照 `profile_submissions` 仍按 #95 口径保留
+- **授权合规**：`attribution`（署名）/ `license_text`（授权与修改声明）/ `disclaimer`（免责声明）三列随量表下发，作答页与结果页必须展示。O*NET Tools Developer License 要求署名并声明「修改未经 USDOL/ETA 审核、认可或测试」（https://www.onetcenter.org/license_tools.html ）
 
 ## 文件存储（#111 对象存储）
 
