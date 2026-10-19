@@ -1,10 +1,11 @@
+import { withDemoScope } from "@/lib/demo-scope";
 import { NextRequest, NextResponse } from "next/server";
 import { verifyToken } from "@/lib/token";
 import { scanMedia } from "@/lib/media-scan";
 import { getAuditActor, getRequestContext, recordAudit } from "@/lib/audit";
 
 /** 孤儿文件分页明细（#117）：仅 admin；按 orphanDays 降序（scanMedia 已排序） */
-export async function GET(request: NextRequest) {
+async function GET_impl(request: NextRequest) {
   try {
     const token = request.cookies.get("auth_token")?.value;
     if (!token) {
@@ -54,3 +55,5 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "服务器错误" }, { status: 500 });
   }
 }
+
+export const GET = withDemoScope(GET_impl);

@@ -1,3 +1,4 @@
+import { withDemoScope } from "@/lib/demo-scope";
 import { NextRequest, NextResponse } from "next/server";
 import { verifyToken } from "@/lib/token";
 import { scanThumbnailStatus } from "@/lib/thumbnail-backfill";
@@ -5,7 +6,7 @@ import { scanThumbnailStatus } from "@/lib/thumbnail-backfill";
 /**
  * 缩略图缺失检测（#118）：只读扫描被引用文件，统计已有/缺失缩略图（面板展示，不写入）。仅 admin。
  */
-export async function GET(request: NextRequest) {
+async function GET_impl(request: NextRequest) {
   try {
     const token = request.cookies.get("auth_token")?.value;
     if (!token) {
@@ -26,3 +27,5 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "服务器错误" }, { status: 500 });
   }
 }
+
+export const GET = withDemoScope(GET_impl);

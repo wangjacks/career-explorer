@@ -1,3 +1,4 @@
+import { withDemoScope } from "@/lib/demo-scope";
 import { NextRequest, NextResponse } from "next/server";
 import { writeFile, mkdir } from "fs/promises";
 import path from "path";
@@ -69,7 +70,7 @@ function auditUploadFailure(request: NextRequest, ctx: UploadFailureContext): vo
   })();
 }
 
-export async function POST(request: NextRequest) {
+async function POST_impl(request: NextRequest) {
   // 三个表单字段与体积上限声明在 try 之外：formData 解析后、抛错前的现场信息
   // 要能被失败审计带上（截断的请求体、格式不匹配的文件等都是靠这些才能定位）
   let file: File | null = null;
@@ -194,3 +195,5 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }
+
+export const POST = withDemoScope(POST_impl);

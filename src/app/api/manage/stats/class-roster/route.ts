@@ -1,3 +1,4 @@
+import { withDemoScope } from "@/lib/demo-scope";
 import { NextRequest, NextResponse } from "next/server";
 import { getClassRoster } from "@/lib/db";
 import { getAuditActor, getRequestContext, recordAudit } from "@/lib/audit";
@@ -21,7 +22,7 @@ function countTags(tags: string | null): number {
  * 只读；班名口径与 /api/manage/stats/compare 一致（未分班 = '未分班'）。
  * 学号返回完整值、由前端展示时脱敏，这样教师仍可按完整学号搜索。
  */
-export async function GET(request: NextRequest) {
+async function GET_impl(request: NextRequest) {
   const { ip, user_agent } = getRequestContext(request);
   const actor = await getAuditActor(request);
   const className = String(request.nextUrl.searchParams.get("class") ?? "").trim();
@@ -96,3 +97,5 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "获取班级名册失败" }, { status: 500 });
   }
 }
+
+export const GET = withDemoScope(GET_impl);

@@ -57,5 +57,21 @@ describe("token", () => {
       const result = await verifyToken(tampered);
       expect(result.valid).toBe(false);
     });
+
+    it("should carry the demo claim on a demo token", async () => {
+      const token = await signToken({ role: "teacher", uid: 9, name: "演示教师", demo: true });
+
+      const result = await verifyToken(token);
+      expect(result.valid).toBe(true);
+      expect(result.demo).toBe(true);
+    });
+
+    it("should omit the demo claim on a production token", async () => {
+      const token = await signToken({ role: "admin", uid: 1, name: "管理员" });
+
+      const result = await verifyToken(token);
+      expect(result.valid).toBe(true);
+      expect(result.demo).toBeUndefined();
+    });
   });
 });

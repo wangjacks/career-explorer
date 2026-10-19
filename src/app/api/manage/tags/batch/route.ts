@@ -1,3 +1,4 @@
+import { withDemoScope } from "@/lib/demo-scope";
 import { NextRequest, NextResponse } from "next/server";
 import { getTags, insertTag } from "@/lib/db";
 import { getRequestContext, recordAudit } from "@/lib/audit";
@@ -16,7 +17,7 @@ const IMPORT: AuditTarget = {
  * 标签批量导入（#94）：`{ items: [{ category, name }] }`。
  * 分类不存在时自动创建；「分类+标签名」已存在则跳过；返回导入/跳过计数。
  */
-export async function POST(request: NextRequest) {
+async function POST_impl(request: NextRequest) {
   const { ip, user_agent } = getRequestContext(request);
   const guard = await WriteGuard.from(request);
   const actor = guard.actor;
@@ -116,3 +117,5 @@ export async function POST(request: NextRequest) {
     );
   }
 }
+
+export const POST = withDemoScope(POST_impl);

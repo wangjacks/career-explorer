@@ -1,3 +1,4 @@
+import { withDemoScope } from "@/lib/demo-scope";
 import { NextRequest, NextResponse } from "next/server";
 import { getStorageBackend } from "@/lib/db";
 import { verifyToken } from "@/lib/token";
@@ -9,7 +10,7 @@ import { getAuditActor, getRequestContext, recordAudit } from "@/lib/audit";
  * - S3：上传临时对象 → 探测存在 → 删除，全链路验证凭据/端点/桶/权限
  * - 本地：uploads 目录读写探测
  */
-export async function POST(request: NextRequest) {
+async function POST_impl(request: NextRequest) {
   const { ip, user_agent } = getRequestContext(request);
   const actor = await getAuditActor(request);
 
@@ -71,3 +72,5 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ ok: false, error: message }, { status: 200 });
   }
 }
+
+export const POST = withDemoScope(POST_impl);

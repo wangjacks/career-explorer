@@ -1,3 +1,4 @@
+import { withDemoScope } from "@/lib/demo-scope";
 import { NextRequest, NextResponse } from "next/server";
 import {
   getSubmittedProfiles,
@@ -8,7 +9,7 @@ import {
 import { RIASEC_CODE } from "@/lib/assessment-data";
 import { parseScores } from "@/lib/assessment-flow";
 
-export async function GET(request: NextRequest) {
+async function GET_impl(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
     const page = parseInt(searchParams.get("page") || "1", 10);
@@ -68,7 +69,7 @@ export async function GET(request: NextRequest) {
   }
 }
 
-export async function DELETE(request: NextRequest) {
+async function DELETE_impl(request: NextRequest) {
   try {
     const { ids } = await request.json();
     if (!Array.isArray(ids) || ids.length === 0) {
@@ -81,3 +82,6 @@ export async function DELETE(request: NextRequest) {
     return NextResponse.json({ error: "删除失败" }, { status: 500 });
   }
 }
+
+export const GET = withDemoScope(GET_impl);
+export const DELETE = withDemoScope(DELETE_impl);

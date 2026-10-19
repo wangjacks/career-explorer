@@ -1,3 +1,4 @@
+import { withDemoScope } from "@/lib/demo-scope";
 import { NextRequest, NextResponse } from "next/server";
 import { verifyToken } from "@/lib/token";
 import { getAllReferencedMedia } from "@/lib/db";
@@ -50,7 +51,7 @@ async function performDelete(targets: OrphanItem[]): Promise<{
  * - body { mode: "all" }：删除全部可删孤儿（500 人规模一键清理入口）
  * 安全链（服务端全部重新校验，不信任前端）；审计记统计与明细（key 限条数保留 + truncated 标记）。
  */
-export async function POST(request: NextRequest) {
+async function POST_impl(request: NextRequest) {
   const { ip, user_agent } = getRequestContext(request);
   let mode: "all" | "items" | null = null;
   try {
@@ -185,3 +186,5 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "服务器错误" }, { status: 500 });
   }
 }
+
+export const POST = withDemoScope(POST_impl);
