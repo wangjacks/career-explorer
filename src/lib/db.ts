@@ -831,7 +831,9 @@ function getDemoAdapter(): DbAdapter {
   demoAdapter = adapter;
   demoType = configKey;
   demoInitPromise = Promise.resolve(adapter.init());
-  demoInitPromise.catch(() => {});
+  demoInitPromise.catch((err) => {
+    console.error("演示库初始化失败（后续请求将 await 到同一 rejected promise 并抛 500）:", err);
+  });
   return adapter;
 }
 
@@ -1384,10 +1386,6 @@ export async function restore(data: BackupData): Promise<void> {
 }
 
 export async function closeDb(): Promise<void> {
-  if (isDemoScope()) {
-    await closeDemoDb();
-    return;
-  }
   if (currentAdapter) {
     await Promise.resolve(currentAdapter.close());
     currentAdapter = null;
@@ -1395,7 +1393,12 @@ export async function closeDb(): Promise<void> {
   }
 }
 
-/** 关闭并清空演示 adapter 的 memo 槽（供演示库重置流程调用） */
+/**
+ * 关闭并清空演示 adapter 的 memo 槽。仅供演示库重置流程显式调用——刻意不与 `closeDb()`
+ * 合一：`closeDb()` 的既有语义是「生产数据源配置变更，丢弃旧生产 adapter」（settings PUT
+ * fire-and-forget 调用），若让它作用域敏感，演示 admin 调 settings 会误关演示 adapter、
+ * 生产 adapter 反带旧配置常驻。故作用域归作用域、关闭各自显式。
+ */
 export async function closeDemoDb(): Promise<void> {
   if (demoAdapter) {
     await Promise.resolve(demoAdapter.close());

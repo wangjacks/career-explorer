@@ -9,6 +9,15 @@ import { verifyToken } from "./token";
  * `ensureInit()` 依此作用域决定返回哪一个。AsyncLocalStorage 只覆盖 Node runtime
  * 内的 await 链——本项目全部 DB 访问都在 API 路由 handler 内 await，故在路由入口
  * 用 `withDemoScope` 设定作用域即可完整覆盖（页面/中间件/hook 均不碰 DB）。
+ *
+ * 两类「包裹了也不等于隔离」的边界，勿误解：
+ * 1. **按设计永远落生产库的路由**：`/api/auth`、`/api/auth/activate*` 运行在会话建立
+ *    之前（还没有 token 或正在换 token），它们查生产名单登录本身正确；包裹只是无副
+ *    作用，演示登录走的是独立入口（#252），不依赖这里改道。
+ * 2. **写进程级全局文件的路由**：如 `settings` PUT 写 `process.cwd()/db-config.json`
+ *    （不是 DB）。`withDemoScope` 对其**零覆盖**——演示会话能改的「数据源指向」是全局
+ *    配置而非演示库。这类路由必须由 #252 的角色门 / proxy 权限表对演示会话关闭，
+ *    本 Issue 仅在 `settings` 就地加了演示作用域拒绝作为纵深，不是完整方案。
  */
 
 const als = new AsyncLocalStorage<{ demo: true }>();
@@ -36,13 +45,6 @@ export function getDemoDbPath(): string {
   return process.env.DEMO_DB_PATH || "./data/career-demo.db";
 }
 
-/**
- * 包裹 Next API 路由 handler：请求携带的 token 若为演示会话，则在演示作用域内执行，
- * 使 handler 内所有 `@/lib/db` 调用改道到演示库；否则原样执行（生产 adapter）。
- *
- * fail-safe：判定为 demo 即进 demo 作用域——即便随后 `DEMO_ENABLED` 被关闭，
- * `db.ts` 的演示 adapter 工厂会抛错（→ 500），绝不回落到生产库。
- */
 /**
  * 包裹 Next API 路由 handler：请求携带的 token 若为演示会话，则在演示作用域内执行，
  * 使 handler 内所有 `@/lib/db` 调用改道到演示库；否则原样执行（生产 adapter）。
