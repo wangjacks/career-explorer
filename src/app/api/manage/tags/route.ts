@@ -1,3 +1,4 @@
+import { withDemoScope } from "@/lib/demo-scope";
 import { NextRequest, NextResponse } from "next/server";
 import { getTags, insertTag, updateTag, deleteTags } from "@/lib/db";
 import type { TagRow } from "@/lib/db";
@@ -42,7 +43,7 @@ function findDuplicateCategory(tags: TagRow[], name: string, excludeId?: number)
   );
 }
 
-export async function GET() {
+async function GET_impl() {
   try {
     return NextResponse.json({ data: await getTags() });
   } catch (err) {
@@ -51,7 +52,7 @@ export async function GET() {
   }
 }
 
-export async function POST(request: NextRequest) {
+async function POST_impl(request: NextRequest) {
   const { ip, user_agent } = getRequestContext(request);
   const guard = await WriteGuard.from(request);
   const actor = guard.actor;
@@ -97,7 +98,7 @@ export async function POST(request: NextRequest) {
   }
 }
 
-export async function PATCH(request: NextRequest) {
+async function PATCH_impl(request: NextRequest) {
   const { ip, user_agent } = getRequestContext(request);
   const guard = await WriteGuard.from(request);
   const actor = guard.actor;
@@ -146,7 +147,7 @@ export async function PATCH(request: NextRequest) {
 }
 
 /** 物理删除（#94：停用机制下线）；支持单个 { id } 与批量 { ids }，分类级联删除其下标签 */
-export async function DELETE(request: NextRequest) {
+async function DELETE_impl(request: NextRequest) {
   const { ip, user_agent } = getRequestContext(request);
   const guard = await WriteGuard.from(request);
   const actor = guard.actor;
@@ -180,3 +181,8 @@ export async function DELETE(request: NextRequest) {
     return NextResponse.json({ error: "删除标签失败" }, { status: 500 });
   }
 }
+
+export const GET = withDemoScope(GET_impl);
+export const POST = withDemoScope(POST_impl);
+export const PATCH = withDemoScope(PATCH_impl);
+export const DELETE = withDemoScope(DELETE_impl);

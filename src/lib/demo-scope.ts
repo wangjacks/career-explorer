@@ -43,17 +43,29 @@ export function getDemoDbPath(): string {
  * fail-safe：判定为 demo 即进 demo 作用域——即便随后 `DEMO_ENABLED` 被关闭，
  * `db.ts` 的演示 adapter 工厂会抛错（→ 500），绝不回落到生产库。
  */
-export function withDemoScope<C>(
-  handler: (request: NextRequest, ctx: C) => Promise<Response>
-): (request: NextRequest, ctx: C) => Promise<Response> {
-  return async (request: NextRequest, ctx: C): Promise<Response> => {
-    const token = request.cookies.get("auth_token")?.value;
+/**
+ * 包裹 Next API 路由 handler：请求携带的 token 若为演示会话，则在演示作用域内执行，
+ * 使 handler 内所有 `@/lib/db` 调用改道到演示库；否则原样执行（生产 adapter）。
+ *
+ * 用变泛型 `<A, R>` 透传每个 handler 自身的入参数量与返回类型：静态/公开 handler 可能
+ * 无参（如 `GET()`），动态路由则要求 `(request, { params })`——包装器保留各自签名，
+ * 不强行注入可选 `ctx`（否则会与「必填 ctx」的动态路由 handler 冲突）。
+ *
+ * fail-safe：判定为 demo 即进 demo 作用域——即便随后 `DEMO_ENABLED` 被关闭，
+ * `db.ts` 的演示 adapter 工厂会抛错（→ 500），绝不回落到生产库。
+ */
+export function withDemoScope<A extends unknown[], R>(
+  handler: (...args: A) => Promise<R>
+): (...args: A) => Promise<R> {
+  return async (...args: A): Promise<R> => {
+    const request = args[0] as NextRequest | undefined;
+    const token = request?.cookies?.get("auth_token")?.value;
     if (token) {
       const result = await verifyToken(token);
       if (result.valid && result.demo === true) {
-        return runInDemoScope(() => handler(request, ctx));
+        return runInDemoScope(() => handler(...args));
       }
     }
-    return handler(request, ctx);
+    return handler(...args);
   };
 }

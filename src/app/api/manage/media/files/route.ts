@@ -1,3 +1,4 @@
+import { withDemoScope } from "@/lib/demo-scope";
 import { NextRequest, NextResponse } from "next/server";
 import { verifyToken } from "@/lib/token";
 import { scanMedia, type MediaFileItem } from "@/lib/media-scan";
@@ -22,7 +23,7 @@ function parseFilters(sp: URLSearchParams) {
  * 排序：最近修改降序；引用状态与关联学生在扫描时计算（服务端为准）。
  * 学生搜索与文件名搜索相互独立：孤儿文件无关联学生，可用文件名搜索定位。
  */
-export async function GET(request: NextRequest) {
+async function GET_impl(request: NextRequest) {
   try {
     const token = request.cookies.get("auth_token")?.value;
     if (!token) {
@@ -86,3 +87,5 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "服务器错误" }, { status: 500 });
   }
 }
+
+export const GET = withDemoScope(GET_impl);

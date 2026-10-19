@@ -1,14 +1,15 @@
+import { withDemoScope } from "@/lib/demo-scope";
 import { NextResponse } from "next/server";
 import { getConfig, setConfig, type DbConfig } from "@/lib/db-config";
 import { closeDb } from "@/lib/db";
 import { getAuditActor, getRequestContext, recordAudit } from "@/lib/audit";
 import type { NextRequest } from "next/server";
 
-export async function GET() {
+async function GET_impl() {
   return NextResponse.json(getConfig());
 }
 
-export async function PUT(request: NextRequest) {
+async function PUT_impl(request: NextRequest) {
   const { ip, user_agent } = getRequestContext(request);
   const actor = await getAuditActor(request);
   try {
@@ -48,3 +49,6 @@ export async function PUT(request: NextRequest) {
     return NextResponse.json({ error: "保存失败" }, { status: 500 });
   }
 }
+
+export const GET = withDemoScope(GET_impl);
+export const PUT = withDemoScope(PUT_impl);

@@ -1,3 +1,4 @@
+import { withDemoScope } from "@/lib/demo-scope";
 import { NextRequest, NextResponse } from "next/server";
 import { getProfileSubmission, getUserById, isSubmissionClosed, submitProfileWithVersion } from "@/lib/db";
 import { verifyToken } from "@/lib/token";
@@ -7,7 +8,7 @@ import { getRequestContext, recordAudit } from "@/lib/audit";
  * 学生恢复历史版本（#95）：
  * 截止后拒绝（403）→ 校验版本归属 → submitProfileWithVersion 生成新版本（审计链完整，不回写旧记录）→ 审计 profile:restore
  */
-export async function POST(request: NextRequest) {
+async function POST_impl(request: NextRequest) {
   const { ip, user_agent } = getRequestContext(request);
   try {
     const token = request.cookies.get("auth_token")?.value;
@@ -70,3 +71,5 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "服务器错误" }, { status: 500 });
   }
 }
+
+export const POST = withDemoScope(POST_impl);

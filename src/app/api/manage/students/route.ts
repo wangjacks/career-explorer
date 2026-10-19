@@ -1,3 +1,4 @@
+import { withDemoScope } from "@/lib/demo-scope";
 import { NextRequest, NextResponse } from "next/server";
 import { getStudents, insertUser, getUserByCode, updateUser, deleteStudents } from "@/lib/db";
 import { hashPassword } from "@/lib/auth";
@@ -9,12 +10,12 @@ const PATH = "/api/manage/students";
 const OUT_OF_SCOPE_STUDENT = "该学生不在你管理的班级";
 const OUT_OF_SCOPE_CLASS = "无权操作该班级的学生";
 
-export async function GET() {
+async function GET_impl() {
   const students = await getStudents();
   return NextResponse.json({ data: students, total: students.length });
 }
 
-export async function POST(request: NextRequest) {
+async function POST_impl(request: NextRequest) {
   const { ip, user_agent } = getRequestContext(request);
   const guard = await WriteGuard.from(request);
   const actor = guard.actor;
@@ -166,7 +167,7 @@ export async function POST(request: NextRequest) {
   }
 }
 
-export async function DELETE(request: NextRequest) {
+async function DELETE_impl(request: NextRequest) {
   const { ip, user_agent } = getRequestContext(request);
   const guard = await WriteGuard.from(request);
   const actor = guard.actor;
@@ -201,7 +202,7 @@ export async function DELETE(request: NextRequest) {
   }
 }
 
-export async function PUT(request: NextRequest) {
+async function PUT_impl(request: NextRequest) {
   const { ip, user_agent } = getRequestContext(request);
   const guard = await WriteGuard.from(request);
   const actor = guard.actor;
@@ -274,3 +275,8 @@ export async function PUT(request: NextRequest) {
     return NextResponse.json({ error: "更新失败" }, { status: 500 });
   }
 }
+
+export const GET = withDemoScope(GET_impl);
+export const POST = withDemoScope(POST_impl);
+export const DELETE = withDemoScope(DELETE_impl);
+export const PUT = withDemoScope(PUT_impl);

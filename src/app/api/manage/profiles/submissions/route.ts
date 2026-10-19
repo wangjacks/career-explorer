@@ -1,3 +1,4 @@
+import { withDemoScope } from "@/lib/demo-scope";
 import { NextRequest, NextResponse } from "next/server";
 import { getProfileSubmissions, getUserById, getTeacherClassPairs } from "@/lib/db";
 import { verifyToken } from "@/lib/token";
@@ -14,7 +15,7 @@ function parseTags(raw: string | null): string[] {
 }
 
 /** 管理端查看学生提交历史（#95）：admin 全量；teacher 仅限管辖班级（storage-sign 同款班级白名单） */
-export async function GET(request: NextRequest) {
+async function GET_impl(request: NextRequest) {
   try {
     const token = request.cookies.get("auth_token")?.value;
     if (!token) {
@@ -66,3 +67,5 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "服务器错误" }, { status: 500 });
   }
 }
+
+export const GET = withDemoScope(GET_impl);

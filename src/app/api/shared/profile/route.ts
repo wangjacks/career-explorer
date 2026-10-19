@@ -1,3 +1,4 @@
+import { withDemoScope } from "@/lib/demo-scope";
 import { NextRequest, NextResponse } from "next/server";
 import {
   getActiveTags,
@@ -18,7 +19,7 @@ import { getRequestContext, recordAudit } from "@/lib/audit";
 const MAX_TAG_NAME_LENGTH = 50;
 
 /** 会话查询：登录学生获取本人档案（含班级名与标签名） */
-export async function GET(request: NextRequest) {
+async function GET_impl(request: NextRequest) {
   try {
     const token = request.cookies.get("auth_token")?.value;
     if (!token) {
@@ -73,7 +74,7 @@ export async function GET(request: NextRequest) {
   }
 }
 
-export async function POST(request: NextRequest) {
+async function POST_impl(request: NextRequest) {
   const { ip, user_agent } = getRequestContext(request);
   try {
     // 已移除快速提交通道（#92）：保存必须学生本人登录，身份只取自会话，拒绝显式指定学号，杜绝覆盖他人数据
@@ -171,3 +172,6 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "服务器错误" }, { status: 500 });
   }
 }
+
+export const GET = withDemoScope(GET_impl);
+export const POST = withDemoScope(POST_impl);
