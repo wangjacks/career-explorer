@@ -40,7 +40,7 @@ export default function TeacherHomeTab({ teacherName, groups, onNavigate }: Prop
   return (
     <>
       {/* Hero：问候 + 日期 + 一句引导 */}
-      <section className="bg-brand rounded-2xl p-5 sm:p-6 shadow-sm">
+      <section className="bg-brand-deep rounded-2xl p-5 sm:p-6 shadow-sm">
         <h2 className="text-xl sm:text-2xl font-semibold text-white">
           {getTimeGreeting(now.getHours())}，{teacherName}老师
         </h2>
