@@ -553,11 +553,13 @@ function dimensionKeys(): string[] {
   return RIASEC_DIMENSIONS.map((d) => d.key);
 }
 
-describe("按学号批量取当前测评结果快照（#233 教师导出）", () => {
+describe("按学号批量取当前测评结果快照（#233 教师导出 / #234 数据列表）", () => {
   it("只回当前有效版本、未测评学号不出现、空入参短路", () => {
     const { dbPath, adapter, studentId, assessment } = setup();
     const otherId = adapter.insertUser({ user_code: "202505050102", role: "student", name: "李四" });
     expect(otherId).toBeGreaterThan(0);
+    // 李四只有草稿：草稿不算「测过」，不应出现在结果里（#234 列表徽章同口径）
+    adapter.upsertAssessmentDraft(otherId, assessment.id, JSON.stringify({ 1: 3 }));
 
     // 同一学生两次完成：只应返回 is_current 的那条（最新）
     adapter.completeAssessmentResult({
@@ -577,7 +579,7 @@ describe("按学号批量取当前测评结果快照（#233 教师导出）", ()
 
     const summaries = adapter.getCurrentAssessmentResultsByUserCodes(assessment.id, [
       "202505050101", // 已完测
-      "202505050102", // 在册但未测评
+      "202505050102", // 在册但只有草稿
       "999999999999", // 不存在的学号
     ]);
 
