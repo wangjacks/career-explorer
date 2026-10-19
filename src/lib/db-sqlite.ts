@@ -42,6 +42,7 @@ import type {
   AssessmentQuestionRow,
   AssessmentResultRow,
   CompleteAssessmentInput,
+  ClassRosterRow,
 } from "./db";
 import { fillGroupedTrend, fillTrendSeries, shiftDate } from "./stats-utils";
 
@@ -1073,6 +1074,20 @@ export class SqliteAdapter implements DbAdapter {
       )
       .all() as { k: string; total: number; submitted: number }[];
     return rows.map((r) => ({ key: r.k, total: r.total, submitted: r.submitted }));
+  }
+
+  getClassRoster(className: string): ClassRosterRow[] {
+    // 班名口径与 getCompareByClass 保持一致；未提交置顶，其余按学号升序。
+    // submitted_at 的空串视为未提交，避免脏数据把空时间显示成「已提交」。
+    return this.db
+      .prepare(
+        `SELECT u.name, u.user_code, u.submitted_at, u.tags
+         FROM users u LEFT JOIN classes c ON u.class_id = c.id
+         WHERE u.role = 'student' AND COALESCE(c.name, '未分班') = ?
+         ORDER BY CASE WHEN u.submitted_at IS NULL OR TRIM(u.submitted_at) = '' THEN 0 ELSE 1 END,
+                  u.user_code`
+      )
+      .all(className) as ClassRosterRow[];
   }
 
   // tags & classes

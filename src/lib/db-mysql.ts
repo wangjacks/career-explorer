@@ -40,6 +40,7 @@ import type {
   AssessmentQuestionRow,
   AssessmentResultRow,
   CompleteAssessmentInput,
+  ClassRosterRow,
 } from "./db";
 import { fillGroupedTrend, fillTrendSeries, shiftDate } from "./stats-utils";
 
@@ -1206,6 +1207,20 @@ export class MysqlAdapter implements DbAdapter {
       total: Number(r.total),
       submitted: Number(r.submitted ?? 0),
     }));
+  }
+
+  async getClassRoster(className: string): Promise<ClassRosterRow[]> {
+    // 班名口径与 getCompareByClass 保持一致；未提交置顶，其余按学号升序。
+    // submitted_at 的空串视为未提交，避免脏数据把空时间显示成「已提交」。
+    const [rows] = await this.pool.execute(
+      `SELECT u.name, u.user_code, u.submitted_at, u.tags
+       FROM users u LEFT JOIN classes c ON u.class_id = c.id
+       WHERE u.role = 'student' AND COALESCE(c.name, '未分班') = ?
+       ORDER BY CASE WHEN u.submitted_at IS NULL OR TRIM(u.submitted_at) = '' THEN 0 ELSE 1 END,
+                u.user_code`,
+      [className]
+    );
+    return rows as ClassRosterRow[];
   }
 
   // tags & classes
