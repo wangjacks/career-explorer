@@ -123,15 +123,45 @@ export function parseDimensions(raw: string | null | undefined): DimensionConfig
   }
 }
 
-/** 解析结果快照里的六维得分 JSON（脏数据返回空数组，由调用方决定如何提示） */
+function numberOrZero(value: unknown): number {
+  return typeof value === "number" && Number.isFinite(value) ? value : 0;
+}
+
+/**
+ * 解析结果快照里的六维得分 JSON，返回**可直接渲染**的 `DimensionScore[]`。
+ *
+ * 容错的底线是「不把会崩的条目交给渲染层」：`standard` 必须是有限数值（页面会 `standard.toFixed(1)`，
+ * 缺它或为 NaN 时结果页直接白屏），因此缺 `standard` 的条目丢弃；其余字段缺失补默认值
+ * （`label` 回退 `key`、计数类回退 0），保证调用方拿到的是完整形状。
+ */
 export function parseScores(raw: string | null | undefined): DimensionScore[] {
   if (!raw) return [];
   try {
     const parsed = JSON.parse(raw);
     if (!Array.isArray(parsed)) return [];
-    return parsed.filter((item): item is DimensionScore => {
-      return item !== null && typeof item === "object" && typeof (item as DimensionScore).key === "string";
-    });
+    const scores: DimensionScore[] = [];
+    for (const item of parsed) {
+      if (item === null || typeof item !== "object") continue;
+      const candidate = item as Partial<DimensionScore>;
+      if (typeof candidate.key !== "string" || candidate.key === "") continue;
+      if (typeof candidate.standard !== "number" || !Number.isFinite(candidate.standard)) continue;
+      const band =
+        candidate.band === "high" || candidate.band === "medium" || candidate.band === "low"
+          ? candidate.band
+          : undefined;
+      scores.push({
+        key: candidate.key,
+        label: typeof candidate.label === "string" && candidate.label !== "" ? candidate.label : candidate.key,
+        questionCount: numberOrZero(candidate.questionCount),
+        answered: numberOrZero(candidate.answered),
+        raw: numberOrZero(candidate.raw),
+        minPossible: numberOrZero(candidate.minPossible),
+        maxPossible: numberOrZero(candidate.maxPossible),
+        standard: candidate.standard,
+        ...(band ? { band } : {}),
+      });
+    }
+    return scores;
   } catch (err) {
     console.error("Assessment scores parse error:", err);
     return [];

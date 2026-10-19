@@ -96,10 +96,41 @@ describe("解析快照与元信息", () => {
     expect(parseDimensions(null)).toEqual([]);
   });
 
-  it("parseScores：解析六维得分快照，脏数据不整份失败", () => {
-    const scores = [{ key: "R", label: "现实型", standard: 75 }];
-    expect(parseScores(JSON.stringify(scores))).toEqual(scores);
-    expect(parseScores(JSON.stringify([{ key: "R" }, { label: "无 key" }, 3, null]))).toEqual([{ key: "R" }]);
+  it("parseScores：缺 standard / 非数值的条目被丢弃，其余字段补默认值（渲染层不会拿到会崩的形状）", () => {
+    const complete = [
+      {
+        key: "R",
+        label: "现实型",
+        standard: 75,
+        questionCount: 5,
+        answered: 5,
+        raw: 20,
+        minPossible: 5,
+        maxPossible: 25,
+      },
+    ];
+    expect(parseScores(JSON.stringify(complete))).toEqual(complete);
+
+    // 缺 standard 的条目会让结果页 `standard.toFixed(1)` 崩，必须丢弃
+    expect(parseScores(JSON.stringify([{ key: "R" }, { label: "无 key" }, { key: "I", standard: "80" }, 3, null]))).toEqual([]);
+
+    // 其它字段缺失时补默认值，拿到的是可直接渲染的完整形状
+    expect(parseScores(JSON.stringify([{ key: "S", standard: 60 }]))).toEqual([
+      {
+        key: "S",
+        label: "S",
+        questionCount: 0,
+        answered: 0,
+        raw: 0,
+        minPossible: 0,
+        maxPossible: 0,
+        standard: 60,
+      },
+    ]);
+    // band 只在合法时才透传
+    expect(parseScores(JSON.stringify([{ key: "E", label: "企业型", standard: 50, band: "high" }]))[0].band).toBe("high");
+    expect(parseScores(JSON.stringify([{ key: "C", standard: 40, band: "unknown" }]))[0].band).toBeUndefined();
+
     expect(parseScores("not-json")).toEqual([]);
     expect(parseScores(null)).toEqual([]);
   });
