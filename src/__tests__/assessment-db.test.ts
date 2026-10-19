@@ -127,6 +127,33 @@ describe("RIASEC 题库种子（#221）", () => {
     cleanup(dbPath);
   });
 
+  it("题库为空时由 init 自愈补种，且不覆盖已维护的非空题库", () => {
+    const { dbPath, adapter, assessment } = setup();
+
+    // 模拟「量表行在、题库空」的残缺态（例如恢复了一份 question 数组为空的备份）
+    const raw = new Database(dbPath);
+    raw.exec("DELETE FROM assessment_questions");
+    raw.close();
+    expect(adapter.getAssessmentQuestions(assessment.id)).toHaveLength(0);
+
+    adapter.init();
+    expect(adapter.getAssessmentQuestions(assessment.id)).toHaveLength(30);
+    expect(adapter.getAssessmentByCode(RIASEC_CODE)?.question_count).toBe(30);
+
+    // 补种之后就是「已维护」：改过的题面再 init 一次不会被覆盖
+    const raw2 = new Database(dbPath);
+    raw2.prepare("UPDATE assessment_questions SET prompt = ? WHERE assessment_id = ? AND question_index = 1").run(
+      "（已维护）动手制作厨房橱柜",
+      assessment.id
+    );
+    raw2.close();
+    adapter.init();
+    expect(adapter.getAssessmentQuestions(assessment.id)[0].prompt).toBe("（已维护）动手制作厨房橱柜");
+
+    adapter.close();
+    cleanup(dbPath);
+  });
+
   it("种子自检：完整题库存得下，坏数据在落库前报错", () => {
     expect(() => validateAssessmentSeed(RIASEC_ASSESSMENT, RIASEC_QUESTIONS)).not.toThrow();
 
@@ -322,7 +349,7 @@ describe("备份与恢复（#221：三表纳入备份 version 6）", () => {
     cleanup(dbPath);
   });
 
-  it("旧备份（version 5，无测评字段）恢复后保留当前题库与结果；空表自愈补种", () => {
+  it("旧备份（无测评字段）恢复：题库保留现状，作答结果一律清空（users 已整表替换）", () => {
     const { dbPath, adapter, studentId, assessment } = setup();
     adapter.completeAssessmentResult({
       userId: studentId,
@@ -340,11 +367,14 @@ describe("备份与恢复（#221：三表纳入备份 version 6）", () => {
       assessment_results: undefined,
     };
     adapter.restore(legacy);
-    // 缺字段保留现状（题库是参考数据、作答是学生个人数据，都比清空安全）
+    // 题库是参考数据 → 缺字段保留现状
     expect(adapter.getAssessmentQuestionsByCode(RIASEC_CODE)).toHaveLength(30);
-    expect(adapter.getCurrentAssessmentResult(studentId, assessment.id)).toBeDefined();
+    expect(adapter.getStudentByCode("202505050101")).toBeDefined();
+    // 作答只靠数值 user_id 关联，users 已被备份整表替换：保留旧结果会张冠李戴 → 一律清空
+    expect(adapter.getCurrentAssessmentResult(studentId, assessment.id)).toBeUndefined();
+    expect(adapter.getAssessmentDraft(studentId, assessment.id)).toBeUndefined();
 
-    // 手工清空题库后恢复旧备份：seed 以 code 存在性判定，恢复后自愈补种
+    // 题库被清空后恢复旧备份：即使 code 还在，题数为 0 也要补种
     const raw = new Database(dbPath);
     raw.exec("DELETE FROM assessment_results; DELETE FROM assessment_questions; DELETE FROM assessments");
     raw.close();
@@ -354,23 +384,44 @@ describe("备份与恢复（#221：三表纳入备份 version 6）", () => {
     adapter.close();
     cleanup(dbPath);
   });
+
+  it("备份里题库为空数组：恢复后由种子自愈补题，不留「可用但 0 题」的量表", () => {
+    const { dbPath, adapter, assessment } = setup();
+
+    const forged = { ...adapter.backup(), assessment_questions: [] };
+    adapter.restore(forged);
+    expect(adapter.getAssessmentQuestionsByCode(RIASEC_CODE)).toHaveLength(30);
+    expect(adapter.getAssessmentByCode(RIASEC_CODE)?.question_count).toBe(30);
+    expect(adapter.getAssessmentByCode(RIASEC_CODE)?.id).toBe(assessment.id);
+
+    adapter.close();
+    cleanup(dbPath);
+  });
 });
 
 describe("两适配器 Schema 对账（#221）", () => {
   /**
    * MySQL 适配器无法在无 MySQL 实例的环境里做行为测试（CI 同样没有），这份对账补上「表结构同构」这条铁律：
-   * 直接从两适配器源码抽 CREATE TABLE 的列名比对，任一侧悄悄改列/漏列都会在这里失败。
-   * 行为口径（草稿 upsert / is_current / 事务）由上面的 SQLite 用例覆盖，MySQL 侧靠同一个 `DbAdapter`
-   * 接口在 `npm run build` 的 tsc 阶段兜住方法签名。
+   * 从两适配器源码抽 CREATE TABLE 块，比对**列名、外键目标、大小写敏感的唯一语义**，任一侧悄悄改列/漏外键/
+   * 换 collation 都会在这里失败。行为口径（草稿 upsert / is_current / 事务）由上面的 SQLite 用例覆盖，
+   * MySQL 侧靠同一个 `DbAdapter` 接口在 `npm run build` 的 tsc 阶段兜住方法签名。
    */
-  const columnNames = (source: string, table: string): string[] => {
+  const tableBlock = (source: string, table: string): string => {
     const lines = source.split(/\r?\n/);
     const start = lines.findIndex((line) => line.includes(`CREATE TABLE IF NOT EXISTS ${table} (`));
     expect(start, `两适配器都必须建表 ${table}`).toBeGreaterThanOrEqual(0);
-    const columns: string[] = [];
+    const block: string[] = [];
     for (let i = start + 1; i < lines.length; i += 1) {
       const line = lines[i].trim();
       if (line.startsWith(")")) break;
+      block.push(line);
+    }
+    return block.join("\n");
+  };
+
+  const columnNames = (source: string, table: string): string[] => {
+    const columns: string[] = [];
+    for (const line of tableBlock(source, table).split("\n")) {
       if (!line) continue;
       // 索引 / 唯一约束 / 外键约束不是列
       if (/^(INDEX|UNIQUE|KEY|CONSTRAINT|PRIMARY|FOREIGN)\b/i.test(line)) continue;
@@ -380,6 +431,21 @@ describe("两适配器 Schema 对账（#221）", () => {
     return columns;
   };
 
+  /** 列 → 被引用表：SQLite 写行内 `REFERENCES`，MySQL 写表级 `CONSTRAINT ... FOREIGN KEY (...) REFERENCES` */
+  const references = (source: string, table: string): string[] => {
+    const found: string[] = [];
+    for (const line of tableBlock(source, table).split("\n")) {
+      const constraint = /FOREIGN KEY\s*\(([a-z_][a-z0-9_]*)\)\s*REFERENCES\s+([a-z_][a-z0-9_]*)\s*\(/i.exec(line);
+      if (constraint) {
+        found.push(`${constraint[1]}->${constraint[2]}`);
+        continue;
+      }
+      const inline = /^([a-z_][a-z0-9_]*)\s[^,]*REFERENCES\s+([a-z_][a-z0-9_]*)\s*\(/i.exec(line);
+      if (inline) found.push(`${inline[1]}->${inline[2]}`);
+    }
+    return found.sort();
+  };
+
   const read = (file: string) => readFileSync(path.resolve(process.cwd(), "src/lib", file), "utf8");
 
   it.each(["assessments", "assessment_questions", "assessment_results"])("%s 两适配器列集合一致", (table) => {
@@ -387,6 +453,20 @@ describe("两适配器 Schema 对账（#221）", () => {
     const mysqlColumns = columnNames(read("db-mysql.ts"), table);
     expect(sqliteColumns.length).toBeGreaterThan(0);
     expect(mysqlColumns).toEqual(sqliteColumns);
+  });
+
+  it("外键集合一致（SQLite 的 REFERENCES 与本机 foreign_keys=ON 下真实生效）", () => {
+    const sqlite = read("db-sqlite.ts");
+    const mysql = read("db-mysql.ts");
+    expect(references(mysql, "assessment_questions")).toEqual(references(sqlite, "assessment_questions"));
+    expect(references(mysql, "assessment_results")).toEqual(references(sqlite, "assessment_results"));
+    // 非空断言：两侧同时丢外键时上面两条会「空对空」通过
+    expect(references(sqlite, "assessment_questions")).toEqual(["assessment_id->assessments"]);
+    expect(references(sqlite, "assessment_results")).toEqual(["assessment_id->assessments", "user_id->users"]);
+  });
+
+  it("code 的唯一比较语义一致：MySQL 显式 utf8mb4_bin（默认 collation 不区分大小写）", () => {
+    expect(tableBlock(read("db-mysql.ts"), "assessments")).toMatch(/code VARCHAR\(\d+\) COLLATE utf8mb4_bin/i);
   });
 
   it("三表覆盖 issue #221 要求的字段", () => {

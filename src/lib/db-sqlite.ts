@@ -4,6 +4,7 @@ import { tmpdir } from "os";
 import path from "path";
 import { tagCategories } from "./tagData";
 import { ASSESSMENT_SEEDS, getQuestionSeeds, validateAssessmentSeed } from "./assessment-data";
+import type { QuestionSeed } from "./assessment-data";
 import { normalizeBackupTags, normalizeAssessmentCode, DEFAULT_MAX_CUSTOM_TAGS, DEFAULT_MAX_PROFILE_SUBMISSIONS, MAX_PROFILE_SUBMISSIONS_KEY, DEFAULT_MEDIA_ORPHAN_RETENTION_DAYS, MEDIA_ORPHAN_RETENTION_KEY } from "./db";
 import type {
   UserRow,
@@ -354,11 +355,16 @@ export class SqliteAdapter implements DbAdapter {
   }
 
   /**
-   * 量表种子（#221）：以 `code` 存在性判定幂等——后台维护过的题面不会被启动流程覆盖掉。
-   * 也顺带自愈「恢复旧备份后题库为空」的场景（restore 缺字段时保留现状，但空表仍会补种）。
+   * 量表种子（#221）：以 `code` 存在性 + 题库题数判定——题面被后台维护过（非空）就完全不碰；
+   * 只补两种残缺态：量表行缺失，或量表行存在但题库为空（例如恢复了一份 `assessment_questions: []` 的备份）。
+   * 落库前用 `validateAssessmentSeed` 自检，坏种子在安装时报错而不是留半截题库。
    */
   private seedAssessments(): void {
     const findAssessment = this.db.prepare("SELECT id FROM assessments WHERE code = ?");
+    const countQuestions = this.db.prepare(
+      "SELECT COUNT(*) as c FROM assessment_questions WHERE assessment_id = ?"
+    );
+    const updateQuestionCount = this.db.prepare("UPDATE assessments SET question_count = ?, updated_at = ? WHERE id = ?");
     const insertAssessment = this.db.prepare(
       `INSERT INTO assessments
          (code, name, question_count, dimensions_json, scoring_mode, scale_version,
@@ -370,13 +376,37 @@ export class SqliteAdapter implements DbAdapter {
          (assessment_id, question_index, prompt, dimension, reverse_scored, version, created_at)
        VALUES (?, ?, ?, ?, ?, 1, ?)`
     );
+    const insertQuestions = (assessmentId: number, questions: readonly QuestionSeed[], now: string) => {
+      for (const question of questions) {
+        insertQuestion.run(
+          assessmentId,
+          question.index,
+          question.prompt,
+          question.dimension,
+          question.reverseScored ? 1 : 0,
+          now
+        );
+      }
+    };
+
     const seed = this.db.transaction(() => {
       for (const definition of ASSESSMENT_SEEDS) {
-        if (findAssessment.get(definition.code)) continue;
         const questions = getQuestionSeeds(definition.code);
         if (!questions) throw new Error(`量表 ${definition.code} 缺少题库种子`);
         // 落库前自检：坏种子宁可安装时报错，也不留半截题库
         validateAssessmentSeed(definition, questions);
+
+        const existing = findAssessment.get(definition.code) as { id: number } | undefined;
+        if (existing) {
+          const { c } = countQuestions.get(existing.id) as { c: number };
+          if (c > 0) continue; // 后台维护过的题库：绝不覆盖
+          // 题库为空：只补种题库并校正题数，不动其它字段（题面/署名等可能已被后台改过）
+          const now = getNow();
+          updateQuestionCount.run(questions.length, now, existing.id);
+          insertQuestions(existing.id, questions, now);
+          continue;
+        }
+
         const now = getNow();
         const result = insertAssessment.run(
           definition.code,
@@ -391,17 +421,7 @@ export class SqliteAdapter implements DbAdapter {
           now,
           now
         );
-        const assessmentId = Number(result.lastInsertRowid);
-        for (const question of questions) {
-          insertQuestion.run(
-            assessmentId,
-            question.index,
-            question.prompt,
-            question.dimension,
-            question.reverseScored ? 1 : 0,
-            now
-          );
-        }
+        insertQuestions(Number(result.lastInsertRowid), questions, now);
       }
     });
     seed();
@@ -1972,11 +1992,13 @@ export class SqliteAdapter implements DbAdapter {
           }
         }
       }
-      // 测评恢复（#221）：三表**作为一个整体**判断——`assessments` / `assessment_questions` /
-      // `assessment_results` 齐备才整体替换，否则三张表都保留现状。旧备份本就没有这三字段（等价保留现状）；
-      // 残缺备份（只有量表没题库、或换了定义却留着旧结果）不会造成「量表 0 题」「结果错配」这类半态。
-      if (Array.isArray(d.assessments) && Array.isArray(d.assessment_questions) && Array.isArray(d.assessment_results)) {
-        this.db.exec("DELETE FROM assessment_results");
+      // 测评恢复（#221）：
+      // - `assessments` + `assessment_questions` 是参考数据：两字段齐备才整体替换，否则保留现状（可被种子自愈）；
+      // - `assessment_results` 是**学生个人数据且只靠数值 user_id 关联**，而 `users` 上面已经整表替换了：
+      //   保留旧结果会在「恢复到另一套库的旧备份」时张冠李戴，故与分组五表同口径——**一律先清空**，
+      //   只有备份带该字段才回填。
+      this.db.exec("DELETE FROM assessment_results");
+      if (Array.isArray(d.assessments) && Array.isArray(d.assessment_questions)) {
         this.db.exec("DELETE FROM assessment_questions");
         this.db.exec("DELETE FROM assessments");
         if (d.assessments.length > 0) {
@@ -1989,7 +2011,9 @@ export class SqliteAdapter implements DbAdapter {
           for (const a of d.assessments) {
             assessmentStmt.run(
               a.id,
-              a.code,
+              // code 统一小写入库：两适配器的唯一比较语义已对齐（MySQL 用 utf8mb4_bin），
+              // 这里再做一次规范化，避免跨库备份里的大小写差异变成「查不到的量表」
+              normalizeAssessmentCode(a.code),
               a.name,
               a.question_count,
               a.dimensions_json,
@@ -2021,6 +2045,8 @@ export class SqliteAdapter implements DbAdapter {
             q.created_at ?? getNow()
           );
         }
+      }
+      if (Array.isArray(d.assessment_results)) {
         const resultStmt = this.db.prepare(
           `INSERT INTO assessment_results
              (id, user_id, assessment_id, status, answers_json, scores_json, type_code, is_current,
