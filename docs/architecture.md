@@ -242,6 +242,7 @@
 - **完成动作串行化**：MySQL 侧事务开头 `SELECT ... FOR UPDATE` 锁学生行（与档案归档提交同款做法），否则两个「首次完成」并发时都 UPDATE 到 0 行、再各自插入 `is_current = 1`，当前版本就不唯一了；SQLite 由单写者事务天然串行
 - **个人数据随账号删除**：`deleteStudents` 一并清 `assessment_results`；历史档案快照 `profile_submissions` 仍按 #95 口径保留
 - **授权合规**：`attribution`（署名）/ `license_text`（授权与修改声明）/ `disclaimer`（免责声明）三列随量表下发，作答页与结果页必须展示。O*NET Tools Developer License 要求署名并声明「修改未经 USDOL/ETA 审核、认可或测试」（https://www.onetcenter.org/license_tools.html ）
+- **信效度验证（#227）**：同一授权还要求「对整合了 Tools 内容的产品做验证」。验证方案、判定线（α / CITC / 重测 / 样本量）、施测 SOP 与常模实施预案见 `docs/assessment-validation-plan.md`；统计口径在 `src/lib/assessment-validation.ts`（单测锁定），一键报告用 `npm run validate:assessment -- --db ./data/career.db`（只用聚合值，不含个人数据）
 
 ## 职业测评作答流程（#223）
 
