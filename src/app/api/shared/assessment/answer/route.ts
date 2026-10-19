@@ -23,7 +23,9 @@ import { getRequestContext, recordAudit } from "@/lib/audit";
 /**
  * 保存一次作答（#223）：每题作答即 upsert 草稿（`status=in_progress`），退出再进可续答。
  *
- * 服务端**合并**作答而不是整份覆盖：客户端只提交「这一题」，避免多标签页 / 乱序请求把别的题冲掉。
+ * 服务端**合并**作答而不是整份覆盖：客户端只提交「这一题」，避免整份回写把别的题冲掉。
+ * 边界：合并是「读草稿 → 合并 → 整份写」的读-改-写，**并发**请求（两个标签页同时提交）在极端重叠时
+ * 仍是最后写入为准——单标签页由前端「保存中禁用」串行，跨标签页丢的一题会显示为未答、重进补答即可。
  * 不使用 localStorage —— 进度以服务端草稿为唯一真相（与 #221 的草稿唯一性约束配套）。
  */
 export async function POST(request: NextRequest) {
@@ -49,7 +51,11 @@ export async function POST(request: NextRequest) {
     const questionIndex = body.questionIndex;
     const value = body.value;
 
-    const fail = async (message: string, extra?: Record<string, unknown>) => {
+    const reject = async (
+      message: string,
+      options: { status?: number; metadata?: Record<string, unknown>; extra?: Record<string, unknown> } = {}
+    ) => {
+      const { status = 400, metadata = { questionIndex }, extra } = options;
       await recordAudit({
         actor_id: user.id,
         actor_user_code: user.user_code,
@@ -64,22 +70,27 @@ export async function POST(request: NextRequest) {
         error_message: message,
         ip,
         user_agent,
-        // 失败也**不记选项值**：作答内容是学生个人数据，审计只留题号便于定位
-        metadata: { questionIndex },
+        // 失败也**不记选项值**：作答内容是学生个人数据，审计只留题号 / 拒绝原因便于定位
+        metadata,
       });
-      return NextResponse.json({ error: message, ...extra }, { status: 400 });
+      return NextResponse.json({ error: message, ...extra }, { status });
     };
 
-    if (!isValidQuestionIndex(questionIndex)) return await fail("题号不合法");
-    if (!isValidAnswerValue(value)) return await fail("作答值必须是 1-5 的整数");
+    if (!isValidQuestionIndex(questionIndex)) return await reject("题号不合法");
+    if (!isValidAnswerValue(value)) return await reject("作答值必须是 1-5 的整数");
 
     const assessment = await getAssessmentByCode(code);
-    if (!assessment) return NextResponse.json({ error: "测评不存在" }, { status: 404 });
-    if (assessment.enabled !== 1) return NextResponse.json({ error: "该测评暂未开放" }, { status: 403 });
+    // 被拒的写同样落审计（#110 口径）：404/403 不能审计留白，否则停用后还在提交 / 刷错 code 都查不到
+    if (!assessment) {
+      return await reject("测评不存在", { status: 404, metadata: { reason: "assessment-not-found" } });
+    }
+    if (assessment.enabled !== 1) {
+      return await reject("该测评暂未开放", { status: 403, metadata: { reason: "assessment-disabled" } });
+    }
 
     const questions = await getAssessmentQuestionsByCode(code);
     const bankIndexes = questions.map((q) => q.question_index);
-    if (!bankIndexes.includes(questionIndex)) return await fail("题号不在题库内");
+    if (!bankIndexes.includes(questionIndex)) return await reject("题号不在题库内");
 
     const draft = await getAssessmentDraft(user.id, assessment.id);
     const existing = filterAnswersToBank(parseAnswers(draft?.answers_json), bankIndexes);

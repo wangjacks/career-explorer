@@ -46,7 +46,11 @@ export async function POST(request: NextRequest) {
       body && typeof body.code === "string" && body.code.trim() ? body.code : RIASEC_CODE
     );
 
-    const fail = async (message: string, extra?: Record<string, unknown>) => {
+    const reject = async (
+      message: string,
+      options: { status?: number; metadata?: Record<string, unknown> | null; extra?: Record<string, unknown> } = {}
+    ) => {
+      const { status = 400, metadata = null, extra } = options;
       await recordAudit({
         actor_id: user.id,
         actor_user_code: user.user_code,
@@ -61,29 +65,31 @@ export async function POST(request: NextRequest) {
         error_message: message,
         ip,
         user_agent,
-        metadata: extra ?? null,
+        metadata,
       });
-      return NextResponse.json({ error: message, ...extra }, { status: 400 });
+      return NextResponse.json({ error: message, ...extra }, { status });
     };
 
     const assessment = await getAssessmentByCode(code);
-    if (!assessment) return NextResponse.json({ error: "测评不存在" }, { status: 404 });
-    if (assessment.enabled !== 1) return NextResponse.json({ error: "该测评暂未开放" }, { status: 403 });
+    // 被拒的写同样落审计（#110 口径）：404/403 不能审计留白
+    if (!assessment) {
+      return await reject("测评不存在", { status: 404, metadata: { reason: "assessment-not-found" } });
+    }
+    if (assessment.enabled !== 1) {
+      return await reject("该测评暂未开放", { status: 403, metadata: { reason: "assessment-disabled" } });
+    }
 
     const questions = await getAssessmentQuestionsByCode(code);
     const bankIndexes = questions.map((q) => q.question_index);
     const draft = await getAssessmentDraft(user.id, assessment.id);
-    if (!draft) return await fail("还没有作答记录，请先答题");
+    if (!draft) return await reject("还没有作答记录，请先答题");
 
     const answers = filterAnswersToBank(parseAnswers(draft.answers_json), bankIndexes);
     const progress = answerProgress(answers, bankIndexes);
     const missingIndexes = bankIndexes.filter((index) => answers[index] === undefined);
     if (missingIndexes.length > 0) {
-      return await fail(`还有 ${missingIndexes.length} 题未作答`, {
-        missingIndexes,
-        answered: progress.answered,
-        total: progress.total,
-      });
+      const extra = { missingIndexes, answered: progress.answered, total: progress.total };
+      return await reject(`还有 ${missingIndexes.length} 题未作答`, { metadata: extra, extra });
     }
 
     const dimensions = parseDimensions(assessment.dimensions_json);
@@ -99,7 +105,8 @@ export async function POST(request: NextRequest) {
     );
     // 上面已挡缺答，这里只是双保险：引擎判定不完整就不落「完成」结果
     if (!scoring.complete) {
-      return await fail("作答不完整，无法提交", { missingIndexes: scoring.missingIndexes });
+      const extra = { missingIndexes: scoring.missingIndexes };
+      return await reject("作答不完整，无法提交", { metadata: extra, extra });
     }
 
     const resultId = await completeAssessmentResult({

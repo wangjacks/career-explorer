@@ -263,6 +263,16 @@ describe("量表停用", () => {
       expect(answerRes.status).toBe(403);
       const submitRes = await submitPost(postRequest("/api/shared/assessment/submit", { code: RIASEC_CODE }, users.A.token));
       expect(submitRes.status).toBe(403);
+
+      // 被拒的写同样落审计（#110 口径）：停用后仍在提交，运维侧要能看到
+      for (const action of ["assessment:answer", "assessment:submit"]) {
+        const audit = await queryAuditLogs({ page: 1, pageSize: 20, action });
+        const disabled = audit.rows.filter(
+          (row) => row.status === "failed" && JSON.parse(row.metadata ?? "{}").reason === "assessment-disabled"
+        );
+        expect(disabled.length, `${action} 的停用拒绝应有 failed 审计`).toBeGreaterThan(0);
+      }
+
       // 已有结果不能因为量表下线就读不到
       const resultsRes = await resultsGet(getRequest(`/api/shared/assessment/results?code=${RIASEC_CODE}`, users.A.token));
       expect(resultsRes.status).toBe(200);
