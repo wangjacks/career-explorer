@@ -24,13 +24,13 @@ describe("demo-scope", () => {
 
   it("withDemoScope：演示 token 时 handler 运行在演示作用域", async () => {
     const token = await signToken({ role: "admin", uid: 1, name: "演示", demo: true });
-    const handler = withDemoScope(async (_request: NextRequest) => isDemoScope());
+    const handler = withDemoScope(async (request: NextRequest) => (request ? isDemoScope() : false));
     expect(await handler(reqWithToken(token))).toBe(true);
   });
 
   it("withDemoScope：生产 token 时不进入演示作用域", async () => {
     const token = await signToken({ role: "admin", uid: 1, name: "生产" });
-    const handler = withDemoScope(async (_request: NextRequest) => isDemoScope());
+    const handler = withDemoScope(async (request: NextRequest) => (request ? isDemoScope() : false));
     expect(await handler(reqWithToken(token))).toBe(false);
   });
 
