@@ -169,13 +169,15 @@ describe("rankCareers 排序口径", () => {
 });
 
 describe("与真实 O*NET 数据联调（自匹配回环）", () => {
-  // 六个职业各代表一个兴趣类型；把职业自己的 O*NET 分换算成「学生标准分」，应把自己排进前列
+  // 六个兴趣类型各取一个代表职业（企业型用 General and Operations Managers，高码 EC）；
+  // 把职业自己的 O*NET 分换算成「学生标准分」，应把自己排进前列
   const SAMPLES = [
     ["15-1252.00", "I"], // Software Developers
     ["29-1141.00", "S"], // Registered Nurses
     ["27-1024.00", "A"], // Graphic Designers
     ["47-2111.00", "R"], // Electricians
     ["43-3031.00", "C"], // Bookkeeping Clerks
+    ["11-1021.00", "E"], // General and Operations Managers
   ] as const;
 
   const seeds = getOnetOccupationSeeds();
