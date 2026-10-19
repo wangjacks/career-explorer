@@ -1,8 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getStudents, insertUser, getUserByCode, updateUser, deleteStudents, getUsersByCodes } from "@/lib/db";
+import {
+  getStudents,
+  insertUser,
+  getUserByCode,
+  getUsersByCodes,
+  updateUser,
+  deleteStudents,
+} from "@/lib/db";
 import { hashPassword } from "@/lib/auth";
 import { getAuditActor, getRequestContext, recordAudit } from "@/lib/audit";
-import { resolveClassByName } from "@/lib/class-utils";
+import { resolveClassByName, resolveClassNames } from "@/lib/class-utils";
 
 export async function GET() {
   const students = await getStudents();
@@ -82,13 +89,21 @@ export async function POST(request: NextRequest) {
         });
         return NextResponse.json({ error: "没有有效的学生数据" }, { status: 400 });
       }
-      let unbound = 0;
-      const studentCodes = [...new Set(valid.map((s: { studentId: string }) => String(s.studentId)))];
+      // 批量解析与批查（#193）：班级名先去重解析、学生按学号集合一次查出，
+      // 查库次数只与「去重后的班级名数 + 1 次学生批查」有关，与名单行数无关
+      const resolveClass = await resolveClassNames(
+        valid.map((s: { className?: string }) => s.className)
+      );
+      const studentCodes: string[] = [
+        ...new Set<string>(valid.map((s: { studentId: string }) => String(s.studentId))),
+      ];
       const existingUsers = await getUsersByCodes(studentCodes);
       const existingIdByCode = new Map(existingUsers.map((u) => [u.user_code, u.id]));
+
+      let unbound = 0;
       for (const s of valid) {
-        // 按班级名查 class_id；班级不存在时不绑定并计数（与单条添加共用解析口径）
-        const binding = await resolveClassByName(s.className);
+        // 按班级名取批量解析结果；班级不存在时不绑定并计数（与单条添加共用解析口径）
+        const binding = resolveClass(s.className);
         if (binding.provided && binding.classId === null) unbound++;
         const studentCode = String(s.studentId);
         const existingId = existingIdByCode.get(studentCode);
@@ -103,6 +118,8 @@ export async function POST(request: NextRequest) {
             name: s.name,
             ...(binding.classId !== null ? { class_id: binding.classId } : {}),
           });
+          // 同一份名单里重复出现的学号：后续行按「已存在」走更新，
+          // 与改动前逐行查库的语义保持一致
           existingIdByCode.set(studentCode, newId);
         }
       }
