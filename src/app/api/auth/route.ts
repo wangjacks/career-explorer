@@ -6,14 +6,7 @@ import type { Role } from "@/lib/token";
 import { getUserByCode, getUserById } from "@/lib/db";
 import { getAuditActor, getRequestContext, recordAudit } from "@/lib/audit";
 import { CAPTCHA_REQUIRED_MESSAGE, verifyCaptchaTicket } from "@/lib/captcha";
-
-const COOKIE_OPTIONS = {
-  httpOnly: true,
-  secure: true,
-  sameSite: "lax" as const,
-  path: "/",
-  maxAge: 60 * 60 * 24,
-};
+import { LOGIN_ERROR, AUTH_COOKIE_OPTIONS } from "@/lib/login-contract";
 
 /** 统一登录：user_code + 密码（admin/teacher/student 三角色） */
 async function POST_impl(request: NextRequest) {
@@ -81,7 +74,7 @@ async function POST_impl(request: NextRequest) {
 
     if (!userCode || !password) {
       void failedAudit("", "参数缺失");
-      return NextResponse.json({ ok: false, error: "请输入编号和密码" }, { status: 400 });
+      return NextResponse.json({ ok: false, error: LOGIN_ERROR.missing }, { status: 400 });
     }
 
     const user = await getUserByCode(String(userCode).trim());
@@ -89,11 +82,11 @@ async function POST_impl(request: NextRequest) {
       // 区分「无此用户」与「未设密码」：前者与密码错误共用提示，避免泄露账号是否存在；审计区分原因便于安全分析（不对外暴露）
       if (!user) {
         void failedAudit(String(userCode).trim(), "用户不存在");
-        return NextResponse.json({ ok: false, error: "编号或密码错误" }, { status: 401 });
+        return NextResponse.json({ ok: false, error: LOGIN_ERROR.badCredentials }, { status: 401 });
       }
       void failedAudit(String(userCode).trim(), "账户未设密码");
       return NextResponse.json(
-        { ok: false, error: "该账户尚未设置密码，请联系管理员" },
+        { ok: false, error: LOGIN_ERROR.noPassword },
         { status: 401 }
       );
     }
@@ -101,7 +94,7 @@ async function POST_impl(request: NextRequest) {
     const valid = await verifyPassword(String(password), user.password_hash);
     if (!valid) {
       void failedAudit(String(userCode).trim(), "密码错误");
-      return NextResponse.json({ ok: false, error: "编号或密码错误" }, { status: 401 });
+      return NextResponse.json({ ok: false, error: LOGIN_ERROR.badCredentials }, { status: 401 });
     }
 
     const token = await signToken({
@@ -131,7 +124,7 @@ async function POST_impl(request: NextRequest) {
       name: user.name,
       user_code: user.user_code,
     });
-    response.cookies.set("auth_token", token, COOKIE_OPTIONS);
+    response.cookies.set("auth_token", token, AUTH_COOKIE_OPTIONS);
     return response;
   } catch (err) {
     console.error("Auth POST error:", err);
@@ -148,7 +141,7 @@ async function GET_impl(request: NextRequest) {
   const result = await verifyToken(token);
   if (!result.valid) {
     const response = NextResponse.json({ ok: false }, { status: 401 });
-    response.cookies.set("auth_token", "", { ...COOKIE_OPTIONS, maxAge: 0 });
+    response.cookies.set("auth_token", "", { ...AUTH_COOKIE_OPTIONS, maxAge: 0 });
     return response;
   }
 
@@ -161,7 +154,7 @@ async function GET_impl(request: NextRequest) {
       const user = await getUserById(uid);
       if (!user) {
         const response = NextResponse.json({ ok: false }, { status: 401 });
-        response.cookies.set("auth_token", "", { ...COOKIE_OPTIONS, maxAge: 0 });
+        response.cookies.set("auth_token", "", { ...AUTH_COOKIE_OPTIONS, maxAge: 0 });
         return response;
       }
       role = user.role;
@@ -198,7 +191,7 @@ async function DELETE_impl(request: NextRequest) {
     metadata: null,
   });
   const response = NextResponse.json({ ok: true });
-  response.cookies.set("auth_token", "", { ...COOKIE_OPTIONS, maxAge: 0 });
+  response.cookies.set("auth_token", "", { ...AUTH_COOKIE_OPTIONS, maxAge: 0 });
   return response;
 }
 

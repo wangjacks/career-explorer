@@ -8,7 +8,7 @@
 - 登录签发 JWT（jose HS256, 24h，含 role/uid/name），HttpOnly Cookie `auth_token` 传递
 - `proxy.ts`（Next.js 16，替代已弃用的 middleware）拦截管理域路由做角色权限校验
 - 学生账户由教师导入名单预建（无密码），学生凭学号 + 姓名 + 本班邀请码三要素核验后激活；激活为两步单页（#93）：先 `verify` 核验取回名单姓名，再 `activate` 设置密码并自动登录
-- 认证入口人机验证（#155）：`POST /api/auth` 与 `POST /api/auth/activate/verify` 在查库 / 三要素核验**之前**校验极验（GeeTest v4）票据，票据缺失或无效直接 400 并统一返回「请先完成人机验证」，不进入 bcrypt 密码比对；凭证经 `NEXT_PUBLIC_GEETEST_CAPTCHA_ID`（公开，前端初始化）与 `GEETEST_PRIVATE_KEY`（仅服务端生成 `sign_token`）注入，不落库、不入日志
+- 认证入口人机验证（#155）：`POST /api/auth`、`POST /api/auth/demo` 与 `POST /api/auth/activate/verify` 在查库 / 三要素核验**之前**校验极验（GeeTest v4）票据，票据缺失或无效直接 400 并统一返回「请先完成人机验证」，不进入 bcrypt 密码比对；凭证经 `NEXT_PUBLIC_GEETEST_CAPTCHA_ID`（公开，前端初始化）与 `GEETEST_PRIVATE_KEY`（仅服务端生成 `sign_token`）注入，不落库、不入日志
 - 人机验证降级策略（#155）：**fail-open，且仅针对服务端不可达**。凭证未配置，或极验校验服务不可达（超时 / 非 200 / 响应不可解析）时放行认证并记 `auth:captcha-degraded` 审计；票据缺失或无效统一返回 400「请先完成人机验证」并记 `auth:captcha-failed`。前端组件脚本被拦截 / 初始化失败时只做本地提示并要求重试——客户端自述「不可用」不可信，静默放行等于给出绕过通道
 - 人机验证前端形态（#155）：绑定式（bind，点击提交按钮弹出验证），票据一次性；登录失败或核验失败后前端重置验证码要求重新验证。仅登录页与激活页第一步启用，激活第二步（设置密码）不启用
 
@@ -65,7 +65,7 @@
 
 ## API 路由
 
-<!-- 对账：`find src/app/api -name route.ts | wc -l`（当前 60 条 = manage 41 + auth 3 + setup 3 + shared 10 + tags/upload/uploads 各 1） -->
+<!-- 对账：`find src/app/api -name route.ts | wc -l`（当前 64 条 = manage 44 + auth 4 + setup 3 + shared 10 + tags/upload/uploads 各 1） -->
 
 ### 认证层（proxy 之外，公开）
 
@@ -74,6 +74,7 @@
 | `/api/auth` | POST / GET / DELETE | 登录（#155 起需携带极验票据）/ 会话检测 / 登出 |
 | `/api/auth/activate/verify` | POST | 激活前置核验（#93 两步激活第一步）：校验学号 + 姓名 + 邀请码三要素，不设置密码；通过时返回名单姓名供第二步问候语展示（#155 起需携带极验票据） |
 | `/api/auth/activate` | POST | 学生账户激活（#93 第二步）：三要素核验通过后设置密码并自动登录 |
+| `/api/auth/demo` | POST | 演示登录（#252）：在演示库作用域内校验演示账号、签发带 `demo` 的会话 cookie；同样 captcha 前置、错误口径与生产一致；`DEMO_ENABLED` 关闭时 404 |
 
 ### 安装层（proxy 之外）
 
@@ -85,7 +86,7 @@
 
 ### 管理域 `/api/manage/*`（proxy 拦截：admin 全放行，teacher 按声明式权限表）
 
-<!-- 对账：路由清单 `find src/app/api/manage -name route.ts`（共 42 条）；teacher 权限列须与 src/proxy.ts 的 TEACHER_ALLOWED 逐条一致 -->
+<!-- 对账：路由清单 `find src/app/api/manage -name route.ts`（共 44 条）；teacher 权限列须与 src/proxy.ts 的 TEACHER_ALLOWED 逐条一致 -->
 
 **教师禁止（不在 `TEACHER_ALLOWED`，一律 403）**
 

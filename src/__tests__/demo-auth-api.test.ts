@@ -10,7 +10,7 @@ vi.mock("@/lib/captcha", () => ({
 
 import { POST } from "@/app/api/auth/demo/route";
 import { GET } from "@/app/api/auth/route";
-import { insertUser, closeDemoDb } from "@/lib/db";
+import { insertUser, closeDemoDb, getUserByCode, queryAuditLogs } from "@/lib/db";
 import { hashPassword } from "@/lib/auth";
 import { runInDemoScope } from "@/lib/demo-scope";
 import { verifyToken } from "@/lib/token";
@@ -75,11 +75,28 @@ describe("POST /api/auth/demo 演示登录", () => {
     expect((await res.json()).error).toBe("编号或密码错误");
   });
 
-  it("演示库中不存在、但生产库存在的编号 → 401（证明只认演示库）", async () => {
-    // 生产管理员编号 10001 只存在于生产库；演示库里应查不到
-    const res = await POST(req({ method: "POST", body: { userCode: "10001", password: "whatever" } }));
+  it("未知编号 → 401（与错误口令同口径，不泄露账号存在性）", async () => {
+    const res = await POST(req({ method: "POST", body: { userCode: "00000000", password: "whatever" } }));
     expect(res.status).toBe(401);
     expect((await res.json()).error).toBe("编号或密码错误");
+  });
+
+  it("演示账号只存在于演示库（真隔离：同一编号在两库分别落不同结果）", async () => {
+    const inDemo = await runInDemoScope(() => getUserByCode(CODE));
+    // 非演示作用域读 = 生产库；该演示编号在其中不存在
+    const inProd = await getUserByCode(CODE);
+    expect(inDemo?.name).toBe("演示教师");
+    expect(inProd).toBeUndefined();
+  });
+
+  it("演示登录失败只写演示库审计，不污染生产审计", async () => {
+    await POST(req({ method: "POST", body: { userCode: CODE, password: "bad" } }));
+    await new Promise((r) => setImmediate(r)); // 冲刷 fire-and-forget 的 recordAudit
+    const demoFilters = { page: 1, pageSize: 50, action: "auth:login-failed", actorQuery: CODE };
+    const demo = await runInDemoScope(() => queryAuditLogs(demoFilters));
+    const prod = await queryAuditLogs(demoFilters);
+    expect(demo.total).toBeGreaterThanOrEqual(1);
+    expect(prod.total).toBe(0);
   });
 
   it("DEMO_ENABLED 关闭 → 404", async () => {
