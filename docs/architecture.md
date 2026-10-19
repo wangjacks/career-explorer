@@ -111,12 +111,12 @@
 | `/api/manage/classes/[id]` | PATCH / DELETE | 全方法 | 班级改名 / 删除 |
 | `/api/manage/classes/[id]/reset-code` | POST | 全方法 | 重置邀请码（旧码即时失效） |
 | `/api/manage/classes/[id]/poster` | GET | 全方法 | 班级邀请海报 PNG（#102，`?download=1` 为附件） |
-| `/api/manage/students` | GET / POST / PUT / DELETE | 全方法 | 学生名单查询 / 导入 / 修改 / 删除 |
-| `/api/manage/students/batch-password` | POST | 全方法 | 批量重置学生密码（每人生成不同随机密码） |
-| `/api/manage/tags` | GET / POST / PATCH / DELETE | 全方法 | 预设标签查询 / 新建 / 改名排序 / 物理删除（分类级联删子标签） |
-| `/api/manage/tags/batch` | POST | 全方法 | 标签批量导入 / 批量删除 |
-| `/api/manage/tags/restore` | POST | 全方法 | 恢复默认预设（#94，清空后重插，前端二次确认） |
-| `/api/manage/profile-config` | GET / PUT | 全方法 | 档案功能配置：自定义标签上限（#94）、提交截止时间（#96）、上传大小上限（#111）、历史版本上限（#95） |
+| `/api/manage/students` | GET / POST / PUT / DELETE | 全方法 | 学生名单查询 / 导入 / 修改 / 删除；**写入的班级归属在路由内判定**（#171，见下） |
+| `/api/manage/students/batch-password` | POST | 全方法 | 批量重置学生密码（每人生成不同随机密码）；同样受 #171 的班级归属判定 |
+| `/api/manage/tags` | GET / POST / PATCH / DELETE | 仅 GET | 预设标签查询；新建 / 改名排序 / 物理删除（分类级联删子标签）只归管理员（#171） |
+| `/api/manage/tags/batch` | POST | 前缀随 tags | 标签批量导入 / 批量删除：教师被 proxy 前缀挡下，路由内亦二次拒绝 |
+| `/api/manage/tags/restore` | POST | 前缀随 tags | 恢复默认预设（#94，清空后重插，前端二次确认）：仅管理员 |
+| `/api/manage/profile-config` | GET / PUT | 仅 GET | 档案功能配置：自定义标签上限（#94）、提交截止时间（#96）、上传大小上限（#111）、历史版本上限（#95）；这些项全站生效，写入只归管理员（#171） |
 | `/api/manage/export` | GET / POST | 全方法 | Excel/CSV 导出（XLSX 支持原生单元格图片与浮动图片双模式，默认单元格图片） |
 | `/api/manage/export-images` | GET | 全方法 | 图片打包导出（ZIP） |
 | `/api/manage/stats` | GET | 仅 GET | 统计汇总 |
@@ -135,6 +135,10 @@
 | `/api/manage/audit-logs` | GET | 仅 GET | 操作审计只读查询（#110；教师强制限本人记录，查询自身也被审计） |
 
 > 分组（`/api/manage/groups*`）前缀整体放行给教师，**班级归属在路由内判定**（`canModifyClass`）：教师可看任意班的分组，但只能触发/调整自己带的班；被拒的写操作同样落审计（`status:"failed"`）。
+
+> 学生写入（`/api/manage/students*`）前缀整体放行给教师，**归属在路由内判定**（#171，`WriteGuard`）：学生以其当前 `class_id` 落在教师关联班级内为准，未分班学生（`class_id` 为 NULL）只有管理员能维护；转班要求来源与目标班级都在管辖范围内；批量导入/删除/重置密码任一行的目标班级或在册学生越界则**整批拒绝**，不留半写状态。教师面板仍可读到全校名单（既定设计）。
+
+> 全站生效的配置（预设标签、`profile-config`）写入只归管理员（#171）：proxy 权限表按方法收敛到 GET，路由内再用 `WriteGuard.canWriteGlobal` 二次拒绝；教师面板以 `readOnly` 呈现这两个 Tab。
 
 > 前缀匹配特性：`/api/manage/export` 覆盖 `export-images`；`/api/manage/profiles` 的 GET+DELETE 覆盖 submissions 子路由的 GET，但 `submissions/cleanup` 是 POST，教师被拒。
 >
