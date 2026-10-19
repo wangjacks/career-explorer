@@ -24,8 +24,9 @@ export interface AuditTarget {
  * 管理域写端点的归属闸门（#171）。
  *
  * 存在理由：`proxy.ts` 只做「角色 + 前缀 + 方法」的粗粒度放行，判不了「这条记录属不属于该教师」；
- * 且前缀匹配是 `startsWith`，`/api/manage/students` 会连带放行 `students/batch-password`，
- * 权限表也无法把二者区分开。归属一律在路由内判定，被拒的写同样落审计
+ * 且前缀匹配是 `startsWith`，一行权限会连带放行整棵子树
+ * （`/api/manage/students` 覆盖 `students/batch-password`，`/api/manage/tags` 覆盖 `tags/batch` 与 `tags/restore`），
+ * 权限表无法把它们拆开。归属一律在路由内判定，被拒的写同样落审计
  * （AGENTS.md：管理域写操作成败均记）。
  */
 export class WriteGuard {
