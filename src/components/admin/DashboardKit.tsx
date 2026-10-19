@@ -20,6 +20,7 @@ import {
 } from "recharts";
 import { Loader2, TrendingUp, PieChart as PieChartIcon, BarChart3, TriangleAlert } from "lucide-react";
 import { formatRateText } from "@/lib/stats-utils";
+import type { DashboardCopy } from "@/lib/dashboard-copy";
 import {
   ROSTER_MARK_CAP,
   buildClassSeries,
@@ -162,12 +163,12 @@ export function ChartEmpty({ icon, title, hint, height = 240 }: { icon: ReactNod
 }
 
 /** 拉取失败态：绝不能沿用空态文案——那会把「请求失败」说成「本来就没有数据」 */
-export function ChartFailed({ height = 240 }: { height?: number }) {
+export function ChartFailed({ height = 240, copy }: { height?: number; copy: DashboardCopy }) {
   return (
     <div className="flex flex-col items-center justify-center gap-2 text-center" style={{ height }}>
       <TriangleAlert className="h-6 w-6 text-danger/70" strokeWidth={1.5} />
-      <p className="text-sm text-muted">数据加载失败</p>
-      <p className="max-w-xs text-xs text-muted/70">点上方横幅的「重试」重新获取。</p>
+      <p className="text-sm text-muted">{copy.chartFailedTitle}</p>
+      <p className="max-w-xs text-xs text-muted/70">{copy.chartFailedHint}</p>
     </div>
   );
 }
@@ -193,13 +194,17 @@ export function SubmissionHero({
   tickStep,
   caption,
   compareFailed,
+  copy,
 }: {
   totals: DashboardTotals;
   rosterGroups: boolean[][];
   tickStep: number;
   caption: string;
   compareFailed: boolean;
+  copy: DashboardCopy;
 }) {
+  const ariaTotals = copy.heroAriaTotals(totals.submitted, totals.enrolled, totals.unsubmitted);
+
   return (
     <section className="overflow-hidden rounded-2xl shadow-lg" style={{ backgroundImage: HERO_FACE }}>
       <div className="px-6 py-6 sm:px-8 sm:py-7">
@@ -207,11 +212,9 @@ export function SubmissionHero({
 
         {totals.enrolled === 0 ? (
           compareFailed ? (
-            <p className="mt-6 text-sm text-amber-200">提交进度加载失败，点上方横幅的「重试」重新获取。</p>
+            <p className="mt-6 text-sm text-amber-200">{copy.heroProgressFailed}</p>
           ) : (
-            <p className="mt-6 text-sm text-emerald-100/90">
-              还没有在册学生，导入学生名单后这里会显示提交进度。
-            </p>
+            <p className="mt-6 text-sm text-emerald-100/90">{copy.heroNoStudents}</p>
           )
         ) : (
           <div className="mt-5 flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
@@ -223,13 +226,13 @@ export function SubmissionHero({
                     / {totals.enrolled}
                   </span>
                 </p>
-                <p className="mt-2 text-xs text-emerald-100/85">已提交 / 在册</p>
+                <p className="mt-2 text-xs text-emerald-100/85">{copy.heroSubmittedOfTotal}</p>
               </div>
               <div>
                 <p className="font-mono text-4xl font-bold leading-none tabular-nums text-white">
                   {totals.rateText}
                 </p>
-                <p className="mt-2 text-xs text-emerald-100/85">提交率</p>
+                <p className="mt-2 text-xs text-emerald-100/85">{copy.heroRateLabel}</p>
               </div>
             </div>
 
@@ -237,7 +240,7 @@ export function SubmissionHero({
               {totals.enrolled > ROSTER_MARK_CAP ? (
                 <div
                   role="img"
-                  aria-label={`已提交 ${totals.submitted} 人，在册 ${totals.enrolled} 人，未提交 ${totals.unsubmitted} 人`}
+                  aria-label={ariaTotals}
                   className="h-4 w-full overflow-hidden rounded-sm bg-amber-400/15"
                 >
                   <div
@@ -248,7 +251,7 @@ export function SubmissionHero({
               ) : (
                 <div
                   role="img"
-                  aria-label={`已提交 ${totals.submitted} 人，在册 ${totals.enrolled} 人，未提交 ${totals.unsubmitted} 人`}
+                  aria-label={ariaTotals}
                   className="flex flex-wrap gap-x-3 gap-y-1.5"
                 >
                   {rosterGroups.map((group, gi) => (
@@ -270,10 +273,10 @@ export function SubmissionHero({
               )}
               {totals.unsubmitted > 0 ? (
                 <p className="mt-3 text-xs font-medium text-amber-300">
-                  还差 {totals.unsubmitted} 人未提交
+                  {copy.heroMissing(totals.unsubmitted)}
                 </p>
               ) : (
-                <p className="mt-3 text-xs font-medium text-emerald-200">全员已提交</p>
+                <p className="mt-3 text-xs font-medium text-emerald-200">{copy.heroAllSubmitted}</p>
               )}
             </div>
           </div>
@@ -293,6 +296,7 @@ export function TrendCard({
   classTrend,
   trendPending,
   trendsFailed,
+  copy,
 }: {
   trends: TrendItem[];
   trendDays: number;
@@ -302,6 +306,7 @@ export function TrendCard({
   classTrend: ClassTrendSeries | null;
   trendPending: boolean;
   trendsFailed: boolean;
+  copy: DashboardCopy;
 }) {
   const trendTotal = trends.reduce((sum, t) => sum + t.count, 0);
 
@@ -326,14 +331,14 @@ export function TrendCard({
       // 首次切到「按班级」时还没有任何响应，此时 keys 为空不等于「窗口内没有提交」，
       // 交空白态会把在途请求说成业务结论（失败态已由外层 errors.trends 拦在前面）
       if (classTrend === null) {
-        return <ChartLoading hint="正在按班级拆分…" />;
+        return <ChartLoading hint={copy.trendLoadingByClass} />;
       }
       if (!classTrendHasData) {
         return (
           <ChartEmpty
             icon={<TrendingUp className="h-6 w-6" strokeWidth={1.5} />}
-            title="所选窗口内还没有提交记录"
-            hint="把趋势天数调大一些，或确认学生是否已开始填写档案。"
+            title={copy.trendEmptyTitle}
+            hint={copy.trendEmptyHint}
           />
         );
       }
@@ -346,7 +351,7 @@ export function TrendCard({
                   className="h-2 w-2 flex-shrink-0 rounded-full"
                   style={{ background: SERIES_COLORS[i % SERIES_COLORS.length] }}
                 />
-                {key}
+                {copy.classLabel(key)}
               </li>
             ))}
           </ul>
@@ -378,7 +383,7 @@ export function TrendCard({
                   key={key}
                   type="monotone"
                   dataKey={key}
-                  name={key}
+                  name={copy.classLabel(key)}
                   stroke={SERIES_COLORS[i % SERIES_COLORS.length]}
                   strokeWidth={2}
                   dot={false}
@@ -394,8 +399,8 @@ export function TrendCard({
       return (
         <ChartEmpty
           icon={<TrendingUp className="h-6 w-6" strokeWidth={1.5} />}
-          title="所选窗口内还没有提交记录"
-          hint="把趋势天数调大一些，或确认学生是否已开始填写档案。"
+          title={copy.trendEmptyTitle}
+          hint={copy.trendEmptyHint}
         />
       );
     }
@@ -426,7 +431,7 @@ export function TrendCard({
           />
           <Tooltip
             cursor={{ stroke: "currentColor", strokeOpacity: 0.25 }}
-            content={(p) => <ChartTooltip {...p} unit=" 人" name="提交人数" labelPrefix="日期 " />}
+            content={(p) => <ChartTooltip {...p} unit=" 人" name={copy.trendTooltipSeriesName} labelPrefix="日期 " />}
           />
           <Area
             type="monotone"
@@ -447,29 +452,27 @@ export function TrendCard({
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <div>
           <p className="text-[11px] font-medium tracking-[0.2em] text-muted">
-            时间 {trendGroup === "class" ? "× 班级" : "窗口"}
+            {copy.trendEyebrow(trendDays, trendGroup === "class")}
           </p>
-          <h3 className="mt-1 text-sm font-semibold text-foreground">
-            {trendGroup === "class" ? "各班提交趋势" : "提交趋势"}（单位：人数）
-          </h3>
+          <h3 className="mt-1 text-sm font-semibold text-foreground">{copy.trendTitle(trendGroup === "class")}</h3>
           {/* 作用域写在这里：天数与分组只重取本图，另外两块图恒定全量（#165 验收第三条） */}
-          <p className="mt-0.5 text-[11px] text-muted/70">趋势天数与分组仅作用于本图</p>
+          <p className="mt-0.5 text-[11px] text-muted/70">{copy.trendScopeNote}</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           {trendPending && (
             <span role="status" className="flex items-center gap-1 text-[11px] text-muted">
               <Loader2 className="h-3 w-3 animate-spin" />
-              更新中
+              {copy.trendPendingNote}
             </span>
           )}
           <Segmented
-            label="趋势分组"
+            label={copy.trendGroupAriaLabel}
             options={TREND_GROUP_OPTIONS}
             value={trendGroup}
             onChange={setTrendGroup}
           />
           <Segmented
-            label="趋势天数"
+            label={copy.trendDaysAriaLabel}
             options={DAY_OPTIONS.map((d) => ({ value: d, label: `${d}天` }))}
             value={trendDays}
             onChange={setTrendDays}
@@ -479,18 +482,18 @@ export function TrendCard({
       <div className="text-muted" aria-busy={trendPending}>
         {/* 失败态要压过旧数据：天数或分组变了以后，留在屏上的上一窗口曲线与选中的口径并不对应；
             补零后长度恒等于 trendDays，故空态判据是「窗口内是否有提交」而非数组长度 */}
-        {trendsFailed ? <ChartFailed /> : renderTrendChart()}
+        {trendsFailed ? <ChartFailed copy={copy} /> : renderTrendChart()}
       </div>
       <p className="mt-3 border-t border-border-soft pt-3 text-xs text-muted">
         {trendsFailed ? (
-          "趋势数据加载失败，暂不显示本窗口合计"
+          copy.trendFailedSummary
         ) : (
           <>
-            近 {trendDays} 天共{" "}
+            {copy.trendSummaryPrefix(trendDays)}
             <span className="font-mono tabular-nums text-foreground">
               {trendGroup === "class" ? classTrendTotal : trendTotal}
-            </span>{" "}
-            人提交
+            </span>
+            {copy.trendSummarySuffix}
           </>
         )}
       </p>
@@ -502,9 +505,11 @@ export function TrendCard({
 export function DistributionCard({
   distribution,
   distributionFailed,
+  copy,
 }: {
   distribution: DistributionItem[];
   distributionFailed: boolean;
+  copy: DashboardCopy;
 }) {
   const [activeTag, setActiveTag] = useState<string | null>(null);
 
@@ -528,9 +533,9 @@ export function DistributionCard({
   return (
     <div className="rounded-xl border border-border-soft bg-card p-5 lg:col-span-5">
       <div className="mb-4">
-        <p className="text-[11px] font-medium tracking-[0.2em] text-muted">标签维度</p>
-        <h3 className="mt-1 text-sm font-semibold text-foreground">标签分类分布（单位：标签次数）</h3>
-        <p className="mt-0.5 text-[11px] text-muted/70">全量口径，不随趋势天数与分组变化</p>
+        <p className="text-[11px] font-medium tracking-[0.2em] text-muted">{copy.distEyebrow}</p>
+        <h3 className="mt-1 text-sm font-semibold text-foreground">{copy.distTitle}</h3>
+        <p className="mt-0.5 text-[11px] text-muted/70">{copy.fullScopeNote}</p>
       </div>
       {/* 与趋势卡刻意相反：这块与对比图都没有会影响口径的控件，重取失败时留在屏上的旧图仍然成立，
           换成失败态反而丢掉有用信息；失败与否由顶部横幅「部分数据加载失败」负责说明。
@@ -572,7 +577,7 @@ export function DistributionCard({
                 {activeDist ? activeDist.count : tagTotal}
               </span>
               <span className="max-w-[92px] truncate text-[11px] text-muted" title={activeDist?.category}>
-                {activeDist ? activeDist.category : "标签次数"}
+                {activeDist ? activeDist.category : copy.distCenterLabel}
               </span>
             </div>
           </div>
@@ -603,13 +608,13 @@ export function DistributionCard({
           </ul>
         </div>
       ) : distributionFailed ? (
-        <ChartFailed height={168} />
+        <ChartFailed height={168} copy={copy} />
       ) : (
         <ChartEmpty
           height={168}
           icon={<PieChartIcon className="h-6 w-6" strokeWidth={1.5} />}
-          title="还没有标签数据"
-          hint="学生提交档案后，这里会按兴趣 / 技能 / 性格等维度汇总标签次数。"
+          title={copy.distEmptyTitle}
+          hint={copy.distEmptyHint}
         />
       )}
     </div>
@@ -620,9 +625,11 @@ export function DistributionCard({
 export function CompareCard({
   compare,
   compareFailed,
+  copy,
 }: {
   compare: CompareItem[];
   compareFailed: boolean;
+  copy: DashboardCopy;
 }) {
   // 对比图：拆出未提交段以便堆叠，提交率作柱顶标签；「未分班」排末尾（与班级概览行序一致）
   const compareChart = useMemo(
@@ -641,11 +648,9 @@ export function CompareCard({
   return (
     <div className="rounded-xl border border-border-soft bg-card p-5 lg:col-span-12">
       <div className="mb-3">
-        <p className="text-[11px] font-medium tracking-[0.2em] text-muted">分组对比</p>
-        <h3 className="mt-1 text-sm font-semibold text-foreground">
-          班级对比（单位：人数，柱高 = 总人数）
-        </h3>
-        <p className="mt-0.5 text-[11px] text-muted/70">全量口径，不随趋势天数与分组变化</p>
+        <p className="text-[11px] font-medium tracking-[0.2em] text-muted">{copy.compareEyebrow}</p>
+        <h3 className="mt-1 text-sm font-semibold text-foreground">{copy.compareTitle}</h3>
+        <p className="mt-0.5 text-[11px] text-muted/70">{copy.fullScopeNote}</p>
       </div>
       {/* 保留旧图、失败态只兜「从未取到数据」：理由同标签分布卡的注释 */}
       {compareChart.length > 0 ? (
@@ -653,13 +658,13 @@ export function CompareCard({
           <div className="mb-3 flex flex-wrap items-center gap-4 text-xs">
             <span className="inline-flex items-center gap-1.5">
               <span className="h-2.5 w-2.5 rounded-sm" style={{ background: DATA_GREEN }} />
-              已提交
+              {copy.compareLegendSubmitted}
             </span>
             <span className="inline-flex items-center gap-1.5">
               <span className="h-2.5 w-2.5 rounded-sm bg-current opacity-20" />
-              未提交
+              {copy.compareLegendUnsubmitted}
             </span>
-            <span className="text-muted/70">柱顶为该组提交率</span>
+            <span className="text-muted/70">{copy.compareRateNote}</span>
           </div>
           <ResponsiveContainer width="100%" height={300}>
             <BarChart data={compareChart} margin={{ top: 20, right: 8, bottom: 0, left: 0 }}>
@@ -670,7 +675,10 @@ export function CompareCard({
                 tickLine={false}
                 axisLine={false}
                 minTickGap={8}
-                tickFormatter={(v: string) => (v.length > 6 ? `${v.slice(0, 6)}…` : v)}
+                tickFormatter={(v: string) => {
+                  const label = copy.classLabel(v);
+                  return label.length > 6 ? `${label.slice(0, 6)}…` : label;
+                }}
               />
               <YAxis
                 tick={{ fontSize: 11, fontFamily: MONO, fill: "currentColor" }}
@@ -690,18 +698,18 @@ export function CompareCard({
                         Number(rows.find((r) => String(r.dataKey) === key)?.value ?? 0);
                       const submitted = picked("submitted");
                       const unsubmitted = picked("unsubmitted");
-                      return `在册 ${submitted + unsubmitted} 人 · 提交率 ${formatRateText(submitted, submitted + unsubmitted, 1)}`;
+                      return copy.compareTooltipTotals(submitted + unsubmitted, formatRateText(submitted, submitted + unsubmitted, 1));
                     }}
                   />
                 )}
               />
-              <Bar dataKey="submitted" name="已提交" stackId="total" fill={DATA_GREEN} />
+              <Bar dataKey="submitted" name={copy.compareLegendSubmitted} stackId="total" fill={DATA_GREEN} />
               {/* 标签挂在「未提交」段：柱顶即堆叠顶。minPointSize=1 是必需的——recharts 会在渲染前
                   丢弃零尺寸柱（Bar.js 的 `height === 0` 过滤），全班已提交时该段高度为 0，
                   标签连渲染机会都没有；给 1px 让它留下，肉眼仍是「没有这一段」 */}
               <Bar
                 dataKey="unsubmitted"
-                name="未提交"
+                name={copy.compareLegendUnsubmitted}
                 stackId="total"
                 fill="currentColor"
                 fillOpacity={0.14}
@@ -720,13 +728,13 @@ export function CompareCard({
           </ResponsiveContainer>
         </div>
       ) : compareFailed ? (
-        <ChartFailed height={300} />
+        <ChartFailed height={300} copy={copy} />
       ) : (
         <ChartEmpty
           height={300}
           icon={<BarChart3 className="h-6 w-6" strokeWidth={1.5} />}
-          title="还没有在册学生"
-          hint="先在「班级管理」与「学生名单」中建立班级并导入学生，这里就能看到各组提交对比。"
+          title={copy.compareEmptyTitle}
+          hint={copy.compareEmptyHint}
         />
       )}
     </div>
