@@ -1541,13 +1541,15 @@ export class SqliteAdapter implements DbAdapter {
     try {
     const restoreTx = this.db.transaction((d: BackupData) => {
       const tags = normalizeBackupTags(d.tags);
-      // 分组（#101）五表一律先清空：users / classes 是整表替换的，旧备份不含分组字段时若保留现状，
-      // 成员行会指向不存在或已换班的学生（恢复期间 FK 关闭，库不会拦），所以「无字段 = 恢复后未分组」
+      // 凡按 user_id / class_id 引用 users / classes 的持久表，恢复时一律无条件先清空：这两张表整表替换且按原 id 重插，
+      // 旧备份缺字段时若保留现状，行会指向已不存在、或已被别人占用的 id（恢复期间 FK 关闭，库不会拦，事后开启也不回溯校验）。
+      // 所以「缺字段 = 恢复后该功能无数据」，不是「保留不动」——#101 分组五表、#95 档案历史版本同此口径
       this.db.exec("DELETE FROM class_group_members");
       this.db.exec("DELETE FROM class_groups");
       this.db.exec("DELETE FROM group_batch_members");
       this.db.exec("DELETE FROM group_batch_groups");
       this.db.exec("DELETE FROM group_batches");
+      this.db.exec("DELETE FROM profile_submissions");
       this.db.exec("DELETE FROM teacher_classes");
       this.db.exec("DELETE FROM users");
       this.db.exec("DELETE FROM classes");
@@ -1682,9 +1684,8 @@ export class SqliteAdapter implements DbAdapter {
           );
         }
       }
-      // 档案提交历史版本恢复（#95；旧备份无此字段时保留当前记录不动）
+      // 档案提交历史版本恢复（#95；**含此字段才回填，旧备份恢复后即为无历史版本**——上面已统一清空）
       if (Array.isArray(d.profile_submissions)) {
-        this.db.exec("DELETE FROM profile_submissions");
         if (d.profile_submissions.length > 0) {
           const stmt = this.db.prepare(
             `INSERT INTO profile_submissions (id, user_id, version, tags, avatar_url, evaluation_url, storage_id, submitted_at, is_current)
@@ -1698,6 +1699,7 @@ export class SqliteAdapter implements DbAdapter {
               p.tags,
               p.avatar_url,
               p.evaluation_url,
+              // #95 早于 #111，这期间生成的备份有快照行却缺 storage_id → 同 users 一样回落到本地后端，不能硬编码 1
               p.storage_id ?? 1,
               p.submitted_at,
               p.is_current ?? 0

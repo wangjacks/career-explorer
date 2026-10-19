@@ -1,9 +1,11 @@
 import { describe, it, expect } from "vitest";
+import Database from "better-sqlite3";
 import { mkdtempSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import path from "path";
 import { SqliteAdapter } from "../lib/db-sqlite";
 import { DEFAULT_MAX_PROFILE_SUBMISSIONS, MAX_PROFILE_SUBMISSIONS_KEY } from "../lib/db";
+import type { BackupData } from "../lib/db";
 
 function makeTmpDb(): string {
   const dir = mkdtempSync(path.join(tmpdir(), "career-test-"));
@@ -317,7 +319,7 @@ describe("submitProfileWithVersion（#95）", () => {
 });
 
 describe("备份恢复集成（#95）", () => {
-  it("backup 导出版本记录，restore 后完整还原；旧备份无此字段时保留当前记录", () => {
+  it("backup 导出版本记录，restore 后完整还原；旧备份无此字段时清空", () => {
     const dbPath = makeTmpDb();
     const adapter = new SqliteAdapter(dbPath);
     adapter.init();
@@ -341,10 +343,47 @@ describe("备份恢复集成（#95）", () => {
     expect(restored.map((r) => r.version)).toEqual([2, 1]);
     expect(restored.find((r) => r.version === 2)?.is_current).toBe(1);
 
-    // 旧备份（无 profile_submissions 字段）→ 保留当前记录不动（兼容）
-    const legacy = { ...data, profile_submissions: undefined };
+    // 旧备份（无 profile_submissions 字段）→ 清空，不是保留不动
+    // users 是整表替换且按备份原 id 重插，保留旧快照就是留下可能属于别人的历史版本（#211）
+    const legacy = { ...data } as BackupData;
+    delete legacy.profile_submissions;
     adapter.restore(legacy);
-    expect(adapter.getProfileSubmissions(studentId)).toHaveLength(2);
+    expect(adapter.getProfileSubmissions(studentId)).toHaveLength(0);
+
+    adapter.close();
+    cleanup(dbPath);
+  });
+
+  it("旧备份 + 同 id 换人：恢复后不会把甲的历史版本交给丙（#211）", () => {
+    const dbPath = makeTmpDb();
+    const adapter = new SqliteAdapter(dbPath);
+    adapter.init();
+    const classId = adapter.insertClass("一班", "AAAA1111");
+    const jiaId = adapter.insertUser({ user_code: "202505050101", role: "student", name: "甲", class_id: classId });
+    const storageId = adapter.getDefaultStorageBackend()!.id;
+    adapter.submitProfileWithVersion("202505050101", '["编程"]', "/jia-a.png", "/jia-w.png", storageId);
+
+    const dump = adapter.backup();
+    // 模拟 #95 之前生成的旧档：缺 profile_submissions 字段，且名单变化后 id=jiaId 属于丙
+    const legacy = {
+      ...dump,
+      users: dump.users.map((u) =>
+        u.id === jiaId ? { ...u, name: "丙", user_code: "202505050199", tags: null, avatar_url: null } : u
+      ),
+    } as BackupData;
+    delete legacy.profile_submissions;
+    adapter.restore(legacy);
+
+    const bing = adapter.getStudentByCode("202505050199")!;
+    expect(bing.id).toBe(jiaId); // 同 id 换人，正是错配的触发条件
+    expect(adapter.getProfileSubmissions(bing.id)).toHaveLength(0);
+
+    // 关键断言：全表不存在 user_id 落在恢复后名单之外的快照
+    const db = (adapter as unknown as { db: Database.Database }).db;
+    const rows = db.prepare("SELECT id, user_id FROM profile_submissions").all() as { id: number; user_id: number }[];
+    const alive = new Set(legacy.users.map((u) => u.id));
+    expect(rows.filter((r) => !alive.has(r.user_id))).toEqual([]);
+    expect(rows).toHaveLength(0);
 
     adapter.close();
     cleanup(dbPath);

@@ -187,9 +187,11 @@
 
 **班级名匹配口径（#191）**：`classes.name` 的比较统一为 **trim 后全等、区分大小写**，与前端 JS 全等对齐。`getClassByName()` 在两适配器内部均用 `getClasses()` + JS 全等实现（不依赖 SQL 排序规则），确保 SQLite / MySQL / MariaDB 行为恒等；归一化入口为 `resolveClassByName()`（`src/lib/class-utils.ts`），业务层禁止再写 `WHERE name = ?`。
 
-备份格式 `BackupData`（**version 5**，定义在 `src/lib/db.ts`）：十三表全量，其中 `audit_logs` / `configs_profile` / `storage_backends` / `profile_submissions` / 分组五表为可选字段（旧备份缺失时读取方容忍 `undefined`，`storage_backends` 缺失时保留当前后端表并回填本地后端）；含 `password_hash`，不含上传文件。
+备份格式 `BackupData`（**version 5**，定义在 `src/lib/db.ts`）：十三表全量，其中 `audit_logs` / `configs_profile` / `storage_backends` / `profile_submissions` / 分组五表为可选字段（旧备份缺失时读取方容忍 `undefined`）；含 `password_hash`，不含上传文件。
 
-> **分组五表是例外**：`users` / `classes` 是整表替换的，旧备份没有分组字段时若保留现状，成员行会指向已不存在或已换班的学生（恢复期间外键检查关闭，库不会拦）。所以恢复**一律先清空五表**，只有备份带字段才回填——旧备份恢复后即为「未分组」，这是有意为之，与 `profile_submissions` 的「缺字段保留不动」口径不同。
+> **恢复期间的「缺字段」口径（#211 统一）**：`users` / `classes` 是**整表替换并按备份里的原始 `id` 重插**，恢复全程外键检查又是关闭的（SQLite `PRAGMA foreign_keys = OFF` / MySQL `SET FOREIGN_KEY_CHECKS = 0`，事后开启**不回溯校验**已存在的行）。所以规则是：**凡按 `user_id` / `class_id` 引用这两张表的持久表，一律无条件先清空，只有备份带该字段才回填**——「缺字段 = 恢复后该功能无数据」，不是「保留现状」。分组五表（#101，恢复后即为未分组）与 `profile_submissions`（#95，恢复后即为无历史版本）都走这条；留着旧行等于把上一个占这个 id 的人的数据交给新的人，而 `GET /api/shared/profile/submissions` 是学生本人可读的。
+>
+> 不引用 `users`/`classes` 归属的表仍可保留现状：`configs_profile`（键值配置，与身份无关）、`storage_backends`（缺字段即 #111 之前的备份，其 `users` 行本就无 `storage_id` 可用，恢复时一律回落到内置本地后端——它是该表首行，编号恒为 1，与迁移列的 `DEFAULT 1` 对齐）。`audit_logs` 同样保留：**审计记录不可丢**优先于归属洁净，行内已冗余存了操作者编号/姓名/角色，`actor_id` 错配只影响展示归属与教师「只看本人」的过滤范围（该项为后续议题，见 #211）。
 
 ## 课堂分组（#101）
 
