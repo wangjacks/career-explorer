@@ -20,7 +20,7 @@
 
 ## 页面路由
 
-<!-- 对账：`find src/app -name page.tsx`（当前 9 个） -->
+<!-- 对账：`find src/app -name page.tsx`（当前 10 个） -->
 
 | 路由 | 说明 |
 |---|---|
@@ -32,6 +32,7 @@
 | `/dashboard/admin` | 管理面板（分组见「面板导航结构」） |
 | `/dashboard/teacher` | 教师面板（分组见「面板导航结构」） |
 | `/dashboard/student` | 学生面板（我的档案：未提交可就地填写与提交、已提交可就地修改 / 历史提交 #95，两个 Tab） |
+| `/dashboard/student/assessment/quiz` | 职业兴趣测评答题页（#223）：单题单屏 + 进度条 + Likert 1-5，自动存草稿、可续答，提交前二次确认 |
 | `/setup` | 安装引导（首次配置数据库 + 管理员密码） |
 
 ## 面板导航结构
@@ -61,7 +62,7 @@
 
 ## API 路由
 
-<!-- 对账：`find src/app/api -name route.ts | wc -l`（当前 56 条 = manage 41 + auth 3 + setup 3 + shared 6 + tags/upload/uploads 各 1） -->
+<!-- 对账：`find src/app/api -name route.ts | wc -l`（当前 60 条 = manage 41 + auth 3 + setup 3 + shared 10 + tags/upload/uploads 各 1） -->
 
 ### 认证层（proxy 之外，公开）
 
@@ -155,6 +156,10 @@
 | `/api/shared/profile/submissions/restore` | POST | 学生恢复历史版本（#95）：截止后 403 → 校验版本归属 → 生成新版本（不回写旧记录）→ 审计 `profile:restore` |
 | `/api/shared/group` | GET | 学生读本组名单（#101）：只返回**本人所在组**的成员（姓名/学号/头像引用/标签），不提供遍历班级的接口；未分组返回 `grouped:false` |
 | `/api/shared/storage-sign` | GET | 文件访问地址签发（#111）：本地后端回显代理路径；云后端按归属记录的 `storage_id` 签发 30 分钟签名 URL；权限校验：学生仅本人与**同组同学的头像**（#101，词云不放行、非同组 403）、教师仅管辖班级、管理员全量 |
+| `/api/shared/assessment/start` | GET | 进入答题页（#223）：下发题面（不含维度，避免暗示答案）+ 量表元信息（署名/授权/免责）+ 草稿进度与续答落点；**只读，不建草稿行** |
+| `/api/shared/assessment/answer` | POST | 保存一次作答（#223）：服务端**合并**进 `status=in_progress` 草稿并回进度 + 下一个未答题；非法题号/取值 400，停用量表 403 |
+| `/api/shared/assessment/submit` | POST | 提交作答（#223）：未答完 400（回带 `missingIndexes`）→ 复用 #220 引擎计分 → 结果快照落库（`is_current` 唯一，重复提交生成新版本）→ 审计 `assessment:submit` |
+| `/api/shared/assessment/results` | GET | 结果查询（#223）：当前有效结果 + 最近 10 个历史版本 + 进行中进度，供「我的档案」测评区（#224）消费；只按会话 uid 读取，**无 userId 参数**，因此没有越权读他人结果的路径 |
 | `/api/shared/assessment/careers` | GET | 本人最新霍兰德结果 → Top-N 推荐职业（#226）：只认会话 uid（显式传别人的 `user_id` 直接 403，非学生 403），`?limit=1–20`（非法值 400），返回推荐列表 + O*NET 署名与快照版本；没完成测评 404、结果里既无六维分也无三字码 409、职业库为空 503 |
 
 ### 其他开放端点（proxy 之外）
@@ -237,6 +242,17 @@
 - **个人数据随账号删除**：`deleteStudents` 一并清 `assessment_results`；历史档案快照 `profile_submissions` 仍按 #95 口径保留
 - **授权合规**：`attribution`（署名）/ `license_text`（授权与修改声明）/ `disclaimer`（免责声明）三列随量表下发，作答页与结果页必须展示。O*NET Tools Developer License 要求署名并声明「修改未经 USDOL/ETA 审核、认可或测试」（https://www.onetcenter.org/license_tools.html ）
 
+## 职业测评作答流程（#223）
+
+<!-- 对账：纯函数在 `src/lib/assessment-flow.ts`（测试 `assessment-flow.test.ts`）；4 个端点见上「共享域」；接口测试 `assessment-api.test.ts` 跑的是真实 SQLite + 真实计分引擎 -->
+
+- **进度以服务端草稿为唯一真相**：答题页每答一题就 `POST /answer` 落 `status=in_progress` 草稿，**不用 localStorage**；退出再进由 `GET /start` 的 `resumeIndex`（第一个未答题，全答完则末题）续答。只打开页面不建草稿行，避免留下空记录
+- **合并式保存而不是整份覆盖**：客户端每次只提交「题号 + 取值」，服务端读出现有草稿、按当前题库过滤后合并再 upsert——整份回写不会把别的题冲掉，旧草稿里超出当前题库的题号也不会带进新一轮。**边界**：合并是「读草稿 → 合并 → 整份写」的读-改-写，跨标签页**并发**请求在极端重叠时仍是最后写入为准（单标签页由前端「保存中禁用」串行）；丢的一题会显示为未答、重进补答即可，不会产生半份脏结果。要彻底消除需把合并下沉成适配器事务（SQLite 事务 / MySQL `FOR UPDATE` 锁草稿行），当前单实例部署按前者取舍
+- **提交必须完整**：缺答一律 400 并回带 `missingIndexes`（答题页据此跳回漏题）；计分复用 #220 的引擎（`src/lib/assessment-scoring.ts`），数据层不重复实现算法；作答内容**只认服务端草稿**，不接受客户端传来的答案或 userId，改分无从下手
+- **结果与审计**：得分 JSON + 三字码作为快照写入 `assessment_results`，重复提交生成新版本（旧版本保留、`is_current` 唯一）。审计动作为 `assessment:answer`（**只记进度，不记选了哪一项**——选项是个人数据不重复落审计表）、`assessment:submit`（成功/失败）、`assessment:results`（读取也记）；**被拒的写同样落审计**——参数非法 400、量表不存在 404、量表停用 403 各记一条 failed（带 `reason` / 题号），停用后仍有人刷题或刷错 `code` 在审计里看得到
+- **停用与越权**：停用的量表拒绝 start / answer / submit（403），但**历史结果仍可读**（结果不随量表下线消失）；所有端点只按会话 uid 读写，无 userId 入参，因此不存在越权读他人结果的路径（教师/管理员访问同样 403）
+- **作答锚点**：Likert 1-5 记为「非常不愿意 → 非常愿意」（兴趣量表问的是愿不愿意做，与计分引擎 1-5 量程同一口径，锚点常量在 `assessment-flow.ts`）
+
 ## 职业库与推荐匹配（#226）
 
 <!-- 对账：数据快照 `src/lib/onet-data.ts`（自动生成）、译名 `src/lib/onet-name-zh.ts`、匹配纯函数 `src/lib/assessment-match.ts`；测试在 `onet-data` / `onet-db` / `assessment-match` / `careers-api`.test.ts -->
@@ -271,6 +287,7 @@
 学生端（档案提交，#168 / #208）：登录 → 学生面板「我的档案」→ 未提交学生直接就地填写（标签为必填项、虚拟形象与评价词云可选填，空标签由服务端 400 拦截）→ 二次确认后提交；已提交学生走「修改数据」就地修改；每次保存生成新版本（#95）
 学生端（登录态）：学生面板「我的档案」通览本人档案；「历史提交」Tab 查看/恢复旧版本（#95）
 学生端（激活）：/activate 第一步 verify 三要素核验（#93）→ 第二步设置密码并自动登录
+学生端（职业测评，#223）：测评中心「开始作答」→ 答题页单题单屏（每题自动存草稿，可退出续答）→ 全部答完后二次确认提交 → 服务端计分并按快照落库 → 答题页展示三字码与六维分；完整解读在「我的档案」测评区（#224）
 教师端：登录 → 主页（问候 + 分组快捷入口，**不含统计数字**）→ 数据中心（概览/大屏/导出）→ 数据管理（数据列表/学生/班级/标签）→ 系统设置（功能设置/操作审计）
 管理端：登录 → 数据中心（概览/大屏/导出/提交历史）→ 用户管理（学生/教师/班级/标签）→ 系统设置（数据源/功能设置/存储管理/媒体管理/操作审计）
 ```
