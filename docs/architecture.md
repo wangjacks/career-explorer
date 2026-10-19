@@ -177,14 +177,14 @@
 | `classes` | 班级：`name`、`invitation_code`（唯一） | v2.0.0 | ✅ |
 | `teacher_classes` | 教师-班级多对多关联 | v2.0.0 | ✅ |
 | `tags` | 预设二级标签：`type`（category/tag）、`parent_id` 层级、`class_id=0` 为全局；#94 起降级为表单预设项，物理删除（分类级联删子标签），`active` 列保留但不再操作 | v2.0.0 | ✅ |
-| `configs_profile` | 档案功能配置键值表：`max_custom_tags`(#94)、`submission_deadline`(#96)、`max_avatar_size_mb` / `max_evaluation_size_mb`(#111)、`max_profile_submissions`(#95)、`media_orphan_retention_days`(#117) | #94 | ✅ |
+| `configs_profile` | 档案功能配置键值表：`max_custom_tags`(#94)、`submission_deadline`(#96)、`max_avatar_size_mb` / `max_evaluation_size_mb`(#111)、`max_profile_submissions`(#95)、`media_orphan_retention_days`(#117)、`tags_seeded` / `onet_seeded_version`（种子与快照版本标记，见 #226） | #94 | ✅ |
 | `audit_logs` | 操作审计（#110）：只追加 + 查询，操作者字段快照冗余，敏感键脱敏剔除、metadata 截断 2000 字符；索引 `created_at` / `actor_id` / `(resource_type, resource_id)` | #110 | ✅ |
 | `storage_backends` | 存储后端注册表（#111）：内置本地后端（不可删）+ 多个 S3 兼容实例；凭据不入库（走 `.env.local`）；`name` 唯一 | #111 | ✅（不含凭据） |
 | `profile_submissions` | 档案提交历史版本（#95）：`user_id` + `version` + 快照字段（`tags`/`avatar_url`/`evaluation_url`/`storage_id`/`submitted_at`）+ `is_current`；索引 `(user_id, version)`、`(user_id, is_current)` | #95 | ✅ |
 | `assessments` | 测评定义（#221）：`code`（唯一，如 `riasec`）、`name`、`question_count`、`dimensions_json`（`[{key,label}]`，顺序即计分与展示顺序）、`scoring_mode`（`typological` 取类型码 / `dimensional` 多维高低分档）、`scale_version`、`attribution`（署名）/ `license_text`（授权与修改声明）/ `disclaimer`（免责声明）、`enabled` | #221 | ✅ |
 | `assessment_questions` | 题库（#221）：`assessment_id` + `question_index`（量表内从 1 开始，`UNIQUE`）+ `prompt` + `dimension`（须是 `dimensions_json` 的 key）+ `reverse_scored` + `version`（题面版本，改动时自增） | #221 | ✅ |
 | `assessment_results` | 作答与结果**快照**（#221）：`user_id` + `assessment_id` + `status`（`in_progress` 草稿 / `completed` 完成）+ `answers_json` + `scores_json` + `type_code`（三字码，dimensional 量表为 NULL）+ `is_current` + `draft_slot`（草稿位：草稿为 1、完成为 NULL，`UNIQUE(user_id, assessment_id, draft_slot)`）+ `started_at` / `updated_at` / `completed_at` | #221 | ✅（学生个人数据） |
-| `onet_occupations` | O*NET 职业库（#226）：`code`（O*NET-SOC，唯一）、`name`（英文 Title）、`name_zh`（首批中文译名，未覆盖为 NULL）、`interest_code`（O*NET 官方兴趣高码 1–3 位）、`interests_json`（六型原始分 1–7）、`job_zone`（1–5）、`education_level`（由 Job Zone 归纳的中文学历）、`cluster`（SOC 大类中文职业群）、`dataset_version` | #226 | ❌（只读参考数据，离线可重灌，避免备份膨胀） |
+| `onet_occupations` | O*NET 职业库（#226）：`code`（O*NET-SOC，唯一）、`name`（英文 Title）、`name_zh`（首批中文译名，未覆盖为 NULL）、`interest_code`（O*NET 官方兴趣高码 1–3 位）、`interests_json`（六型原始分 1–7）、`job_zone`（2–5：当前发布版把原 1–2 级合并为「Job Zone 1-2」，数据里没有 1）、`education_level`（由 Job Zone 归纳的中文学历）、`cluster`（SOC 大类中文职业群）、`dataset_version` | #226 | ❌（只读参考数据，离线可重灌，避免备份膨胀） |
 
 **课堂分组（#101）五张表 —— 当前态与历史态物理分离**
 
@@ -241,12 +241,12 @@
 
 <!-- 对账：数据快照 `src/lib/onet-data.ts`（自动生成）、译名 `src/lib/onet-name-zh.ts`、匹配纯函数 `src/lib/assessment-match.ts`；测试在 `onet-data` / `onet-db` / `assessment-match` / `careers-api`.test.ts -->
 
-- **数据源与版本**：O*NET 数据库 **30.2**（2026-02 发布，CC BY 4.0）。锁这个版本是因为 **30.3 起职业级 Interest 分（`Interests.txt`）已从发布包里移除**，30.2 是最后一个带 RIASEC 六型职业分的版本。发布包里 1016 个职业中有 923 个同时具备六型分与 Job Zone，只收录这 923 个
-- **离线导入**：`scripts/import-onet.mjs <解压后的 O*NET 文本版目录>` 解析 `Interests.txt` / `Occupation Data.txt` / `Job Zones.txt`，生成 `src/lib/onet-data.ts`（元组数组，约 92KB）；运行时不读任何外部文件、不依赖国外 API。中文译名单独维护在 `src/lib/onet-name-zh.ts`（首批 178 个常见职业，覆盖六型与各 Job Zone），重新生成快照不会覆盖译名
-- **入库与重灌**：`onet_occupations` 由 `init()` 幂等灌入，判据是 `configs_profile.onet_seeded_version` + 行数（`needsOnetReseed`，两适配器共用）；快照升级（本文件版本号变化）时**整表重灌**，平时只做两条轻查询就跳过。**不纳入备份**：只读参考数据，清表后重启即恢复
-- **匹配口径**：`assessment-match.ts` 是纯函数——学生六维画像与职业六型分各自在量程内折算到 0–1（学生 0–100、O\*NET 1–7），算余弦相似度，取 Top-N（默认 6、上限 20）；同分按职业 code 升序破平，因此**同输入必然同输出**（无随机、不依赖 locale）。画像优先用结果快照的六维标准分，只有三字码时按 3/2/1 权重构造方向向量兜底；画像全 0 直接返回空列表而不是硬凑
-- **与官方口径对照**：`interest_code` 保存 O\*NET 官方兴趣高码（由发布包的 First/Second/Third Interest High-Point 指标推导，1–3 位，缺失位因并列），单测用它校验「高码首位 = 六型最高分维」，并用 5 个代表性职业做**自匹配回环**（拿职业自己的分当学生画像，必须排进 Top-3 且自身相似度 = 1）
-- **接口**：`GET /api/shared/assessment/careers`，自鉴权（只认会话 uid，显式传别人 `user_id` 403、非学生 403），返回 `careers`（含中文译名 / 学历 / 职业群 / 相似度）、画像来源（`scores` / `typeCode`）、快照版本与 **CC BY 4.0 署名文本**（前端必须展示署名）
+- **数据源与版本**：O*NET 数据库 **30.2**（2026-02 发布，CC BY 4.0），本轮先固定版本、把升级留成一次可控动作。**注意 O\*NET 从 30.3 起把兴趣数据表从 `Interests.txt` 改名为 `Career Interest Types.txt`（不是移除）**：7 列结构不变，已用 30.2 与 30.3 两个官方发布包逐值比对——923 个职业的六型分与官方高码**完全相同**，唯一差异是 1 个职业的 Job Zone（`15-1211.00` 3→4）。`scripts/import-onet.mjs` 自动识别两种文件名，将来升级只需重跑并传 `--version`。发布包里 1016 个职业中有 923 个同时具备六型分与 Job Zone，只收录这 923 个
+- **离线导入**：`scripts/import-onet.mjs <解压后的 O*NET 文本版目录>` 解析兴趣表（**30.2 叫 `Interests.txt`，30.3 起改名 `Career Interest Types.txt`，脚本自动识别**）/ `Occupation Data.txt` / `Job Zones.txt`，生成 `src/lib/onet-data.ts`（元组数组，约 92KB）；运行时不读任何外部文件、不依赖国外 API。中文译名单独维护在 `src/lib/onet-name-zh.ts`（首批 178 个常见职业，覆盖六型与各 Job Zone），重新生成快照不会覆盖译名。脚本会校验必需列、code 格式/唯一性、分数与 Job Zone 量程，并在解析出的职业数 < 900 时直接失败（防列名变化时静默产出空快照）
+- **入库与重灌**：`onet_occupations` 由 `init()` 幂等灌入，判据是 `configs_profile.onet_seeded_version` + 行数（`needsOnetReseed`，两适配器共用）；快照升级（本文件版本号变化）时**整表重灌**，平时只做两条轻查询就跳过。灌库失败只 `console.error` 降级（职业库为空 → 接口 503），**不阻断全站启动**：推荐是渐进功能，下次 `init()` 自动重试。**不纳入备份**：只读参考数据，清表后重启即恢复；`restore()` 不碰该表，恢复旧备份后它照旧可用
+- **匹配口径**：`assessment-match.ts` 是纯函数——学生六维画像与职业六型分各自在量程内折算到 0–1（学生 0–100、O\*NET 1–7），算余弦相似度，取 Top-N（默认 6、上限 20）；同分按职业 code 升序破平，因此**同输入必然同输出**（无随机、不依赖 locale）。画像优先用结果快照的六维标准分，只有三字码时按 3/2/1 权重构造方向向量兜底；画像全 0 直接返回空列表而不是硬凑。**口径限制**：未做均值中心化的余弦只忽略「整体高低」（向量长度），不消除「整体兴趣水平」这一偏移——普遍高分型的职业对任何画像都更容易靠前；这是有意的取舍（RIASEC 关心方向），若要纯形状匹配可改中心化余弦（Pearson）
+- **与官方口径对照**：`interest_code` 保存 O\*NET 官方兴趣高码（由发布包的 First/Second/Third Interest High-Point 指标推导，1–3 位，缺失位因并列），单测用它校验「高码首位 = 六型最高分维」，并用 **6 个代表性职业（六型各一）**做**自匹配回环**（拿职业自己的分当学生画像，必须排进 Top-3 且自身相似度 = 1）
+- **接口**：`GET /api/shared/assessment/careers`，自鉴权（只认会话 uid，显式传别人 `user_id` 403、非学生 403），返回 `careers`（含中文译名 / 学历 / 职业群 / 相似度）、画像来源（`scores` / `typeCode`）、快照版本与 **CC BY 4.0 署名文本**（前端必须展示署名）。**不记审计**：与 `/api/shared/profile`、`/submissions` 等本人读本人的 GET 同口径（#110 的审计范围是管理域写操作、认证事件、档案提交、导出/备份）
 - **已知边界**：职业分是 2026-02 的快照，不随 O\*NET 后续版本自动更新；Job Zone → 学历是归纳口径（如「本科」不是硬性要求）；`name_zh` 未覆盖的职业回退英文名
 
 ## 文件存储（#111 对象存储）
