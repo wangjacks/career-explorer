@@ -47,6 +47,8 @@ import type {
   AssessmentResultRow,
   CompleteAssessmentInput,
   OnetOccupationRow,
+  AssessmentStatsRaw,
+  AssessmentRosterRow,
 } from "./db";
 import { fillGroupedTrend, fillTrendSeries, shiftDate } from "./stats-utils";
 
@@ -1863,6 +1865,129 @@ export class SqliteAdapter implements DbAdapter {
   // onet_occupations（#226 O*NET 职业库：离线导入的只读参考数据）
   getOnetOccupations(): OnetOccupationRow[] {
     return this.db.prepare("SELECT * FROM onet_occupations ORDER BY code").all() as OnetOccupationRow[];
+  }
+
+  // 教师端测评统计（#229）：只数数，完成率/排序/标签交给 `assessment-stats.ts`，两适配器不重复口径
+  getAssessmentStats(assessmentId: number, classIds: number[] | null): AssessmentStatsRaw {
+    if (classIds !== null && classIds.length === 0) {
+      return { classes: [], types: [], codes: [], total: { enrolled: 0, assessed: 0, last_completed_at: null } };
+    }
+    const inClause = classIds === null ? "" : ` AND u.class_id IN (${classIds.map(() => "?").join(",")})`;
+    const params = classIds ?? [];
+    // 完成/当前有效的结果，且必须是学生账号（教师/管理员本人作答不计入班级完成度）
+    const resultWhere = `r.assessment_id = ? AND r.status = 'completed' AND r.is_current = 1 AND u.role = 'student'${inClause}`;
+
+    const classRows = (
+      classIds === null
+        ? this.db
+            .prepare(
+              `SELECT c.id AS class_id, c.name AS name, COUNT(u.id) AS enrolled
+               FROM classes c LEFT JOIN users u ON u.class_id = c.id AND u.role = 'student'
+               GROUP BY c.id, c.name`
+            )
+            .all()
+        : this.db
+            .prepare(
+              `SELECT c.id AS class_id, c.name AS name, COUNT(u.id) AS enrolled
+               FROM classes c LEFT JOIN users u ON u.class_id = c.id AND u.role = 'student'
+               WHERE c.id IN (${classIds.map(() => "?").join(",")})
+               GROUP BY c.id, c.name`
+            )
+            .all(...classIds)
+    ) as { class_id: number; name: string; enrolled: number }[];
+
+    const assessedRows = this.db
+      .prepare(
+        `SELECT u.class_id AS class_id, COUNT(DISTINCT r.user_id) AS assessed
+         FROM assessment_results r JOIN users u ON u.id = r.user_id
+         WHERE ${resultWhere} AND u.class_id IS NOT NULL
+         GROUP BY u.class_id`
+      )
+      .all(assessmentId, ...params) as { class_id: number; assessed: number }[];
+    const assessedByClass = new Map(assessedRows.map((row) => [row.class_id, Number(row.assessed)]));
+
+    const typeRows = this.db
+      .prepare(
+        `SELECT SUBSTR(r.type_code, 1, 1) AS key, COUNT(*) AS count
+         FROM assessment_results r JOIN users u ON u.id = r.user_id
+         WHERE ${resultWhere} AND r.type_code IS NOT NULL AND TRIM(r.type_code) <> ''
+         GROUP BY SUBSTR(r.type_code, 1, 1)`
+      )
+      .all(assessmentId, ...params) as { key: string; count: number }[];
+
+    const codeRows = this.db
+      .prepare(
+        `SELECT r.type_code AS code, COUNT(*) AS count
+         FROM assessment_results r JOIN users u ON u.id = r.user_id
+         WHERE ${resultWhere} AND r.type_code IS NOT NULL AND TRIM(r.type_code) <> ''
+         GROUP BY r.type_code`
+      )
+      .all(assessmentId, ...params) as { code: string; count: number }[];
+
+    const totalParams = classIds === null ? [] : classIds;
+    const { c: enrolled } = this.db
+      .prepare(
+        `SELECT COUNT(*) AS c FROM users WHERE role = 'student'${classIds === null ? "" : ` AND class_id IN (${classIds.map(() => "?").join(",")})`}`
+      )
+      .get(...totalParams) as { c: number };
+    const { c: assessed, last } = this.db
+      .prepare(
+        `SELECT COUNT(DISTINCT r.user_id) AS c, MAX(r.completed_at) AS last
+         FROM assessment_results r JOIN users u ON u.id = r.user_id
+         WHERE ${resultWhere}`
+      )
+      .get(assessmentId, ...params) as { c: number; last: string | null };
+
+    return {
+      classes: classRows.map((row) => ({
+        class_id: row.class_id,
+        name: row.name,
+        enrolled: Number(row.enrolled),
+        assessed: assessedByClass.get(row.class_id) ?? 0,
+      })),
+      types: typeRows.map((row) => ({ key: String(row.key), count: Number(row.count) })),
+      codes: codeRows.map((row) => ({ code: String(row.code), count: Number(row.count) })),
+      total: { enrolled: Number(enrolled), assessed: Number(assessed), last_completed_at: last ?? null },
+    };
+  }
+
+  getAssessmentRoster(
+    assessmentId: number,
+    classIds: number[] | null,
+    filters: { classId?: number | null; lead?: string | null } = {}
+  ): AssessmentRosterRow[] {
+    if (classIds !== null && classIds.length === 0) return [];
+    const conditions = [
+      "r.assessment_id = ?",
+      "r.status = 'completed'",
+      "r.is_current = 1",
+      "u.role = 'student'",
+    ];
+    const params: (string | number)[] = [assessmentId];
+    if (classIds !== null) {
+      conditions.push(`u.class_id IN (${classIds.map(() => "?").join(",")})`);
+      params.push(...classIds);
+    }
+    if (filters.classId != null) {
+      conditions.push("u.class_id = ?");
+      params.push(filters.classId);
+    }
+    if (filters.lead) {
+      conditions.push("SUBSTR(r.type_code, 1, 1) = ?");
+      params.push(filters.lead);
+    }
+    // 班级名 + 学号排序：下钻列表要稳定（库内 collation 差异不影响，因为教师只按单班看）
+    return this.db
+      .prepare(
+        `SELECT u.class_id AS class_id, c.name AS class_name, u.name AS name, u.user_code AS user_code,
+                r.type_code AS code, r.completed_at AS assessed_at
+         FROM assessment_results r
+         JOIN users u ON u.id = r.user_id
+         LEFT JOIN classes c ON c.id = u.class_id
+         WHERE ${conditions.join(" AND ")}
+         ORDER BY COALESCE(c.name, ''), u.user_code`
+      )
+      .all(...params) as AssessmentRosterRow[];
   }
 
   backup(): BackupData {

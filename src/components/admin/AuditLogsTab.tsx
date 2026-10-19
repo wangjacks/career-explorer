@@ -46,6 +46,7 @@ const ACTIONS = [
   "media:query", "media:config-update", "media:cleanup", "media:thumbnail-backfill",
   "upload:rejected", "upload:failed",
   "group:generate", "group:move", "group:create", "group:delete", "group:import", "group:export",
+  "assessment:answer", "assessment:submit", "assessment:results", "assessment:roster",
   "audit:query",
 ];
 
@@ -53,7 +54,7 @@ const RESOURCE_TYPES = [
   "session", "student", "teacher", "class", "tag",
   "db-config", "profile-config", "profile", "profile-submission", "media", "upload",
   "group", "group-batch",
-  "export", "backup", "db", "audit-log",
+  "export", "backup", "db", "audit-log", "assessment",
 ];
 
 const ROLE_LABELS: Record<string, string> = {

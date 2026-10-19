@@ -9,7 +9,9 @@ const TEACHER_ALLOWED: { prefix: string; methods: "all" | string[] }[] = [
   // #171：预设标签与档案功能设置全站生效，教师只读，写入只归管理员
   { prefix: "/api/manage/tags", methods: ["GET"] },
   { prefix: "/api/manage/export", methods: "all" }, // startsWith 覆盖 export-images
-  { prefix: "/api/manage/stats", methods: ["GET"] },
+  { prefix: "/api/manage/stats", methods: ["GET"] }, // startsWith 覆盖 stats/assessment（#229 聚合，学生不可见）
+  // #229 测评名册：含姓名/学号，前缀整体放行后由路由按 teacher_classes 收窄到归属班级，并每次读取记审计
+  { prefix: "/api/manage/assessment", methods: ["GET"] },
   { prefix: "/api/manage/profiles", methods: ["GET", "DELETE"] },
   { prefix: "/api/manage/profile-config", methods: ["GET"] },
   { prefix: "/api/manage/audit-logs", methods: ["GET"] }, // #110：教师仅可查询本人记录，路由内强制 actor_id = 本人
