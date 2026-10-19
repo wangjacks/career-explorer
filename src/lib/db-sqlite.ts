@@ -45,6 +45,7 @@ import type {
   AssessmentRow,
   AssessmentQuestionRow,
   AssessmentResultRow,
+  AssessmentResultSummary,
   CompleteAssessmentInput,
   OnetOccupationRow,
   AssessmentStatsRaw,
@@ -1860,6 +1861,31 @@ export class SqliteAdapter implements DbAdapter {
          ORDER BY completed_at DESC, id DESC`
       )
       .all(userId, assessmentId) as AssessmentResultRow[];
+  }
+
+  getCurrentAssessmentResultsByUserCodes(
+    assessmentId: number,
+    userCodes: string[]
+  ): AssessmentResultSummary[] {
+    if (userCodes.length === 0) return [];
+    const rows: AssessmentResultSummary[] = [];
+    for (const chunk of chunkArray([...new Set(userCodes)])) {
+      const placeholders = chunk.map(() => "?").join(",");
+      // 只需要导出用的四列：不取作答内容，也不取整行（#233）
+      rows.push(
+        ...(this.db
+          .prepare(
+            `SELECT u.user_code AS user_code, r.type_code AS type_code,
+                    r.scores_json AS scores_json, r.completed_at AS completed_at
+             FROM assessment_results r
+             JOIN users u ON u.id = r.user_id
+             WHERE r.assessment_id = ? AND r.status = 'completed' AND r.is_current = 1
+               AND u.role = 'student' AND u.user_code IN (${placeholders})`
+          )
+          .all(assessmentId, ...chunk) as AssessmentResultSummary[])
+      );
+    }
+    return rows;
   }
 
   // onet_occupations（#226 O*NET 职业库：离线导入的只读参考数据）

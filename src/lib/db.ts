@@ -372,6 +372,19 @@ export interface AssessmentResultRow {
   completed_at: string | null;
 }
 
+/**
+ * 教师导出用的**当前测评结果轻量快照**（#233）：一个班一次批查，不逐学生查库。
+ *
+ * 只带导出需要的四列（学号 / 三字码 / 维度分快照 / 完成时间），不含作答内容——导出列没有
+ * 「逐题作答」，少取一列就少一份个人数据的搬运面。
+ */
+export interface AssessmentResultSummary {
+  user_code: string;
+  type_code: string | null;
+  scores_json: string | null;
+  completed_at: string | null;
+}
+
 /** completeAssessmentResult 入参（计分由调用方用计分引擎算好再落库，数据层不重复实现算法） */
 export interface CompleteAssessmentInput {
   userId: number;
@@ -766,6 +779,14 @@ export interface DbAdapter {
   ): Promise<AssessmentResultRow | undefined> | AssessmentResultRow | undefined;
   /** 完成记录历史（新→旧，不含草稿），供结果页回看与版本对比 */
   getAssessmentResults(userId: number, assessmentId: number): Promise<AssessmentResultRow[]> | AssessmentResultRow[];
+  /**
+   * 按学号集合批量取「当前有效完成结果」的轻量快照（#233 教师导出）：
+   * 一个班一次查询（适配器内部分块），未测评的学号不会出现在结果里，由调用方按缺失留空。
+   */
+  getCurrentAssessmentResultsByUserCodes(
+    assessmentId: number,
+    userCodes: string[]
+  ): Promise<AssessmentResultSummary[]> | AssessmentResultSummary[];
 
   // onet_occupations（#226 O*NET 职业库：离线导入的只读参考数据）
   /** 全部职业（按 code 升序）。匹配在内存里做（余弦），一次读全量比逐条查省事且结果稳定 */
@@ -1369,6 +1390,15 @@ export async function getAssessmentResults(
 ): Promise<AssessmentResultRow[]> {
   const adapter = await ensureInit();
   return Promise.resolve(adapter.getAssessmentResults(userId, assessmentId));
+}
+
+/** 按学号集合批量取当前测评结果快照（#233 教师导出：一个班一次查询） */
+export async function getCurrentAssessmentResultsByUserCodes(
+  assessmentId: number,
+  userCodes: string[]
+): Promise<AssessmentResultSummary[]> {
+  const adapter = await ensureInit();
+  return Promise.resolve(adapter.getCurrentAssessmentResultsByUserCodes(assessmentId, userCodes));
 }
 
 /** #226：O*NET 职业库全量（按 code 升序），推荐接口在内存里做余弦匹配 */
