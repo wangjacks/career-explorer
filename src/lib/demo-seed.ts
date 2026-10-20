@@ -32,6 +32,7 @@ import {
   getDefaultStorageBackend,
   submitProfileWithVersion,
   completeAssessmentResult,
+  upsertAssessmentDraft,
   applyGroupingResult,
   getAssessmentByCode,
   type UserRow,
@@ -52,6 +53,8 @@ export interface DemoSeedOptions {
   submitRate?: number;
   /** 提交者中完成测评的比例（默认 0.75） */
   assessmentRate?: number;
+  /** 被选中的测评里「进行中草稿」占比（默认 0.25，其余为已完成并计分） */
+  draftShare?: number;
   /** 提交时间散布的天数窗口（默认 30） */
   recentDays?: number;
   /** 预设标签叶子名快照（必填；lifecycle 在演示作用域内取 getActiveTags 过滤 type==="tag" 传入） */
@@ -59,10 +62,13 @@ export interface DemoSeedOptions {
 }
 
 export interface DemoSeedAssessment {
+  /** completed：全题作答 + 计分落库；draft：合法前缀部分答案的进行中草稿 */
+  kind: "completed" | "draft";
   answers: Record<number, number>;
-  /** 计分引擎结果整体序列化，写 assessment_results.scores_json */
-  scoresJson: string;
-  typeCode: string;
+  /** 仅 completed：计分引擎结果整体序列化，写 assessment_results.scores_json */
+  scoresJson?: string;
+  /** 仅 completed：三字码 */
+  typeCode?: string;
 }
 
 export interface DemoSeedStudent {
@@ -120,19 +126,28 @@ function demoInviteCode(rng: Rng, len = 8): string {
   return s;
 }
 
-/** 生成一份有效 RIASEC 作答（全题作答 → complete），向目标三字码加权，产出计分结果 */
-function buildAssessment(rng: Rng): DemoSeedAssessment {
+/**
+ * 生成一份合法 RIASEC 作答。completed 全题作答并用真实计分引擎出码；
+ * draft 只答连续前缀若干题（未完整、无结果），代表测评中心「进行中」可续答的草稿。
+ */
+function buildAssessment(rng: Rng, kind: "completed" | "draft"): DemoSeedAssessment {
   const keys = RIASEC_DIMENSIONS.map((d) => d.key);
   const targetSet = new Set(shuffled(keys, rng).slice(0, 3));
+  const total = RIASEC_QUESTIONS.length;
+  const answeredCount = kind === "completed" ? total : randInt(rng, 3, Math.max(3, total - 3));
   const answers: Record<number, number> = {};
-  for (const q of RIASEC_QUESTIONS) {
+  for (let i = 0; i < answeredCount; i++) {
+    const q = RIASEC_QUESTIONS[i];
     // 目标维度答 4–5（偏同意），其余 1–3（偏不同意），使三字码稳定落向目标
     answers[q.index] = targetSet.has(q.dimension) ? randInt(rng, 4, 5) : randInt(rng, 1, 3);
   }
+  if (kind === "draft") return { kind, answers };
+
   const result = scoreAssessment(RIASEC_DIMENSIONS, RIASEC_QUESTIONS as QuestionConfig[], answers, {
     mode: "typological",
   });
   return {
+    kind: "completed",
     answers,
     scoresJson: JSON.stringify(result.scores),
     typeCode: result.code ?? "",
@@ -161,6 +176,7 @@ export function planDemoSeed(seed: number, opts: DemoSeedOptions): DemoSeedPlan 
   const studentCount = opts.studentCount ?? 20;
   const submitRate = opts.submitRate ?? 0.8;
   const assessmentRate = opts.assessmentRate ?? 0.75;
+  const draftShare = opts.draftShare ?? 0.25;
   const recentDays = opts.recentDays ?? 30;
   const tagPool = opts.tagNames.filter(Boolean);
 
@@ -204,7 +220,7 @@ export function planDemoSeed(seed: number, opts: DemoSeedOptions): DemoSeedPlan 
       submit: true,
       avatar: rng() < 0.8,
       evaluation: rng() < 0.5,
-      assessment: rng() < assessmentRate ? buildAssessment(rng) : null,
+      assessment: rng() < assessmentRate ? buildAssessment(rng, rng() < draftShare ? "draft" : "completed") : null,
       submittedOffsetDays: randInt(rng, 0, recentDays),
     };
   });
@@ -262,6 +278,7 @@ export interface DemoSeedDeps {
     submittedAt?: string
   ): Promise<{ version: number }>;
   completeAssessmentResult(input: CompleteAssessmentInput): Promise<number>;
+  upsertAssessmentDraft(userId: number, assessmentId: number, answersJson: string): Promise<number>;
   applyGroupingResult(classId: number, groups: ClassGroupingInput[], batch: NewGroupBatchInput): Promise<number>;
   getAssessmentByCode(code: string): Promise<AssessmentRow | undefined>;
   renderImage(kind: DemoImageKind, seedKey: string): Promise<Buffer>;
@@ -274,6 +291,7 @@ export interface DemoSeedReport {
   students: number;
   submitted: number;
   assessed: number;
+  drafts: number;
   groups: number;
   images: number;
 }
@@ -314,6 +332,7 @@ export async function materializeDemoSeed(
   const idByTemp = new Map<number, number>();
   let submitted = 0;
   let assessed = 0;
+  let drafts = 0;
   let images = 0;
 
   for (const s of plan.students) {
@@ -359,14 +378,21 @@ export async function materializeDemoSeed(
     submitted++;
 
     if (s.assessment && assessment) {
-      await deps.completeAssessmentResult({
-        userId: realId,
-        assessmentId: assessment.id,
-        answersJson: JSON.stringify(s.assessment.answers),
-        scoresJson: s.assessment.scoresJson,
-        typeCode: s.assessment.typeCode,
-      });
-      assessed++;
+      const answersJson = JSON.stringify(s.assessment.answers);
+      if (s.assessment.kind === "draft") {
+        // 进行中草稿：只落前缀答案、无结果；可被 /api/shared/assessment/answer 续答并最终计分
+        await deps.upsertAssessmentDraft(realId, assessment.id, answersJson);
+        drafts++;
+      } else {
+        await deps.completeAssessmentResult({
+          userId: realId,
+          assessmentId: assessment.id,
+          answersJson,
+          scoresJson: s.assessment.scoresJson ?? null,
+          typeCode: s.assessment.typeCode ?? null,
+        });
+        assessed++;
+      }
     }
   }
 
@@ -402,6 +428,7 @@ export async function materializeDemoSeed(
     students: plan.students.length,
     submitted,
     assessed,
+    drafts,
     groups: plan.grouping.groups.length,
     images,
   };
@@ -416,6 +443,7 @@ export const defaultDemoSeedDeps: DemoSeedDeps = {
   getStorage,
   submitProfileWithVersion,
   completeAssessmentResult,
+  upsertAssessmentDraft,
   applyGroupingResult,
   getAssessmentByCode,
   renderImage: renderDemoImage,

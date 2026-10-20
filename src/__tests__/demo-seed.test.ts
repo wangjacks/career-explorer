@@ -50,17 +50,32 @@ describe("演示播种纯规划器（#253）", () => {
     expect(distinct).toBeLessThan(tagSets.length); // 有聚类（人设复用）
   });
 
-  it("测评答案完整、三字码合法、计分结果可反序列化", () => {
-    const p = plan(5);
-    const withAssess = p.students.filter((s) => s.assessment);
-    expect(withAssess.length).toBeGreaterThan(0);
-    for (const s of withAssess) {
+  it("completed 测评：全题作答、三字码合法、计分结果可反序列化", () => {
+    const p = planDemoSeed(5, { tagNames: TAG_POOL, draftShare: 0 });
+    const completed = p.students.filter((s) => s.assessment?.kind === "completed");
+    expect(completed.length).toBeGreaterThan(0);
+    for (const s of completed) {
       const a = s.assessment!;
-      expect(Object.keys(a.answers).length).toBe(30); // RIASEC 全题作答
+      expect(Object.keys(a.answers)).toHaveLength(30); // RIASEC 全题作答
       for (const v of Object.values(a.answers)) expect(v).toBeGreaterThanOrEqual(1);
       for (const v of Object.values(a.answers)) expect(v).toBeLessThanOrEqual(5);
       expect(a.typeCode).toMatch(/^[RIASEC]{3}$/);
-      expect(JSON.parse(a.scoresJson)).toBeInstanceOf(Array);
+      expect(JSON.parse(a.scoresJson!)).toBeInstanceOf(Array);
+    }
+  });
+
+  it("draft 测评：连续前缀部分答案、无计分结果（可续答）", () => {
+    const p = planDemoSeed(5, { tagNames: TAG_POOL, draftShare: 1 });
+    const drafts = p.students.filter((s) => s.assessment?.kind === "draft");
+    expect(drafts.length).toBeGreaterThan(0);
+    for (const s of drafts) {
+      const a = s.assessment!;
+      expect(a.scoresJson).toBeUndefined();
+      expect(a.typeCode).toBeUndefined();
+      const n = Object.keys(a.answers).length;
+      expect(n).toBeGreaterThanOrEqual(3);
+      expect(n).toBeLessThan(30); // 未完整
+      for (const v of Object.values(a.answers)) expect(v).toBeGreaterThanOrEqual(1);
     }
   });
 
@@ -84,6 +99,7 @@ describe("物化器：tempId→真实 id 重映射 + 调用序列（#253，fake 
     const created: { user_code: string; role: string; class_id: number | null }[] = [];
     const submissions: { userCode: string; submittedAt: string | undefined }[] = [];
     const assessments: number[] = [];
+    const draftIds: number[] = [];
     const uploads: string[] = [];
     const grouping: { groups: number[][]; memberIds: number[] } = { groups: [], memberIds: [] };
     const teacherLinks: [number, number][] = [];
@@ -114,6 +130,10 @@ describe("物化器：tempId→真实 id 重映射 + 调用序列（#253，fake 
         assessments.push(input.userId);
         return 1;
       },
+      upsertAssessmentDraft: async (userId) => {
+        draftIds.push(userId);
+        return 1;
+      },
       applyGroupingResult: async (_classId, groups, batch) => {
         grouping.groups = groups.map((g) => g.user_ids);
         grouping.memberIds = batch.groups.flatMap((g) => g.members.map((m) => m.userId));
@@ -124,7 +144,7 @@ describe("物化器：tempId→真实 id 重映射 + 调用序列（#253，fake 
       demoPasswordHash: async () => "hashed",
       makeThumbnail: async () => Buffer.from("thumb"),
     };
-    return { deps, created, submissions, assessments, uploads, grouping, teacherLinks };
+    return { deps, created, submissions, assessments, draftIds, uploads, grouping, teacherLinks };
   }
 
   it("建班→配对教师→建学生→提交→测评→分组，且分组引用映射到真实 id", async () => {
@@ -137,13 +157,18 @@ describe("物化器：tempId→真实 id 重映射 + 调用序列（#253，fake 
     expect(r.created.filter((c) => c.role === "student")).toHaveLength(20);
     expect(r.teacherLinks).toEqual([[1001, 77]]); // 首个 createAccount=教师 1001，班 77
 
-    // 提交与测评数与 plan 对齐
+    // 提交数、完成测评数、草稿数各自与 plan 对齐（completed→completeAssessmentResult，draft→upsertAssessmentDraft）
     const expectSubmitted = p.students.filter((s) => s.submit).length;
-    const expectAssessed = p.students.filter((s) => s.assessment).length;
+    const expectCompleted = p.students.filter((s) => s.assessment?.kind === "completed").length;
+    const expectDrafts = p.students.filter((s) => s.assessment?.kind === "draft").length;
     expect(report.submitted).toBe(expectSubmitted);
     expect(r.submissions).toHaveLength(expectSubmitted);
-    expect(report.assessed).toBe(expectAssessed);
-    expect(r.assessments).toHaveLength(expectAssessed);
+    expect(report.assessed).toBe(expectCompleted);
+    expect(r.assessments).toHaveLength(expectCompleted);
+    expect(report.drafts).toBe(expectDrafts);
+    expect(r.draftIds).toHaveLength(expectDrafts);
+    // 一人只产其一（完成与草稿互斥）
+    expect(r.assessments.length + r.draftIds.length).toBe(p.students.filter((s) => s.assessment).length);
 
     // 提交时间已回填为 YYYY-MM-DD HH:mm:ss（与 getNow 同格式）
     for (const s of r.submissions) expect(s.submittedAt).toMatch(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/);

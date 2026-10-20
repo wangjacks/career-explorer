@@ -58,6 +58,10 @@ describe("演示库生命周期：init / reset / status（#253，真临时演示
     expect(report.submitted).toBeGreaterThan(10);
     expect(report.groups).toBeGreaterThan(0);
     expect(report.images).toBeGreaterThan(0);
+    // 测评含完成与草稿两类，均只落在提交者中
+    expect(report.assessed).toBeGreaterThan(0);
+    expect(report.drafts).toBeGreaterThanOrEqual(0);
+    expect(report.assessed + report.drafts).toBeLessThanOrEqual(report.submitted);
 
     // 数据确实落库（演示作用域内查询）
     const students = await runInDemoScope(() => getStudents());
