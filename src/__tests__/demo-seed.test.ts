@@ -1,8 +1,12 @@
 import { describe, it, expect } from "vitest";
 import { planDemoSeed, materializeDemoSeed, type DemoSeedDeps } from "@/lib/demo-seed";
 import { GROUP_SIZE_CAP } from "@/lib/grouping-utils";
+import { RIASEC_QUESTIONS } from "@/lib/assessment-data";
 import type { StorageAdapter } from "@/lib/storage";
 import type { AssessmentRow, StorageBackendRow } from "@/lib/db";
+
+// 题库为 120 题（#281）；断言按长度而非硬编码题数，避免量表扩充时测试脆断
+const TOTAL_Q = RIASEC_QUESTIONS.length;
 
 const TAG_POOL = [
   "阅读", "编程", "音乐", "运动", "绘画", "科学", "旅行", "摄影",
@@ -56,7 +60,7 @@ describe("演示播种纯规划器（#253）", () => {
     expect(completed.length).toBeGreaterThan(0);
     for (const s of completed) {
       const a = s.assessment!;
-      expect(Object.keys(a.answers)).toHaveLength(30); // RIASEC 全题作答
+      expect(Object.keys(a.answers)).toHaveLength(TOTAL_Q); // 全题作答
       for (const v of Object.values(a.answers)) expect(v).toBeGreaterThanOrEqual(1);
       for (const v of Object.values(a.answers)) expect(v).toBeLessThanOrEqual(5);
       expect(a.typeCode).toMatch(/^[RIASEC]{3}$/);
@@ -74,7 +78,7 @@ describe("演示播种纯规划器（#253）", () => {
       expect(a.typeCode).toBeUndefined();
       const n = Object.keys(a.answers).length;
       expect(n).toBeGreaterThanOrEqual(3);
-      expect(n).toBeLessThan(30); // 未完整
+      expect(n).toBeLessThan(TOTAL_Q); // 未完整（前缀草稿）
       for (const v of Object.values(a.answers)) expect(v).toBeGreaterThanOrEqual(1);
     }
   });
