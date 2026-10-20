@@ -20,8 +20,9 @@ import {
   buildGrouping,
 } from "./grouping-utils";
 import { buildFeatureVectors, describeSources } from "./grouping-features";
-import { RIASEC_CODE, RIASEC_DIMENSIONS, RIASEC_QUESTIONS } from "./assessment-data";
+import { RIASEC_ASSESSMENT, RIASEC_CODE, RIASEC_DIMENSIONS, RIASEC_QUESTIONS } from "./assessment-data";
 import { scoreAssessment, type QuestionConfig } from "./assessment-scoring";
+import { buildItemsSnapshot, drawItems, poolFingerprint } from "./assessment-sampling";
 import { generateObjectKey, getStorage, type StorageAdapter } from "./storage";
 import { createThumbnail } from "./thumbnail";
 import { getThumbnailKey } from "./thumbnail-utils";
@@ -62,9 +63,11 @@ export interface DemoSeedOptions {
 }
 
 export interface DemoSeedAssessment {
-  /** completed：全题作答 + 计分落库；draft：合法前缀部分答案的进行中草稿 */
+  /** completed：本轮全答 + 计分落库；draft：本轮呈现顺序前缀部分答案的进行中草稿 */
   kind: "completed" | "draft";
   answers: Record<number, number>;
+  /** 本轮抽题快照（#282）：演示数据与真实施测同口径，否则教师端题量与真实学生不一致 */
+  itemsJson: string;
   /** 仅 completed：计分引擎结果整体序列化，写 assessment_results.scores_json */
   scoresJson?: string;
   /** 仅 completed：三字码 */
@@ -127,28 +130,60 @@ function demoInviteCode(rng: Rng, len = 8): string {
 }
 
 /**
- * 生成一份合法 RIASEC 作答。completed 全题作答并用真实计分引擎出码；
- * draft 只答连续前缀若干题（未完整、无结果），代表测评中心「进行中」可续答的草稿。
+ * 演示班级的一份卷子（#282）：走生产同一个抽样器。
+ * 演示数据若按整库 120 题落库，教师端与「我的测评」看到的题量就和真实学生（每次 30 题）不一致，
+ * 也演示不出轮换与平行卷，所以这里必须抽 30 题并带快照。
+ */
+const DEMO_ROUND_SIZE = RIASEC_ASSESSMENT.itemsPerAttempt;
+/** 种子阶段所有题 `version = 1`，该指纹与适配器播种后 `loadAttemptContext` 算出的同值 */
+const DEMO_POOL_FINGERPRINT = poolFingerprint(
+  RIASEC_QUESTIONS.map((question) => ({ index: question.index, version: 1 })),
+  RIASEC_ASSESSMENT.scaleVersion
+);
+const DEMO_POOL = RIASEC_QUESTIONS.map((question) => ({
+  index: question.index,
+  dimension: question.dimension,
+  origin: question.origin,
+}));
+
+/** 本轮题号（呈现顺序）；`itemsPerAttempt = 0` 的量表按整库一轮处理 */
+function demoRoundIndexes(rng: Rng): number[] {
+  if (DEMO_ROUND_SIZE <= 0) return RIASEC_QUESTIONS.map((question) => question.index);
+  return drawItems({
+    items: DEMO_POOL,
+    dimensions: RIASEC_DIMENSIONS,
+    perDimension: Math.floor(DEMO_ROUND_SIZE / RIASEC_DIMENSIONS.length),
+    rng,
+  }).indexes;
+}
+
+/**
+ * 生成一份合法 RIASEC 作答。completed 把本轮卷子答满并用真实计分引擎出码；
+ * draft 只答本轮呈现顺序的前若干题（未完整、无结果），代表测评中心「进行中」可续答的草稿。
  */
 function buildAssessment(rng: Rng, kind: "completed" | "draft"): DemoSeedAssessment {
   const keys = RIASEC_DIMENSIONS.map((d) => d.key);
   const targetSet = new Set(shuffled(keys, rng).slice(0, 3));
-  const total = RIASEC_QUESTIONS.length;
-  const answeredCount = kind === "completed" ? total : randInt(rng, 3, Math.max(3, total - 3));
+  const roundIndexes = demoRoundIndexes(rng);
+  const byIndex = new Map(RIASEC_QUESTIONS.map((question) => [question.index, question]));
+  const roundQuestions = roundIndexes.map((index) => byIndex.get(index)!);
+  const answeredCount =
+    kind === "completed" ? roundQuestions.length : randInt(rng, 3, Math.max(3, roundQuestions.length - 1));
   const answers: Record<number, number> = {};
-  for (let i = 0; i < answeredCount; i++) {
-    const q = RIASEC_QUESTIONS[i];
+  for (const q of roundQuestions.slice(0, answeredCount)) {
     // 目标维度答 4–5（偏同意），其余 1–3（偏不同意），使三字码稳定落向目标
     answers[q.index] = targetSet.has(q.dimension) ? randInt(rng, 4, 5) : randInt(rng, 1, 3);
   }
-  if (kind === "draft") return { kind, answers };
+  const itemsJson = buildItemsSnapshot(roundIndexes, DEMO_POOL_FINGERPRINT);
+  if (kind === "draft") return { kind, answers, itemsJson };
 
-  const result = scoreAssessment(RIASEC_DIMENSIONS, RIASEC_QUESTIONS as QuestionConfig[], answers, {
+  const result = scoreAssessment(RIASEC_DIMENSIONS, roundQuestions as QuestionConfig[], answers, {
     mode: "typological",
   });
   return {
     kind: "completed",
     answers,
+    itemsJson,
     scoresJson: JSON.stringify(result.scores),
     typeCode: result.code ?? "",
   };
@@ -278,7 +313,12 @@ export interface DemoSeedDeps {
     submittedAt?: string
   ): Promise<{ version: number }>;
   completeAssessmentResult(input: CompleteAssessmentInput): Promise<number>;
-  upsertAssessmentDraft(userId: number, assessmentId: number, answersJson: string): Promise<number>;
+  upsertAssessmentDraft(
+    userId: number,
+    assessmentId: number,
+    answersJson: string,
+    itemsJson: string
+  ): Promise<number>;
   applyGroupingResult(classId: number, groups: ClassGroupingInput[], batch: NewGroupBatchInput): Promise<number>;
   getAssessmentByCode(code: string): Promise<AssessmentRow | undefined>;
   renderImage(kind: DemoImageKind, seedKey: string): Promise<Buffer>;
@@ -380,14 +420,15 @@ export async function materializeDemoSeed(
     if (s.assessment && assessment) {
       const answersJson = JSON.stringify(s.assessment.answers);
       if (s.assessment.kind === "draft") {
-        // 进行中草稿：只落前缀答案、无结果；可被 /api/shared/assessment/answer 续答并最终计分
-        await deps.upsertAssessmentDraft(realId, assessment.id, answersJson);
+        // 进行中草稿：本轮卷子的前缀答案 + 同一份抽题快照、无结果；可被 /api/shared/assessment/answer 续答并最终计分
+        await deps.upsertAssessmentDraft(realId, assessment.id, answersJson, s.assessment.itemsJson);
         drafts++;
       } else {
         await deps.completeAssessmentResult({
           userId: realId,
           assessmentId: assessment.id,
           answersJson,
+          itemsJson: s.assessment.itemsJson,
           scoresJson: s.assessment.scoresJson ?? null,
           typeCode: s.assessment.typeCode ?? null,
         });

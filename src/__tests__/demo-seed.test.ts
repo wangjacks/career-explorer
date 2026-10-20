@@ -1,12 +1,15 @@
 import { describe, it, expect } from "vitest";
 import { planDemoSeed, materializeDemoSeed, type DemoSeedDeps } from "@/lib/demo-seed";
 import { GROUP_SIZE_CAP } from "@/lib/grouping-utils";
-import { RIASEC_QUESTIONS } from "@/lib/assessment-data";
+import { RIASEC_ASSESSMENT, RIASEC_DIMENSIONS, RIASEC_QUESTIONS } from "@/lib/assessment-data";
+import { parseItemsSnapshot, planAttempt } from "@/lib/assessment-sampling";
 import type { StorageAdapter } from "@/lib/storage";
 import type { AssessmentRow, StorageBackendRow } from "@/lib/db";
 
 // 题库为 120 题（#281）；断言按长度而非硬编码题数，避免量表扩充时测试脆断
 const TOTAL_Q = RIASEC_QUESTIONS.length;
+// 每次作答量（#282）：抽题落地后演示数据也按本轮卷子落库，0 表示整库即一轮
+const ROUND_Q = RIASEC_ASSESSMENT.itemsPerAttempt > 0 ? RIASEC_ASSESSMENT.itemsPerAttempt : TOTAL_Q;
 
 const TAG_POOL = [
   "阅读", "编程", "音乐", "运动", "绘画", "科学", "旅行", "摄影",
@@ -54,13 +57,21 @@ describe("演示播种纯规划器（#253）", () => {
     expect(distinct).toBeLessThan(tagSets.length); // 有聚类（人设复用）
   });
 
-  it("completed 测评：全题作答、三字码合法、计分结果可反序列化", () => {
+  it("completed 测评：本轮卷子答满、快照形状合规、三字码合法、计分结果可反序列化", () => {
     const p = planDemoSeed(5, { tagNames: TAG_POOL, draftShare: 0 });
     const completed = p.students.filter((s) => s.assessment?.kind === "completed");
     expect(completed.length).toBeGreaterThan(0);
     for (const s of completed) {
       const a = s.assessment!;
-      expect(Object.keys(a.answers)).toHaveLength(TOTAL_Q); // 全题作答
+      const snapshot = parseItemsSnapshot(a.itemsJson);
+      expect(snapshot).not.toBeNull();
+      expect(snapshot!.indexes).toHaveLength(ROUND_Q);
+      expect(snapshot!.pool.length).toBeGreaterThan(0);
+      expect(snapshot!.indexes.every((index) => index >= 1 && index <= TOTAL_Q)).toBe(true);
+      expect(new Set(snapshot!.indexes).size).toBe(ROUND_Q);
+      expect(Object.keys(a.answers).map(Number).sort((x, y) => x - y)).toEqual(
+        [...snapshot!.indexes].sort((x, y) => x - y)
+      ); // 答满本轮
       for (const v of Object.values(a.answers)) expect(v).toBeGreaterThanOrEqual(1);
       for (const v of Object.values(a.answers)) expect(v).toBeLessThanOrEqual(5);
       expect(a.typeCode).toMatch(/^[RIASEC]{3}$/);
@@ -68,7 +79,7 @@ describe("演示播种纯规划器（#253）", () => {
     }
   });
 
-  it("draft 测评：连续前缀部分答案、无计分结果（可续答）", () => {
+  it("draft 测评：本轮卷子呈现顺序的前缀部分答案、无计分结果（可续答）", () => {
     const p = planDemoSeed(5, { tagNames: TAG_POOL, draftShare: 1 });
     const drafts = p.students.filter((s) => s.assessment?.kind === "draft");
     expect(drafts.length).toBeGreaterThan(0);
@@ -76,10 +87,59 @@ describe("演示播种纯规划器（#253）", () => {
       const a = s.assessment!;
       expect(a.scoresJson).toBeUndefined();
       expect(a.typeCode).toBeUndefined();
-      const n = Object.keys(a.answers).length;
-      expect(n).toBeGreaterThanOrEqual(3);
-      expect(n).toBeLessThan(TOTAL_Q); // 未完整（前缀草稿）
+      const indexes = parseItemsSnapshot(a.itemsJson)!.indexes;
+      expect(indexes).toHaveLength(ROUND_Q);
+      const answered = Object.keys(a.answers).map(Number);
+      expect(answered.length).toBeGreaterThanOrEqual(3);
+      expect(answered.length).toBeLessThan(ROUND_Q); // 未完整（本轮前缀草稿）
+      // 草稿的已答题必须是本轮卷子的前缀：续答时 /start 按快照走，不会判成换题
+      // （`Object.keys` 对数字键按升序枚举，所以两侧都排序后比集合）
+      expect([...answered].sort((x, y) => x - y)).toEqual(
+        [...indexes.slice(0, answered.length)].sort((x, y) => x - y)
+      );
       for (const v of Object.values(a.answers)) expect(v).toBeGreaterThanOrEqual(1);
+    }
+  });
+
+  it("抽题快照形状：每维度恰好 ROUND_Q / 维度数 题（演示数据不出现整维空题）", () => {
+    const p = planDemoSeed(5, { tagNames: TAG_POOL, draftShare: 0.5 });
+    const withAssessment = p.students.filter((s) => s.assessment);
+    expect(withAssessment.length).toBeGreaterThan(0);
+    const perDimension = ROUND_Q / RIASEC_DIMENSIONS.length;
+    const dimensionOf = new Map(RIASEC_QUESTIONS.map((q) => [q.index, q.dimension]));
+    for (const s of withAssessment) {
+      const indexes = parseItemsSnapshot(s.assessment!.itemsJson)!.indexes;
+      const counts = new Map<string, number>();
+      for (const index of indexes) counts.set(dimensionOf.get(index)!, (counts.get(dimensionOf.get(index)!) ?? 0) + 1);
+      expect([...counts.keys()].sort()).toEqual(RIASEC_DIMENSIONS.map((d) => d.key).sort());
+      for (const key of RIASEC_DIMENSIONS.map((d) => d.key)) expect(counts.get(key)).toBe(perDimension);
+    }
+  });
+
+  it("演示快照在真实抽题口径下有效：planAttempt 认这份快照，不走兼容路径也不降级", () => {
+    const p = planDemoSeed(5, { tagNames: TAG_POOL, draftShare: 0.5 });
+    const pool = RIASEC_QUESTIONS.map((q) => ({
+      index: q.index,
+      dimension: q.dimension,
+      origin: q.origin,
+      version: 1, // 适配器播种时 version 恒为 1
+    }));
+    for (const s of p.students.filter((x) => x.assessment)) {
+      const a = s.assessment!;
+      const plan = planAttempt({
+        pool,
+        dimensions: RIASEC_DIMENSIONS,
+        scaleVersion: RIASEC_ASSESSMENT.scaleVersion,
+        itemsPerAttempt: RIASEC_ASSESSMENT.itemsPerAttempt,
+        userId: s.tempId,
+        assessmentId: 1,
+        attemptNo: 1,
+        answeredIndexes: new Set(Object.keys(a.answers).map(Number)),
+        snapshotRaw: a.itemsJson,
+      });
+      expect(plan.warnings).toEqual([]);
+      // 快照路径原样返回题号：演示草稿被真人续答时不会换题，也不会被判成「在途无快照」
+      expect(plan.indexes).toEqual(parseItemsSnapshot(a.itemsJson)!.indexes);
     }
   });
 

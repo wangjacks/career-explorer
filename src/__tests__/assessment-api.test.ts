@@ -5,7 +5,7 @@ import path from "path";
 import Database from "better-sqlite3";
 import { NextRequest } from "next/server";
 
-/** 指向临时 SQLite：本文件走**真实数据层 + 真实计分引擎**，只把 db-config 里写死的库路径换掉 */
+/** 指向临时 SQLite：本文件走**真实数据层 + 真实计分引擎 + 真实抽题**，只把 db-config 里写死的库路径换掉 */
 const state = vi.hoisted(() => ({ dbPath: "" }));
 
 vi.mock("@/lib/db-config", () => ({
@@ -20,18 +20,30 @@ vi.mock("@/lib/db-config", () => ({
 }));
 
 import { signToken } from "@/lib/token";
-import { closeDb, insertUser, queryAuditLogs } from "@/lib/db";
-import { RIASEC_CODE, RIASEC_QUESTIONS } from "@/lib/assessment-data";
+import { closeDb, getAssessmentQuestionsByCode, insertUser, queryAuditLogs } from "@/lib/db";
+import {
+  RIASEC_ASSESSMENT,
+  RIASEC_CODE,
+  RIASEC_DIMENSIONS,
+  RIASEC_QUESTIONS,
+  NEAR_DUPLICATE_GROUPS,
+} from "@/lib/assessment-data";
 import { LIKERT_ANCHORS } from "@/lib/assessment-flow";
+import { parseItemsSnapshot } from "@/lib/assessment-sampling";
 import { GET as startGet } from "@/app/api/shared/assessment/start/route";
 import { POST as answerPost } from "@/app/api/shared/assessment/answer/route";
 import { POST as submitPost } from "@/app/api/shared/assessment/submit/route";
 import { GET as resultsGet } from "@/app/api/shared/assessment/results/route";
 
 const BASE = "http://localhost:3000";
-/** 题库总量与每维题数（#281 起 120 / 20） */
+/** 题库总量、每次作答题数与每维题数（#281 起 120 题库 / #282 每次 30 题），数字一律取自种子常量 */
 const BANK_SIZE = RIASEC_QUESTIONS.length;
-const PER_DIMENSION = BANK_SIZE / 6;
+const ROUND_SIZE = RIASEC_ASSESSMENT.itemsPerAttempt;
+const PER_DIMENSION = ROUND_SIZE / RIASEC_DIMENSIONS.length;
+const DIMENSION_KEYS = RIASEC_DIMENSIONS.map((d) => d.key);
+
+/** 题号 → 题库行，用于校验卷子的分层形状（维度、来源） */
+const bankByIndex = new Map(RIASEC_QUESTIONS.map((q) => [q.index, q]));
 
 function getRequest(pathname: string, token?: string): NextRequest {
   const headers: Record<string, string> = {};
@@ -45,16 +57,18 @@ function postRequest(pathname: string, body: unknown, token?: string): NextReque
   return new NextRequest(new URL(pathname, BASE), { method: "POST", headers, body: JSON.stringify(body) });
 }
 
-let tempDir = "";
-const users: Record<"A" | "B", { uid: number; token: string; code: string; name: string }> = {
-  A: { uid: 0, token: "", code: "202505050101", name: "张三" },
-  B: { uid: 0, token: "", code: "202505050102", name: "李四" },
-};
-let teacherToken = "";
+async function startBody(token: string) {
+  const res = await startGet(getRequest(`/api/shared/assessment/start?code=${RIASEC_CODE}`, token));
+  expect(res.status).toBe(200);
+  const body = await res.json();
+  /** 本轮题号，按呈现顺序 */
+  body.roundIndexes = (body.questions as { index: number }[]).map((q) => q.index);
+  return body;
+}
 
-/** 连续答一段题号（每题一次 answer 调用，与答题页行为一致） */
-async function answerRange(token: string, from: number, to: number, value: number) {
-  for (let index = from; index <= to; index += 1) {
+/** 按题号清单逐题作答（每题一次 answer 调用，与答题页行为一致） */
+async function answerAll(token: string, indexes: readonly number[], value: number) {
+  for (const index of indexes) {
     const res = await answerPost(
       postRequest("/api/shared/assessment/answer", { code: RIASEC_CODE, questionIndex: index, value }, token)
     );
@@ -62,15 +76,54 @@ async function answerRange(token: string, from: number, to: number, value: numbe
   }
 }
 
+/** 校验一张卷子的分层形状：每维固定题数、来源配比、近重复组同卷至多一题、不出现 3 连同维 */
+function expectPaperShape(indexes: readonly number[]) {
+  expect(indexes).toHaveLength(ROUND_SIZE);
+  expect(new Set(indexes).size).toBe(ROUND_SIZE);
+  expect(indexes.every((index) => bankByIndex.has(index))).toBe(true);
+
+  for (const key of DIMENSION_KEYS) {
+    const inDimension = indexes.filter((index) => bankByIndex.get(index)!.dimension === key);
+    expect(inDimension, `维度 ${key} 应有 ${PER_DIMENSION} 题`).toHaveLength(PER_DIMENSION);
+    // 每维官方题（Mini-IP + SF）2 或 3，原创题补足其余
+    const official = inDimension.filter((index) => bankByIndex.get(index)!.origin !== "cn-original").length;
+    expect(official).toBeGreaterThanOrEqual(2);
+    expect(official).toBeLessThanOrEqual(3);
+  }
+  for (const group of NEAR_DUPLICATE_GROUPS) {
+    expect(indexes.filter((index) => group.includes(index)).length, `近重复组 ${group.join("/")}`).toBeLessThanOrEqual(1);
+  }
+  let run = 1;
+  for (let i = 1; i < indexes.length; i += 1) {
+    run = bankByIndex.get(indexes[i])!.dimension === bankByIndex.get(indexes[i - 1])!.dimension ? run + 1 : 1;
+    expect(run, `第 ${i + 1} 题起出现同维度连抽`).toBeLessThanOrEqual(2);
+  }
+}
+
+let tempDir = "";
+const users: Record<
+  "A" | "B" | "C",
+  { uid: number; token: string; code: string; name: string }
+> = {
+  A: { uid: 0, token: "", code: "202505050101", name: "张三" },
+  B: { uid: 0, token: "", code: "202505050102", name: "李四" },
+  C: { uid: 0, token: "", code: "202505050103", name: "王五" },
+};
+let teacherToken = "";
+
+/** 学生 A 第一轮（本文件的主线）：题号清单在多个用例间传递 */
+let round1: number[] = [];
+
 beforeAll(async () => {
-  // #281：题库扩到 120，作答接口当前仍按「全库即本轮」下发（分层抽题在后续 Issue）
   tempDir = mkdtempSync(path.join(tmpdir(), "career-assessment-api-"));
   state.dbPath = path.join(tempDir, "test.db");
 
   users.A.uid = await insertUser({ user_code: users.A.code, role: "student", name: users.A.name });
   users.B.uid = await insertUser({ user_code: users.B.code, role: "student", name: users.B.name });
+  users.C.uid = await insertUser({ user_code: users.C.code, role: "student", name: users.C.name });
   users.A.token = await signToken({ role: "student", uid: users.A.uid, name: users.A.name });
   users.B.token = await signToken({ role: "student", uid: users.B.uid, name: users.B.name });
+  users.C.token = await signToken({ role: "student", uid: users.C.uid, name: users.C.name });
   teacherToken = await signToken({ role: "teacher", uid: 999, name: "王老师" });
 });
 
@@ -97,41 +150,38 @@ describe("鉴权（#223：路由自鉴权，只认会话本人）", () => {
   });
 });
 
-describe("进入答题页与草稿续答", () => {
-  it("下发全量 120 题、量表元信息与空进度；不暴露题目维度（避免暗示答案）", async () => {
-    const res = await startGet(getRequest(`/api/shared/assessment/start?code=${RIASEC_CODE}`, users.A.token));
-    expect(res.status).toBe(200);
-    const body = await res.json();
+describe("进入答题页：本轮 30 题的卷子（#282）", () => {
+  it("下发分层抽出的本轮题目 + 题库口径，不暴露维度，也不写任何库", async () => {
+    const body = await startBody(users.A.token);
+    round1 = body.roundIndexes;
 
-    expect(body.questions).toHaveLength(BANK_SIZE);
-    expect(body.questions.map((q: { index: number }) => q.index)).toEqual(
-      Array.from({ length: BANK_SIZE }, (_, i) => i + 1)
-    );
-    expect(body.questions[0]).toEqual({ index: 1, prompt: "动手制作厨房橱柜" });
+    expectPaperShape(round1);
+    expect(body.questions[0]).toEqual({ index: round1[0], prompt: bankByIndex.get(round1[0])!.prompt });
     expect(body.questions[0]).not.toHaveProperty("dimension");
-    expect(body.assessment.dimensions.map((d: { key: string }) => d.key)).toEqual(["R", "I", "A", "S", "E", "C"]);
+
+    expect(body.assessment.questionCount).toBe(ROUND_SIZE);
+    expect(body.assessment.poolSize).toBe(BANK_SIZE);
+    expect(body.assessment.itemsPerAttempt).toBe(ROUND_SIZE);
+    expect(body.assessment.dimensions.map((d: { key: string }) => d.key)).toEqual(DIMENSION_KEYS);
     expect(body.assessment.attribution).toContain("O*NET");
     expect(body.assessment.disclaimer).toContain("不作为心理诊断");
     expect(body.draft).toBeNull();
-    expect(body.progress).toEqual({ answered: 0, total: BANK_SIZE, percent: 0 });
-    expect(body.resumeIndex).toBe(1);
+    expect(body.progress).toEqual({ answered: 0, total: ROUND_SIZE, percent: 0 });
+    expect(body.resumeIndex).toBe(round1[0]);
+
+    // 只打开页面不建草稿（#223 不变量在抽题后仍成立）
+    const raw = new Database(state.dbPath);
+    expect((raw.prepare("SELECT COUNT(*) as c FROM assessment_results").get() as { c: number }).c).toBe(0);
+    raw.close();
   });
 
-  it("每题作答即落草稿：重复进入按上次题号续答", async () => {
-    const first = await answerPost(
-      postRequest("/api/shared/assessment/answer", { code: RIASEC_CODE, questionIndex: 1, value: 4 }, users.A.token)
-    );
-    expect(first.status).toBe(200);
-    expect(await first.json()).toMatchObject({ saved: true, progress: { answered: 1, total: BANK_SIZE }, nextIndex: 2 });
-
-    await answerRange(users.A.token, 2, 10, 3);
-
-    const resumed = await startGet(getRequest(`/api/shared/assessment/start?code=${RIASEC_CODE}`, users.A.token));
-    const body = await resumed.json();
-    expect(body.progress).toEqual({ answered: 10, total: BANK_SIZE, percent: 8 });
-    expect(body.resumeIndex).toBe(11);
-    expect(body.draft.answers["1"]).toBe(4);
-    expect(body.draft.answers["10"]).toBe(3);
+  it("确定性派生：同一轮反复进入得到同一张卷子", async () => {
+    const again = await startBody(users.A.token);
+    expect(again.roundIndexes).toEqual(round1);
+    // 不同学生的卷子各自派生（同 attemptNo 也不同种子），且都是合法的一张卷子
+    const bodyB = await startBody(users.B.token);
+    expectPaperShape(bodyB.roundIndexes);
+    expect(bodyB.progress).toEqual({ answered: 0, total: ROUND_SIZE, percent: 0 });
   });
 
   it("非法作答一律 400（题号 / 取值 / 题库外题号），未知量表 404", async () => {
@@ -139,7 +189,7 @@ describe("进入答题页与草稿续答", () => {
       { body: { code: RIASEC_CODE, questionIndex: 0, value: 4 }, status: 400 },
       { body: { code: RIASEC_CODE, questionIndex: 1, value: 6 }, status: 400 },
       { body: { code: RIASEC_CODE, questionIndex: 1, value: "4" }, status: 400 },
-      { body: { code: RIASEC_CODE, questionIndex: 121, value: 4 }, status: 400 },
+      { body: { code: RIASEC_CODE, questionIndex: BANK_SIZE + 1, value: 4 }, status: 400 },
       { body: { code: "unknown", questionIndex: 1, value: 4 }, status: 404 },
     ];
     for (const item of cases) {
@@ -147,31 +197,92 @@ describe("进入答题页与草稿续答", () => {
       expect(res.status).toBe(item.status);
     }
   });
+
+  it("题号在题库里但不在本轮卷子里 → 400，失败审计不落选项值", async () => {
+    const outside = Array.from({ length: BANK_SIZE }, (_, i) => i + 1).find((index) => !round1.includes(index))!;
+    const res = await answerPost(
+      postRequest("/api/shared/assessment/answer", { code: RIASEC_CODE, questionIndex: outside, value: 5 }, users.A.token)
+    );
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toContain("本轮");
+
+    const audit = await queryAuditLogs({ page: 1, pageSize: 20, action: "assessment:answer" });
+    const rejected = audit.rows.find((row) => row.status === "failed" && JSON.parse(row.metadata ?? "{}").reason === "question-not-in-round");
+    expect(rejected, "本轮外的作答应有 failed 审计").toBeDefined();
+    const metadata = JSON.parse(rejected!.metadata ?? "{}");
+    expect(metadata.questionIndex).toBe(outside);
+    expect(metadata).not.toHaveProperty("value");
+  });
 });
 
-describe("提交与结果落库", () => {
-  it("未答完 → 400 并回带缺失题号，且记失败审计", async () => {
+describe("草稿续答：快照即本轮口径", () => {
+  it("每题作答即落草稿并写抽题快照；重复进入按上次题号续答", async () => {
+    const first = await answerPost(
+      postRequest("/api/shared/assessment/answer", { code: RIASEC_CODE, questionIndex: round1[0], value: 4 }, users.A.token)
+    );
+    expect(first.status).toBe(200);
+    expect(await first.json()).toMatchObject({
+      saved: true,
+      progress: { answered: 1, total: ROUND_SIZE },
+      nextIndex: round1[1],
+    });
+
+    await answerAll(users.A.token, round1.slice(1, 10), 3);
+
+    const resumed = await startBody(users.A.token);
+    expect(resumed.roundIndexes).toEqual(round1); // 续答不换题
+    expect(resumed.progress).toEqual({ answered: 10, total: ROUND_SIZE, percent: 33 });
+    expect(resumed.resumeIndex).toBe(round1[10]);
+    expect(resumed.draft.answers[String(round1[0])]).toBe(4);
+    expect(resumed.draft.answers[String(round1[9])]).toBe(3);
+
+    // 草稿行带快照：题号即本轮呈现顺序
+    const raw = new Database(state.dbPath);
+    const draftRow = raw
+      .prepare("SELECT items_json FROM assessment_results WHERE user_id = ? AND draft_slot = 1")
+      .get(users.A.uid) as { items_json: string };
+    raw.close();
+    expect(parseItemsSnapshot(draftRow.items_json)!.indexes).toEqual(round1);
+  });
+
+  it("草稿进行中反复进入不推进轮次：attemptNo 只由完成记录数派生", async () => {
+    const before = await startBody(users.A.token);
+    const again = await startBody(users.A.token);
+    expect(again.roundIndexes).toEqual(before.roundIndexes);
+    expect(again.progress).toEqual(before.progress);
+
+    // 此刻 A 还没有任何完成记录，进行中的 10 次作答都记在第 1 轮
+    const audit = await queryAuditLogs({ page: 1, pageSize: 50, action: "assessment:answer" });
+    const successRows = audit.rows.filter((row) => row.status === "success");
+    expect(successRows.length).toBeGreaterThan(0);
+    expect(successRows.every((row) => JSON.parse(row.metadata ?? "{}").attemptNo === 1)).toBe(true);
+  });
+
+  it("未答完 → 400 并回带本轮缺失题号，且记失败审计", async () => {
     const res = await submitPost(postRequest("/api/shared/assessment/submit", { code: RIASEC_CODE }, users.A.token));
     expect(res.status).toBe(400);
     const body = await res.json();
     expect(body.error).toContain("未作答");
-    expect(body.missingIndexes).toHaveLength(BANK_SIZE - 10);
-    expect(body.missingIndexes[0]).toBe(11);
+    expect(body.missingIndexes).toEqual(round1.slice(10));
 
     const failed = await queryAuditLogs({ page: 1, pageSize: 20, action: "assessment:submit" });
     expect(failed.rows.some((row) => row.status === "failed")).toBe(true);
   });
+});
 
-  it("120 题全答后提交：三字码与引擎一致（全 4 分 → 六维 75 / RIA）", async () => {
-    // 统一覆盖成 4 分（上面的续答用例留了几道 3 分）：六维并列时按 R,I,A,S,E,C 破平
-    await answerRange(users.A.token, 1, BANK_SIZE, 4);
+describe("提交与结果落库", () => {
+  it("本轮 30 题全答后提交：每维 5 题口径与引擎一致（全 4 分 → 六维 75 / RIA）", async () => {
+    // 统一覆盖成 4 分：六维并列时按 R,I,A,S,E,C 破平
+    await answerAll(users.A.token, round1, 4);
     const res = await submitPost(postRequest("/api/shared/assessment/submit", { code: RIASEC_CODE }, users.A.token));
     expect(res.status).toBe(200);
     const body = await res.json();
 
     expect(body.result.typeCode).toBe("RIA");
-    expect(body.result.questionCount).toBe(BANK_SIZE);
-    expect(body.result.scores).toHaveLength(6);
+    expect(body.result.questionCount).toBe(ROUND_SIZE);
+    expect(body.result.poolSize).toBe(BANK_SIZE);
+    expect(body.result.attemptNo).toBe(1);
+    expect(body.result.scores).toHaveLength(DIMENSION_KEYS.length);
     expect(
       body.result.scores.every(
         (s: { standard: number; questionCount: number }) => s.standard === 75 && s.questionCount === PER_DIMENSION
@@ -181,69 +292,82 @@ describe("提交与结果落库", () => {
     expect(body.result.disclaimer).toContain("不作为心理诊断");
   });
 
-  it("结果查询：当前结果 + 历史版本 + 六维得分快照，并记读取审计", async () => {
+  it("结果查询：当前结果带当轮题量，历史与进度口径一致，并记读取审计", async () => {
     const res = await resultsGet(getRequest(`/api/shared/assessment/results?code=${RIASEC_CODE}`, users.A.token));
     expect(res.status).toBe(200);
     const body = await res.json();
 
     expect(body.current.typeCode).toBe("RIA");
     expect(body.current.isCurrent).toBe(true);
-    expect(body.current.scores.map((s: { key: string }) => s.key)).toEqual(["R", "I", "A", "S", "E", "C"]);
+    expect(body.current.questionCount).toBe(ROUND_SIZE);
+    expect(body.current.scores.map((s: { key: string }) => s.key)).toEqual(DIMENSION_KEYS);
     expect(body.history).toHaveLength(1);
     expect(body.history[0].id).toBe(body.current.id);
     expect(body.inProgress).toBeNull(); // 提交后草稿已转成完成记录
-    expect(body.assessment.attribution).toContain("O*NET");
-    // #222 测评中心据此决定给不给「开始 / 继续作答」入口
-    expect(body.assessment.enabled).toBe(true);
+    expect(body.assessment.enabled).toBe(true); // #222 测评中心据此给「开始 / 继续作答」入口
+    expect(body.assessment.questionCount).toBe(ROUND_SIZE);
+    expect(body.assessment.poolSize).toBe(BANK_SIZE);
 
     const audit = await queryAuditLogs({ page: 1, pageSize: 20, action: "assessment:results" });
     expect(audit.total).toBeGreaterThan(0);
     expect(JSON.parse(audit.rows[0].metadata ?? "{}")).toMatchObject({ hasCurrent: true });
   });
 
-  it("作答审计只记进度不记选项（选项是个人数据，不重复落审计表）", async () => {
+  it("作答审计只记进度与本轮口径不记选项（选项是个人数据，不重复落审计表）", async () => {
     const audit = await queryAuditLogs({ page: 1, pageSize: 50, action: "assessment:answer" });
     expect(audit.total).toBeGreaterThan(30);
-    // 成功与失败的行都不落选项值
     for (const row of audit.rows) {
       const metadata = JSON.parse(row.metadata ?? "{}");
       expect(metadata).not.toHaveProperty("value");
     }
-    const metadata = JSON.parse(audit.rows[0].metadata ?? "{}");
+    const success = audit.rows.find((row) => row.status === "success")!;
+    const metadata = JSON.parse(success.metadata ?? "{}");
     expect(metadata).toHaveProperty("answered");
-    expect(metadata).toHaveProperty("total");
+    expect(metadata).toHaveProperty("total", ROUND_SIZE);
+    expect(metadata).toHaveProperty("attemptNo", 1);
+    expect(metadata).toHaveProperty("pool");
     expect(audit.rows.every((row) => row.actor_user_code === users.A.code)).toBe(true);
   });
 });
 
-describe("重复测评：生成新版本而不丢历史", () => {
-  it("再答一轮并提交 → 新版本成为当前版本，旧版本保留为历史", async () => {
+describe("重复测评：换一张卷子而不丢历史", () => {
+  it("第二轮抽题排除第一轮用过的题号，提交后生成新版本且历史题量各自留档", async () => {
+    const start2 = await startBody(users.A.token);
+    const round2 = start2.roundIndexes;
+    expectPaperShape(round2);
+    expect(round2.filter((index: number) => round1.includes(index))).toEqual([]);
+    // 草稿已随提交转成完成记录，新一轮进入时进度归零
+    expect(start2.progress).toEqual({ answered: 0, total: ROUND_SIZE, percent: 0 });
+    expect(start2.draft).toBeNull();
+
     // 全部答 2 分：原始分 10 / 量程 5-25 → 标准分 25，六维并列仍按 R,I,A,S,E,C 破平
-    await answerRange(users.A.token, 1, BANK_SIZE, 2);
+    await answerAll(users.A.token, round2, 2);
     const res = await submitPost(postRequest("/api/shared/assessment/submit", { code: RIASEC_CODE }, users.A.token));
     expect(res.status).toBe(200);
     const submitted = await res.json();
     expect(submitted.result.typeCode).toBe("RIA");
+    expect(submitted.result.attemptNo).toBe(2);
     expect(submitted.result.scores.every((s: { standard: number }) => s.standard === 25)).toBe(true);
 
+    const body = await startBody(users.A.token);
     const results = await resultsGet(getRequest(`/api/shared/assessment/results?code=${RIASEC_CODE}`, users.A.token));
-    const body = await results.json();
-    expect(body.history).toHaveLength(2);
-    expect(body.history[0].id).toBe(body.current.id);
-    expect(body.history[0].isCurrent).toBe(true);
-    expect(body.history[1].isCurrent).toBe(false);
-    expect(body.history[1].completedAt).toBeTruthy(); // 旧版本快照仍在
-    expect(body.history[1].scores.every((s: { standard: number }) => s.standard === 75)).toBe(true);
+    const resultsBody = await results.json();
+    expect(resultsBody.history).toHaveLength(2);
+    expect(resultsBody.history[0].isCurrent).toBe(true);
+    expect(resultsBody.history[0].questionCount).toBe(ROUND_SIZE);
+    expect(resultsBody.history[1].isCurrent).toBe(false);
+    expect(resultsBody.history[1].scores.every((s: { standard: number }) => s.standard === 75)).toBe(true);
+    // 第三轮只保证不与第二轮重复（120 题库只够两轮完全互斥），可以回到第一轮的题
+    expectPaperShape(body.roundIndexes);
+    expect(body.roundIndexes.filter((index: number) => round2.includes(index))).toEqual([]);
   });
 });
 
 describe("学生之间互不可见", () => {
   it("B 的草稿与结果不受 A 影响；B 的读取不会带出 A 的数据", async () => {
-    const startB = await startGet(getRequest(`/api/shared/assessment/start?code=${RIASEC_CODE}`, users.B.token));
-    const startBody = await startB.json();
-    expect(startBody.draft).toBeNull();
-    expect(startBody.progress).toEqual({ answered: 0, total: BANK_SIZE, percent: 0 });
-    expect(startBody.resumeIndex).toBe(1);
+    const startBodyB = await startBody(users.B.token);
+    expect(startBodyB.draft).toBeNull();
+    expect(startBodyB.progress).toEqual({ answered: 0, total: ROUND_SIZE, percent: 0 });
 
     const resultsB = await resultsGet(getRequest(`/api/shared/assessment/results?code=${RIASEC_CODE}`, users.B.token));
     const resultsBody = await resultsB.json();
@@ -259,6 +383,44 @@ describe("学生之间互不可见", () => {
   });
 });
 
+describe("在途草稿兼容（#282：升级前建的整库草稿不作废）", () => {
+  it("无快照的在途草稿：本轮 = 已答题 ∪ 补抽到每维题数，补齐后可提交", async () => {
+    // 直接造一份「升级前」的草稿：题号 1–12（每维 2 题）、items_json 仍是默认空数组
+    const raw = new Database(state.dbPath);
+    const now = "2026-10-20 09:00:00";
+    const answers = Object.fromEntries(Array.from({ length: 12 }, (_, i) => [i + 1, 3]));
+    raw
+      .prepare(
+        `INSERT INTO assessment_results
+           (user_id, assessment_id, status, answers_json, items_json, is_current, draft_slot, started_at, updated_at)
+         SELECT ?, id, 'in_progress', ?, '[]', 0, 1, ?, ? FROM assessments WHERE code = ?`
+      )
+      .run(users.C.uid, JSON.stringify(answers), now, now, RIASEC_CODE);
+    raw.close();
+
+    const body = await startBody(users.C.token);
+    const round = body.roundIndexes as number[];
+    const legacyAnswered = Array.from({ length: 12 }, (_, i) => i + 1);
+    // 已答的 12 题全部留在本轮里（一道不作废），补抽把每维凑满 5 题
+    expect(round.filter((index: number) => legacyAnswered.includes(index)).sort((a, b) => a - b)).toEqual(
+      legacyAnswered
+    );
+    expect(round).toHaveLength(ROUND_SIZE);
+    expectPaperShape(round);
+    expect(body.draft.answers["1"]).toBe(3);
+    expect(body.progress).toEqual({ answered: 12, total: ROUND_SIZE, percent: 40 });
+    // 续答落点 = 本轮呈现顺序里第一道未答的题
+    expect(body.resumeIndex).toBe(round.find((index: number) => !legacyAnswered.includes(index)));
+
+    await answerAll(users.C.token, round.filter((index: number) => !legacyAnswered.includes(index)), 5);
+    const res = await submitPost(postRequest("/api/shared/assessment/submit", { code: RIASEC_CODE }, users.C.token));
+    expect(res.status).toBe(200);
+    const submitted = await res.json();
+    expect(submitted.result.questionCount).toBe(ROUND_SIZE);
+    expect(submitted.result.attemptNo).toBe(1);
+  });
+});
+
 describe("量表停用", () => {
   it("停用后 start / answer / submit 拒绝（403），历史结果仍可读", async () => {
     const raw = new Database(state.dbPath);
@@ -268,7 +430,7 @@ describe("量表停用", () => {
     try {
       expect((await startGet(getRequest(`/api/shared/assessment/start?code=${RIASEC_CODE}`, users.A.token))).status).toBe(403);
       const answerRes = await answerPost(
-        postRequest("/api/shared/assessment/answer", { code: RIASEC_CODE, questionIndex: 1, value: 4 }, users.A.token)
+        postRequest("/api/shared/assessment/answer", { code: RIASEC_CODE, questionIndex: round1[0], value: 4 }, users.A.token)
       );
       expect(answerRes.status).toBe(403);
       const submitRes = await submitPost(postRequest("/api/shared/assessment/submit", { code: RIASEC_CODE }, users.A.token));
@@ -294,6 +456,14 @@ describe("量表停用", () => {
       restore.prepare("UPDATE assessments SET enabled = 1 WHERE code = ?").run(RIASEC_CODE);
       restore.close();
     }
+  });
+});
+
+describe("题库为参考数据的口径", () => {
+  it("按 code 取到的题库仍是全量 120 题（抽题不改题库，只改每轮题号）", async () => {
+    const questions = await getAssessmentQuestionsByCode(RIASEC_CODE);
+    expect(questions).toHaveLength(BANK_SIZE);
+    expect(questions.map((q) => q.question_index)).toEqual(Array.from({ length: BANK_SIZE }, (_, i) => i + 1));
   });
 });
 

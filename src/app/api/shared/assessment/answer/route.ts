@@ -2,8 +2,6 @@ import { withDemoScope } from "@/lib/demo-scope";
 import { NextRequest, NextResponse } from "next/server";
 import {
   getAssessmentByCode,
-  getAssessmentDraft,
-  getAssessmentQuestionsByCode,
   getUserById,
   normalizeAssessmentCode,
   upsertAssessmentDraft,
@@ -11,23 +9,26 @@ import {
 import { RIASEC_CODE } from "@/lib/assessment-data";
 import {
   answerProgress,
-  filterAnswersToBank,
   firstUnansweredIndex,
   isValidAnswerValue,
   isValidQuestionIndex,
   mergeAnswer,
-  parseAnswers,
 } from "@/lib/assessment-flow";
+import { loadAttemptContext } from "@/lib/assessment-attempt";
 import { verifyToken } from "@/lib/token";
 import { getRequestContext, recordAudit } from "@/lib/audit";
 
 /**
- * 保存一次作答（#223）：每题作答即 upsert 草稿（`status=in_progress`），退出再进可续答。
+ * 保存一次作答（#223 + #282）：每题作答即 upsert 草稿（`status=in_progress`），退出再进可续答。
  *
  * 服务端**合并**作答而不是整份覆盖：客户端只提交「这一题」，避免整份回写把别的题冲掉。
  * 边界：合并是「读草稿 → 合并 → 整份写」的读-改-写，**并发**请求（两个标签页同时提交）在极端重叠时
  * 仍是最后写入为准——单标签页由前端「保存中禁用」串行，跨标签页丢的一题会显示为未答、重进补答即可。
  * 不使用 localStorage —— 进度以服务端草稿为唯一真相（与 #221 的草稿唯一性约束配套）。
+ *
+ * #282 的两处新增：
+ * - 题号必须在**本轮卷子**内（不在整库里但在 120 题中未抽到的，同样 400）；
+ * - 第一次作答就把本轮抽题快照写进 `items_json`，之后每次作答重复写同一份快照（快照即续答口径）。
  */
 async function POST_impl(request: NextRequest) {
   const { ip, user_agent } = getRequestContext(request);
@@ -89,16 +90,17 @@ async function POST_impl(request: NextRequest) {
       return await reject("该测评暂未开放", { status: 403, metadata: { reason: "assessment-disabled" } });
     }
 
-    const questions = await getAssessmentQuestionsByCode(code);
-    const bankIndexes = questions.map((q) => q.question_index);
-    if (!bankIndexes.includes(questionIndex)) return await reject("题号不在题库内");
+    const context = await loadAttemptContext(assessment, user.id);
+    if (!context.roundIndexes.includes(questionIndex)) {
+      return await reject("题号不在本轮题目内", {
+        metadata: { questionIndex, reason: "question-not-in-round", roundSize: context.roundIndexes.length },
+      });
+    }
 
-    const draft = await getAssessmentDraft(user.id, assessment.id);
-    const existing = filterAnswersToBank(parseAnswers(draft?.answers_json), bankIndexes);
-    const merged = mergeAnswer(existing, questionIndex, value);
-    await upsertAssessmentDraft(user.id, assessment.id, JSON.stringify(merged));
+    const merged = mergeAnswer(context.answers, questionIndex, value);
+    await upsertAssessmentDraft(user.id, assessment.id, JSON.stringify(merged), context.itemsJson);
 
-    const progress = answerProgress(merged, bankIndexes);
+    const progress = answerProgress(merged, context.roundIndexes);
     await recordAudit({
       actor_id: user.id,
       actor_user_code: user.user_code,
@@ -113,14 +115,20 @@ async function POST_impl(request: NextRequest) {
       error_message: null,
       ip,
       user_agent,
-      // 只记进度，不记学生选了哪个选项（作答内容是个人数据，不重复落到审计表）
-      metadata: { questionIndex, answered: progress.answered, total: progress.total },
+      // 只记进度与本轮口径，不记学生选了哪个选项（作答内容是个人数据，不重复落到审计表）
+      metadata: {
+        questionIndex,
+        answered: progress.answered,
+        total: progress.total,
+        attemptNo: context.attemptNo,
+        pool: context.plan.poolFingerprint,
+      },
     });
 
     return NextResponse.json({
       saved: true,
       progress,
-      nextIndex: firstUnansweredIndex(merged, bankIndexes),
+      nextIndex: firstUnansweredIndex(merged, context.roundIndexes),
     });
   } catch (err) {
     console.error("Assessment answer POST error:", err);

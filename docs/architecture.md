@@ -33,7 +33,7 @@
 | `/dashboard/teacher` | 教师面板（分组见「面板导航结构」） |
 | `/dashboard/student` | 学生面板（我的档案：未提交可就地填写与提交、已提交可就地修改 / 历史提交 #95，两个 Tab；档案内容上方常驻**职业兴趣测评结果区** #224——雷达图 + 条状排名 + 三字码 + 六型解读 + 推荐职业，与档案提交流程解耦；侧边栏另含「我的小组 #101」视图） |
 | `/dashboard/student/assessment` | 职业测评中心（#222 骨架 + #225 内容卡）：三态状态卡（未开始 / 进行中 / 已完成）+ 测验清单卡 + 霍兰德六型科普卡 + 学职平台外链卡 + 页底「授权与免责」卡（O\*NET 署名 + 免责声明，锚点 `#assessment-attribution`）；结果解读在「我的档案」测评区（#224） |
-| `/dashboard/student/assessment/quiz` | 职业兴趣测评答题页（#223）：单题单屏 + 进度条 + Likert 1-5，自动存草稿、可续答，提交前二次确认 |
+| `/dashboard/student/assessment/quiz` | 职业兴趣测评答题页（#223）：单题单屏 + 进度条 + Likert 1-5，自动存草稿、可续答，提交前二次确认；每次答的是**分层抽出的 30 题**（#282），不是 120 题题库 |
 | `/setup` | 安装引导（首次配置数据库 + 管理员密码） |
 
 ## 面板导航结构
@@ -108,7 +108,7 @@
 | `/api/manage/settings` | GET / PUT | 数据源配置读写 |
 | `/api/manage/backup` | GET / POST | 备份下载 / 恢复 |
 | `/api/manage/test-db` | POST | 数据库连接测试 |
-| `/api/manage/demo/reset` | POST | 演示库全量重置（#253，**仅生产 admin**）：删演示库文件 + 清 `uploads/demo` + 重新 init + 全新随机重播账户/提交/测评（完成+进行中草稿）/分组/占位图；`DEMO_ENABLED` 关 404、演示会话 403；成功与生产越权拒绝落**生产**审计、演示会话越权拒绝落**演示**审计（隔离不变量）；并发重置经模块级单飞锁、播种失败丢弃半成品回到可重试态 |
+| `/api/manage/demo/reset` | POST | 演示库全量重置（#253，**仅生产 admin**）：删演示库文件 + 清 `uploads/demo` + 重新 init + 全新随机重播账户/提交/测评（完成+进行中草稿）/分组/占位图；测评数据按**每次 30 题的分层抽题**生成并带 `items_json` 快照（#282：演示班级与真实施测同口径，草稿的已答题是本轮卷子的前缀、可被真人续答）；`DEMO_ENABLED` 关 404、演示会话 403；成功与生产越权拒绝落**生产**审计、演示会话越权拒绝落**演示**审计（隔离不变量）；并发重置经模块级单飞锁、播种失败丢弃半成品回到可重试态 |
 | `/api/manage/demo/status` | GET | 演示库状态（#253，仅生产 admin）：initialized + 按演示号段过滤的规模计数，绝不泄露生产；库文件不存在时直接返回未初始化（不开 adapter、无建库副作用）。成功只读不审计；越权拒绝记审计（演示会话拒绝落演示审计、生产非 admin 落生产审计） |
 | `/api/manage/storage` | GET / POST / PUT / PATCH / DELETE | 存储后端管理（#111）：注册表 CRUD + 设默认，均记审计 |
 | `/api/manage/storage/test` | POST | 存储后端连通性测试（#111） |
@@ -180,10 +180,10 @@
 | `/api/shared/profile/submissions/restore` | POST | 学生恢复历史版本（#95）：截止后 403 → 校验版本归属 → 生成新版本（不回写旧记录）→ 审计 `profile:restore` |
 | `/api/shared/group` | GET | 学生读本组名单（#101）：只返回**本人所在组**的成员（姓名/学号/头像引用/标签），不提供遍历班级的接口；未分组返回 `grouped:false` |
 | `/api/shared/storage-sign` | GET | 文件访问地址签发（#111）：本地后端回显代理路径；云后端按归属记录的 `storage_id` 签发 30 分钟签名 URL；权限校验：学生仅本人与**同组同学的头像**（#101，词云不放行、非同组 403）、教师仅管辖班级、管理员全量 |
-| `/api/shared/assessment/start` | GET | 进入答题页（#223）：下发题面（不含维度，避免暗示答案）+ 量表元信息（署名/授权/免责）+ 草稿进度与续答落点；**只读，不建草稿行** |
-| `/api/shared/assessment/answer` | POST | 保存一次作答（#223）：服务端**合并**进 `status=in_progress` 草稿并回进度 + 下一个未答题；非法题号/取值 400，停用量表 403 |
-| `/api/shared/assessment/submit` | POST | 提交作答（#223）：未答完 400（回带 `missingIndexes`）→ 复用 #220 引擎计分 → 结果快照落库（`is_current` 唯一，重复提交生成新版本）→ 审计 `assessment:submit` |
-| `/api/shared/assessment/results` | GET | 结果查询（#223）：当前有效结果 + 最近 10 个历史版本 + 进行中进度，供「我的档案」测评区（#224）与测评中心（#222）消费；量表元信息带 `enabled`（停用时测评中心收掉作答入口，历史结果仍可读）；只按会话 uid 读取，**无 userId 参数**，因此没有越权读他人结果的路径 |
+| `/api/shared/assessment/start` | GET | 进入答题页（#223）：**派生本轮抽题**（#282，`draw = f(uid, assessmentId, 题库指纹, attemptNo)`）后下发题面（不含维度，避免暗示答案）+ 量表元信息（署名/授权/免责）+ 草稿进度与续答落点；响应 `questionCount` = 本轮题数、`poolSize` = 题库总量；**只读，不建草稿行** |
+| `/api/shared/assessment/answer` | POST | 保存一次作答（#223）：题号必须属于**本轮卷子**（在题库里但不在本轮 → 400 + 失败审计），服务端**合并**进 `status=in_progress` 草稿并回进度 + 下一个未答题；首次作答把抽题快照一起写进草稿 `items_json`（#282）；非法题号/取值 400，停用量表 403 |
+| `/api/shared/assessment/submit` | POST | 提交作答（#223）：未答完 400（回带本轮 `missingIndexes`）→ 复用 #220 引擎计分（只传本轮抽中题，标准分按各维实际已答数折算）→ 结果快照落库（含 `items_json`；`is_current` 唯一，重复提交生成新版本；**沿用草稿行**不新增记录）→ 审计 `assessment:submit`（带 `attemptNo` 与题库指纹，不带作答内容） |
+| `/api/shared/assessment/results` | GET | 结果查询（#223）：当前有效结果 + 最近 10 个历史版本 + 进行中进度，供「我的档案」测评区（#224）与测评中心（#222）消费；`assessment.questionCount` = 每次作答题数、`poolSize` = 题库总量（#282），`inProgress` 按**本轮题号**算（不是整库 120）；每条记录带自己的 `questionCount`（快照缺失的旧数据回退作答条数）；量表元信息带 `enabled`（停用时测评中心收掉作答入口，历史结果仍可读）；只按会话 uid 读取，**无 userId 参数**，因此没有越权读他人结果的路径 |
 | `/api/shared/assessment/careers` | GET | 本人最新霍兰德结果 → Top-N 推荐职业（#226）：只认会话 uid（显式传别人的 `user_id` 直接 403，非学生 403），`?limit=1–20`（非法值 400），返回推荐列表 + O*NET 署名与快照版本；没完成测评 404、结果里既无六维分也无三字码 409、职业库为空 503 |
 
 ### 其他开放端点（proxy 之外）
@@ -210,9 +210,9 @@
 | `audit_logs` | 操作审计（#110）：只追加 + 查询，操作者字段快照冗余，敏感键脱敏剔除、metadata 截断 2000 字符；索引 `created_at` / `actor_id` / `(resource_type, resource_id)` | #110 | ✅ |
 | `storage_backends` | 存储后端注册表（#111）：内置本地后端（不可删）+ 多个 S3 兼容实例；凭据不入库（走 `.env.local`）；`name` 唯一 | #111 | ✅（不含凭据） |
 | `profile_submissions` | 档案提交历史版本（#95）：`user_id` + `version` + 快照字段（`tags`/`avatar_url`/`evaluation_url`/`storage_id`/`submitted_at`）+ `is_current`；索引 `(user_id, version)`、`(user_id, is_current)` | #95 | ✅ |
-| `assessments` | 测评定义（#221）：`code`（唯一，如 `riasec`）、`name`、`question_count`（语义=**题库总量**，#281 起 120；每次作答量由后续抽题 Issue 的 `items_per_attempt` 表达）、`dimensions_json`（`[{key,label}]`，顺序即计分与展示顺序）、`scoring_mode`（`typological` 取类型码 / `dimensional` 多维高低分档）、`scale_version`、`attribution`（署名）/ `license_text`（授权与修改声明）/ `disclaimer`（免责声明）、`enabled` | #221 | ✅ |
+| `assessments` | 测评定义（#221）：`code`（唯一，如 `riasec`）、`name`、`question_count`（语义=**题库总量**，#281 起 120）、`items_per_attempt`（#282：每次作答题数，`INTEGER NOT NULL DEFAULT 0`，`0` = 全量作答即「题库即本轮」，`riasec` 为 30 走分层抽题）、`dimensions_json`（`[{key,label}]`，顺序即计分与展示顺序）、`scoring_mode`（`typological` 取类型码 / `dimensional` 多维高低分档）、`scale_version`、`attribution`（署名）/ `license_text`（授权与修改声明）/ `disclaimer`（免责声明）、`enabled` | #221 / #282 | ✅ |
 | `assessment_questions` | 题库（#221）：`assessment_id` + `question_index`（量表内从 1 开始，`UNIQUE`）+ `prompt` + `dimension`（须是 `dimensions_json` 的 key）+ `origin`（#281：`onet-mini` / `onet-sf` / `cn-original`，`NOT NULL DEFAULT 'cn-original'`；分层抽样与分来源分析用）+ `reverse_scored` + `version`（题面版本，改动时自增） | #221 | ✅ |
-| `assessment_results` | 作答与结果**快照**（#221）：`user_id` + `assessment_id` + `status`（`in_progress` 草稿 / `completed` 完成）+ `answers_json` + `scores_json` + `type_code`（三字码，dimensional 量表为 NULL）+ `is_current` + `draft_slot`（草稿位：草稿为 1、完成为 NULL，`UNIQUE(user_id, assessment_id, draft_slot)`）+ `started_at` / `updated_at` / `completed_at` | #221 | ✅（学生个人数据） |
+| `assessment_results` | 作答与结果**快照**（#221）：`user_id` + `assessment_id` + `status`（`in_progress` 草稿 / `completed` 完成）+ `answers_json` + `items_json`（#282 抽题快照 `{"v":1,"pool":"<题库指纹>","indexes":[…呈现顺序]}`，默认 `'[]'` 读作「整库即本轮」的旧数据；随草稿写入、提交时沿用同一行带到完成记录）+ `scores_json` + `type_code`（三字码，dimensional 量表为 NULL）+ `is_current` + `draft_slot`（草稿位：草稿为 1、完成为 NULL，`UNIQUE(user_id, assessment_id, draft_slot)`）+ `started_at` / `updated_at` / `completed_at` | #221 / #282 | ✅（学生个人数据） |
 | `onet_occupations` | O*NET 职业库（#226）：`code`（O*NET-SOC，唯一）、`name`（英文 Title）、`name_zh`（首批中文译名，未覆盖为 NULL）、`interest_code`（O*NET 官方兴趣高码 1–3 位）、`interests_json`（六型原始分 1–7）、`job_zone`（2–5：当前发布版把原 1–2 级合并为「Job Zone 1-2」，数据里没有 1）、`education_level`（由 Job Zone 归纳的中文学历）、`cluster`（SOC 大类中文职业群）、`dataset_version` | #226 | ❌（只读参考数据，离线可重灌，避免备份膨胀） |
 
 **课堂分组（#101）五张表 —— 当前态与历史态物理分离**
@@ -237,7 +237,7 @@
 >
 > 仍保留现状的表：`configs_profile`（键值配置，与身份无关）、`assessments` / `assessment_questions`（参考数据，见下）、`onet_occupations`（#226 只读职业库，离线可重灌，且不引用 `users` / `classes`）、`storage_backends`（缺字段即 #111 之前的备份，其 `users` 行没有可用的 `storage_id`，恢复时回落到内置本地后端；该后端是 `storage_backends` 首行且管理端禁删，编号恒为 1）。`audit_logs` 是唯一**引用了 `users` 却仍保留**的表：**审计记录不可丢**优先于归属洁净，行内已冗余存了操作者编号/姓名/角色，`actor_id` 错配只影响展示归属与教师「只看本人」的过滤范围（该项为后续议题，见 #211）。
 
-> **测评三表的两种处理**：`assessments` + `assessment_questions` 是参考数据，**两字段齐备才整体替换**，缺字段保留现状（可被种子自愈，不会出现「换了定义没换题库」）。`assessment_results` 则**一律先清空**、备份带字段才回填（#281 新增的 `assessment_questions.origin` 在旧备份里缺失时按 `cn-original` 恢复，沿用「缺字段一律容忍」口径）：它只靠数值 `user_id` 关联，而 `users` 恢复时已整表替换，保留旧结果会把甲的结果挂到乙名下（恢复到另一套库的旧备份时尤其明显）——与分组五表的「旧备份恢复后即为未分组」同口径。
+> **测评三表的两种处理**：`assessments` + `assessment_questions` 是参考数据，**两字段齐备才整体替换**，缺字段保留现状（可被种子自愈，不会出现「换了定义没换题库」）。`assessment_results` 则**一律先清空**、备份带字段才回填（#281 新增的 `assessment_questions.origin` 在旧备份里缺失时按 `cn-original` 恢复，#282 新增的 `assessments.items_per_attempt` / `assessment_results.items_json` 缺失时按列默认值 `0` / `'[]'` 恢复，沿用「缺字段一律容忍」口径——补默认值后 `upgradeAssessmentBank()` 会把 `items_per_attempt` 补成种子口径，不留「从未存在过的卷量」）：它只靠数值 `user_id` 关联，而 `users` 恢复时已整表替换，保留旧结果会把甲的结果挂到乙名下（恢复到另一套库的旧备份时尤其明显）——与分组五表的「旧备份恢复后即为未分组」同口径。
 
 ## 课堂分组（#101）
 
@@ -262,25 +262,27 @@
 <!-- 对账：表结构见上「数据库」；题库种子在 `src/lib/assessment-data.ts`，行为测试在 `src/__tests__/assessment-db.test.ts` -->
 
 - **量表进库、不写死代码**：`assessments` 存定义（维度 JSON / 计分类型 / 量表版本 / 署名授权），`assessment_questions` 存题面；首套量表为 **120 题 RIASEC 题库**（#281：现有 Mini-IP 30 题一字不改 + O*NET Interest Profiler Short Form 其余 30 题中译 + 本项目原创 60 题，6 维各 20 题，无反向题；`scale_version = RIASEC-CN 2.0`）。种子由两适配器 `init()` 写入，判定口径是「`code` 不存在 **或** 该量表题库为空」——**非空题库一律不碰**（后台维护过的题面不会被覆盖），空题库（如恢复了一份 `assessment_questions: []` 的备份）会补种并校正 `question_count`，避免留下「可用但 0 题」的量表
-- **题库只增不改升级（#281）**：生产库已有 30 题时由 `upgradeAssessmentBank()`（两适配器同构、单事务）扩库，**只允许三种写动作**——① 缺失题号 INSERT；② 已存在题号**只回填 `origin`**（`prompt` / `dimension` / `version` 一个字节都不动）；③ 量表定义字段（`name` / `question_count` / `scale_version` / 署名 / 授权 / 免责）仅在 `scale_version` 与种子不一致时整体更新。重复执行幂等，第二次不改任何字段。`init()` 在 `seedAssessments()` 之后调用
-- **种子校验（#281 起）**：`validateAssessmentSeed` 拦「题数一致、题号 1..n 连续、维度归属、题干与英文原文非空」+ 新增——每维题数相等、每维 `origin` 分布（官方 ≥3 且原创 ≥3）、题干归一化后全局唯一、题干 4–24 汉字且不含收入/学历/地位线索、原创题必须带 `anchor` 且锚定职业在 O*NET 快照中存在（维度须在其官方兴趣高码前两位，查询函数由服务端注入，避免 92KB 快照进客户端 bundle）、同维度相似度 ≥ 0.45 的题对必须被 `NEAR_DUPLICATE_GROUPS` 覆盖。坏种子在安装/升级时直接报错，不留半截题库
+- **题库只增不改升级（#281）**：生产库已有 30 题时由 `upgradeAssessmentBank()`（两适配器同构、单事务）扩库，**只允许四种写动作**——① 缺失题号 INSERT；② 已存在题号**只回填 `origin`**（`prompt` / `dimension` / `version` 一个字节都不动）；③ 量表定义字段（`name` / `question_count` / `scale_version` / 署名 / 授权 / 免责）仅在 `scale_version` 与种子不一致时整体更新；④ `items_per_attempt`（#282）单独补齐——它与版本号无关，生产库在 #281 时已是 `RIASEC-CN 2.0`，不回填就永远停在补列默认值 0（= 整库作答），进不了抽题口径。重复执行幂等，第二次不改任何字段。`init()` 在 `seedAssessments()` 之后调用
+- **种子校验（#281 起）**：`validateAssessmentSeed` 拦「题数一致、题号 1..n 连续、维度归属、题干与英文原文非空」+ 新增——每维题数相等、每维 `origin` 分布（官方 ≥3 且原创 ≥3）、题干归一化后全局唯一、题干 4–24 汉字且不含收入/学历/地位线索、原创题必须带 `anchor` 且锚定职业在 O*NET 快照中存在（维度须在其官方兴趣高码前两位，查询函数由服务端注入，避免 92KB 快照进客户端 bundle）、同维度相似度 ≥ 0.45 的题对必须被 `NEAR_DUPLICATE_GROUPS` 覆盖、`items_per_attempt`（#282）为 0（全量作答）或正值且能被维度数整除且不超过题库总量。坏种子在安装/升级时直接报错，不留半截题库
 - **题号即作答键**：`question_index` 从 1 连续到 n，作答 JSON 以它为键，故跳号会让「已答 n 题 / 总 n 题」的进度口径失真；`dimension` 必须是 `dimensions_json` 里的 key，且每个维度至少一题（零题维度恒 0 分，会与真实低分混淆）
 - **草稿与结果同表**：`in_progress` 草稿在同一 `user_id + assessment_id` 下至多一条，靠 **可空 `draft_slot` + 唯一约束**兜住（草稿恒填 1、完成记录置 NULL，两库都允许多个 NULL，正好当「部分唯一索引」的可移植替代；MySQL 无部分唯一索引）。写入用单条 upsert（`ON CONFLICT` / `ON DUPLICATE KEY UPDATE`），并发自动保存不会插出第二条草稿。完成时**沿用草稿行**翻状态（保留 `started_at`、把 `draft_slot` 置 NULL 释放草稿位），同事务内把该用户该量表其他完成版本 `is_current` 置 0，保证当前版本唯一；历史版本用 `getAssessmentResults`（完成时间新→旧）
-- **结果是快照**：`answers_json` / `scores_json` / `type_code` 落库，学生回看是当时的结论，不随改题或重算漂移。计分由计分引擎（#220）在写入前算好，数据层不重复实现算法，`dimensional` 量表不产出三字码（该列为 NULL）。注意作答明细以**题号**为键、不含题面文本：若后续要做「逐题作答明细回看」，需先补一列记录当时的量表/题面版本，否则改题后可能套错题面（当前结果页只呈现得分快照，不受影响）
+- **每次 30 题的分层抽题（#282）**：120 题全答超过 16 分钟会掉完成率，故 `items_per_attempt = 30` 走抽题，核心是**确定性派生而不是每次随机**——`draw = f(userId, assessmentId, 题库指纹, attemptNo)`（纯函数在 `src/lib/assessment-sampling.ts`，rng 可注入、无 I/O），因此任何路由各自重算都得同一张卷子，`GET /start` 才能保持只读（#223 不变量：只点开页面不留空草稿）。卷面形状：每维 `30 / 6 = 5` 题、来源配比每维官方题（`onet-mini` + `onet-sf`）2 或 3 + 原创补足、`NEAR_DUPLICATE_GROUPS` 同卷至多一题、整卷洗牌后按维度交错修整顺序（避免 3 题及以上连续同维度泄露题目归属）。`attemptNo` **不新增列**，由该用户该量表 `completed` 行数 + 1 派生（结果行不删除，草稿进行中不推进，故稳定）；排除集取上一条完成结果的 `items_json`，所以重测不复用上一轮的题，而第 3 轮允许回到第 1 轮的题（120 题只够两轮完全互斥，这是设计口径，单测锁住防止被当 bug 改掉）。池子不足时按「来源配比 → 排除集 → 近重复组」降级并 `console.warn`，**绝不因后台删题而 500**。四个路由共用 `src/lib/assessment-attempt.ts` 的 `loadAttemptContext()` 一次算完本轮题号、题目与快照，避免各处口径分叉。演示播种（#253）也走同一个 `drawItems` 出题并写快照，所以演示班级不会留下「整库 120 题」的历史形态。第二套量表 IPIP NEO-FFI（#290）`items_per_attempt = 0` = 整库 50 题一轮，抽题逻辑天然不介入（`planAttempt` 在算 `perDimension` 之前就返回）
+- **结果是快照**：`answers_json` / `scores_json` / `type_code` 落库，学生回看是当时的结论，不随改题或重算漂移。计分由计分引擎（#220）在写入前算好，数据层不重复实现算法，`dimensional` 量表不产出三字码（该列为 NULL）。注意作答明细以**题号**为键、不含题面文本：#282 的 `items_json` 已记下本轮题号与题库指纹，逐题回看能定位到「当时答的是哪 30 题、对应哪一版题库」，但题面**文本**仍未快照，改题后文字会变（当前结果页只呈现得分快照，不受影响）
 - **两库一致性靠三条硬约束**（都在 `assessment-db.test.ts` 的 Schema 对账里锁住）：① 列名/可空性逐列相同；② 外键相同——SQLite 的 `REFERENCES`（本机 `foreign_keys=ON`，真实生效）与 MySQL 的 `FOREIGN KEY` 必须成对存在；③ `code` 的唯一比较语义相同——MySQL 显式 `COLLATE utf8mb4_bin`，否则默认 collation 不区分大小写，`riasec` / `RIASEC` 在 MySQL 里撞唯一键、在 SQLite 里共存，跨库迁移直接失败
 - **完成动作串行化**：MySQL 侧事务开头 `SELECT ... FOR UPDATE` 锁学生行（与档案归档提交同款做法），否则两个「首次完成」并发时都 UPDATE 到 0 行、再各自插入 `is_current = 1`，当前版本就不唯一了；SQLite 由单写者事务天然串行
 - **个人数据随账号删除**：`deleteStudents` 一并清 `assessment_results`；历史档案快照 `profile_submissions` 仍按 #95 口径保留
 - **授权合规**：`attribution`（署名）/ `license_text`（授权与修改声明）/ `disclaimer`（免责声明）三列随量表下发，作答页与结果页必须展示。O*NET Tools Developer License 要求署名并声明「修改未经 USDOL/ETA 审核、认可或测试」（https://www.onetcenter.org/license_tools.html ）
-- **信效度验证（#227）**：同一授权还要求「对整合了 Tools 内容的产品做验证」。验证方案、判定线（α / CITC / 重测 / 样本量）、施测 SOP 与常模实施预案见 `docs/assessment-validation-plan.md`；统计口径在 `src/lib/assessment-validation.ts`（单测锁定），一键报告用 `npm run validate:assessment -- --db ./data/career.db`（只用聚合值，不含个人数据）
+- **信效度验证（#227）**：同一授权还要求「对整合了 Tools 内容的产品做验证」。验证方案、判定线（α / CITC / 重测 / 样本量）、施测 SOP 与常模实施预案见 `docs/assessment-validation-plan.md`；统计口径在 `src/lib/assessment-validation.ts`（单测锁定），一键报告用 `npm run validate:assessment -- --db ./data/career.db`（只用聚合值，不含个人数据）。**与 #282 抽题的冲突点**：α 与 CITC 要求同一套题目在被试间可比，抽样口径下没人答满某一维，报告会在「内部一致性」一节直接说明**不可计算**（不是题库缺陷）；维度间相关、重测信度与常模用的是各人折算后的标准分，抽样口径下仍能算，只是重测两轮换的是不同题，相关里含一部分抽样误差——题目质量回收要用**全量作答**的试测数据（临时置 `items_per_attempt = 0` 施测，见 #284）
 
 ## 职业测评作答流程（#223）
 
-<!-- 对账：纯函数在 `src/lib/assessment-flow.ts`（测试 `assessment-flow.test.ts`）；4 个端点见上「共享域」；接口测试 `assessment-api.test.ts` 跑的是真实 SQLite + 真实计分引擎 -->
+<!-- 对账：纯函数在 `src/lib/assessment-flow.ts`（测试 `assessment-flow.test.ts`）+ 抽题在 `src/lib/assessment-sampling.ts` / `src/lib/assessment-attempt.ts`（测试 `assessment-sampling.test.ts`）；4 个端点见上「共享域」；接口测试 `assessment-api.test.ts` 跑的是真实 SQLite + 真实计分引擎 + 真实抽题 -->
 
-- **进度以服务端草稿为唯一真相**：答题页每答一题就 `POST /answer` 落 `status=in_progress` 草稿，**不用 localStorage**；退出再进由 `GET /start` 的 `resumeIndex`（第一个未答题，全答完则末题）续答。只打开页面不建草稿行，避免留下空记录
-- **合并式保存而不是整份覆盖**：客户端每次只提交「题号 + 取值」，服务端读出现有草稿、按当前题库过滤后合并再 upsert——整份回写不会把别的题冲掉，旧草稿里超出当前题库的题号也不会带进新一轮。**边界**：合并是「读草稿 → 合并 → 整份写」的读-改-写，跨标签页**并发**请求在极端重叠时仍是最后写入为准（单标签页由前端「保存中禁用」串行）；丢的一题会显示为未答、重进补答即可，不会产生半份脏结果。要彻底消除需把合并下沉成适配器事务（SQLite 事务 / MySQL `FOR UPDATE` 锁草稿行），当前单实例部署按前者取舍
-- **提交必须完整**：缺答一律 400 并回带 `missingIndexes`（答题页据此跳回漏题）；计分复用 #220 的引擎（`src/lib/assessment-scoring.ts`），数据层不重复实现算法；作答内容**只认服务端草稿**，不接受客户端传来的答案或 userId，改分无从下手
-- **结果与审计**：得分 JSON + 三字码作为快照写入 `assessment_results`，重复提交生成新版本（旧版本保留、`is_current` 唯一）。审计动作为 `assessment:answer`（**只记进度，不记选了哪一项**——选项是个人数据不重复落审计表）、`assessment:submit`（成功/失败）、`assessment:results`（读取也记）；**被拒的写同样落审计**——参数非法 400、量表不存在 404、量表停用 403 各记一条 failed（带 `reason` / 题号），停用后仍有人刷题或刷错 `code` 在审计里看得到
+- **进度以服务端草稿为唯一真相**：答题页每答一题就 `POST /answer` 落 `status=in_progress` 草稿，**不用 localStorage**；退出再进由 `GET /start` 的 `resumeIndex`（本轮第一个未答题，全答完则末题）续答。只打开页面不建草稿行，避免留下空记录
+- **合并式保存而不是整份覆盖**：客户端每次只提交「题号 + 取值」，服务端读出现有草稿、按**本轮卷子**（#282 抽题集合）过滤后合并再 upsert——整份回写不会把别的题冲掉，不在本轮的题号也不会带进这一轮。**边界**：合并是「读草稿 → 合并 → 整份写」的读-改-写，跨标签页**并发**请求在极端重叠时仍是最后写入为准（单标签页由前端「保存中禁用」串行）；丢的一题会显示为未答、重进补答即可，不会产生半份脏结果。要彻底消除需把合并下沉成适配器事务（SQLite 事务 / MySQL `FOR UPDATE` 锁草稿行），当前单实例部署按前者取舍
+- **题号口径只在派生，不在传递**：客户端传来的题号一律对照服务端派生出的本轮卷子校验（在题库里但不在本轮 → 400 + 失败审计），所以「答不该答的题」在服务端就被挡住，而不依赖前端只渲染抽中的题；`items_json` 的解析与序列化各有**唯一一处**（`assessment-sampling.ts`），路由不自己 `JSON.parse`
+- **提交必须完整**：缺答一律 400 并回带**本轮** `missingIndexes`（答题页据此跳回漏题）；计分复用 #220 的引擎（`src/lib/assessment-scoring.ts`），只传本轮抽中题——`standardizeLinear` 按「该维已答题数 × 1..5」折算，与题库大小无关，所以每维 5 题与每维 20 题的标准分同一量程（全 4 分恒为 75）；数据层不重复实现算法，作答内容**只认服务端草稿**，不接受客户端传来的答案或 userId，改分无从下手
+- **结果与审计**：得分 JSON + 三字码 + 本轮抽题快照（`items_json`，#282）作为快照写入 `assessment_results`，重复提交生成新版本（旧版本保留、`is_current` 唯一）。审计动作为 `assessment:answer`（**只记进度与本轮口径（`attemptNo` / 题库指纹），不记选了哪一项**——选项是个人数据不重复落审计表）、`assessment:submit`（成功/失败）、`assessment:results`（读取也记）；**被拒的写同样落审计**——参数非法 400、量表不存在 404、量表停用 403 各记一条 failed（带 `reason` / 题号，「题号在题库里但不在本轮」也记 `question-not-in-round`，同样不落选项值），停用后仍有人刷题或刷错 `code` 在审计里看得到
 - **停用与越权**：停用的量表拒绝 start / answer / submit（403），但**历史结果仍可读**（结果不随量表下线消失）；所有端点只按会话 uid 读写，无 userId 入参，因此不存在越权读他人结果的路径（教师/管理员访问同样 403）
 - **作答锚点**：Likert 1-5 记为「非常不愿意 → 非常愿意」（兴趣量表问的是愿不愿意做，与计分引擎 1-5 量程同一口径，锚点常量在 `assessment-flow.ts`）
 
@@ -360,7 +362,7 @@
 - **内容构成**：三字码徽章（`bg-brand` 深绿块 + 每枚字母的中文型名）→ 六型雷达图（recharts `RadarChart`，量程固定 0–100、不画半径刻度）与条状排名并列（排名标出三字码里的「主要兴趣」）→ 六型逐条通俗解读（按排名顺序，不出现「维度 / 标准分 / 口径」等术语）→ 推荐职业（#226，渐进增强）→ 免责声明 + 署名
 - **视图模型先行**：`assessment-view.ts` 是纯函数层（补齐缺失维度、固定 RIASEC 顺序、排序破平、三字码规范化、职业卡清洗），组件只负责画。仓库没有 DOM 测试环境，界面逻辑一律先落到这里再被单测覆盖
 - **推荐职业渐进增强**：只在有当前结果时补拉 `/careers`；接口失败 / 为空 / 无中文数据时**整块静默不渲染**（`console.error` 留痕，不打断学生），与「A3 未就绪也能上线」的验收口径一致；渲染时必须展示接口下发的 **CC BY 4.0 署名**
-- **无结果空态**：引导去答题页（`/dashboard/student/assessment/quiz`）；题量与预计耗时复用 `assessment-center.ts` 的统一口径，不写死数字。有未完成草稿时提示「上次答到 N/M」并把 CTA 改成「继续作答」。测评中心（#222）上线后由它承担总入口，本卡片的空态链接不依赖它
+- **无结果空态**：引导去答题页（`/dashboard/student/assessment/quiz`）；题量与预计耗时复用 `assessment-center.ts` 的统一口径，不写死数字——#282 起 `/results` 的 `assessment.questionCount` 就是**每次作答题数**（30）、`inProgress.total` 也是本轮题数，所以「上次答到 N/M」的 M 不再会是整库 120（题量文案的「30 / 题库 120」双口径展示是 #283）。有未完成草稿时提示「上次答到 N/M」并把 CTA 改成「继续作答」。测评中心（#222）上线后由它承担总入口，本卡片的空态链接不依赖它
 - **容错**：结果接口失败显示「暂时读不到」+ 重试，不会把失败说成「没做过测评」；得分缺 `standard` 等脏数据在 `parseScores`（#223）与视图模型两层过滤，不用坏数据渲染
 
 ## 数据导出（#233）

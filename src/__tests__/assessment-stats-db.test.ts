@@ -44,6 +44,8 @@ function setup() {
       userId,
       assessmentId: assessment.id,
       answersJson: "{}",
+      // 本文件只测聚合口径，抽题快照给空数组（读作「整库即本轮」，#282）
+      itemsJson: "[]",
       scoresJson: SCORES,
       typeCode,
     });
@@ -121,14 +123,15 @@ describe("教师端测评聚合（#229，真实 SQLite）", () => {
     const { dbPath, adapter, assessment, students } = setup();
 
     // 草稿（未完成）不算完成：丙只存了草稿
-    adapter.upsertAssessmentDraft(students.bing, assessment.id, JSON.stringify({ 1: 5 }));
-    adapter.upsertAssessmentDraft(students.wu, assessment.id, JSON.stringify({ 1: 4 }));
+    adapter.upsertAssessmentDraft(students.bing, assessment.id, JSON.stringify({ 1: 5 }), "[]");
+    adapter.upsertAssessmentDraft(students.wu, assessment.id, JSON.stringify({ 1: 4 }), "[]");
     // 同一学生连续完成两次 → 旧版本 is_current = 0，只计当前一次（且只记当前三字码 RIA）
     const completeAgain = (userId: number, typeCode: string) =>
       adapter.completeAssessmentResult({
         userId,
         assessmentId: assessment.id,
         answersJson: "{}",
+        itemsJson: "[]",
         scoresJson: SCORES,
         typeCode,
       });

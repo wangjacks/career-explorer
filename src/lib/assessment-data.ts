@@ -31,6 +31,8 @@ export interface AssessmentSeed {
   code: string;
   name: string;
   questionCount: number;
+  /** 每次作答题数（存 `items_per_attempt`）：0 = 全量作答（题库即本轮）；分层抽题见 `assessment-sampling.ts` */
+  itemsPerAttempt: number;
   dimensions: { key: string; label: string }[];
   scoringMode: "typological" | "dimensional";
   scaleVersion: string;
@@ -103,11 +105,12 @@ export const RIASEC_DISCLAIMER =
 /** 量表版本：从纯 Mini-IP（30 题）升级为 120 题库版本（#281） */
 export const RIASEC_SCALE_VERSION = "RIASEC-CN 2.0";
 
-/** RIASEC 量表定义种子（`questionCount` 语义 = **题库总量**，每次作答量由后续抽题 Issue 的 items_per_attempt 表达） */
+/** RIASEC 量表定义种子（`questionCount` 语义 = **题库总量**；每次作答 30 题由 `itemsPerAttempt` 表达，#282） */
 export const RIASEC_ASSESSMENT: AssessmentSeed = {
   code: RIASEC_CODE,
   name: "霍兰德职业兴趣测评（120 题库）",
   questionCount: 120,
+  itemsPerAttempt: 30,
   dimensions: RIASEC_DIMENSIONS,
   scoringMode: "typological",
   scaleVersion: RIASEC_SCALE_VERSION,
@@ -374,6 +377,8 @@ export const IPIP_ASSESSMENT: AssessmentSeed = {
   code: IPIP_NEO_FFI_CODE,
   name: "五大人格测评（IPIP NEO-FFI 精简版）",
   questionCount: 50,
+  // 50 题每维 10 题，本期按全量作答（#282 的分层抽题只对霍兰德 120 题库启用）
+  itemsPerAttempt: 0,
   dimensions: IPIP_DIMENSIONS,
   scoringMode: "dimensional",
   scaleVersion: IPIP_NEO_FFI_SCALE_VERSION,
@@ -710,9 +715,10 @@ export type OnetInterestCodeLookup = (occupationTitle: string) => string | undef
  * 4. 题干归一化后全局唯一；
  * 5. 题干 4–24 汉字、不含收入/学历/地位线索禁词；
  * 6. 原创题必须有 `anchor`，传了 `onetInterestCodeOf` 时还要命中 O*NET 快照且维度在兴趣高码前两位；
- * 7. 霍兰德同维度相似度 ≥ `NEAR_DUPLICATE_THRESHOLD` 的题对必须被 `NEAR_DUPLICATE_GROUPS` 覆盖。
+ * 7. 霍兰德同维度相似度 ≥ `NEAR_DUPLICATE_THRESHOLD` 的题对必须被 `NEAR_DUPLICATE_GROUPS` 覆盖；
+ * 8. `itemsPerAttempt`（#282）：0 = 全量作答，或为正值、能被维度数整除（每维抽固定题数的前提）且不超过题库总量。
  *
- * 3 / 6 / 7 是霍兰德题库的专属规则；IPIP 大五只走通用结构、题面与维度均衡校验，
+ * 3 / 6 / 7 是霍兰德题库的专属规则；IPIP 大五只走通用结构、题面、维度均衡与 `itemsPerAttempt` 校验，
  * 不会因为缺少 O*NET 职业锚点或使用 IPIP 来源而误报。
  *
  * `onetInterestCodeOf` 由服务端注入（`onet.ts` 的 `onetInterestCodeOf`），避免把 92KB 的
@@ -727,6 +733,24 @@ export function validateAssessmentSeed(
   if (definition.questionCount <= 0) throw new Error(`${definition.code} 的题数必须为正`);
   if (definition.questionCount !== questions.length) {
     throw new Error(`${definition.code} 声明的题数与题库不符：${definition.questionCount} vs ${questions.length}`);
+  }
+  // #282：每次作答量要么 0（全量作答），要么能被维度数整除（分层抽题每维抽固定题数）
+  if (definition.itemsPerAttempt < 0) {
+    throw new Error(`${definition.code} 的 itemsPerAttempt 不能为负：${definition.itemsPerAttempt}`);
+  }
+  if (
+    definition.itemsPerAttempt > 0 &&
+    (!Number.isInteger(definition.itemsPerAttempt) ||
+      definition.itemsPerAttempt % definition.dimensions.length !== 0)
+  ) {
+    throw new Error(
+      `${definition.code} 的 itemsPerAttempt（${definition.itemsPerAttempt}）必须能被维度数（${definition.dimensions.length}）整除`
+    );
+  }
+  if (definition.itemsPerAttempt > definition.questionCount) {
+    throw new Error(
+      `${definition.code} 的 itemsPerAttempt（${definition.itemsPerAttempt}）不能超过题库总量（${definition.questionCount}）`
+    );
   }
 
   const dimensionKeys = new Set<string>();
