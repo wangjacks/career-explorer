@@ -5,13 +5,35 @@ import path from "path";
 import Database from "better-sqlite3";
 import { SqliteAdapter } from "../lib/db-sqlite";
 import { scoreAssessment } from "../lib/assessment-scoring";
+import { onetInterestCodeOf } from "../lib/onet";
 import {
+  IPIP_QUESTIONS,
   RIASEC_ASSESSMENT,
   RIASEC_CODE,
   RIASEC_QUESTIONS,
   RIASEC_DIMENSIONS,
+  RIASEC_SCALE_VERSION,
   validateAssessmentSeed,
+  type QuestionSeed,
 } from "../lib/assessment-data";
+
+/** 题库总量与每维题数（#281 起 120 / 20），测试里不写死数字 */
+const BANK_SIZE = RIASEC_QUESTIONS.length;
+const PER_DIMENSION = BANK_SIZE / RIASEC_DIMENSIONS.length;
+
+/** 造一个「旧版 30 题库」：删掉 31–120，并把量表定义退回 Mini-IP-CN 1.0 */
+function downgradeToLegacyBank(dbPath: string, assessmentId: number): void {
+  const raw = new Database(dbPath);
+  raw.prepare("DELETE FROM assessment_questions WHERE assessment_id = ? AND question_index > 30").run(assessmentId);
+  raw.prepare(
+    "UPDATE assessment_questions SET origin = 'cn-original' WHERE assessment_id = ? AND question_index <= 30"
+  ).run(assessmentId);
+  raw.prepare(
+    "UPDATE assessments SET question_count = 30, scale_version = 'Mini-IP-CN 1.0', name = '霍兰德职业兴趣测评（Mini-IP 精简版）' WHERE id = ?"
+  ).run(assessmentId);
+  raw.close();
+}
+
 
 function makeTmpDb(): string {
   const dir = mkdtempSync(path.join(tmpdir(), "career-assessment-"));
@@ -32,16 +54,20 @@ function cleanup(dbPath: string) {
   rmSync(path.dirname(dbPath), { recursive: true, force: true });
 }
 
-describe("RIASEC 题库种子（#221）", () => {
-  it("首次安装预置 riasec 量表与 30 题，六个维度各 5 题", () => {
+describe("RIASEC 题库种子（#221 / #281 扩容到 120 题）", () => {
+  it("首次安装预置 riasec 量表与 120 题，六个维度各 20 题", () => {
     const { dbPath, adapter, assessment } = setup();
 
     const enabled = adapter.getEnabledAssessments();
-    expect(enabled).toHaveLength(1);
-    expect(enabled[0].code).toBe(RIASEC_CODE);
-    expect(enabled[0].question_count).toBe(30);
-    expect(enabled[0].scoring_mode).toBe("typological");
-    expect(enabled[0].scale_version).toBe(RIASEC_ASSESSMENT.scaleVersion);
+    expect(enabled).toHaveLength(2);
+    const riasec = enabled.find((row) => row.code === RIASEC_CODE)!;
+    expect(riasec.question_count).toBe(BANK_SIZE);
+    expect(riasec.scoring_mode).toBe("typological");
+    expect(riasec.scale_version).toBe(RIASEC_ASSESSMENT.scaleVersion);
+    expect(RIASEC_ASSESSMENT.scaleVersion).toBe(RIASEC_SCALE_VERSION);
+    expect(riasec.name).toContain("120 题库");
+    // 分层抽题（#282）未落地前作答的就是全库，名字不能预告「每次 30 题」
+    expect(riasec.name).not.toContain("每次 30 题");
 
     // 维度定义 JSON：供计分引擎直接消费的 { key, label } 数组
     const dimensions = JSON.parse(assessment.dimensions_json) as { key: string; label: string }[];
@@ -49,26 +75,36 @@ describe("RIASEC 题库种子（#221）", () => {
     expect(dimensions.every((d) => d.label.length > 0)).toBe(true);
 
     const questions = adapter.getAssessmentQuestions(assessment.id);
-    expect(questions).toHaveLength(30);
-    // 题号从 1 连续到 30（作答接口按题号存答案，跳号会让进度口径失真）
+    expect(questions).toHaveLength(BANK_SIZE);
+    // 题号从 1 连续到 120（作答接口按题号存答案，跳号会让进度口径失真）
     expect(questions.map((q) => q.question_index)).toEqual(
-      Array.from({ length: 30 }, (_, i) => i + 1)
+      Array.from({ length: BANK_SIZE }, (_, i) => i + 1)
     );
     for (const question of questions) {
       expect(question.prompt.trim().length).toBeGreaterThan(0);
       expect(dimensionKeys()).toContain(question.dimension);
-      // Mini-IP 原始量表无反向计分题，字段照实写 0
+      // 本量表无反向计分题，字段照实写 0
       expect(question.reverse_scored).toBe(0);
       expect(question.version).toBe(1);
+      expect(["onet-mini", "onet-sf", "cn-original"]).toContain(question.origin);
     }
-    // 六型均衡：每型 5 题，否则标准分口径不可比
+    // 六型均衡：每型 20 题，否则标准分口径不可比
     for (const key of dimensionKeys()) {
-      expect(questions.filter((q) => q.dimension === key)).toHaveLength(5);
+      expect(questions.filter((q) => q.dimension === key)).toHaveLength(PER_DIMENSION);
+    }
+    // origin 分布：官方 Mini-IP 30 / 官方 SF 30 / 原创 60（1–30 / 31–60 / 61–120）
+    expect(questions.filter((q) => q.origin === "onet-mini")).toHaveLength(30);
+    expect(questions.filter((q) => q.origin === "onet-sf")).toHaveLength(30);
+    expect(questions.filter((q) => q.origin === "cn-original")).toHaveLength(60);
+    for (const question of questions) {
+      const expectedOrigin =
+        question.question_index <= 30 ? "onet-mini" : question.question_index <= 60 ? "onet-sf" : "cn-original";
+      expect(question.origin).toBe(expectedOrigin);
     }
 
-    // 题号与维度按 Mini-IP 报告建议的轮转顺序（R,I,A,S,E,C 循环）
+    // 题号 1–30 仍按 Mini-IP 报告建议的轮转顺序（R,I,A,S,E,C 循环），已授权题面一字未改
     const cycle = ["R", "I", "A", "S", "E", "C"];
-    expect(questions.map((q) => q.dimension)).toEqual(
+    expect(questions.slice(0, 30).map((q) => q.dimension)).toEqual(
       Array.from({ length: 30 }, (_, i) => cycle[i % 6])
     );
     expect(questions[0].prompt).toBe("动手制作厨房橱柜");
@@ -77,6 +113,7 @@ describe("RIASEC 题库种子（#221）", () => {
     expect(assessment.attribution).toContain("O*NET");
     expect(assessment.attribution).toContain("U.S. Department of Labor");
     expect(assessment.license_text).toContain("USDOL/ETA");
+    expect(assessment.license_text).toContain("O*NET Database");
     expect(assessment.disclaimer).toContain("不作为心理诊断");
 
     adapter.close();
@@ -87,8 +124,8 @@ describe("RIASEC 题库种子（#221）", () => {
     const { dbPath, adapter, assessment } = setup();
 
     adapter.init();
-    expect(adapter.getAssessmentQuestions(assessment.id)).toHaveLength(30);
-    expect(adapter.getEnabledAssessments()).toHaveLength(1);
+    expect(adapter.getAssessmentQuestions(assessment.id)).toHaveLength(BANK_SIZE);
+    expect(adapter.getEnabledAssessments()).toHaveLength(2);
 
     // 模拟后台维护题面 + 停用：再次 init 不得覆盖
     const raw = new Database(dbPath);
@@ -101,7 +138,8 @@ describe("RIASEC 题库种子（#221）", () => {
 
     adapter.init();
     expect(adapter.getAssessmentQuestions(assessment.id)[0].prompt).toBe("（已维护）动手制作厨房橱柜");
-    expect(adapter.getEnabledAssessments()).toHaveLength(0);
+    expect(adapter.getEnabledAssessments()).toHaveLength(1);
+    expect(adapter.getEnabledAssessments()[0].code).not.toBe(RIASEC_CODE);
 
     adapter.close();
     cleanup(dbPath);
@@ -115,12 +153,12 @@ describe("RIASEC 题库种子（#221）", () => {
     expect(adapter.getAssessmentQuestionsByCode("nope")).toEqual([]);
     // code 大小写归一化在边界做：SQLite 的 = 区分大小写、MySQL 不区分，两侧行为必须一致
     expect(adapter.getAssessmentByCode(" RIASEC ")?.id).toBe(assessment.id);
-    expect(adapter.getAssessmentQuestionsByCode("RIASEC")).toHaveLength(30);
+    expect(adapter.getAssessmentQuestionsByCode("RIASEC")).toHaveLength(BANK_SIZE);
 
     const raw = new Database(dbPath);
     raw.prepare("UPDATE assessments SET enabled = 0 WHERE id = ?").run(assessment.id);
     raw.close();
-    expect(adapter.getEnabledAssessments()).toHaveLength(0);
+    expect(adapter.getEnabledAssessments()).toHaveLength(1);
     expect(adapter.getAssessmentByCode(RIASEC_CODE)?.enabled).toBe(0);
 
     adapter.close();
@@ -137,8 +175,8 @@ describe("RIASEC 题库种子（#221）", () => {
     expect(adapter.getAssessmentQuestions(assessment.id)).toHaveLength(0);
 
     adapter.init();
-    expect(adapter.getAssessmentQuestions(assessment.id)).toHaveLength(30);
-    expect(adapter.getAssessmentByCode(RIASEC_CODE)?.question_count).toBe(30);
+    expect(adapter.getAssessmentQuestions(assessment.id)).toHaveLength(BANK_SIZE);
+    expect(adapter.getAssessmentByCode(RIASEC_CODE)?.question_count).toBe(BANK_SIZE);
 
     // 补种之后就是「已维护」：改过的题面再 init 一次不会被覆盖
     const raw2 = new Database(dbPath);
@@ -147,6 +185,7 @@ describe("RIASEC 题库种子（#221）", () => {
       assessment.id
     );
     raw2.close();
+
     adapter.init();
     expect(adapter.getAssessmentQuestions(assessment.id)[0].prompt).toBe("（已维护）动手制作厨房橱柜");
 
@@ -155,18 +194,142 @@ describe("RIASEC 题库种子（#221）", () => {
   });
 
   it("种子自检：完整题库存得下，坏数据在落库前报错", () => {
-    expect(() => validateAssessmentSeed(RIASEC_ASSESSMENT, RIASEC_QUESTIONS)).not.toThrow();
+    expect(() => validateAssessmentSeed(RIASEC_ASSESSMENT, RIASEC_QUESTIONS, onetInterestCodeOf)).not.toThrow();
 
-    const caseOf = (mutate: (questions: typeof RIASEC_QUESTIONS) => typeof RIASEC_QUESTIONS) => {
-      return () => validateAssessmentSeed(RIASEC_ASSESSMENT, mutate(RIASEC_QUESTIONS.map((q) => ({ ...q }))));
+    const caseOf = (mutate: (questions: QuestionSeed[]) => QuestionSeed[]) => {
+      return () =>
+        validateAssessmentSeed(RIASEC_ASSESSMENT, mutate(RIASEC_QUESTIONS.map((q) => ({ ...q }))), onetInterestCodeOf);
     };
 
+    // #221 既有规则
     expect(caseOf((qs) => qs.slice(1))).toThrow(/题数与题库不符/);
     expect(caseOf((qs) => qs.map((q, i) => (i === 0 ? { ...q, index: 2 } : q)))).toThrow(/题号重复/);
-    expect(caseOf((qs) => qs.map((q, i) => (i === 0 ? { ...q, index: 31 } : q)))).toThrow(/题号不连续/);
+    expect(caseOf((qs) => qs.map((q, i) => (i === 0 ? { ...q, index: 121 } : q)))).toThrow(/题号不连续/);
     expect(caseOf((qs) => qs.map((q, i) => (i === 0 ? { ...q, dimension: "X" } : q)))).toThrow(/未定义的维度/);
     expect(caseOf((qs) => qs.map((q, i) => (i === 0 ? { ...q, prompt: "  " } : q)))).toThrow(/题干为空/);
     expect(caseOf((qs) => qs.map((q, i) => (i === 0 ? { ...q, source: "" } : q)))).toThrow(/缺少英文原文/);
+
+    // #281 新规则：每维题数相等（删掉一道 R 维原创题）
+    expect(
+      caseOf((qs) => qs.filter((q) => !(q.dimension === "R" && q.origin === "cn-original" && q.index === 61)))
+    ).toThrow(/各维度题数不相等|题数与题库不符/);
+    // 维度题数相等但某维原创题不足 3 道（把 R 维 8 道原创题改成官方来源，只剩 2 道原创）
+    expect(
+      caseOf((qs) => qs.map((q) => (q.index >= 61 && q.index <= 68 ? { ...q, origin: "onet-sf" as const } : q)))
+    ).toThrow(/原创题不足/);
+    // 题干重复 / 长度越界 / 禁词
+    expect(caseOf((qs) => qs.map((q, i) => (i === 1 ? { ...q, prompt: qs[0].prompt } : q)))).toThrow(/题干重复/);
+    expect(caseOf((qs) => qs.map((q, i) => (i === 0 ? { ...q, prompt: "动手" } : q)))).toThrow(/汉字数/);
+    expect(
+      caseOf((qs) =>
+        qs.map((q, i) =>
+          i === 0
+            ? { ...q, prompt: "动手制作厨房橱柜并安装台面柜门抽屉五金件以及全部其他相关配件和材料" }
+            : q
+        )
+      )
+    ).toThrow(/汉字数/);
+    expect(caseOf((qs) => qs.map((q, i) => (i === 0 ? { ...q, prompt: "做一份月薪两万的工作" } : q)))).toThrow(
+      /收入|学历|地位/
+    );
+    // 原创题缺 anchor / anchor 不在快照 / 维度不在兴趣高码前两位
+    expect(caseOf((qs) => qs.map((q, i) => (i === 60 ? { ...q, anchor: undefined } : q)))).toThrow(/缺少锚定职业/);
+    expect(caseOf((qs) => qs.map((q, i) => (i === 60 ? { ...q, anchor: "不存在的职业" } : q)))).toThrow(
+      /不在 O\*NET 快照中/
+    );
+    expect(
+      caseOf((qs) =>
+        qs.map((q, i) => (i === 60 ? { ...q, anchor: "Bookkeeping, Accounting, and Auditing Clerks" } : q))
+      )
+    ).toThrow(/兴趣高码/);
+    // 近重复：把同维度另一题（54，未被近重复组覆盖）改成与 52 几乎一样的题面 → 必须被拦下
+    expect(
+      caseOf((qs) => {
+        const target = qs.find((q) => q.index === 54)!;
+        target.prompt = "管理一家零售门店的";
+        return qs;
+      })
+    ).toThrow(/近重复/);
+  });
+});
+
+describe("题库只增不改升级（#281）", () => {
+  it("已有 30 题的库升级到 120 题：补题、回填 origin、更新量表定义", () => {
+    const { dbPath, adapter, assessment } = setup();
+    downgradeToLegacyBank(dbPath, assessment.id);
+    expect(adapter.getAssessmentQuestions(assessment.id)).toHaveLength(30);
+    expect(adapter.getAssessmentByCode(RIASEC_CODE)?.question_count).toBe(30);
+
+    const result = adapter.upgradeAssessmentBank();
+    expect(result).toEqual({ inserted: 90, originBackfilled: 30, definitionUpdated: true });
+
+    const questions = adapter.getAssessmentQuestions(assessment.id);
+    expect(questions).toHaveLength(BANK_SIZE);
+    expect(questions.filter((q) => q.origin === "onet-mini")).toHaveLength(30);
+    expect(questions.filter((q) => q.origin === "onet-sf")).toHaveLength(30);
+    expect(questions.filter((q) => q.origin === "cn-original")).toHaveLength(60);
+    // 题号 1–30 的题面与维度一个字都没动
+    for (const seed of RIASEC_QUESTIONS.slice(0, 30)) {
+      const row = questions.find((q) => q.question_index === seed.index)!;
+      expect(row.prompt).toBe(seed.prompt);
+      expect(row.dimension).toBe(seed.dimension);
+    }
+    const definition = adapter.getAssessmentByCode(RIASEC_CODE)!;
+    expect(definition.question_count).toBe(BANK_SIZE);
+    expect(definition.scale_version).toBe(RIASEC_SCALE_VERSION);
+    expect(definition.name).toContain("120 题库");
+
+    adapter.close();
+    cleanup(dbPath);
+  });
+
+  it("绝不覆盖后台维护过的题面：升级后仍是后台版本，origin 照常回填", () => {
+    const { dbPath, adapter, assessment } = setup();
+    downgradeToLegacyBank(dbPath, assessment.id);
+    const raw = new Database(dbPath);
+    raw.prepare("UPDATE assessment_questions SET prompt = ? WHERE assessment_id = ? AND question_index = 1").run(
+      "（后台维护版）动手制作厨房橱柜",
+      assessment.id
+    );
+    raw.close();
+
+    adapter.upgradeAssessmentBank();
+    const questions = adapter.getAssessmentQuestions(assessment.id);
+    expect(questions.find((q) => q.question_index === 1)!.prompt).toBe("（后台维护版）动手制作厨房橱柜");
+    expect(questions.find((q) => q.question_index === 1)!.origin).toBe("onet-mini");
+
+    adapter.close();
+    cleanup(dbPath);
+  });
+
+  it("重复执行幂等：第二次不改任何字段", () => {
+    const { dbPath, adapter, assessment } = setup();
+    downgradeToLegacyBank(dbPath, assessment.id);
+    adapter.upgradeAssessmentBank();
+    const before = adapter.getAssessmentQuestions(assessment.id);
+    const definitionBefore = adapter.getAssessmentByCode(RIASEC_CODE)!;
+
+    const second = adapter.upgradeAssessmentBank();
+    expect(second).toEqual({ inserted: 0, originBackfilled: 0, definitionUpdated: false });
+    expect(adapter.getAssessmentQuestions(assessment.id)).toEqual(before);
+    expect(adapter.getAssessmentByCode(RIASEC_CODE)).toEqual(definitionBefore);
+
+    adapter.close();
+    cleanup(dbPath);
+  });
+
+  it("定义级字段只在 scale_version 不一致时更新（同版本库改过的名字不被覆盖）", () => {
+    const { dbPath, adapter, assessment } = setup();
+    const raw = new Database(dbPath);
+    raw.prepare("UPDATE assessments SET name = ? WHERE id = ?").run("（后台改过的名字）", assessment.id);
+    raw.close();
+
+    const result = adapter.upgradeAssessmentBank();
+    expect(result.definitionUpdated).toBe(false);
+    expect(adapter.getAssessmentByCode(RIASEC_CODE)?.name).toBe("（后台改过的名字）");
+
+    adapter.close();
+    cleanup(dbPath);
   });
 });
 
@@ -336,12 +499,23 @@ describe("备份与恢复（#221：三表纳入备份 version 6）", () => {
 
     const data = adapter.backup();
     expect(data.version).toBe(6);
-    expect(data.assessments).toHaveLength(1);
-    expect(data.assessment_questions).toHaveLength(30);
+    expect(data.assessments).toHaveLength(2);
+    expect(data.assessment_questions).toHaveLength(BANK_SIZE + IPIP_QUESTIONS.length);
+    // #281：备份带 origin，往返后逐题一致
+    const riasecQuestions = data.assessment_questions!.filter(
+      (question) => question.assessment_id === assessment.id
+    );
+    for (const row of riasecQuestions) {
+      expect(row.origin).toBe(
+        row.question_index <= 30 ? "onet-mini" : row.question_index <= 60 ? "onet-sf" : "cn-original"
+      );
+    }
     expect(data.assessment_results).toHaveLength(1);
 
     adapter.restore(data);
-    expect(adapter.getAssessmentQuestionsByCode(RIASEC_CODE)).toHaveLength(30);
+    const restoredQuestions = adapter.getAssessmentQuestionsByCode(RIASEC_CODE);
+    expect(restoredQuestions).toHaveLength(BANK_SIZE);
+    expect(restoredQuestions.map((q) => q.origin)).toEqual(riasecQuestions.map((q) => q.origin));
     const restored = adapter.getCurrentAssessmentResult(studentId, assessment.id);
     expect(restored).toMatchObject({ type_code: "RIA", is_current: 1 });
 
@@ -368,7 +542,7 @@ describe("备份与恢复（#221：三表纳入备份 version 6）", () => {
     };
     adapter.restore(legacy);
     // 题库是参考数据 → 缺字段保留现状
-    expect(adapter.getAssessmentQuestionsByCode(RIASEC_CODE)).toHaveLength(30);
+    expect(adapter.getAssessmentQuestionsByCode(RIASEC_CODE)).toHaveLength(BANK_SIZE);
     expect(adapter.getStudentByCode("202505050101")).toBeDefined();
     // 作答只靠数值 user_id 关联，users 已被备份整表替换：保留旧结果会张冠李戴 → 一律清空
     expect(adapter.getCurrentAssessmentResult(studentId, assessment.id)).toBeUndefined();
@@ -379,7 +553,7 @@ describe("备份与恢复（#221：三表纳入备份 version 6）", () => {
     raw.exec("DELETE FROM assessment_results; DELETE FROM assessment_questions; DELETE FROM assessments");
     raw.close();
     adapter.restore(legacy);
-    expect(adapter.getAssessmentQuestionsByCode(RIASEC_CODE)).toHaveLength(30);
+    expect(adapter.getAssessmentQuestionsByCode(RIASEC_CODE)).toHaveLength(BANK_SIZE);
 
     adapter.close();
     cleanup(dbPath);
@@ -390,9 +564,24 @@ describe("备份与恢复（#221：三表纳入备份 version 6）", () => {
 
     const forged = { ...adapter.backup(), assessment_questions: [] };
     adapter.restore(forged);
-    expect(adapter.getAssessmentQuestionsByCode(RIASEC_CODE)).toHaveLength(30);
-    expect(adapter.getAssessmentByCode(RIASEC_CODE)?.question_count).toBe(30);
+    expect(adapter.getAssessmentQuestionsByCode(RIASEC_CODE)).toHaveLength(BANK_SIZE);
+    expect(adapter.getAssessmentByCode(RIASEC_CODE)?.question_count).toBe(BANK_SIZE);
     expect(adapter.getAssessmentByCode(RIASEC_CODE)?.id).toBe(assessment.id);
+
+    adapter.close();
+    cleanup(dbPath);
+  });
+  it("旧备份的题库缺 origin 列：恢复时按原创题默认，不拒绝恢复", () => {
+    const { dbPath, adapter } = setup();
+    const data = adapter.backup();
+    // 模拟旧备份：逐行去掉 origin 列
+    const legacyQuestions = data.assessment_questions!.map((q) =>
+      Object.fromEntries(Object.entries(q).filter(([key]) => key !== "origin"))
+    );
+    adapter.restore({ ...data, assessment_results: [], assessment_questions: legacyQuestions as never });
+    const restored = adapter.getAssessmentQuestionsByCode(RIASEC_CODE);
+    expect(restored).toHaveLength(BANK_SIZE);
+    expect(restored.every((q) => q.origin === "cn-original")).toBe(true);
 
     adapter.close();
     cleanup(dbPath);
@@ -485,7 +674,15 @@ describe("两适配器 Schema 对账（#221）", () => {
       ])
     );
     expect(columnNames(sqlite, "assessment_questions")).toEqual(
-      expect.arrayContaining(["assessment_id", "question_index", "prompt", "dimension", "reverse_scored", "version"])
+      expect.arrayContaining([
+        "assessment_id",
+        "question_index",
+        "prompt",
+        "dimension",
+        "origin",
+        "reverse_scored",
+        "version",
+      ])
     );
     expect(columnNames(sqlite, "assessment_results")).toEqual(
       expect.arrayContaining([
@@ -514,13 +711,13 @@ describe("与计分引擎的对接契约（#220 / #221）", () => {
       dimension: q.dimension,
       reverseScored: q.reverse_scored === 1,
     }));
-    // 30 题全答 4 分：每维 5 题 → 原始分 20 / 量程 5-25 → 线性标准分 75，六维并列按 R,I,A,S,E,C 破平
+    // 120 题全答 4 分：每维 20 题 → 原始分 80 / 量程 20-100 → 线性标准分 75，六维并列按 R,I,A,S,E,C 破平
     const answers = Object.fromEntries(questions.map((q) => [String(q.index), 4]));
     const result = scoreAssessment(dimensions, questions, answers);
     expect(result.complete).toBe(true);
     expect(result.missingIndexes).toEqual([]);
     expect(result.scores.map((s) => s.key)).toEqual(["R", "I", "A", "S", "E", "C"]);
-    expect(result.scores.every((s) => s.questionCount === 5 && s.standard === 75)).toBe(true);
+    expect(result.scores.every((s) => s.questionCount === PER_DIMENSION && s.standard === 75)).toBe(true);
     expect(result.code).toBe("RIA");
 
     // 快照列语义对齐：scores → scores_json、code → type_code
@@ -545,7 +742,7 @@ describe("与计分引擎的对接契约（#220 / #221）", () => {
 describe("RIASEC 维度常量", () => {
   it("声明顺序固定为 R,I,A,S,E,C（计分与雷达图共用）", () => {
     expect(RIASEC_DIMENSIONS.map((d) => d.key)).toEqual(["R", "I", "A", "S", "E", "C"]);
-    expect(RIASEC_QUESTIONS).toHaveLength(30);
+    expect(RIASEC_QUESTIONS).toHaveLength(120);
   });
 });
 
