@@ -9,7 +9,10 @@ import {
   buildDemoTeacher,
   mulberry32,
   randInt,
+  hashDemoPassword,
+  createDemoAccount,
   type Rng,
+  type DemoAccountSpec,
 } from "./demo-accounts";
 import {
   GROUPING_STRATEGY,
@@ -19,7 +22,25 @@ import {
 import { buildFeatureVectors, describeSources } from "./grouping-features";
 import { RIASEC_CODE, RIASEC_DIMENSIONS, RIASEC_QUESTIONS } from "./assessment-data";
 import { scoreAssessment, type QuestionConfig } from "./assessment-scoring";
-import type { UserRow } from "./db";
+import { generateObjectKey, getStorage, type StorageAdapter } from "./storage";
+import { createThumbnail } from "./thumbnail";
+import { getThumbnailKey } from "./thumbnail-utils";
+import { renderDemoImage, type DemoImageKind } from "./demo-images";
+import {
+  insertClass,
+  insertTeacherClass,
+  getDefaultStorageBackend,
+  submitProfileWithVersion,
+  completeAssessmentResult,
+  applyGroupingResult,
+  getAssessmentByCode,
+  type UserRow,
+  type ClassGroupingInput,
+  type NewGroupBatchInput,
+  type CompleteAssessmentInput,
+  type StorageBackendRow,
+  type AssessmentRow,
+} from "./db";
 
 /** 与生产邀请码同字母表（去易混字符），但由注入 rng 驱动以保持纯函数 */
 const INVITE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
@@ -217,3 +238,187 @@ export function planDemoSeed(seed: number, opts: DemoSeedOptions): DemoSeedPlan 
 }
 
 export { RIASEC_CODE };
+
+/** 触发播种的生产 admin（写进分组历史批次的 actor 快照） */
+export interface DemoSeedActor {
+  id: number | null;
+  name: string | null;
+  role: string | null;
+}
+
+/** 物化器依赖注入：真实实现走 @/lib/db（作用域感知）；单测传 fake 断言调用序列、不触库不跑 sharp/fs */
+export interface DemoSeedDeps {
+  insertClass(name: string, invitationCode: string): Promise<number>;
+  createAccount(spec: DemoAccountSpec): Promise<number>;
+  insertTeacherClass(teacherId: number, classId: number): Promise<void>;
+  getDefaultStorageBackend(): Promise<StorageBackendRow | undefined>;
+  getStorage(backendId: number): Promise<StorageAdapter>;
+  submitProfileWithVersion(
+    userCode: string,
+    tagsJson: string,
+    avatarUrl: string,
+    evaluationUrl: string,
+    storageId: number,
+    submittedAt?: string
+  ): Promise<{ version: number }>;
+  completeAssessmentResult(input: CompleteAssessmentInput): Promise<number>;
+  applyGroupingResult(classId: number, groups: ClassGroupingInput[], batch: NewGroupBatchInput): Promise<number>;
+  getAssessmentByCode(code: string): Promise<AssessmentRow | undefined>;
+  renderImage(kind: DemoImageKind, seedKey: string): Promise<Buffer>;
+  demoPasswordHash(): Promise<string>;
+  makeThumbnail(buffer: Buffer, kind: DemoImageKind): Promise<Buffer>;
+}
+
+export interface DemoSeedReport {
+  classId: number;
+  students: number;
+  submitted: number;
+  assessed: number;
+  groups: number;
+  images: number;
+}
+
+/** 演示库与生产隔离、可弃：直接格式化到与 getNow() 同口径的 `YYYY-MM-DD HH:mm:ss` 回填提交时间 */
+function formatDemoTimestamp(offsetDays: number): string {
+  const d = new Date(Date.now() - offsetDays * 86_400_000);
+  return d.toLocaleString("sv-SE", { timeZone: "Asia/Shanghai" });
+}
+
+/**
+ * 物化 DemoSeedPlan：写演示库 + 落占位图 + 真实分组落库。**必须在调用方的 runInDemoScope 内执行**
+ * （本函数不自行改作用域）；storage 写入经作用域感知基目录自动落 uploads/demo/。
+ */
+export async function materializeDemoSeed(
+  plan: DemoSeedPlan,
+  deps: DemoSeedDeps,
+  actor: DemoSeedActor
+): Promise<DemoSeedReport> {
+  const passwordHash = await deps.demoPasswordHash();
+  const classId = await deps.insertClass(plan.class.name, plan.class.invitationCode);
+
+  const teacherId = await deps.createAccount({
+    user_code: plan.teacher.user_code,
+    name: plan.teacher.name,
+    role: "teacher",
+    password_hash: passwordHash,
+    class_id: null,
+  });
+  await deps.insertTeacherClass(teacherId, classId);
+
+  const backend = await deps.getDefaultStorageBackend();
+  if (!backend) throw new Error("演示库无默认存储后端（init 应已播种本地后端）");
+  const storage = await deps.getStorage(backend.id);
+
+  const assessment = await deps.getAssessmentByCode(RIASEC_CODE);
+
+  const idByTemp = new Map<number, number>();
+  let submitted = 0;
+  let assessed = 0;
+  let images = 0;
+
+  for (const s of plan.students) {
+    const realId = await deps.createAccount({
+      user_code: s.user_code,
+      name: s.name,
+      role: "student",
+      password_hash: passwordHash,
+      class_id: classId,
+    });
+    idByTemp.set(s.tempId, realId);
+    if (!s.submit) continue;
+
+    let avatarUrl = "";
+    if (s.avatar) {
+      const key = generateObjectKey("avatar", s.user_code);
+      const buf = await deps.renderImage("avatar", s.user_code);
+      await storage.upload(key, buf, "image/jpeg");
+      const thumb = await deps.makeThumbnail(buf, "avatar").catch(() => null);
+      if (thumb) await storage.upload(getThumbnailKey(key), thumb, "image/jpeg");
+      avatarUrl = await storage.getSignedUrl(key);
+      images++;
+    }
+    let evaluationUrl = "";
+    if (s.evaluation) {
+      const key = generateObjectKey("evaluation", s.user_code);
+      const buf = await deps.renderImage("evaluation", s.user_code);
+      await storage.upload(key, buf, "image/jpeg");
+      const thumb = await deps.makeThumbnail(buf, "evaluation").catch(() => null);
+      if (thumb) await storage.upload(getThumbnailKey(key), thumb, "image/jpeg");
+      evaluationUrl = await storage.getSignedUrl(key);
+      images++;
+    }
+
+    await deps.submitProfileWithVersion(
+      s.user_code,
+      JSON.stringify(s.tags ?? []),
+      avatarUrl,
+      evaluationUrl,
+      backend.id,
+      formatDemoTimestamp(s.submittedOffsetDays)
+    );
+    submitted++;
+
+    if (s.assessment && assessment) {
+      await deps.completeAssessmentResult({
+        userId: realId,
+        assessmentId: assessment.id,
+        answersJson: JSON.stringify(s.assessment.answers),
+        scoresJson: s.assessment.scoresJson,
+        typeCode: s.assessment.typeCode,
+      });
+      assessed++;
+    }
+  }
+
+  const groups: ClassGroupingInput[] = plan.grouping.groups.map((g) => ({
+    group_no: g.groupNo,
+    user_ids: g.members.map((m) => idByTemp.get(m.tempId)).filter((v): v is number => v != null),
+  }));
+  const batch: NewGroupBatchInput = {
+    classId,
+    strategy: plan.grouping.strategy,
+    featureSources: plan.grouping.featureSources,
+    groupSize: plan.grouping.groupSize,
+    studentCount: plan.grouping.studentCount,
+    taggedCount: plan.grouping.taggedCount,
+    metrics: plan.grouping.metricsJson,
+    actorId: actor.id,
+    actorName: actor.name,
+    actorRole: actor.role,
+    groups: plan.grouping.groups.map((g) => ({
+      groupNo: g.groupNo,
+      cohesion: g.cohesion,
+      members: g.members.map((m) => ({
+        userId: idByTemp.get(m.tempId) ?? 0,
+        userCode: m.userCode,
+        name: m.name,
+      })),
+    })),
+  };
+  await deps.applyGroupingResult(classId, groups, batch);
+
+  return {
+    classId,
+    students: plan.students.length,
+    submitted,
+    assessed,
+    groups: plan.grouping.groups.length,
+    images,
+  };
+}
+
+/** 生产用默认依赖：db 写走 @/lib/db 封装（依调用作用域路由演示库）、storage 走作用域感知本地适配器 */
+export const defaultDemoSeedDeps: DemoSeedDeps = {
+  insertClass,
+  createAccount: createDemoAccount,
+  insertTeacherClass,
+  getDefaultStorageBackend,
+  getStorage,
+  submitProfileWithVersion,
+  completeAssessmentResult,
+  applyGroupingResult,
+  getAssessmentByCode,
+  renderImage: renderDemoImage,
+  demoPasswordHash: hashDemoPassword,
+  makeThumbnail: (buffer, kind) => createThumbnail(buffer, kind),
+};

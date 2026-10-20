@@ -1,6 +1,8 @@
 import { describe, it, expect } from "vitest";
-import { planDemoSeed } from "@/lib/demo-seed";
+import { planDemoSeed, materializeDemoSeed, type DemoSeedDeps } from "@/lib/demo-seed";
 import { GROUP_SIZE_CAP } from "@/lib/grouping-utils";
+import type { StorageAdapter } from "@/lib/storage";
+import type { AssessmentRow, StorageBackendRow } from "@/lib/db";
 
 const TAG_POOL = [
   "阅读", "编程", "音乐", "运动", "绘画", "科学", "旅行", "摄影",
@@ -73,5 +75,89 @@ describe("演示播种纯规划器（#253）", () => {
       expect(grp.members.length).toBeGreaterThan(0);
       expect(grp.members.length).toBeLessThanOrEqual(GROUP_SIZE_CAP);
     }
+  });
+});
+
+describe("物化器：tempId→真实 id 重映射 + 调用序列（#253，fake deps 不触库）", () => {
+  function makeRecordingDeps() {
+    let nextId = 1000;
+    const created: { user_code: string; role: string; class_id: number | null }[] = [];
+    const submissions: { userCode: string; submittedAt: string | undefined }[] = [];
+    const assessments: number[] = [];
+    const uploads: string[] = [];
+    const grouping: { groups: number[][]; memberIds: number[] } = { groups: [], memberIds: [] };
+    const teacherLinks: [number, number][] = [];
+
+    const deps: DemoSeedDeps = {
+      insertClass: async () => 77,
+      createAccount: async (spec) => {
+        created.push({ user_code: spec.user_code, role: spec.role, class_id: spec.class_id ?? null });
+        return ++nextId;
+      },
+      insertTeacherClass: async (teacherId, classId) => {
+        teacherLinks.push([teacherId, classId]);
+      },
+      getDefaultStorageBackend: async () => ({ id: 5 } as unknown as StorageBackendRow),
+      getStorage: async () =>
+        ({
+          type: "local",
+          upload: async (key: string) => {
+            uploads.push(key);
+          },
+          getSignedUrl: async (key: string) => `/api/uploads/${key}`,
+        }) as unknown as StorageAdapter,
+      submitProfileWithVersion: async (userCode, _t, _a, _e, _s, submittedAt) => {
+        submissions.push({ userCode, submittedAt });
+        return { version: 1 };
+      },
+      completeAssessmentResult: async (input) => {
+        assessments.push(input.userId);
+        return 1;
+      },
+      applyGroupingResult: async (_classId, groups, batch) => {
+        grouping.groups = groups.map((g) => g.user_ids);
+        grouping.memberIds = batch.groups.flatMap((g) => g.members.map((m) => m.userId));
+        return 1;
+      },
+      getAssessmentByCode: async () => ({ id: 1 } as unknown as AssessmentRow),
+      renderImage: async () => Buffer.from("img"),
+      demoPasswordHash: async () => "hashed",
+      makeThumbnail: async () => Buffer.from("thumb"),
+    };
+    return { deps, created, submissions, assessments, uploads, grouping, teacherLinks };
+  }
+
+  it("建班→配对教师→建学生→提交→测评→分组，且分组引用映射到真实 id", async () => {
+    const p = plan(42);
+    const r = makeRecordingDeps();
+    const report = await materializeDemoSeed(p, r.deps, { id: 9, name: "管理员", role: "admin" });
+
+    // 1 教师 + 20 学生；教师与班配对
+    expect(r.created.filter((c) => c.role === "teacher")).toHaveLength(1);
+    expect(r.created.filter((c) => c.role === "student")).toHaveLength(20);
+    expect(r.teacherLinks).toEqual([[1001, 77]]); // 首个 createAccount=教师 1001，班 77
+
+    // 提交与测评数与 plan 对齐
+    const expectSubmitted = p.students.filter((s) => s.submit).length;
+    const expectAssessed = p.students.filter((s) => s.assessment).length;
+    expect(report.submitted).toBe(expectSubmitted);
+    expect(r.submissions).toHaveLength(expectSubmitted);
+    expect(report.assessed).toBe(expectAssessed);
+    expect(r.assessments).toHaveLength(expectAssessed);
+
+    // 提交时间已回填为 YYYY-MM-DD HH:mm:ss（与 getNow 同格式）
+    for (const s of r.submissions) expect(s.submittedAt).toMatch(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/);
+
+    // 每张图上传原图 + 缩略图
+    expect(r.uploads).toHaveLength(report.images * 2);
+
+    // 分组成员 id 全部来自真实学生 id（>1000），且与提交/建号映射一致
+    const studentRealIds = r.created.filter((c) => c.role === "student");
+    expect(studentRealIds).toHaveLength(20);
+    const allGroupedIds = r.grouping.groups.flat();
+    expect(allGroupedIds.every((id) => id > 1000)).toBe(true);
+    expect(allGroupedIds.sort((a, b) => a - b)).toEqual(
+      Array.from({ length: 20 }, (_, i) => 1001 + 1 + i).sort((a, b) => a - b)
+    ); // 1001=教师，学生从 1002 起连续 20 个
   });
 });

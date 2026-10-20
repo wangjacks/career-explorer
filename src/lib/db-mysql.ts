@@ -1160,7 +1160,8 @@ export class MysqlAdapter implements DbAdapter {
     tagsJson: string,
     avatarUrl: string,
     evaluationUrl: string,
-    storageId: number
+    storageId: number,
+    submittedAt?: string
   ): Promise<{ version: number }> {
     const conn = await this.pool.getConnection();
     try {
@@ -1175,7 +1176,7 @@ export class MysqlAdapter implements DbAdapter {
       // 1) UPDATE users（不变）
       await conn.execute(
         "UPDATE users SET tags = ?, avatar_url = ?, evaluation_url = ?, submitted_at = ?, storage_id = ? WHERE id = ?",
-        [tagsJson, avatarUrl, evaluationUrl, getNow(), storageId, user.id]
+        [tagsJson, avatarUrl, evaluationUrl, submittedAt ?? getNow(), storageId, user.id]
       );
       // 2) 旧 is_current → 0
       await conn.execute("UPDATE profile_submissions SET is_current = 0 WHERE user_id = ?", [user.id]);
@@ -1190,7 +1191,7 @@ export class MysqlAdapter implements DbAdapter {
       await conn.execute(
         `INSERT INTO profile_submissions (user_id, version, tags, avatar_url, evaluation_url, storage_id, submitted_at, is_current)
          VALUES (?, ?, ?, ?, ?, ?, ?, 1)`,
-        [user.id, nextVersion, tagsJson, avatarUrl, evaluationUrl, storageId, getNow()]
+        [user.id, nextVersion, tagsJson, avatarUrl, evaluationUrl, storageId, submittedAt ?? getNow()]
       );
       // 5) 超限检查 → 删除最旧版本（仅删 DB 记录，文件保留，#111 旧文件不自动删除）
       const [configRows] = await conn.execute(
