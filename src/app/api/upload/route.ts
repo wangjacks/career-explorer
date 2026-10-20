@@ -1,7 +1,5 @@
 import { withDemoScope } from "@/lib/demo-scope";
 import { NextRequest, NextResponse } from "next/server";
-import { writeFile, mkdir } from "fs/promises";
-import path from "path";
 import sharp from "sharp";
 import { getDefaultStorageBackend, getMaxAvatarSizeMb, getMaxEvaluationSizeMb } from "@/lib/db";
 import { generateObjectKey, getStorage } from "@/lib/storage";
@@ -149,35 +147,22 @@ async function POST_impl(request: NextRequest) {
       return NextResponse.json({ error: message }, { status: 500 });
     }
     const key = generateObjectKey(prefix, studentId);
+    const storage = await getStorage(backend.id);
 
     // #118：同步生成并落盘缩略图（key 按 `_thumb` 后缀派生，DB 零字段）；失败不阻断原图上传
     try {
       const thumbBuffer = await createThumbnail(jpgBuffer, prefix as "avatar" | "evaluation");
       const thumbKey = getThumbnailKey(key);
-      if (backend.type === "local") {
-        // 动态路径校验需运行时解析（防穿越），豁免 Turbopack 静态追踪
-        const uploadDir = path.resolve(/*turbopackIgnore: true*/ process.cwd(), "uploads");
-        await mkdir(uploadDir, { recursive: true });
-        await writeFile(path.join(uploadDir, thumbKey), thumbBuffer);
-      } else {
-        const storage = await getStorage(backend.id);
-        await storage.upload(thumbKey, thumbBuffer, "image/jpeg");
-      }
+      await storage.upload(thumbKey, thumbBuffer, "image/jpeg");
     } catch (thumbErr) {
       console.error("Thumbnail generation failed, original upload continues:", thumbErr);
     }
 
-    if (backend.type === "local") {
-      // 动态路径校验需运行时解析（防穿越），豁免 Turbopack 静态追踪
-      const uploadDir = path.resolve(/*turbopackIgnore: true*/ process.cwd(), "uploads");
-      await mkdir(uploadDir, { recursive: true });
-      await writeFile(path.join(uploadDir, key), jpgBuffer);
-      return NextResponse.json({ url: `/api/uploads/${key}`, storageId: backend.id });
-    }
-
-    const storage = await getStorage(backend.id);
+    // 统一经存储适配器写入：本地走作用域感知基目录（演示落 uploads/demo/，#253 S1）并复用
+    // validateObjectKey + 穿越守卫；S3 走限时对象路径。响应 url 口径不变：本地回代理路径、S3 回原始 key
     await storage.upload(key, jpgBuffer, "image/jpeg");
-    return NextResponse.json({ url: key, storageId: backend.id });
+    const url = backend.type === "local" ? `/api/uploads/${key}` : key;
+    return NextResponse.json({ url, storageId: backend.id });
   } catch (err) {
     console.error("Upload error:", err);
     // 解码失败细分为「格式不支持」：学生能据此换格式，而不是反复重试同一张图

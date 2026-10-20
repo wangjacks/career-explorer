@@ -205,4 +205,29 @@ describe("POST /api/upload — 体积与格式（#206）", () => {
     await flushAudit();
     expect(insertAuditLog).not.toHaveBeenCalled();
   });
+
+  it("本地后端成功上传 → 200，url 为代理路径，经存储适配器写入（#253 本地写收敛到 adapter）", async () => {
+    vi.mocked(getDefaultStorageBackend).mockResolvedValue({
+      id: 1,
+      type: "local",
+    } as unknown as StorageBackendRow);
+    const upload = vi.fn(async () => undefined);
+    vi.mocked(getStorage).mockResolvedValue({ upload } as unknown as StorageAdapter);
+
+    const jpeg = await sharp({
+      create: { width: 4, height: 4, channels: 3, background: { r: 1, g: 2, b: 3 } },
+    })
+      .jpeg()
+      .toBuffer();
+    const req = createUploadRequest({
+      file: toFile(jpeg, "a.jpg", "image/jpeg"),
+      prefix: "avatar",
+      studentId: "202505050101",
+    });
+
+    const res = await POST(req);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ url: "/api/uploads/avatar_test.jpg", storageId: 1 });
+    expect(upload, "本地上传应经存储适配器（作用域感知基目录）写入，而非直接落生产 uploads").toHaveBeenCalled();
+  });
 });
