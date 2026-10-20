@@ -41,6 +41,8 @@ export interface Stats {
   topTags: { tag: string; count: number }[];
 }
 
+import { buildProfilesQueryString, type ProfileListQuery } from "@/lib/profile-query";
+
 export interface PagedData {
   data: Profile[];
   total: number;
@@ -93,9 +95,9 @@ export function useAdminAuth() {
   }, []);
 
   const loadProfiles = useCallback(
-    async (p: number): Promise<PagedData | null> => {
+    async (p: number, query?: ProfileListQuery): Promise<PagedData | null> => {
       try {
-        const res = await fetch(`/api/manage/profiles?page=${p}`);
+        const res = await fetch(`/api/manage/profiles?${buildProfilesQueryString(p, query)}`);
         if (res.ok) return await res.json();
       } catch (err) {
         console.error("Failed to load profiles:", err);

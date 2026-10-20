@@ -3,7 +3,8 @@ import { mkdirSync, readFileSync, existsSync } from "fs";
 import { tmpdir } from "os";
 import path from "path";
 import { tagCategories } from "./tagData";
-import { ASSESSMENT_SEEDS, getQuestionSeeds, validateAssessmentSeed } from "./assessment-data";
+import { ASSESSMENT_SEEDS, RIASEC_CODE, getQuestionSeeds, validateAssessmentSeed } from "./assessment-data";
+import { buildSubmittedProfilesSql } from "./profile-query";
 import type { QuestionSeed } from "./assessment-data";
 import { getOnetOccupationSeeds, needsOnetReseed, ONET_SEED_MARKER_KEY, onetInterestCodeOf } from "./onet";
 import { ONET_DATASET_VERSION } from "./onet-data";
@@ -51,6 +52,7 @@ import type {
   AssessmentStatsRaw,
   AssessmentRosterRow,
   AssessmentBankUpgradeResult,
+  SubmittedProfileFilters,
 } from "./db";
 import { fillGroupedTrend, fillTrendSeries, shiftDate } from "./stats-utils";
 
@@ -983,17 +985,21 @@ export class SqliteAdapter implements DbAdapter {
       .run(tagsJson, avatarUrl, evaluationUrl, getNow(), storageId, userCode);
   }
 
-  getSubmittedProfiles(page: number = 1, pageSize: number = 20): { rows: UserRow[]; total: number } {
-    const total = (
-      this.db.prepare("SELECT COUNT(*) as c FROM users WHERE role = 'student' AND submitted_at IS NOT NULL").get() as { c: number }
-    ).c;
+  getSubmittedProfiles(
+    page: number = 1,
+    pageSize: number = 20,
+    filters?: SubmittedProfileFilters
+  ): { rows: UserRow[]; total: number } {
+    // #295：筛选 / 排序 / 分页全部下推数据库（跨页数据也能被筛到）；不传 filters 时与改造前等价。
+    // WHERE / ORDER BY 由 `buildSubmittedProfilesSql` 统一生成，两适配器口径不会分叉。
+    const { whereSql, params, orderBySql } = buildSubmittedProfilesSql("sqlite", filters, RIASEC_CODE);
     const offset = (page - 1) * pageSize;
+    const total = (
+      this.db.prepare(`SELECT COUNT(*) as c FROM users u WHERE ${whereSql}`).get(...params) as { c: number }
+    ).c;
     const rows = this.db
-      .prepare(
-        `SELECT * FROM users WHERE role = 'student' AND submitted_at IS NOT NULL
-         ORDER BY submitted_at DESC LIMIT ? OFFSET ?`
-      )
-      .all(pageSize, offset) as UserRow[];
+      .prepare(`SELECT u.* FROM users u WHERE ${whereSql} ORDER BY ${orderBySql} LIMIT ? OFFSET ?`)
+      .all(...params, pageSize, offset) as UserRow[];
     return { rows, total };
   }
 

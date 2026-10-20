@@ -23,6 +23,7 @@ import ClassesTab from "@/components/admin/ClassesTab";
 import StudentsTab from "@/components/admin/StudentsTab";
 import TeacherHomeTab from "@/components/admin/TeacherHomeTab";
 import OverviewTab from "@/components/admin/OverviewTab";
+import { buildProfilesQueryString, type ProfileListQuery } from "@/lib/profile-query";
 import ProfilesTab from "@/components/admin/ProfilesTab";
 import TeacherDashboardTab from "@/components/admin/TeacherDashboardTab";
 import ExportTab from "@/components/admin/ExportTab";
@@ -76,9 +77,9 @@ export default function TeacherDashboardPage() {
     return null;
   }, []);
 
-  const loadProfiles = useCallback(async (p: number): Promise<PagedData | null> => {
+  const loadProfiles = useCallback(async (p: number, query?: ProfileListQuery): Promise<PagedData | null> => {
     try {
-      const res = await fetch(`/api/manage/profiles?page=${p}`);
+      const res = await fetch(`/api/manage/profiles?${buildProfilesQueryString(p, query)}`);
       if (res.ok) return await res.json();
     } catch (err) {
       console.error("Failed to load profiles:", err);
