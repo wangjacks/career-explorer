@@ -7,6 +7,7 @@ import { SqliteAdapter } from "../lib/db-sqlite";
 import { scoreAssessment } from "../lib/assessment-scoring";
 import { onetInterestCodeOf } from "../lib/onet";
 import {
+  IPIP_QUESTIONS,
   RIASEC_ASSESSMENT,
   RIASEC_CODE,
   RIASEC_QUESTIONS,
@@ -58,15 +59,15 @@ describe("RIASEC 题库种子（#221 / #281 扩容到 120 题）", () => {
     const { dbPath, adapter, assessment } = setup();
 
     const enabled = adapter.getEnabledAssessments();
-    expect(enabled).toHaveLength(1);
-    expect(enabled[0].code).toBe(RIASEC_CODE);
-    expect(enabled[0].question_count).toBe(BANK_SIZE);
-    expect(enabled[0].scoring_mode).toBe("typological");
-    expect(enabled[0].scale_version).toBe(RIASEC_ASSESSMENT.scaleVersion);
+    expect(enabled).toHaveLength(2);
+    const riasec = enabled.find((row) => row.code === RIASEC_CODE)!;
+    expect(riasec.question_count).toBe(BANK_SIZE);
+    expect(riasec.scoring_mode).toBe("typological");
+    expect(riasec.scale_version).toBe(RIASEC_ASSESSMENT.scaleVersion);
     expect(RIASEC_ASSESSMENT.scaleVersion).toBe(RIASEC_SCALE_VERSION);
-    expect(enabled[0].name).toContain("120 题库");
+    expect(riasec.name).toContain("120 题库");
     // 分层抽题（#282）未落地前作答的就是全库，名字不能预告「每次 30 题」
-    expect(enabled[0].name).not.toContain("每次 30 题");
+    expect(riasec.name).not.toContain("每次 30 题");
 
     // 维度定义 JSON：供计分引擎直接消费的 { key, label } 数组
     const dimensions = JSON.parse(assessment.dimensions_json) as { key: string; label: string }[];
@@ -124,7 +125,7 @@ describe("RIASEC 题库种子（#221 / #281 扩容到 120 题）", () => {
 
     adapter.init();
     expect(adapter.getAssessmentQuestions(assessment.id)).toHaveLength(BANK_SIZE);
-    expect(adapter.getEnabledAssessments()).toHaveLength(1);
+    expect(adapter.getEnabledAssessments()).toHaveLength(2);
 
     // 模拟后台维护题面 + 停用：再次 init 不得覆盖
     const raw = new Database(dbPath);
@@ -137,7 +138,8 @@ describe("RIASEC 题库种子（#221 / #281 扩容到 120 题）", () => {
 
     adapter.init();
     expect(adapter.getAssessmentQuestions(assessment.id)[0].prompt).toBe("（已维护）动手制作厨房橱柜");
-    expect(adapter.getEnabledAssessments()).toHaveLength(0);
+    expect(adapter.getEnabledAssessments()).toHaveLength(1);
+    expect(adapter.getEnabledAssessments()[0].code).not.toBe(RIASEC_CODE);
 
     adapter.close();
     cleanup(dbPath);
@@ -156,7 +158,7 @@ describe("RIASEC 题库种子（#221 / #281 扩容到 120 题）", () => {
     const raw = new Database(dbPath);
     raw.prepare("UPDATE assessments SET enabled = 0 WHERE id = ?").run(assessment.id);
     raw.close();
-    expect(adapter.getEnabledAssessments()).toHaveLength(0);
+    expect(adapter.getEnabledAssessments()).toHaveLength(1);
     expect(adapter.getAssessmentByCode(RIASEC_CODE)?.enabled).toBe(0);
 
     adapter.close();
@@ -497,10 +499,13 @@ describe("备份与恢复（#221：三表纳入备份 version 6）", () => {
 
     const data = adapter.backup();
     expect(data.version).toBe(6);
-    expect(data.assessments).toHaveLength(1);
-    expect(data.assessment_questions).toHaveLength(BANK_SIZE);
+    expect(data.assessments).toHaveLength(2);
+    expect(data.assessment_questions).toHaveLength(BANK_SIZE + IPIP_QUESTIONS.length);
     // #281：备份带 origin，往返后逐题一致
-    for (const row of data.assessment_questions!) {
+    const riasecQuestions = data.assessment_questions!.filter(
+      (question) => question.assessment_id === assessment.id
+    );
+    for (const row of riasecQuestions) {
       expect(row.origin).toBe(
         row.question_index <= 30 ? "onet-mini" : row.question_index <= 60 ? "onet-sf" : "cn-original"
       );
@@ -510,7 +515,7 @@ describe("备份与恢复（#221：三表纳入备份 version 6）", () => {
     adapter.restore(data);
     const restoredQuestions = adapter.getAssessmentQuestionsByCode(RIASEC_CODE);
     expect(restoredQuestions).toHaveLength(BANK_SIZE);
-    expect(restoredQuestions.map((q) => q.origin)).toEqual(data.assessment_questions!.map((q) => q.origin));
+    expect(restoredQuestions.map((q) => q.origin)).toEqual(riasecQuestions.map((q) => q.origin));
     const restored = adapter.getCurrentAssessmentResult(studentId, assessment.id);
     expect(restored).toMatchObject({ type_code: "RIA", is_current: 1 });
 
