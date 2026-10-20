@@ -6,7 +6,8 @@ import { runInDemoScope, getDemoDbPath } from "@/lib/demo-scope";
 import { getClasses, getStudents, closeDemoDb, closeDb } from "@/lib/db";
 
 const DEMO_FILE = "./data/career-demo-lifecycle-test.db";
-const DEMO_UPLOADS = path.resolve(process.cwd(), "uploads", "demo");
+const UPLOADS_ROOT = "./data/uploads-lifecycle-test";
+const DEMO_UPLOADS = path.resolve(process.cwd(), UPLOADS_ROOT, "demo");
 
 function cleanupDb() {
   for (const s of ["", "-wal", "-shm"]) rmSync(DEMO_FILE + s, { force: true });
@@ -16,8 +17,9 @@ describe("演示库生命周期：init / reset / status（#253，真临时演示
   beforeAll(() => {
     process.env.DEMO_ENABLED = "true";
     process.env.DEMO_DB_PATH = DEMO_FILE;
+    process.env.UPLOADS_DIR = UPLOADS_ROOT; // 隔离 uploads 根，避免与并发集成用例互清 uploads/demo
     cleanupDb();
-    rmSync(DEMO_UPLOADS, { recursive: true, force: true });
+    rmSync(path.resolve(process.cwd(), UPLOADS_ROOT), { recursive: true, force: true });
   });
 
   afterAll(async () => {
@@ -25,8 +27,9 @@ describe("演示库生命周期：init / reset / status（#253，真临时演示
     await closeDb();
     delete process.env.DEMO_ENABLED;
     delete process.env.DEMO_DB_PATH;
+    delete process.env.UPLOADS_DIR;
     cleanupDb();
-    rmSync(DEMO_UPLOADS, { recursive: true, force: true });
+    rmSync(path.resolve(process.cwd(), UPLOADS_ROOT), { recursive: true, force: true });
   });
 
   it("initDemoDb 建表演过（空库，无班级）", async () => {

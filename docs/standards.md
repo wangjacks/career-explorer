@@ -417,6 +417,7 @@ permissions:
 | `ALLOWED_ORIGINS` | 仅 dev 模式：Next.js 开发服务器 origin 白名单（逗号分隔），生产无效 |
 | `DEMO_ENABLED` | 可选：演示沙箱总开关（#250）。值为 `"true"` 时进程内多开一个独立 SQLite 演示库（路径见 `DEMO_DB_PATH`），带 `demo` claim 的 token 其全部 DB 访问经 `AsyncLocalStorage` 请求级作用域改道到演示库，与生产库**物理隔离**（`ensureInit()` 依作用域选择 adapter）。未设置或非 `"true"` 时整套演示能力不存在，且演示作用域内访问 DB 直接抛错（fail-safe，绝不回落生产库）。运行时读取、改后重启进程生效；刻意**不放入 `db-config.json`**，避免经 settings API 暴露或被 PUT 覆盖。演示登录/播种/文件目录隔离分别见 #252/#253 |
 | `DEMO_DB_PATH` | 可选：演示库 SQLite 文件路径（#250），默认 `./data/career-demo.db`。须落在 `process.cwd()` 或系统临时目录内（由 `SqliteAdapter` 的 `sanitizeSqlitePath` 校验，越界拒绝）。仅 `DEMO_ENABLED=true` 时生效 |
+| `UPLOADS_DIR` | 可选：本地存储根目录（相对 `process.cwd()`，默认 `uploads`，#253 S1）。演示作用域下本地读写/serve/media 扫描一律经 `getUploadsBaseDir()` 落到 `<UPLOADS_DIR>/demo/`，与生产上传物理隔离。生产部署一般无需设置；主要供集成测试隔离 uploads 根、避免并发用例互清 `uploads/demo`。改此目录即改全部本地落盘/读取位置（单一真源），无需再动其它处 |
 | `PORT` | 应用端口（Next.js 内置，默认 3000）。**只能在进程环境中设置**（如 `PORT=<端口> pm2 restart <应用名>`）或用 `next start -p <port>`；写入 `.env.local` 无效——HTTP server 绑定端口早于 env 文件加载。应用代码不读取此变量 |
 
 模板文件为 `.env.example`（部署时复制为 `.env.local` 填写）；新增或改名环境变量时，本表与 `.env.example` 必须同步修改（`PORT` 除外，见上表说明）。部署流程与云存储端点配置见 `DEPLOY.md`。

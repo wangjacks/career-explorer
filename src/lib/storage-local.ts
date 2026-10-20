@@ -10,14 +10,16 @@ import { validateObjectKey, type StorageAdapter, type StoredObject } from "./sto
 import { isDemoScope } from "./demo-scope";
 
 /**
- * 本地存储落盘基目录：演示作用域（AsyncLocalStorage）解析为 `uploads/demo/`，其余为 `uploads/`。
+ * 本地存储落盘基目录：演示作用域（AsyncLocalStorage）解析为 `<uploads>/demo/`，其余为 `<uploads>/`。
  * 对象 key 仍是扁平单段（`validateObjectKey` 拒 `/`），`demo/` 前缀只能来自这里；serve 路由共用此函数。
+ * 根目录默认 `uploads/`，可用 `UPLOADS_DIR` 覆盖（默认不变；主要供集成测试按临时目录隔离，避免并发用例互清 uploads/demo）。
  * 动态路径解析需运行时求值（防穿越 + 作用域切换），豁免 Turbopack 静态追踪。
  */
 export function getUploadsBaseDir(): string {
+  const root = process.env.UPLOADS_DIR || "uploads";
   return path.resolve(
     /*turbopackIgnore: true*/ process.cwd(),
-    isDemoScope() ? path.join("uploads", "demo") : "uploads"
+    isDemoScope() ? path.join(root, "demo") : root
   );
 }
 
