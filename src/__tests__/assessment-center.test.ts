@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { describe, it, expect } from "vitest";
 import {
   ESTIMATE_SECONDS_PER_QUESTION,
@@ -26,6 +27,21 @@ describe("estimateMinutes / progressPercent", () => {
     expect(progressPercent(30, 0)).toBe(0);
     expect(progressPercent(-3, 10)).toBe(0);
     expect(progressPercent(99, 10)).toBe(100);
+  });
+});
+
+describe("档案页耗时文案（#286）", () => {
+  it("复用测评中心的题量与耗时视图，不再写死题量或分钟数", () => {
+    const source = readFileSync(
+      new URL("../components/student/AssessmentResultCard.tsx", import.meta.url),
+      "utf8"
+    );
+
+    expect(source).toContain("const assessmentView = deriveAssessmentCenter(data)");
+    expect(source).toContain("assessmentView.questionCount");
+    expect(source).toContain("assessmentView.estimatedMinutes");
+    expect(source).not.toMatch(/\d+\s*道题/);
+    expect(source).not.toMatch(/\d+\s*分钟/);
   });
 });
 
