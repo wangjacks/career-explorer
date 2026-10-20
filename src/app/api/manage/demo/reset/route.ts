@@ -14,12 +14,21 @@ async function POST_impl(request: NextRequest) {
   if (!isDemoEnabled()) {
     return NextResponse.json({ ok: false, error: "演示模式未启用" }, { status: 404 });
   }
-  if (isDemoScope()) {
-    return NextResponse.json({ ok: false, error: "演示会话不可执行演示库重置" }, { status: 403 });
-  }
 
   const { ip, user_agent } = getRequestContext(request);
   const actor = await getAuditActor(request);
+
+  // 演示会话（含 demo-admin）无权重置演示库：拒绝前先取现场并落审计（#253 验收「被拒且落审计」）。
+  // 请求处于演示作用域，recordAudit 自然写入演示库审计流——把演示行为写进生产库会违反 #250 物理隔离不变量。
+  if (isDemoScope()) {
+    void recordAudit({
+      ...actor, action: "demo:reset", method: "POST", path: "/api/manage/demo/reset",
+      resource_type: "demo", resource_id: null, status: "failed", error_message: "演示会话越权重置",
+      ip, user_agent, metadata: null,
+    });
+    return NextResponse.json({ ok: false, error: "演示会话不可执行演示库重置" }, { status: 403 });
+  }
+
   const result = await verifyToken(request.cookies.get("auth_token")?.value ?? "");
   if (!result.valid || result.role !== "admin") {
     void recordAudit({

@@ -82,16 +82,29 @@ describe("POST /api/manage/demo/reset 与 GET /api/manage/demo/status（#253）"
     if (prev) process.env.DEMO_ENABLED = prev;
   });
 
-  it("演示会话（demo token）→ 403（demo-admin 也无权重置/查看）", async () => {
+  it("演示会话（demo token）→ 403，且越权拒绝落演示库审计、不污染生产审计", async () => {
     const t = await signToken({ role: "admin", uid: 1, name: "D", demo: true });
     expect((await POST(req("POST", `auth_token=${t}`))).status).toBe(403);
     expect((await GET(req("GET", `auth_token=${t}`))).status).toBe(403);
-  });
+    await new Promise((r) => setTimeout(r, 50)); // 冲刷 fire-and-forget recordAudit（含演示库首建）
 
-  it("非 admin（teacher）→ 403；无 token → 403", async () => {
+    // 拒绝事件写进了演示库审计流（请求处演示作用域）
+    const demoReset = await runInDemoScope(() => queryAuditLogs({ page: 1, pageSize: 50, action: "demo:reset" }));
+    const demoStatus = await runInDemoScope(() => queryAuditLogs({ page: 1, pageSize: 50, action: "demo:status" }));
+    expect(demoReset.total).toBeGreaterThanOrEqual(1);
+    expect(demoStatus.total).toBeGreaterThanOrEqual(1);
+    // 隔离不变量：演示会话的拒绝不得写进生产审计
+    expect((await queryAuditLogs({ page: 1, pageSize: 50, action: "demo:reset" })).total).toBe(0);
+    expect((await queryAuditLogs({ page: 1, pageSize: 50, action: "demo:status" })).total).toBe(0);
+  }, 60_000);
+
+  it("非 admin（teacher）→ 403；无 token → 403；生产越权拒绝落生产审计", async () => {
     const t = await signToken({ role: "teacher", uid: 2, name: "T" });
     expect((await POST(req("POST", `auth_token=${t}`))).status).toBe(403);
     expect((await POST(req("POST"))).status).toBe(403);
+    await new Promise((r) => setTimeout(r, 50));
+    // 生产会话的越权拒绝记在生产审计流
+    expect((await queryAuditLogs({ page: 1, pageSize: 50, action: "demo:reset" })).total).toBeGreaterThanOrEqual(1);
   });
 
   it("scope 非 all → 400", async () => {
