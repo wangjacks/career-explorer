@@ -1098,7 +1098,7 @@ function MoveMemberSheet({
         {labels.length > 0 ? (
           <div className="flex flex-wrap gap-1.5">
             {labels.map((tag) => (
-              <span key={tag} className="px-2 py-0.5 rounded-full text-xs bg-primary-soft text-primary-strong">
+              <span key={tag} className="px-2 py-0.5 rounded-full text-xs bg-primary-soft text-primary-strong dark:bg-green-900/30 dark:text-green-300">
                 {tag}
               </span>
             ))}
@@ -1243,7 +1243,7 @@ function HistoryPanel({
                   aria-pressed={active}
                   className={`w-full text-left rounded-lg border px-3 py-2.5 text-sm transition-colors ${
                     active
-                      ? "border-primary bg-primary-soft text-foreground"
+                      ? "border-primary bg-primary-soft text-foreground dark:bg-green-900/30"
                       : "border-border-soft hover:bg-gray-50 dark:hover:bg-gray-800 text-gray-700 dark:text-gray-200"
                   }`}
                 >

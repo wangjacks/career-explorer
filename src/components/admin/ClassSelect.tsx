@@ -216,9 +216,9 @@ export default function ClassSelect({
                   option.disabled
                     ? "opacity-40 cursor-not-allowed"
                     : isActive
-                      ? "bg-primary-soft cursor-pointer"
+                      ? "bg-primary-soft dark:bg-green-900/30 cursor-pointer"
                       : "cursor-pointer"
-                } ${isSelected ? "text-primary" : "text-foreground"}`}
+                } ${isSelected ? "text-primary dark:text-green-300" : "text-foreground"}`}
               >
                 <span
                   className={`w-4 h-4 rounded border flex items-center justify-center flex-shrink-0 text-xs ${
