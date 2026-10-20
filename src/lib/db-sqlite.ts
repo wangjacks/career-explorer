@@ -311,6 +311,8 @@ export class SqliteAdapter implements DbAdapter {
    * 设计要点：
    * - 题库进库而非写死代码：扩充量表、后台维护题面都不必改代码；
    * - 结果是快照（作答 + 得分 JSON 落库），学生半年后回看仍是当时结论，不随后续改题漂移；
+   * - 抽题口径（#282）：`assessments.items_per_attempt` 声明每次作答题数（0 = 整库作答），
+   *   `assessment_results.items_json` 落本轮抽题快照（题序 = 展示序），历史结果据此还原当轮题量；
    * - 草稿唯一性（同 user + 量表至多一条 in_progress）靠可空的 `draft_slot` + 唯一约束兜住：
    *   草稿恒填 1、完成记录置 NULL，两库都允许多个 NULL，行为一致（MySQL 无部分唯一索引，
    *   这是可移植的等价物，不再只靠「先查再写」的事务）；
@@ -323,6 +325,7 @@ export class SqliteAdapter implements DbAdapter {
         code TEXT NOT NULL UNIQUE,
         name TEXT NOT NULL,
         question_count INTEGER NOT NULL,
+        items_per_attempt INTEGER NOT NULL DEFAULT 0,
         dimensions_json TEXT NOT NULL,
         scoring_mode TEXT NOT NULL DEFAULT 'typological',
         scale_version TEXT NOT NULL,
@@ -355,6 +358,7 @@ export class SqliteAdapter implements DbAdapter {
         assessment_id INTEGER NOT NULL REFERENCES assessments(id),
         status TEXT NOT NULL DEFAULT 'in_progress',
         answers_json TEXT NOT NULL,
+        items_json TEXT NOT NULL DEFAULT '[]',
         scores_json TEXT,
         type_code TEXT,
         is_current INTEGER NOT NULL DEFAULT 0,
@@ -377,6 +381,15 @@ export class SqliteAdapter implements DbAdapter {
     if (!columns.some((column) => column.name === "origin")) {
       this.db.exec("ALTER TABLE assessment_questions ADD COLUMN origin TEXT NOT NULL DEFAULT 'cn-original'");
     }
+    // #282 补列：旧库没有抽题两列（每次作答量默认 0 = 全量作答；抽题快照默认空数组 = 全库即本轮）
+    const assessmentColumns = this.db.prepare("PRAGMA table_info(assessments)").all() as { name: string }[];
+    if (!assessmentColumns.some((column) => column.name === "items_per_attempt")) {
+      this.db.exec("ALTER TABLE assessments ADD COLUMN items_per_attempt INTEGER NOT NULL DEFAULT 0");
+    }
+    const resultColumns = this.db.prepare("PRAGMA table_info(assessment_results)").all() as { name: string }[];
+    if (!resultColumns.some((column) => column.name === "items_json")) {
+      this.db.exec("ALTER TABLE assessment_results ADD COLUMN items_json TEXT NOT NULL DEFAULT '[]'");
+    }
   }
 
   /**
@@ -392,9 +405,9 @@ export class SqliteAdapter implements DbAdapter {
     const updateQuestionCount = this.db.prepare("UPDATE assessments SET question_count = ?, updated_at = ? WHERE id = ?");
     const insertAssessment = this.db.prepare(
       `INSERT INTO assessments
-         (code, name, question_count, dimensions_json, scoring_mode, scale_version,
+         (code, name, question_count, items_per_attempt, dimensions_json, scoring_mode, scale_version,
           attribution, license_text, disclaimer, enabled, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`
     );
     const insertQuestion = this.db.prepare(
       `INSERT INTO assessment_questions
@@ -438,6 +451,7 @@ export class SqliteAdapter implements DbAdapter {
           definition.code,
           definition.name,
           definition.questionCount,
+          definition.itemsPerAttempt,
           JSON.stringify(definition.dimensions),
           definition.scoringMode,
           definition.scaleVersion,
@@ -455,17 +469,23 @@ export class SqliteAdapter implements DbAdapter {
 
   /**
    * 题库**只增不改**升级（#281）：生产库已有的题库由 `seedAssessments` 的「非空一律不碰」保护，
-   * 所以扩库必须另走这里，且**只允许三种写动作**：
+   * 所以扩库必须另走这里，且**只允许四种写动作**：
    * 1. 缺失的题号 → INSERT；
    * 2. 已存在的题号 → **只回填 `origin`**（`prompt` / `dimension` / `version` 一个字节都不动，
    *    后台维护过的题面神圣不可侵犯）；
-   * 3. 量表定义字段 → 仅当 `scale_version` 与种子不一致时整体更新（名字/题数/署名/授权/免责）。
+   * 3. 量表定义字段 → 仅当 `scale_version` 与种子不一致时整体更新（名字/题数/署名/授权/免责）；
+   * 4. `items_per_attempt`（#282）→ 与版本号无关，只要与种子不一致就只回填这一列。
    *
    * 写之前跑新版 `validateAssessmentSeed`（含 anchor 与近重复校验）；全程单事务。
-   * 重复执行幂等：第二次没有缺题、origin 已一致、版本号已一致，什么都不改。
+   * 重复执行幂等：第二次没有缺题、origin 已一致、版本号与每次题量都已一致，什么都不改。
    */
   upgradeAssessmentBank(): AssessmentBankUpgradeResult {
-    const result: AssessmentBankUpgradeResult = { inserted: 0, originBackfilled: 0, definitionUpdated: false };
+    const result: AssessmentBankUpgradeResult = {
+      inserted: 0,
+      originBackfilled: 0,
+      definitionUpdated: false,
+      itemsPerAttemptUpdated: false,
+    };
     const findAssessment = this.db.prepare("SELECT * FROM assessments WHERE code = ?");
     const listQuestions = this.db.prepare(
       "SELECT question_index, origin FROM assessment_questions WHERE assessment_id = ?"
@@ -482,6 +502,11 @@ export class SqliteAdapter implements DbAdapter {
       `UPDATE assessments
           SET name = ?, question_count = ?, scale_version = ?, attribution = ?, license_text = ?, disclaimer = ?, updated_at = ?
         WHERE id = ?`
+    );
+    // #282：旧库的 items_per_attempt 由补列默认值给 0，与种子不一致时**只回填这一列**
+    // （不并入上面整条定义 UPDATE——同版本库里后台改过的名字/署名不能被顺带覆盖）
+    const updateItemsPerAttempt = this.db.prepare(
+      "UPDATE assessments SET items_per_attempt = ?, updated_at = ? WHERE id = ?"
     );
 
     const upgrade = this.db.transaction(() => {
@@ -534,6 +559,13 @@ export class SqliteAdapter implements DbAdapter {
             existing.id
           );
           result.definitionUpdated = true;
+        }
+
+        // #282：`items_per_attempt` 与 scale_version 无关也要补齐——生产库在 #281 时已是
+        // 「RIASEC-CN 2.0」，只有补列默认值 0（= 整库作答），不回填就永远进不了抽题口径。
+        if (existing.items_per_attempt !== definition.itemsPerAttempt) {
+          updateItemsPerAttempt.run(definition.itemsPerAttempt, now, existing.id);
+          result.itemsPerAttemptUpdated = true;
         }
       }
     });
@@ -1872,19 +1904,22 @@ export class SqliteAdapter implements DbAdapter {
       .all(normalizeAssessmentCode(code)) as AssessmentQuestionRow[];
   }
 
-  upsertAssessmentDraft(userId: number, assessmentId: number, answersJson: string): number {
+  upsertAssessmentDraft(userId: number, assessmentId: number, answersJson: string, itemsJson: string): number {
     // 单条原子 upsert：`draft_slot = 1` 是草稿位，唯一约束保证「至多一条草稿」；
     // 「先查再写」在并发自动保存下会插出第二条草稿，故用 ON CONFLICT 直接覆盖。
+    // items_json 每次作答都覆盖：路由拿到的本轮计划本就来自这条草稿的快照，重复写同一个值，
+    // 顺带让「旧库留下的空快照」在下一次作答时自愈。
     const now = getNow();
     this.db
       .prepare(
         `INSERT INTO assessment_results
-           (user_id, assessment_id, status, answers_json, is_current, draft_slot, started_at, updated_at)
-         VALUES (?, ?, 'in_progress', ?, 0, 1, ?, ?)
+           (user_id, assessment_id, status, answers_json, items_json, is_current, draft_slot, started_at, updated_at)
+         VALUES (?, ?, 'in_progress', ?, ?, 0, 1, ?, ?)
          ON CONFLICT(user_id, assessment_id, draft_slot)
-         DO UPDATE SET answers_json = excluded.answers_json, updated_at = excluded.updated_at`
+         DO UPDATE SET answers_json = excluded.answers_json, items_json = excluded.items_json,
+                       updated_at = excluded.updated_at`
       )
-      .run(userId, assessmentId, answersJson, now, now);
+      .run(userId, assessmentId, answersJson, itemsJson, now, now);
     const draft = this.db
       .prepare("SELECT id FROM assessment_results WHERE user_id = ? AND assessment_id = ? AND draft_slot = 1")
       .get(userId, assessmentId) as { id: number };
@@ -1902,7 +1937,7 @@ export class SqliteAdapter implements DbAdapter {
   }
 
   completeAssessmentResult(input: CompleteAssessmentInput): number {
-    const { userId, assessmentId, answersJson, scoresJson, typeCode } = input;
+    const { userId, assessmentId, answersJson, itemsJson, scoresJson, typeCode } = input;
     const tx = this.db.transaction(() => {
       const now = getNow();
       // 当前版本唯一：先整体置 0，再把本次结果置 1（同一事务内，读不到中间态）
@@ -1921,21 +1956,21 @@ export class SqliteAdapter implements DbAdapter {
         this.db
           .prepare(
             `UPDATE assessment_results
-             SET status = 'completed', answers_json = ?, scores_json = ?, type_code = ?,
+             SET status = 'completed', answers_json = ?, items_json = ?, scores_json = ?, type_code = ?,
                  is_current = 1, draft_slot = NULL, updated_at = ?, completed_at = ?
              WHERE id = ?`
           )
-          .run(answersJson, scoresJson, typeCode, now, now, draft.id);
+          .run(answersJson, itemsJson, scoresJson, typeCode, now, now, draft.id);
         return draft.id;
       }
       const result = this.db
         .prepare(
           `INSERT INTO assessment_results
-             (user_id, assessment_id, status, answers_json, scores_json, type_code, is_current,
+             (user_id, assessment_id, status, answers_json, items_json, scores_json, type_code, is_current,
               started_at, updated_at, completed_at)
-           VALUES (?, ?, 'completed', ?, ?, ?, 1, ?, ?, ?)`
+           VALUES (?, ?, 'completed', ?, ?, ?, ?, 1, ?, ?, ?)`
         )
-        .run(userId, assessmentId, answersJson, scoresJson, typeCode, now, now, now);
+        .run(userId, assessmentId, answersJson, itemsJson, scoresJson, typeCode, now, now, now);
       return Number(result.lastInsertRowid);
     });
     return tx();
@@ -2367,9 +2402,9 @@ export class SqliteAdapter implements DbAdapter {
         if (d.assessments.length > 0) {
           const assessmentStmt = this.db.prepare(
             `INSERT INTO assessments
-               (id, code, name, question_count, dimensions_json, scoring_mode, scale_version,
+               (id, code, name, question_count, items_per_attempt, dimensions_json, scoring_mode, scale_version,
                 attribution, license_text, disclaimer, enabled, created_at, updated_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
           );
           for (const a of d.assessments) {
             assessmentStmt.run(
@@ -2379,6 +2414,8 @@ export class SqliteAdapter implements DbAdapter {
               normalizeAssessmentCode(a.code),
               a.name,
               a.question_count,
+              // #282：旧备份没有这一列 → 补 0（全量作答），下次 init 的 upgradeAssessmentBank 会按种子回填
+              a.items_per_attempt ?? 0,
               a.dimensions_json,
               a.scoring_mode ?? "typological",
               a.scale_version,
@@ -2414,9 +2451,9 @@ export class SqliteAdapter implements DbAdapter {
       if (Array.isArray(d.assessment_results)) {
         const resultStmt = this.db.prepare(
           `INSERT INTO assessment_results
-             (id, user_id, assessment_id, status, answers_json, scores_json, type_code, is_current,
+             (id, user_id, assessment_id, status, answers_json, items_json, scores_json, type_code, is_current,
               draft_slot, started_at, updated_at, completed_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
         );
         for (const r of d.assessment_results) {
           resultStmt.run(
@@ -2425,6 +2462,8 @@ export class SqliteAdapter implements DbAdapter {
             r.assessment_id,
             r.status,
             r.answers_json ?? "{}",
+            // #282：旧备份没有抽题快照 → 补 '[]'（按整库一轮处理），读取侧还有 parseItemsSnapshot 兜底
+            r.items_json ?? "[]",
             r.scores_json ?? null,
             r.type_code ?? null,
             r.is_current ?? 0,

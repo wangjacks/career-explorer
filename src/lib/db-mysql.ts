@@ -323,6 +323,7 @@ export class MysqlAdapter implements DbAdapter {
         code VARCHAR(32) COLLATE utf8mb4_bin NOT NULL UNIQUE,
         name VARCHAR(100) NOT NULL,
         question_count INT NOT NULL,
+        items_per_attempt INT NOT NULL DEFAULT 0,
         dimensions_json TEXT NOT NULL,
         scoring_mode VARCHAR(20) NOT NULL DEFAULT 'typological',
         scale_version VARCHAR(50) NOT NULL,
@@ -356,6 +357,7 @@ export class MysqlAdapter implements DbAdapter {
         assessment_id INT NOT NULL,
         status VARCHAR(20) NOT NULL DEFAULT 'in_progress',
         answers_json TEXT NOT NULL,
+        items_json TEXT NOT NULL,
         scores_json TEXT,
         type_code VARCHAR(16),
         is_current TINYINT NOT NULL DEFAULT 0,
@@ -376,6 +378,16 @@ export class MysqlAdapter implements DbAdapter {
       await this.pool.execute(
         "ALTER TABLE assessment_questions ADD COLUMN origin VARCHAR(16) NOT NULL DEFAULT 'cn-original'"
       );
+    }
+    // #282 补列：每次抽题数。MySQL 的 TEXT 不能带 DEFAULT，所以旧库补列走
+    // 「可空 → 回填 → 改 NOT NULL」三步，落库结果与 SQLite 的 `TEXT NOT NULL DEFAULT '[]'` 一致。
+    if (!(await this.columnExists("assessments", "items_per_attempt"))) {
+      await this.pool.execute("ALTER TABLE assessments ADD COLUMN items_per_attempt INT NOT NULL DEFAULT 0");
+    }
+    if (!(await this.columnExists("assessment_results", "items_json"))) {
+      await this.pool.execute("ALTER TABLE assessment_results ADD COLUMN items_json TEXT NULL");
+      await this.pool.execute("UPDATE assessment_results SET items_json = '[]' WHERE items_json IS NULL");
+      await this.pool.execute("ALTER TABLE assessment_results MODIFY COLUMN items_json TEXT NOT NULL");
     }
   }
 
@@ -411,13 +423,14 @@ export class MysqlAdapter implements DbAdapter {
         const now = getNow();
         const [result] = await conn.execute(
           `INSERT INTO assessments
-             (code, name, question_count, dimensions_json, scoring_mode, scale_version,
+             (code, name, question_count, items_per_attempt, dimensions_json, scoring_mode, scale_version,
               attribution, license_text, disclaimer, enabled, created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`,
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`,
           [
             definition.code,
             definition.name,
             definition.questionCount,
+            definition.itemsPerAttempt,
             JSON.stringify(definition.dimensions),
             definition.scoringMode,
             definition.scaleVersion,
@@ -498,11 +511,17 @@ export class MysqlAdapter implements DbAdapter {
   /**
    * 题库**只增不改**升级（#281）：与 sqlite 适配器同构（同一套写动作与判据），差异只在方言与事务写法。
    *
-   * 只允许三种写动作：缺题 INSERT、已存在题号只回填 `origin`、`scale_version` 变化时整体更新量表定义；
+   * 只允许四种写动作：缺题 INSERT、已存在题号只回填 `origin`、`scale_version` 变化时整体更新量表定义、
+   * `items_per_attempt`（#282）与种子不一致时只回填这一列；
    * 写之前跑新版校验，全程单事务；重复执行幂等（第二次不改任何字段）。
    */
   async upgradeAssessmentBank(): Promise<AssessmentBankUpgradeResult> {
-    const result: AssessmentBankUpgradeResult = { inserted: 0, originBackfilled: 0, definitionUpdated: false };
+    const result: AssessmentBankUpgradeResult = {
+      inserted: 0,
+      originBackfilled: 0,
+      definitionUpdated: false,
+      itemsPerAttemptUpdated: false,
+    };
     const conn = await this.pool.getConnection();
     try {
       await conn.beginTransaction();
@@ -573,6 +592,17 @@ export class MysqlAdapter implements DbAdapter {
             ]
           );
           result.definitionUpdated = true;
+        }
+
+        // #282：`items_per_attempt` 与 scale_version 无关也要补齐——生产库在 #281 时已是
+        // 「RIASEC-CN 2.0」，只有补列默认值 0（= 整库作答），不回填就永远进不了抽题口径。
+        if (Number(existing.items_per_attempt) !== definition.itemsPerAttempt) {
+          await conn.execute("UPDATE assessments SET items_per_attempt = ?, updated_at = ? WHERE id = ?", [
+            definition.itemsPerAttempt,
+            now,
+            existing.id,
+          ]);
+          result.itemsPerAttemptUpdated = true;
         }
       }
       await conn.commit();
@@ -2100,15 +2130,22 @@ export class MysqlAdapter implements DbAdapter {
     return rows as AssessmentQuestionRow[];
   }
 
-  async upsertAssessmentDraft(userId: number, assessmentId: number, answersJson: string): Promise<number> {
+  async upsertAssessmentDraft(
+    userId: number,
+    assessmentId: number,
+    answersJson: string,
+    itemsJson: string
+  ): Promise<number> {
     // 单条原子 upsert（同 SQLite 侧）：`draft_slot = 1` 是草稿位，唯一键保证「至多一条草稿」
+    // items_json 同 SQLite 口径：每次作答覆盖本轮抽题快照（值本就来自这条草稿，重复写同一个快照）
     const now = getNow();
     await this.pool.execute(
       `INSERT INTO assessment_results
-         (user_id, assessment_id, status, answers_json, is_current, draft_slot, started_at, updated_at)
-       VALUES (?, ?, 'in_progress', ?, 0, 1, ?, ?)
-       ON DUPLICATE KEY UPDATE answers_json = VALUES(answers_json), updated_at = VALUES(updated_at)`,
-      [userId, assessmentId, answersJson, now, now]
+         (user_id, assessment_id, status, answers_json, items_json, is_current, draft_slot, started_at, updated_at)
+       VALUES (?, ?, 'in_progress', ?, ?, 0, 1, ?, ?)
+       ON DUPLICATE KEY UPDATE answers_json = VALUES(answers_json), items_json = VALUES(items_json),
+                               updated_at = VALUES(updated_at)`,
+      [userId, assessmentId, answersJson, itemsJson, now, now]
     );
     const [rows] = await this.pool.execute(
       "SELECT id FROM assessment_results WHERE user_id = ? AND assessment_id = ? AND draft_slot = 1",
@@ -2128,7 +2165,7 @@ export class MysqlAdapter implements DbAdapter {
   }
 
   async completeAssessmentResult(input: CompleteAssessmentInput): Promise<number> {
-    const { userId, assessmentId, answersJson, scoresJson, typeCode } = input;
+    const { userId, assessmentId, answersJson, itemsJson, scoresJson, typeCode } = input;
     const conn = await this.pool.getConnection();
     try {
       await conn.beginTransaction();
@@ -2152,20 +2189,20 @@ export class MysqlAdapter implements DbAdapter {
         // 沿用草稿行：保留 started_at，作答内容以本次提交为准，草稿位释放（draft_slot → NULL）
         await conn.execute(
           `UPDATE assessment_results
-           SET status = 'completed', answers_json = ?, scores_json = ?, type_code = ?,
+           SET status = 'completed', answers_json = ?, items_json = ?, scores_json = ?, type_code = ?,
                is_current = 1, draft_slot = NULL, updated_at = ?, completed_at = ?
            WHERE id = ?`,
-          [answersJson, scoresJson, typeCode, now, now, draft.id]
+          [answersJson, itemsJson, scoresJson, typeCode, now, now, draft.id]
         );
         await conn.commit();
         return draft.id;
       }
       const [result] = await conn.execute(
         `INSERT INTO assessment_results
-           (user_id, assessment_id, status, answers_json, scores_json, type_code, is_current,
+           (user_id, assessment_id, status, answers_json, items_json, scores_json, type_code, is_current,
             started_at, updated_at, completed_at)
-         VALUES (?, ?, 'completed', ?, ?, ?, 1, ?, ?, ?)`,
-        [userId, assessmentId, answersJson, scoresJson, typeCode, now, now, now]
+         VALUES (?, ?, 'completed', ?, ?, ?, ?, 1, ?, ?, ?)`,
+        [userId, assessmentId, answersJson, itemsJson, scoresJson, typeCode, now, now, now]
       );
       await conn.commit();
       return (result as mysql.ResultSetHeader).insertId;
@@ -2597,6 +2634,8 @@ export class MysqlAdapter implements DbAdapter {
             normalizeAssessmentCode(a.code),
             a.name,
             a.question_count,
+            // #282：旧备份没有这一列 → 补 0（全量作答），下次 init 的 upgradeAssessmentBank 会按种子回填
+            a.items_per_attempt ?? 0,
             a.dimensions_json,
             a.scoring_mode ?? "typological",
             a.scale_version,
@@ -2609,7 +2648,7 @@ export class MysqlAdapter implements DbAdapter {
           ]);
           await conn.query(
             `INSERT INTO assessments
-               (id, code, name, question_count, dimensions_json, scoring_mode, scale_version,
+               (id, code, name, question_count, items_per_attempt, dimensions_json, scoring_mode, scale_version,
                 attribution, license_text, disclaimer, enabled, created_at, updated_at)
              VALUES ?`,
             [values]
@@ -2643,6 +2682,8 @@ export class MysqlAdapter implements DbAdapter {
           r.assessment_id,
           r.status,
           r.answers_json ?? "{}",
+          // #282：旧备份没有抽题快照 → 补 '[]'（按整库一轮处理），读取侧还有 parseItemsSnapshot 兜底
+          r.items_json ?? "[]",
           r.scores_json ?? null,
           r.type_code ?? null,
           r.is_current ?? 0,
@@ -2654,7 +2695,7 @@ export class MysqlAdapter implements DbAdapter {
         ]);
         await conn.query(
           `INSERT INTO assessment_results
-             (id, user_id, assessment_id, status, answers_json, scores_json, type_code, is_current,
+             (id, user_id, assessment_id, status, answers_json, items_json, scores_json, type_code, is_current,
               draft_slot, started_at, updated_at, completed_at)
            VALUES ?`,
           [values]

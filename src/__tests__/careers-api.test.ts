@@ -35,6 +35,7 @@ function result(overrides: Partial<AssessmentResultRow> = {}): AssessmentResultR
     assessment_id: 1,
     status: "completed",
     answers_json: "{}",
+    items_json: "[]",
     scores_json: JSON.stringify([
       { key: "R", label: "现实型", standard: 10 },
       { key: "I", label: "研究型", standard: 100 },

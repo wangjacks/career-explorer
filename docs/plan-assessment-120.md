@@ -132,19 +132,20 @@
 
 - 草稿：**第一次 `POST /answer` 时**随草稿一起写入（`GET /start` 仍不落库）；
 - 完成记录：提交时写入，作为**快照**的一部分——半年后回看，能确切知道当时做的是哪 30 题（与本项目「结果是快照而非实时计算」的既有原则一致），也是 §7 题目质量分析的唯一数据来源；
-- 内容：`{"v":1,"pool":"<指纹>","indexes":[31,7,88,...]}`（**presentation 顺序**），解析函数放 `assessment-flow.ts`，容忍 `null` / `'[]'` / 脏 JSON（旧数据一律视为「全库即本轮」）。
+- 内容：`{"v":1,"pool":"<指纹>","indexes":[31,7,88,...]}`（**presentation 顺序**），解析与序列化函数落在 `assessment-sampling.ts`（#282 落地时的选择：抽样器与快照同文件，`assessment-flow.ts` 不参与解析，全仓只此一处），容忍 `null` / `'[]'` / 脏 JSON（旧数据一律视为「全库即本轮」），并**对索引去重**——脏快照里的重复题号会让计分引擎判定「题目序号重复」而抛错。
 
 ### 5.4 近重复组常量
 
 ```ts
 /** 同卷至多抽一题（近重复，见方案 §3 的相似度扫描） */
-export const NEAR_DUPLICATE_GROUPS: number[][] = [
+export const NEAR_DUPLICATE_GROUPS: readonly (readonly number[])[] = [
   [/* 管理一家零售门店 */ 52, /* 管理一家服装店 */ 55],
-  [/* 用手持设备盘点库存 */ 24, /* 记录货物的收货与发货情况 */ 18, /* 保存库存记录 */ 60],
+  [/* 记录货物的收货与发货情况 */ 18, /* 用手持设备盘点库存 */ 24,
+   /* 用表格软件制作电子表格 */ 56, /* 保存库存记录 */ 60],
 ];
 ```
 
-（题号在种子定稿后固化；单测断言「同维度相似度 ≥ 0.45 的题对必须被某个组覆盖」。）
+（题号已随 #281 种子定稿固化在 `assessment-data.ts`；单测断言「同维度相似度 ≥ 0.45 的题对必须被某个组覆盖」。后两题与「库存台账」语义相关的三题归入同一组，因为卷内同时出现任意两题都会强化同一种作答倾向。）
 
 ### 5.5 重测与防抄
 
@@ -304,8 +305,10 @@ export const NEAR_DUPLICATE_GROUPS: number[][] = [
 upgradeAssessmentBank()：
   1. 对每个种子量表：按 question_index 找出库里缺失的题号 → INSERT（31–120）
   2. 已存在的题号：**只回填 origin**，绝不 UPDATE prompt（后台维护过的题面神圣不可侵犯）
-  3. 定义级字段（name / question_count / items_per_attempt / scale_version /
-     attribution / license_text / disclaimer）仅在 scale_version 与种子不一致时整体更新
+  3. 定义级字段（name / question_count / scale_version / attribution /
+     license_text / disclaimer）仅在 scale_version 与种子不一致时整体更新
+  3b. items_per_attempt（#282）单独补齐：它与 scale_version 无关，而生产库在 #281
+      时就已是 RIASEC-CN 2.0，走 3 的门永远不触发，不回填就停在补列默认值 0（整库作答）
   4. 落库前跑 validateAssessmentSeed（新版校验，见 8.3）
   5. 全程一个事务；SQLite / MySQL 两适配器行为一致，用同一组测试覆盖
 ```
@@ -325,7 +328,7 @@ upgradeAssessmentBank()：
 
 ### 8.4 备份 / 恢复与旧数据兼容
 
-- `BackupData` 三张表的行类型加新列；恢复时旧备份缺字段 → `items_per_attempt ?? 30`、`origin ?? 'cn-original'`、`items_json ?? '[]'`（沿用现有「旧备份缺字段一律容忍」的口径）；
+- `BackupData` 三张表的行类型加新列；恢复时旧备份缺字段 → `items_per_attempt ?? 0`、`origin ?? 'cn-original'`、`items_json ?? '[]'`（沿用现有「旧备份缺字段一律容忍」的口径）。**回填值取列默认值而不是种子的 30**：备份里没有这一列意味着它来自 #282 之前，当时的行为就是整库作答，先按 0 恢复、再由 `upgradeAssessmentBank()` 的 3b 补成种子口径，避免「恢复出一个从未存在过的卷量」；
 - **在途草稿**（升级时还没答完的学生）：`items_json` 为空 → 本轮卷子 = 「已作答题号 ∪ 确定性补抽到每维 5 题」。计分引擎按各维度**实际已答题数**做 0–100 折算（`standardizeLinear` 已经是这个口径），所以即使某维度多答了几题也不会算错，学生已答的题一道都不作废；
 - 历史完成记录不动：`items_json='[]'` 读作「当时做的是全库 30 题」，结果页与教师端统计照常。
 
@@ -336,17 +339,18 @@ upgradeAssessmentBank()：
 | 文件 | 改动 |
 |---|---|
 | `src/lib/assessment-data.ts` | 题库 30 → 120；`QuestionSeed` 加 `origin` / `anchor`；`RIASEC_ASSESSMENT` 加 `itemsPerAttempt: 30`、改 `questionCount: 120` / `name` / `scaleVersion` / `licenseText`；新增 `NEAR_DUPLICATE_GROUPS`；`validateAssessmentSeed` 升级（§8.3） |
-| `src/lib/assessment-sampling.ts`（新） | 纯函数：`poolFingerprint()`、`deriveDrawSeed()`、`mulberry32()`、`drawItems()`、`parseItemsSnapshot()`；无 I/O、可注入 rng |
-| `src/lib/assessment-flow.ts` | 加 `parseItemsSnapshot` 的调用口径（或放这里，二选一，避免两处解析）；`answerProgress` / `firstUnansweredIndex` / `resumeIndex` 全部改成对**本轮 30 题**计算（签名不变，传入的 `bankIndexes` 换成 `drawnIndexes`） |
+| `src/lib/assessment-sampling.ts`（新） | 纯函数：`poolFingerprint()`、`deriveDrawSeed()`、`mulberry32()`、`drawItems()`、`parseItemsSnapshot()` / `buildItemsSnapshot()`、`planAttempt()`；无 I/O、可注入 rng。**`items_json` 的解析与序列化都只在这一处**（`assessment-flow.ts` 不加解析入口，避免两处漂移） |
+| `src/lib/assessment-attempt.ts`（新） | 四个路由共用的「本轮口径」装载：一次读题库 + 草稿 + 历史结果，算出 `attemptNo`、排除集、`planAttempt` 结果、`itemsJson` 快照与本轮题目清单；路由不各写一套推导 |
+| `src/lib/assessment-flow.ts` | **不改**：`answerProgress` / `firstUnansweredIndex` / `resumeIndex` 签名本来就是「传入题号集合 + 作答映射」，#282 只在调用方把全库题号换成本轮题号 |
 | `src/lib/db.ts` | 三个 Row 接口加列；`upsertAssessmentDraft(userId, assessmentId, answersJson, itemsJson)` 加参；`completeAssessmentResult` 入参加 `itemsJson`；`BackupData` 三张表类型同步 |
 | `src/lib/db-sqlite.ts` / `src/lib/db-mysql.ts` | 补列迁移（两库同写法）；`upgradeAssessmentBank()`；草稿/完成记录读写带 `items_json`；备份导出与恢复 INSERT 加列并容忍旧备份 |
 | `src/app/api/shared/assessment/start/route.ts` | 派生本轮 30 题 → 下发 `questions`（presentation 顺序）+ `questionCount: 30` + 新增 `poolSize: 120`；草稿有有效 `items_json` 时以它为准；`resumeIndex` 按本轮算 |
 | `src/app/api/shared/assessment/answer/route.ts` | 校验 `questionIndex ∈ 本轮抽题`（不再是全库）；首次作答把 `items_json` 一起写入草稿；进度按本轮 30 题 |
 | `src/app/api/shared/assessment/submit/route.ts` | 缺答判定按本轮 30 题；计分时 `questions` 只传本轮抽中的题；快照写 `items_json`；审计 `metadata` 加 `attemptNo` 与抽题指纹（**不加作答内容**，沿用现有隐私口径） |
-| `src/app/api/shared/assessment/results/route.ts` | `questionCount` 改为每条记录自己的抽题数（`items_json` 长度，旧数据回退 30）；量表级下发 `itemsPerAttempt` 与 `poolSize` |
-| `src/lib/assessment-center.ts` | `questionCount` = 每次题量（30），新增 `poolSize`；耗时估算仍按 30 题 ≈ 4 分钟 |
-| `src/app/dashboard/student/assessment/page.tsx` | 文案：「霍兰德六型 · 每次 30 题（题库 120 题）」；题量 Fact 同步 |
-| `src/app/dashboard/student/assessment/quiz/page.tsx` | 逻辑不用改（按下标 + 题号映射，天然适配）；加一行说明「本次题目为随机抽取」 |
+| `src/app/api/shared/assessment/results/route.ts` | 量表级 `questionCount` = 每次作答题数（30），新增 `poolSize`（120）与 `itemsPerAttempt`；每条记录带自己的 `questionCount`（快照索引长度，旧数据回退作答条数）；`inProgress` 按本轮题号算，避免「上次答到 12/120」 |
+| `src/lib/assessment-center.ts` | **不改**：它的 `questionCount` / `inProgress.total` 全部来自 `/results`，接口换成 30 口径后卡片与 `estimateMinutes`（30 题 ≈ 4 分钟）自动跟着走 |
+| `src/app/dashboard/student/assessment/page.tsx`、`.../quiz/page.tsx`、`AssessmentResultCard.tsx` | **本 Issue 不动**：页面显示的 30 来自接口，语义已正确；「每次 30 题 / 题库 120 题」的双口径文案与「本次题目为随机抽取」说明归 #283（题量口径展示），混在这里改会让抽题 Issue 的 diff 里出现文案与行为两类变更 |
+| `scripts/validate-assessment.mjs` | #282 的连带修正：读 `items_per_attempt`（旧库/旧导出缺失按 0），抽样口径下 α / CITC 必然 0 样本，报告改为直接写明「不可计算 + 需全量作答数据」，不再输出一张全是「无法计算」的表 |
 | `scripts/assessment-item-stats.mjs`（新，§7） | 只读统计脚本，输出 CSV |
 
 **不动**：计分引擎（`assessment-scoring.ts` 已经与题量无关）、职业匹配（`assessment-match.ts` 按六维标准分算，与题目无关）、教师端统计与导出（读 `type_code` / `scores_json`）、`src/proxy.ts`、权限表、路由计数。

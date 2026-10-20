@@ -238,4 +238,31 @@ describe("量表定义与校验入口", () => {
     expect(() => validateAssessmentSeed(RIASEC_ASSESSMENT, RIASEC_QUESTIONS, onetInterestCodeOf)).not.toThrow();
     expect(() => validateAssessmentSeed(RIASEC_ASSESSMENT, RIASEC_QUESTIONS)).not.toThrow();
   });
+
+  it("每次作答题数（#282）：30 题且能被 6 个维度整除，每维正好 5 题", () => {
+    expect(RIASEC_ASSESSMENT.itemsPerAttempt).toBe(30);
+    expect(RIASEC_ASSESSMENT.itemsPerAttempt % RIASEC_DIMENSIONS.length).toBe(0);
+    expect(RIASEC_ASSESSMENT.itemsPerAttempt).toBeLessThan(BANK_SIZE);
+  });
+
+  it("itemsPerAttempt 校验（#282 规则 8）：负数、非整数、不能整除维度数都要拦下", () => {
+    const invalid = [
+      [-1, /不能为负/],
+      [13, /必须能被维度数/],
+      [7.5, /必须能被维度数/],
+      [BANK_SIZE + 6, /不能超过题库总量/],
+    ] as const;
+    for (const [itemsPerAttempt, pattern] of invalid) {
+      expect(() =>
+        validateAssessmentSeed({ ...RIASEC_ASSESSMENT, itemsPerAttempt }, RIASEC_QUESTIONS)
+      ).toThrowError(pattern);
+    }
+    // 0 是合法取值：语义为「全量作答（题库即本轮）」，旧量表定义不改这一列就能继续用
+    expect(() =>
+      validateAssessmentSeed({ ...RIASEC_ASSESSMENT, itemsPerAttempt: 0 }, RIASEC_QUESTIONS)
+    ).not.toThrow();
+    expect(() =>
+      validateAssessmentSeed({ ...RIASEC_ASSESSMENT, itemsPerAttempt: 60 }, RIASEC_QUESTIONS)
+    ).not.toThrow();
+  });
 });

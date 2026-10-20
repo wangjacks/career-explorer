@@ -3,31 +3,28 @@ import { NextRequest, NextResponse } from "next/server";
 import {
   completeAssessmentResult,
   getAssessmentByCode,
-  getAssessmentDraft,
-  getAssessmentQuestionsByCode,
   getCurrentAssessmentResult,
   getUserById,
   normalizeAssessmentCode,
 } from "@/lib/db";
 import { RIASEC_CODE } from "@/lib/assessment-data";
 import { scoreAssessment } from "@/lib/assessment-scoring";
-import {
-  answerProgress,
-  filterAnswersToBank,
-  parseAnswers,
-  parseDimensions,
-} from "@/lib/assessment-flow";
+import { answerProgress, parseDimensions } from "@/lib/assessment-flow";
+import { loadAttemptContext } from "@/lib/assessment-attempt";
 import { verifyToken } from "@/lib/token";
 import { getRequestContext, recordAudit } from "@/lib/audit";
 
 /**
- * 提交作答（#223）：把草稿算成结果快照并落库。
+ * 提交作答（#223 + #282）：把**本轮卷子**的草稿算成结果快照并落库。
  *
  * - 只认**会话本人**的草稿，不接受任何 userId / answers 入参（作答内容以服务端草稿为准，
  *   客户端改分无从下手）；
  * - 未答完一律 400 并回带缺失题号，不做「缺答也折算」（草稿允许缺答，但完成结果必须是完整一份）；
- * - 计分复用 #220 的引擎，得分 JSON 与三字码作为**快照**写入 `assessment_results`
- *   （之后改题面或重算都不影响历史结果）；重复提交生成新版本，旧版本 `is_current` 置 0 但保留。
+ *   #282 后「答完」的分母是本轮 30 题，不是 120 题库；
+ * - 计分复用 #220 的引擎，题目集合只传本轮抽中的题（每维 5 题），标准分口径与整库作答一致；
+ * - 得分 JSON、三字码与**抽题快照** `items_json` 一起写入 `assessment_results`
+ *   （之后改题面或重算都不影响历史结果，回看时也能还原当轮题量）；重复提交生成新版本，旧版本
+ *   `is_current` 置 0 但保留。
  */
 async function POST_impl(request: NextRequest) {
   const { ip, user_agent } = getRequestContext(request);
@@ -80,14 +77,12 @@ async function POST_impl(request: NextRequest) {
       return await reject("该测评暂未开放", { status: 403, metadata: { reason: "assessment-disabled" } });
     }
 
-    const questions = await getAssessmentQuestionsByCode(code);
-    const bankIndexes = questions.map((q) => q.question_index);
-    const draft = await getAssessmentDraft(user.id, assessment.id);
-    if (!draft) return await reject("还没有作答记录，请先答题");
+    const context = await loadAttemptContext(assessment, user.id);
+    if (!context.draft) return await reject("还没有作答记录，请先答题");
 
-    const answers = filterAnswersToBank(parseAnswers(draft.answers_json), bankIndexes);
-    const progress = answerProgress(answers, bankIndexes);
-    const missingIndexes = bankIndexes.filter((index) => answers[index] === undefined);
+    const answers = context.answers;
+    const progress = answerProgress(answers, context.roundIndexes);
+    const missingIndexes = context.roundIndexes.filter((index) => answers[index] === undefined);
     if (missingIndexes.length > 0) {
       const extra = { missingIndexes, answered: progress.answered, total: progress.total };
       return await reject(`还有 ${missingIndexes.length} 题未作答`, { metadata: extra, extra });
@@ -96,7 +91,7 @@ async function POST_impl(request: NextRequest) {
     const dimensions = parseDimensions(assessment.dimensions_json);
     const scoring = scoreAssessment(
       dimensions,
-      questions.map((q) => ({
+      context.roundQuestions.map((q) => ({
         index: q.question_index,
         dimension: q.dimension,
         reverseScored: q.reverse_scored === 1,
@@ -114,6 +109,7 @@ async function POST_impl(request: NextRequest) {
       userId: user.id,
       assessmentId: assessment.id,
       answersJson: JSON.stringify(answers),
+      itemsJson: context.itemsJson,
       scoresJson: JSON.stringify(scoring.scores),
       typeCode: scoring.code ?? null,
     });
@@ -133,7 +129,14 @@ async function POST_impl(request: NextRequest) {
       error_message: null,
       ip,
       user_agent,
-      metadata: { typeCode: scoring.code ?? null, answered: progress.answered, resultId },
+      metadata: {
+        typeCode: scoring.code ?? null,
+        answered: progress.answered,
+        resultId,
+        // 本轮口径进审计（哪个题池的第几轮），但**不落作答内容与题号清单**（个人数据）
+        attemptNo: context.attemptNo,
+        pool: context.plan.poolFingerprint,
+      },
     });
 
     return NextResponse.json({
@@ -142,7 +145,10 @@ async function POST_impl(request: NextRequest) {
         typeCode: scoring.code ?? null,
         scores: scoring.scores,
         completedAt: current?.completed_at ?? null,
-        questionCount: bankIndexes.length,
+        /** 本轮题量（#282）：启用抽题时是 30，不是题库总量 */
+        questionCount: context.roundIndexes.length,
+        poolSize: context.bankIndexes.length,
+        attemptNo: context.attemptNo,
         scaleVersion: assessment.scale_version,
         disclaimer: assessment.disclaimer,
       },
