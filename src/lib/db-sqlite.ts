@@ -1134,7 +1134,7 @@ export class SqliteAdapter implements DbAdapter {
       .all() as MediaFileRef[];
   }
 
-  submitProfileWithVersion(userCode: string, tagsJson: string, avatarUrl: string, evaluationUrl: string, storageId: number): { version: number } {
+  submitProfileWithVersion(userCode: string, tagsJson: string, avatarUrl: string, evaluationUrl: string, storageId: number, submittedAt?: string): { version: number } {
     const tx = this.db.transaction(() => {
       const user = this.db
         .prepare("SELECT id FROM users WHERE role = 'student' AND user_code = ?")
@@ -1143,7 +1143,7 @@ export class SqliteAdapter implements DbAdapter {
       // 1) UPDATE users（不变）
       this.db
         .prepare("UPDATE users SET tags = ?, avatar_url = ?, evaluation_url = ?, submitted_at = ?, storage_id = ? WHERE id = ?")
-        .run(tagsJson, avatarUrl, evaluationUrl, getNow(), storageId, user.id);
+        .run(tagsJson, avatarUrl, evaluationUrl, submittedAt ?? getNow(), storageId, user.id);
       // 2) 旧 is_current → 0
       this.db.prepare("UPDATE profile_submissions SET is_current = 0 WHERE user_id = ?").run(user.id);
       // 3) 计算 nextVersion = MAX(version) + 1
@@ -1157,7 +1157,7 @@ export class SqliteAdapter implements DbAdapter {
           `INSERT INTO profile_submissions (user_id, version, tags, avatar_url, evaluation_url, storage_id, submitted_at, is_current)
            VALUES (?, ?, ?, ?, ?, ?, ?, 1)`
         )
-        .run(user.id, nextVersion, tagsJson, avatarUrl, evaluationUrl, storageId, getNow());
+        .run(user.id, nextVersion, tagsJson, avatarUrl, evaluationUrl, storageId, submittedAt ?? getNow());
       // 5) 超限检查 → 删除最旧版本（仅删 DB 记录，文件保留，#111 旧文件不自动删除）
       const config = this.db
         .prepare("SELECT value FROM configs_profile WHERE key = ?")

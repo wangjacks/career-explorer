@@ -4,7 +4,8 @@
  * - 工厂 createStorage / getStorage：按后端配置路由到本地或 S3 兼容实现
  * - 对象 key 生成：`{prefix}_{studentId}_{yyyyMMddHHmmss}_{4位随机}.jpg`（多次上传不覆盖）
  *
- * 路径拼装规则：桶内完整路径 = `{bucket}/{path_prefix}/{key}`；本地 = `{cwd}/uploads/{key}`。
+ * 路径拼装规则：桶内完整路径 = `{bucket}/{path_prefix}/{key}`；本地 = `{cwd}/uploads/{key}`
+ * （演示沙箱 #253 下本地基目录随 `isDemoScope()` 切到 `{cwd}/uploads/demo/`，见 `storage-local.ts` 的 `getUploadsBaseDir`；key 始终扁平）。
  * DB 只存对象 key，完整路径由适配器实时拼装。
  */
 import { getStorageBackend, type StorageBackendRow } from "./db";

@@ -76,7 +76,7 @@
 
 ## API 路由
 
-<!-- 对账：`find src/app/api -name route.ts | wc -l`（当前 66 条 = manage 46 + auth 4 + setup 3 + shared 10 + tags/upload/uploads 各 1） -->
+<!-- 对账：`find src/app/api -name route.ts | wc -l`（当前 68 条 = manage 48 + auth 4 + setup 3 + shared 10 + tags/upload/uploads 各 1） -->
 
 ### 认证层（proxy 之外，公开）
 
@@ -97,7 +97,7 @@
 
 ### 管理域 `/api/manage/*`（proxy 拦截：admin 全放行，teacher 按声明式权限表）
 
-<!-- 对账：路由清单 `find src/app/api/manage -name route.ts`（共 46 条）；teacher 权限列须与 src/proxy.ts 的 TEACHER_ALLOWED 逐条一致 -->
+<!-- 对账：路由清单 `find src/app/api/manage -name route.ts`（共 48 条）；teacher 权限列须与 src/proxy.ts 的 TEACHER_ALLOWED 逐条一致 -->
 
 **教师禁止（不在 `TEACHER_ALLOWED`，一律 403）**
 
@@ -108,6 +108,8 @@
 | `/api/manage/settings` | GET / PUT | 数据源配置读写 |
 | `/api/manage/backup` | GET / POST | 备份下载 / 恢复 |
 | `/api/manage/test-db` | POST | 数据库连接测试 |
+| `/api/manage/demo/reset` | POST | 演示库全量重置（#253，**仅生产 admin**）：删演示库文件 + 清 `uploads/demo` + 重新 init + 全新随机重播账户/提交/测评（完成+进行中草稿）/分组/占位图；`DEMO_ENABLED` 关 404、演示会话 403；成功与生产越权拒绝落**生产**审计、演示会话越权拒绝落**演示**审计（隔离不变量）；并发重置经模块级单飞锁、播种失败丢弃半成品回到可重试态 |
+| `/api/manage/demo/status` | GET | 演示库状态（#253，仅生产 admin）：initialized + 按演示号段过滤的规模计数，绝不泄露生产；库文件不存在时直接返回未初始化（不开 adapter、无建库副作用）。成功只读不审计；越权拒绝记审计（演示会话拒绝落演示审计、生产非 admin 落生产审计） |
 | `/api/manage/storage` | GET / POST / PUT / PATCH / DELETE | 存储后端管理（#111）：注册表 CRUD + 设默认，均记审计 |
 | `/api/manage/storage/test` | POST | 存储后端连通性测试（#111） |
 | `/api/manage/storage/migrate` | POST | 本地→云后端迁移（#111，幂等，已存在对象跳过） |
