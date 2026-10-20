@@ -8,6 +8,7 @@ import HollandCodeBadge from "./HollandCodeBadge";
 import RiasecRadarChart from "./RiasecRadarChart";
 import AssessmentDisclaimer from "./assessment/AssessmentDisclaimer";
 import { formatResultTime } from "@/lib/assessment-flow";
+import { deriveAssessmentCenter } from "@/lib/assessment-center";
 import {
   buildCareerCards,
   buildRiasecBars,
@@ -116,6 +117,7 @@ export default function AssessmentResultCard() {
 
   const current = data?.current ?? null;
   const inProgress = data?.inProgress ?? null;
+  const assessmentView = deriveAssessmentCenter(data);
 
   if (loading) {
     return (
@@ -154,7 +156,10 @@ export default function AssessmentResultCard() {
           <div className="flex-1 min-w-0">
             <p className="text-sm font-medium text-foreground">还没做过职业兴趣测评</p>
             <p className="mt-1 text-xs text-muted leading-relaxed">
-              30 道题、大约 10 分钟。做完可以看到你的兴趣类型，以及可能适合你的职业方向。
+              {assessmentView.questionCount > 0 && assessmentView.estimatedMinutes > 0
+                ? `${assessmentView.questionCount} 道题、大约 ${assessmentView.estimatedMinutes} 分钟。`
+                : "题目准备中。"}
+              做完可以看到你的兴趣类型，以及可能适合你的职业方向。
             </p>
             {inProgress && (
               <p className="mt-1 text-xs text-muted">
