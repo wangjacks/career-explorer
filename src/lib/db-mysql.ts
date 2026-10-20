@@ -4,7 +4,7 @@ import path from "path";
 import { tagCategories } from "./tagData";
 import { ASSESSMENT_SEEDS, getQuestionSeeds, validateAssessmentSeed } from "./assessment-data";
 import { ONET_DATASET_VERSION } from "./onet-data";
-import { getOnetOccupationSeeds, needsOnetReseed, ONET_SEED_MARKER_KEY } from "./onet";
+import { getOnetOccupationSeeds, needsOnetReseed, ONET_SEED_MARKER_KEY, onetInterestCodeOf } from "./onet";
 import { normalizeBackupTags, normalizeAssessmentCode, DEFAULT_MAX_CUSTOM_TAGS, DEFAULT_MAX_PROFILE_SUBMISSIONS, MAX_PROFILE_SUBMISSIONS_KEY, DEFAULT_MEDIA_ORPHAN_RETENTION_DAYS, MEDIA_ORPHAN_RETENTION_KEY, chunkArray } from "./db";
 import type {
   UserRow,
@@ -48,6 +48,7 @@ import type {
   OnetOccupationRow,
   AssessmentStatsRaw,
   AssessmentRosterRow,
+  AssessmentBankUpgradeResult,
 } from "./db";
 import { fillGroupedTrend, fillTrendSeries, shiftDate } from "./stats-utils";
 
@@ -205,6 +206,8 @@ export class MysqlAdapter implements DbAdapter {
     await this.migrateGroupSchema();
     await this.migrateAssessmentSchema();
     await this.seedAssessments();
+    // #281：旧库补题 + 只回填 origin + 定义级字段随 scale_version 更新（只增不改）
+    await this.upgradeAssessmentBank();
     await this.migrateOnetSchema();
     try {
       await this.seedOnetOccupations();
@@ -338,6 +341,7 @@ export class MysqlAdapter implements DbAdapter {
         question_index INT NOT NULL,
         prompt TEXT NOT NULL,
         dimension VARCHAR(20) NOT NULL,
+        origin VARCHAR(16) NOT NULL DEFAULT 'cn-original',
         reverse_scored TINYINT NOT NULL DEFAULT 0,
         version INT NOT NULL DEFAULT 1,
         created_at TEXT NOT NULL,
@@ -367,6 +371,12 @@ export class MysqlAdapter implements DbAdapter {
         INDEX idx_assessment_results_assessment (assessment_id)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
     `);
+    // #281 补列：旧库（#221 时期创建）没有 origin
+    if (!(await this.columnExists("assessment_questions", "origin"))) {
+      await this.pool.execute(
+        "ALTER TABLE assessment_questions ADD COLUMN origin VARCHAR(16) NOT NULL DEFAULT 'cn-original'"
+      );
+    }
   }
 
   /**
@@ -378,7 +388,7 @@ export class MysqlAdapter implements DbAdapter {
     for (const definition of ASSESSMENT_SEEDS) {
       const questions = getQuestionSeeds(definition.code);
       if (!questions) throw new Error(`量表 ${definition.code} 缺少题库种子`);
-      validateAssessmentSeed(definition, questions);
+      validateAssessmentSeed(definition, questions, onetInterestCodeOf);
 
       const [existingRows] = await this.pool.execute("SELECT id FROM assessments WHERE code = ?", [
         definition.code,
@@ -424,13 +434,14 @@ export class MysqlAdapter implements DbAdapter {
           question.index,
           question.prompt,
           question.dimension,
+          question.origin,
           question.reverseScored ? 1 : 0,
           1,
           now,
         ]);
         await conn.query(
           `INSERT INTO assessment_questions
-             (assessment_id, question_index, prompt, dimension, reverse_scored, version, created_at)
+             (assessment_id, question_index, prompt, dimension, origin, reverse_scored, version, created_at)
            VALUES ?`,
           [values]
         );
@@ -447,7 +458,7 @@ export class MysqlAdapter implements DbAdapter {
   /** 给已存在的量表补种题库（仅用于「题库为空」的残缺态），事务内校正 question_count 与题号 */
   private async insertSeedQuestions(
     assessmentId: number,
-    questions: { index: number; prompt: string; dimension: string; reverseScored: boolean }[],
+    questions: { index: number; prompt: string; dimension: string; origin: string; reverseScored: boolean }[],
     questionCount: number
   ): Promise<void> {
     const conn = await this.pool.getConnection();
@@ -464,13 +475,14 @@ export class MysqlAdapter implements DbAdapter {
         question.index,
         question.prompt,
         question.dimension,
+        question.origin,
         question.reverseScored ? 1 : 0,
         1,
         now,
       ]);
       await conn.query(
         `INSERT INTO assessment_questions
-           (assessment_id, question_index, prompt, dimension, reverse_scored, version, created_at)
+           (assessment_id, question_index, prompt, dimension, origin, reverse_scored, version, created_at)
          VALUES ?`,
         [values]
       );
@@ -483,6 +495,95 @@ export class MysqlAdapter implements DbAdapter {
     }
   }
 
+  /**
+   * 题库**只增不改**升级（#281）：与 sqlite 适配器同构（同一套写动作与判据），差异只在方言与事务写法。
+   *
+   * 只允许三种写动作：缺题 INSERT、已存在题号只回填 `origin`、`scale_version` 变化时整体更新量表定义；
+   * 写之前跑新版校验，全程单事务；重复执行幂等（第二次不改任何字段）。
+   */
+  async upgradeAssessmentBank(): Promise<AssessmentBankUpgradeResult> {
+    const result: AssessmentBankUpgradeResult = { inserted: 0, originBackfilled: 0, definitionUpdated: false };
+    const conn = await this.pool.getConnection();
+    try {
+      await conn.beginTransaction();
+      for (const definition of ASSESSMENT_SEEDS) {
+        const questions = getQuestionSeeds(definition.code);
+        if (!questions) throw new Error(`量表 ${definition.code} 缺少题库种子`);
+        validateAssessmentSeed(definition, questions, onetInterestCodeOf);
+
+        // 量表行不存在 = 全新库，由 seedAssessments 负责；这里只管「已有行」的升级
+        const [existingRows] = await conn.execute("SELECT * FROM assessments WHERE code = ?", [definition.code]);
+        const existing = (existingRows as AssessmentRow[])[0];
+        if (!existing) continue;
+
+        const [questionRows] = await conn.execute(
+          "SELECT question_index, origin FROM assessment_questions WHERE assessment_id = ?",
+          [existing.id]
+        );
+        const currentOrigins = new Map(
+          (questionRows as { question_index: number; origin: string }[]).map((row) => [
+            Number(row.question_index),
+            row.origin,
+          ])
+        );
+        const now = getNow();
+        for (const question of questions) {
+          const currentOrigin = currentOrigins.get(question.index);
+          if (currentOrigin === undefined) {
+            await conn.execute(
+              `INSERT INTO assessment_questions
+                 (assessment_id, question_index, prompt, dimension, origin, reverse_scored, version, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, 1, ?)`,
+              [
+                existing.id,
+                question.index,
+                question.prompt,
+                question.dimension,
+                question.origin,
+                question.reverseScored ? 1 : 0,
+                now,
+              ]
+            );
+            result.inserted += 1;
+            continue;
+          }
+          if (currentOrigin !== question.origin) {
+            await conn.execute(
+              "UPDATE assessment_questions SET origin = ? WHERE assessment_id = ? AND question_index = ?",
+              [question.origin, existing.id, question.index]
+            );
+            result.originBackfilled += 1;
+          }
+        }
+
+        if (existing.scale_version !== definition.scaleVersion) {
+          await conn.execute(
+            `UPDATE assessments
+                SET name = ?, question_count = ?, scale_version = ?, attribution = ?, license_text = ?, disclaimer = ?, updated_at = ?
+              WHERE id = ?`,
+            [
+              definition.name,
+              definition.questionCount,
+              definition.scaleVersion,
+              definition.attribution,
+              definition.licenseText,
+              definition.disclaimer,
+              now,
+              existing.id,
+            ]
+          );
+          result.definitionUpdated = true;
+        }
+      }
+      await conn.commit();
+    } catch (err) {
+      await conn.rollback();
+      throw err;
+    } finally {
+      conn.release();
+    }
+    return result;
+  }
   /**
    * O*NET 职业库（#226）：与 sqlite 适配器同构（列名/可空性/唯一约束一致），差异只在方言。
    * 只读参考数据，判据与重灌口径见 sqlite 侧同名方法注释。
@@ -2515,19 +2616,21 @@ export class MysqlAdapter implements DbAdapter {
           );
         }
         if (data.assessment_questions.length > 0) {
+          // #281：旧备份没有 origin → 按原创题默认（与列默认值一致，绝不因缺字段拒绝恢复）
           const values = data.assessment_questions.map((q) => [
             q.id,
             q.assessment_id,
             q.question_index,
             q.prompt,
             q.dimension,
+            q.origin ?? "cn-original",
             q.reverse_scored ?? 0,
             q.version ?? 1,
             q.created_at ?? getNow(),
           ]);
           await conn.query(
             `INSERT INTO assessment_questions
-               (id, assessment_id, question_index, prompt, dimension, reverse_scored, version, created_at)
+               (id, assessment_id, question_index, prompt, dimension, origin, reverse_scored, version, created_at)
              VALUES ?`,
             [values]
           );

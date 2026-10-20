@@ -5,7 +5,7 @@ import path from "path";
 import { tagCategories } from "./tagData";
 import { ASSESSMENT_SEEDS, getQuestionSeeds, validateAssessmentSeed } from "./assessment-data";
 import type { QuestionSeed } from "./assessment-data";
-import { getOnetOccupationSeeds, needsOnetReseed, ONET_SEED_MARKER_KEY } from "./onet";
+import { getOnetOccupationSeeds, needsOnetReseed, ONET_SEED_MARKER_KEY, onetInterestCodeOf } from "./onet";
 import { ONET_DATASET_VERSION } from "./onet-data";
 import { normalizeBackupTags, normalizeAssessmentCode, DEFAULT_MAX_CUSTOM_TAGS, DEFAULT_MAX_PROFILE_SUBMISSIONS, MAX_PROFILE_SUBMISSIONS_KEY, DEFAULT_MEDIA_ORPHAN_RETENTION_DAYS, MEDIA_ORPHAN_RETENTION_KEY, chunkArray } from "./db";
 import type {
@@ -50,6 +50,7 @@ import type {
   OnetOccupationRow,
   AssessmentStatsRaw,
   AssessmentRosterRow,
+  AssessmentBankUpgradeResult,
 } from "./db";
 import { fillGroupedTrend, fillTrendSeries, shiftDate } from "./stats-utils";
 
@@ -199,6 +200,8 @@ export class SqliteAdapter implements DbAdapter {
     this.migrateGroupSchema();
     this.migrateAssessmentSchema();
     this.seedAssessments();
+    // #281：旧库补题 + 只回填 origin + 定义级字段随 scale_version 更新（只增不改）
+    this.upgradeAssessmentBank();
     this.migrateOnetSchema();
     try {
       this.seedOnetOccupations();
@@ -338,6 +341,7 @@ export class SqliteAdapter implements DbAdapter {
         question_index INTEGER NOT NULL,
         prompt TEXT NOT NULL,
         dimension TEXT NOT NULL,
+        origin TEXT NOT NULL DEFAULT 'cn-original',
         reverse_scored INTEGER NOT NULL DEFAULT 0,
         version INTEGER NOT NULL DEFAULT 1,
         created_at TEXT NOT NULL,
@@ -368,6 +372,11 @@ export class SqliteAdapter implements DbAdapter {
       `CREATE INDEX IF NOT EXISTS idx_assessment_results_current ON assessment_results(user_id, assessment_id, is_current)`
     );
     this.db.exec(`CREATE INDEX IF NOT EXISTS idx_assessment_results_assessment ON assessment_results(assessment_id)`);
+    // #281 补列：旧库（#221 时期创建）没有 origin，SQLite 的 ALTER TABLE 只能加可空/带默认值的列
+    const columns = this.db.prepare("PRAGMA table_info(assessment_questions)").all() as { name: string }[];
+    if (!columns.some((column) => column.name === "origin")) {
+      this.db.exec("ALTER TABLE assessment_questions ADD COLUMN origin TEXT NOT NULL DEFAULT 'cn-original'");
+    }
   }
 
   /**
@@ -389,8 +398,8 @@ export class SqliteAdapter implements DbAdapter {
     );
     const insertQuestion = this.db.prepare(
       `INSERT INTO assessment_questions
-         (assessment_id, question_index, prompt, dimension, reverse_scored, version, created_at)
-       VALUES (?, ?, ?, ?, ?, 1, ?)`
+         (assessment_id, question_index, prompt, dimension, origin, reverse_scored, version, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, 1, ?)`
     );
     const insertQuestions = (assessmentId: number, questions: readonly QuestionSeed[], now: string) => {
       for (const question of questions) {
@@ -399,6 +408,7 @@ export class SqliteAdapter implements DbAdapter {
           question.index,
           question.prompt,
           question.dimension,
+          question.origin,
           question.reverseScored ? 1 : 0,
           now
         );
@@ -409,8 +419,8 @@ export class SqliteAdapter implements DbAdapter {
       for (const definition of ASSESSMENT_SEEDS) {
         const questions = getQuestionSeeds(definition.code);
         if (!questions) throw new Error(`量表 ${definition.code} 缺少题库种子`);
-        // 落库前自检：坏种子宁可安装时报错，也不留半截题库
-        validateAssessmentSeed(definition, questions);
+        // 落库前自检：坏种子宁可安装时报错，也不留半截题库（#281 起含 anchor 与近重复校验）
+        validateAssessmentSeed(definition, questions, onetInterestCodeOf);
 
         const existing = findAssessment.get(definition.code) as { id: number } | undefined;
         if (existing) {
@@ -441,6 +451,94 @@ export class SqliteAdapter implements DbAdapter {
       }
     });
     seed();
+  }
+
+  /**
+   * 题库**只增不改**升级（#281）：生产库已有的题库由 `seedAssessments` 的「非空一律不碰」保护，
+   * 所以扩库必须另走这里，且**只允许三种写动作**：
+   * 1. 缺失的题号 → INSERT；
+   * 2. 已存在的题号 → **只回填 `origin`**（`prompt` / `dimension` / `version` 一个字节都不动，
+   *    后台维护过的题面神圣不可侵犯）；
+   * 3. 量表定义字段 → 仅当 `scale_version` 与种子不一致时整体更新（名字/题数/署名/授权/免责）。
+   *
+   * 写之前跑新版 `validateAssessmentSeed`（含 anchor 与近重复校验）；全程单事务。
+   * 重复执行幂等：第二次没有缺题、origin 已一致、版本号已一致，什么都不改。
+   */
+  upgradeAssessmentBank(): AssessmentBankUpgradeResult {
+    const result: AssessmentBankUpgradeResult = { inserted: 0, originBackfilled: 0, definitionUpdated: false };
+    const findAssessment = this.db.prepare("SELECT * FROM assessments WHERE code = ?");
+    const listQuestions = this.db.prepare(
+      "SELECT question_index, origin FROM assessment_questions WHERE assessment_id = ?"
+    );
+    const insertQuestion = this.db.prepare(
+      `INSERT INTO assessment_questions
+         (assessment_id, question_index, prompt, dimension, origin, reverse_scored, version, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, 1, ?)`
+    );
+    const updateOrigin = this.db.prepare(
+      "UPDATE assessment_questions SET origin = ? WHERE assessment_id = ? AND question_index = ?"
+    );
+    const updateDefinition = this.db.prepare(
+      `UPDATE assessments
+          SET name = ?, question_count = ?, scale_version = ?, attribution = ?, license_text = ?, disclaimer = ?, updated_at = ?
+        WHERE id = ?`
+    );
+
+    const upgrade = this.db.transaction(() => {
+      for (const definition of ASSESSMENT_SEEDS) {
+        const questions = getQuestionSeeds(definition.code);
+        if (!questions) throw new Error(`量表 ${definition.code} 缺少题库种子`);
+        validateAssessmentSeed(definition, questions, onetInterestCodeOf);
+
+        // 量表行不存在 = 全新库，由 seedAssessments 负责；这里只管「已有行」的升级
+        const existing = findAssessment.get(definition.code) as AssessmentRow | undefined;
+        if (!existing) continue;
+
+        const existingQuestions = new Map(
+          (listQuestions.all(existing.id) as { question_index: number; origin: string }[]).map((row) => [
+            row.question_index,
+            row.origin,
+          ])
+        );
+        const now = getNow();
+        for (const question of questions) {
+          const currentOrigin = existingQuestions.get(question.index);
+          if (currentOrigin === undefined) {
+            insertQuestion.run(
+              existing.id,
+              question.index,
+              question.prompt,
+              question.dimension,
+              question.origin,
+              question.reverseScored ? 1 : 0,
+              now
+            );
+            result.inserted += 1;
+            continue;
+          }
+          if (currentOrigin !== question.origin) {
+            updateOrigin.run(question.origin, existing.id, question.index);
+            result.originBackfilled += 1;
+          }
+        }
+
+        if (existing.scale_version !== definition.scaleVersion) {
+          updateDefinition.run(
+            definition.name,
+            definition.questionCount,
+            definition.scaleVersion,
+            definition.attribution,
+            definition.licenseText,
+            definition.disclaimer,
+            now,
+            existing.id
+          );
+          result.definitionUpdated = true;
+        }
+      }
+    });
+    upgrade();
+    return result;
   }
 
   /**
@@ -2293,10 +2391,11 @@ export class SqliteAdapter implements DbAdapter {
             );
           }
         }
+        // #281：旧备份没有 origin → 按原创题默认（与列默认值一致，绝不因缺字段拒绝恢复）
         const questionStmt = this.db.prepare(
           `INSERT INTO assessment_questions
-             (id, assessment_id, question_index, prompt, dimension, reverse_scored, version, created_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+             (id, assessment_id, question_index, prompt, dimension, origin, reverse_scored, version, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
         );
         for (const q of d.assessment_questions) {
           questionStmt.run(
@@ -2305,6 +2404,7 @@ export class SqliteAdapter implements DbAdapter {
             q.question_index,
             q.prompt,
             q.dimension,
+            q.origin ?? "cn-original",
             q.reverse_scored ?? 0,
             q.version ?? 1,
             q.created_at ?? getNow()
