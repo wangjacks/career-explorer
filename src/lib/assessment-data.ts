@@ -1,5 +1,5 @@
 /**
- * 霍兰德职业兴趣测评的题库与量表种子（#221 建立、#281 扩容到 120 题）。
+ * 职业测评的题库与量表种子（#221 建立、#281 扩容霍兰德题库、#290 加入 IPIP 大五）。
  *
  * 题库进数据库而非写死代码，本文件只是**种子**；后台维护题面后，种子以 `code` 存在性判定幂等，
  * 不会覆盖已维护的数据（见两适配器的 `seedAssessments`）。生产库已有旧题库时由
@@ -39,8 +39,14 @@ export interface AssessmentSeed {
   disclaimer: string;
 }
 
-/** 题目来源：分层抽样的可行性依赖这个分布（两适配器落 `assessment_questions.origin`） */
-export type QuestionOrigin = "onet-mini" | "onet-sf" | "cn-original";
+/** 题目来源：霍兰德分层抽样依赖 O*NET 分布；IPIP 公有领域条目单独标记 */
+export type QuestionOrigin = "onet-mini" | "onet-sf" | "cn-original" | "ipip";
+
+/** 作答页按量表下发的 5 点锚点 */
+export interface AssessmentAnchor {
+  value: 1 | 2 | 3 | 4 | 5;
+  label: string;
+}
 
 /** 单题种子，与 `assessment_questions` 表列的对应关系见字段注释 */
 export interface QuestionSeed {
@@ -48,7 +54,7 @@ export interface QuestionSeed {
   index: number;
   /** 所属维度，必须是量表 `dimensions` 里的 key（存 `dimension`） */
   dimension: string;
-  /** 题目来源（存 `origin`）：官方 Mini-IP / 官方 SF / 本项目原创 */
+  /** 题目来源（存 `origin`）：官方 Mini-IP / 官方 SF / 本项目原创 / IPIP */
   origin: QuestionOrigin;
   /** 反向计分（存 `reverse_scored`） */
   reverseScored: boolean;
@@ -339,13 +345,283 @@ export const RIASEC_QUESTIONS: QuestionSeed[] = [
   ...RIASEC_CN_QUESTIONS,
 ];
 
-/** 全部量表种子：后续新增量表（如大五人格）只需在此追加一条 */
-export const ASSESSMENT_SEEDS: AssessmentSeed[] = [RIASEC_ASSESSMENT];
+/** 五大人格维度顺序：计分结果与后续结果卡都按此序展示 */
+export const IPIP_DIMENSIONS: { key: string; label: string }[] = [
+  { key: "N", label: "神经质" },
+  { key: "E", label: "外向性" },
+  { key: "O", label: "开放性" },
+  { key: "A", label: "宜人性" },
+  { key: "C", label: "尽责性" },
+];
+
+export const IPIP_NEO_FFI_CODE = "ipip-neo-ffi";
+export const IPIP_NEO_FFI_SCALE_VERSION = "IPIP NEO-FFI 1.0";
+
+export const IPIP_ATTRIBUTION =
+  "题目取自 International Personality Item Pool（IPIP）五大人格题池；IPIP 条目属于公有领域。" +
+  "中文翻译由本项目提供。";
+
+export const IPIP_LICENSE_TEXT =
+  "IPIP 条目属于公有领域，可自由复制、修改并用于商业或非商业用途。来源：" +
+  "https://ipip.ori.org/newNEODomainsKey.htm 。本量表使用 IPIP 公有领域条目，" +
+  "不等同于 PAR 公司受版权保护的商业 NEO-FFI 原版。";
+
+/** 免责声明：与其他教育测评共用同一口径，不构成心理诊断或录用依据 */
+export const IPIP_DISCLAIMER =
+  "测评结果用于生涯探索与自我认识，不作为心理诊断或招生、就业的录用依据。";
+
+export const IPIP_ASSESSMENT: AssessmentSeed = {
+  code: IPIP_NEO_FFI_CODE,
+  name: "五大人格测评（IPIP NEO-FFI 精简版）",
+  questionCount: 50,
+  dimensions: IPIP_DIMENSIONS,
+  scoringMode: "dimensional",
+  scaleVersion: IPIP_NEO_FFI_SCALE_VERSION,
+  attribution: IPIP_ATTRIBUTION,
+  licenseText: IPIP_LICENSE_TEXT,
+  disclaimer: IPIP_DISCLAIMER,
+};
+
+/**
+ * IPIP 五大人格 50 题短式：每维 10 题，5 正 5 反，共 25 道反向题。
+ *
+ * 英文原文与计分方向逐题对照 IPIP NEO Domains Key；中文翻译由本项目提供。
+ * 完整题面与来源说明见 `docs/plan-ipip-neo-ffi.md`。
+ */
+export const IPIP_QUESTIONS: QuestionSeed[] = [
+  { index: 1, dimension: "N", origin: "ipip", reverseScored: false, prompt: "经常感到忧郁", source: "Often feel blue." },
+  { index: 2, dimension: "N", origin: "ipip", reverseScored: false, prompt: "不喜欢自己", source: "Dislike myself." },
+  { index: 3, dimension: "N", origin: "ipip", reverseScored: false, prompt: "常常情绪低落", source: "Am often down in the dumps." },
+  { index: 4, dimension: "N", origin: "ipip", reverseScored: false, prompt: "情绪起伏频繁", source: "Have frequent mood swings." },
+  { index: 5, dimension: "N", origin: "ipip", reverseScored: false, prompt: "容易惊慌", source: "Panic easily." },
+  { index: 6, dimension: "N", origin: "ipip", reverseScored: true, prompt: "很少被激怒", source: "Rarely get irritated." },
+  { index: 7, dimension: "N", origin: "ipip", reverseScored: true, prompt: "很少感到忧郁", source: "Seldom feel blue." },
+  { index: 8, dimension: "N", origin: "ipip", reverseScored: true, prompt: "对自己感到自在", source: "Feel comfortable with myself." },
+  {
+    index: 9,
+    dimension: "N",
+    origin: "ipip",
+    reverseScored: true,
+    prompt: "不容易被事情烦扰",
+    source: "Am not easily bothered by things.",
+  },
+  { index: 10, dimension: "N", origin: "ipip", reverseScored: true, prompt: "对自己非常满意", source: "Am very pleased with myself." },
+  {
+    index: 11,
+    dimension: "E",
+    origin: "ipip",
+    reverseScored: false,
+    prompt: "在人群中感到自在",
+    source: "Feel comfortable around people.",
+  },
+  { index: 12, dimension: "E", origin: "ipip", reverseScored: false, prompt: "能轻松交到朋友", source: "Make friends easily." },
+  {
+    index: 13,
+    dimension: "E",
+    origin: "ipip",
+    reverseScored: false,
+    prompt: "善于应对社交场合",
+    source: "Am skilled in handling social situations.",
+  },
+  { index: 14, dimension: "E", origin: "ipip", reverseScored: false, prompt: "在聚会上很活跃", source: "Am the life of the party." },
+  {
+    index: 15,
+    dimension: "E",
+    origin: "ipip",
+    reverseScored: false,
+    prompt: "知道如何吸引别人",
+    source: "Know how to captivate people.",
+  },
+  { index: 16, dimension: "E", origin: "ipip", reverseScored: true, prompt: "常常没什么话说", source: "Have little to say." },
+  { index: 17, dimension: "E", origin: "ipip", reverseScored: true, prompt: "喜欢待在幕后", source: "Keep in the background." },
+  {
+    index: 18,
+    dimension: "E",
+    origin: "ipip",
+    reverseScored: true,
+    prompt: "觉得自己的经历有些乏味",
+    source: "Would describe my experiences as somewhat dull.",
+  },
+  {
+    index: 19,
+    dimension: "E",
+    origin: "ipip",
+    reverseScored: true,
+    prompt: "不喜欢引人注目",
+    source: "Don't like to draw attention to myself.",
+  },
+  { index: 20, dimension: "E", origin: "ipip", reverseScored: true, prompt: "平时话不多", source: "Don't talk a lot." },
+  { index: 21, dimension: "O", origin: "ipip", reverseScored: false, prompt: "想象力丰富", source: "Have a vivid imagination." },
+  {
+    index: 22,
+    dimension: "O",
+    origin: "ipip",
+    reverseScored: false,
+    prompt: "重视艺术的价值",
+    source: "Believe in the importance of art.",
+  },
+  { index: 23, dimension: "O", origin: "ipip", reverseScored: false, prompt: "喜欢听新观点", source: "Enjoy hearing new ideas." },
+  {
+    index: 24,
+    dimension: "O",
+    origin: "ipip",
+    reverseScored: false,
+    prompt: "能把对话引向更深层次",
+    source: "Carry the conversation to a higher level.",
+  },
+  {
+    index: 25,
+    dimension: "O",
+    origin: "ipip",
+    reverseScored: false,
+    prompt: "会花时间思考问题",
+    source: "Spend time reflecting on things.",
+  },
+  {
+    index: 26,
+    dimension: "O",
+    origin: "ipip",
+    reverseScored: true,
+    prompt: "对抽象观念不感兴趣",
+    source: "Am not interested in abstract ideas.",
+  },
+  { index: 27, dimension: "O", origin: "ipip", reverseScored: true, prompt: "不喜欢艺术", source: "Do not like art." },
+  {
+    index: 28,
+    dimension: "O",
+    origin: "ipip",
+    reverseScored: true,
+    prompt: "回避哲学讨论",
+    source: "Avoid philosophical discussions.",
+  },
+  {
+    index: 29,
+    dimension: "O",
+    origin: "ipip",
+    reverseScored: true,
+    prompt: "不喜欢去美术馆",
+    source: "Do not enjoy going to art museums.",
+  },
+  {
+    index: 30,
+    dimension: "O",
+    origin: "ipip",
+    reverseScored: true,
+    prompt: "难以理解抽象概念",
+    source: "Have difficulty understanding abstract ideas.",
+  },
+  {
+    index: 31,
+    dimension: "A",
+    origin: "ipip",
+    reverseScored: false,
+    prompt: "总愿意说别人的好话",
+    source: "Have a good word for everyone.",
+  },
+  {
+    index: 32,
+    dimension: "A",
+    origin: "ipip",
+    reverseScored: false,
+    prompt: "相信别人心怀善意",
+    source: "Believe that others have good intentions.",
+  },
+  { index: 33, dimension: "A", origin: "ipip", reverseScored: false, prompt: "尊重他人", source: "Respect others." },
+  {
+    index: 34,
+    dimension: "A",
+    origin: "ipip",
+    reverseScored: false,
+    prompt: "接受别人本来的样子",
+    source: "Accept people as they are.",
+  },
+  {
+    index: 35,
+    dimension: "A",
+    origin: "ipip",
+    reverseScored: false,
+    prompt: "让别人感到自在",
+    source: "Make people feel at ease.",
+  },
+  { index: 36, dimension: "A", origin: "ipip", reverseScored: true, prompt: "说话尖刻", source: "Have a sharp tongue." },
+  { index: 37, dimension: "A", origin: "ipip", reverseScored: true, prompt: "把别人批评得体无完肤", source: "Cut others to pieces." },
+  {
+    index: 38,
+    dimension: "A",
+    origin: "ipip",
+    reverseScored: true,
+    prompt: "怀疑别人有隐藏动机",
+    source: "Suspect hidden motives in others.",
+  },
+  { index: 39, dimension: "A", origin: "ipip", reverseScored: true, prompt: "想方设法报复别人", source: "Get back at others." },
+  { index: 40, dimension: "A", origin: "ipip", reverseScored: true, prompt: "侮辱别人", source: "Insult people." },
+  { index: 41, dimension: "C", origin: "ipip", reverseScored: false, prompt: "总是做好准备", source: "Am always prepared." },
+  { index: 42, dimension: "C", origin: "ipip", reverseScored: false, prompt: "注重细节", source: "Pay attention to details." },
+  {
+    index: 43,
+    dimension: "C",
+    origin: "ipip",
+    reverseScored: false,
+    prompt: "马上完成该做的事",
+    source: "Get chores done right away.",
+  },
+  { index: 44, dimension: "C", origin: "ipip", reverseScored: false, prompt: "能执行自己的计划", source: "Carry out my plans." },
+  {
+    index: 45,
+    dimension: "C",
+    origin: "ipip",
+    reverseScored: false,
+    prompt: "制定计划并坚持执行",
+    source: "Make plans and stick to them.",
+  },
+  { index: 46, dimension: "C", origin: "ipip", reverseScored: true, prompt: "浪费时间", source: "Waste my time." },
+  {
+    index: 47,
+    dimension: "C",
+    origin: "ipip",
+    reverseScored: true,
+    prompt: "很难开始工作",
+    source: "Find it difficult to get down to work.",
+  },
+  {
+    index: 48,
+    dimension: "C",
+    origin: "ipip",
+    reverseScored: true,
+    prompt: "只做最低限度的工作",
+    source: "Do just enough work to get by.",
+  },
+  { index: 49, dimension: "C", origin: "ipip", reverseScored: true, prompt: "做事有始无终", source: "Don't see things through." },
+  { index: 50, dimension: "C", origin: "ipip", reverseScored: true, prompt: "逃避自己的责任", source: "Shirk my duties." },
+];
+
+/** 全部量表种子：顺序同时决定安装时的创建顺序 */
+export const ASSESSMENT_SEEDS: AssessmentSeed[] = [RIASEC_ASSESSMENT, IPIP_ASSESSMENT];
 
 /** 按量表 code 取题库种子；未注册的 code 返回 undefined */
 export function getQuestionSeeds(code: string): QuestionSeed[] | undefined {
-  return code === RIASEC_CODE ? RIASEC_QUESTIONS : undefined;
+  if (code === RIASEC_CODE) return RIASEC_QUESTIONS;
+  if (code === IPIP_NEO_FFI_CODE) return IPIP_QUESTIONS;
+  return undefined;
 }
+
+/** 作答链路按量表 code 下发锚点；两套量表均为 1–5 分但语义不同 */
+export const ASSESSMENT_ANCHORS: Record<string, readonly AssessmentAnchor[]> = {
+  [RIASEC_CODE]: [
+    { value: 1, label: "非常不愿意" },
+    { value: 2, label: "不愿意" },
+    { value: 3, label: "不确定" },
+    { value: 4, label: "愿意" },
+    { value: 5, label: "非常愿意" },
+  ],
+  [IPIP_NEO_FFI_CODE]: [
+    { value: 1, label: "非常不同意" },
+    { value: 2, label: "不同意" },
+    { value: 3, label: "不确定" },
+    { value: 4, label: "同意" },
+    { value: 5, label: "非常同意" },
+  ],
+};
 
 /**
  * 近重复题组（#281）：同一张卷子至多抽到组内一题。
@@ -430,11 +706,14 @@ export type OnetInterestCodeLookup = (occupationTitle: string) => string | undef
  * 规则清单（反例单测见 `assessment-items.test.ts`）：
  * 1. 题数一致、题号 1..n 连续、维度归属合法、题干与英文原文非空（#221 既有）；
  * 2. 每个维度题数相等；
- * 3. 每维度 `origin` 分布：官方题（`onet-*`）≥ 3 且原创题 ≥ 3（分层抽样的可行性前提）；
+ * 3. 霍兰德每维度 `origin` 分布：官方题（`onet-*`）≥ 3 且原创题 ≥ 3（分层抽样的可行性前提）；
  * 4. 题干归一化后全局唯一；
  * 5. 题干 4–24 汉字、不含收入/学历/地位线索禁词；
  * 6. 原创题必须有 `anchor`，传了 `onetInterestCodeOf` 时还要命中 O*NET 快照且维度在兴趣高码前两位；
- * 7. 同维度相似度 ≥ `NEAR_DUPLICATE_THRESHOLD` 的题对必须被 `NEAR_DUPLICATE_GROUPS` 覆盖。
+ * 7. 霍兰德同维度相似度 ≥ `NEAR_DUPLICATE_THRESHOLD` 的题对必须被 `NEAR_DUPLICATE_GROUPS` 覆盖。
+ *
+ * 3 / 6 / 7 是霍兰德题库的专属规则；IPIP 大五只走通用结构、题面与维度均衡校验，
+ * 不会因为缺少 O*NET 职业锚点或使用 IPIP 来源而误报。
  *
  * `onetInterestCodeOf` 由服务端注入（`onet.ts` 的 `onetInterestCodeOf`），避免把 92KB 的
  * O*NET 快照拖进客户端 bundle——两个学生端页面只 import `RIASEC_CODE`。
@@ -461,6 +740,7 @@ export function validateAssessmentSeed(
   const usedDimensions = new Set<string>();
   const byDimension = new Map<string, QuestionSeed[]>();
   const normalizedPrompts = new Map<string, number>();
+  const isRiasec = definition.code === RIASEC_CODE;
   for (const question of questions) {
     if (!Number.isInteger(question.index) || question.index < 1) {
       throw new Error(`${definition.code} 的题号非法：${question.index}`);
@@ -473,7 +753,7 @@ export function validateAssessmentSeed(
     usedDimensions.add(question.dimension);
     if (!question.prompt.trim()) throw new Error(`${definition.code} 第 ${question.index} 题题干为空`);
     if (!question.source.trim()) throw new Error(`${definition.code} 第 ${question.index} 题缺少英文原文`);
-    if (!["onet-mini", "onet-sf", "cn-original"].includes(question.origin)) {
+    if (!["onet-mini", "onet-sf", "cn-original", "ipip"].includes(question.origin)) {
       throw new Error(`${definition.code} 第 ${question.index} 题的 origin 非法：${String(question.origin)}`);
     }
 
@@ -503,7 +783,7 @@ export function validateAssessmentSeed(
     }
 
     // 原创题必须可追溯：没有锚定职业就无法做维度归属的效度校验
-    if (question.origin === "cn-original") {
+    if (isRiasec && question.origin === "cn-original") {
       const anchor = question.anchor?.trim();
       if (!anchor) throw new Error(`${definition.code} 第 ${question.index} 题（原创）缺少锚定职业`);
       if (onetInterestCodeOf) {
@@ -533,13 +813,19 @@ export function validateAssessmentSeed(
   for (const dimension of definition.dimensions) {
     const list = byDimension.get(dimension.key) ?? [];
     perDimensionCounts.add(list.length);
-    const official = list.filter((question) => question.origin !== "cn-original").length;
-    const original = list.filter((question) => question.origin === "cn-original").length;
-    if (official < MIN_OFFICIAL_PER_DIMENSION) {
-      throw new Error(`${definition.code} 的维度 ${dimension.key} 官方题不足 ${MIN_OFFICIAL_PER_DIMENSION} 道（实际 ${official}）`);
-    }
-    if (original < MIN_ORIGINAL_PER_DIMENSION) {
-      throw new Error(`${definition.code} 的维度 ${dimension.key} 原创题不足 ${MIN_ORIGINAL_PER_DIMENSION} 道（实际 ${original}）`);
+    if (isRiasec) {
+      const official = list.filter((question) => question.origin !== "cn-original").length;
+      const original = list.filter((question) => question.origin === "cn-original").length;
+      if (official < MIN_OFFICIAL_PER_DIMENSION) {
+        throw new Error(
+          `${definition.code} 的维度 ${dimension.key} 官方题不足 ${MIN_OFFICIAL_PER_DIMENSION} 道（实际 ${official}）`
+        );
+      }
+      if (original < MIN_ORIGINAL_PER_DIMENSION) {
+        throw new Error(
+          `${definition.code} 的维度 ${dimension.key} 原创题不足 ${MIN_ORIGINAL_PER_DIMENSION} 道（实际 ${original}）`
+        );
+      }
     }
   }
   if (perDimensionCounts.size > 1) {
@@ -550,34 +836,36 @@ export function validateAssessmentSeed(
     );
   }
 
-  // 近重复覆盖：阈值以上必须被 NEAR_DUPLICATE_GROUPS 包住，否则同卷可能抽到两道近乎一样的题
-  const groupedPairs = new Set<string>();
-  for (const group of NEAR_DUPLICATE_GROUPS) {
-    for (let i = 0; i < group.length; i += 1) {
-      for (let j = i + 1; j < group.length; j += 1) {
-        groupedPairs.add(pairKey(group[i], group[j]));
-      }
-    }
-  }
-  const byIndex = new Map(questions.map((question) => [question.index, question]));
-  for (const [dimensionKey, list] of byDimension) {
-    for (let i = 0; i < list.length; i += 1) {
-      for (let j = i + 1; j < list.length; j += 1) {
-        const similarity = promptSimilarity(list[i].prompt, list[j].prompt);
-        if (similarity < NEAR_DUPLICATE_THRESHOLD) continue;
-        if (!groupedPairs.has(pairKey(list[i].index, list[j].index))) {
-          throw new Error(
-            `${definition.code} 维度 ${dimensionKey} 的第 ${list[i].index} / ${list[j].index} 题近重复（相似度 ${similarity.toFixed(2)}），` +
-              `请并入 NEAR_DUPLICATE_GROUPS`
-          );
+  if (isRiasec) {
+    // 近重复覆盖：阈值以上必须被 NEAR_DUPLICATE_GROUPS 包住，否则同卷可能抽到两道近乎一样的题
+    const groupedPairs = new Set<string>();
+    for (const group of NEAR_DUPLICATE_GROUPS) {
+      for (let i = 0; i < group.length; i += 1) {
+        for (let j = i + 1; j < group.length; j += 1) {
+          groupedPairs.add(pairKey(group[i], group[j]));
         }
       }
     }
-  }
-  // 近重复组里的题号必须真实存在（抽取逻辑会按题号取值，写错就是运行时丢题）
-  for (const group of NEAR_DUPLICATE_GROUPS) {
-    for (const index of group) {
-      if (!byIndex.has(index)) throw new Error(`${definition.code} 的近重复组包含不存在的题号：${index}`);
+    const byIndex = new Map(questions.map((question) => [question.index, question]));
+    for (const [dimensionKey, list] of byDimension) {
+      for (let i = 0; i < list.length; i += 1) {
+        for (let j = i + 1; j < list.length; j += 1) {
+          const similarity = promptSimilarity(list[i].prompt, list[j].prompt);
+          if (similarity < NEAR_DUPLICATE_THRESHOLD) continue;
+          if (!groupedPairs.has(pairKey(list[i].index, list[j].index))) {
+            throw new Error(
+              `${definition.code} 维度 ${dimensionKey} 的第 ${list[i].index} / ${list[j].index} 题近重复（相似度 ${similarity.toFixed(2)}），` +
+                `请并入 NEAR_DUPLICATE_GROUPS`
+            );
+          }
+        }
+      }
+    }
+    // 近重复组里的题号必须真实存在（抽取逻辑会按题号取值，写错就是运行时丢题）
+    for (const group of NEAR_DUPLICATE_GROUPS) {
+      for (const index of group) {
+        if (!byIndex.has(index)) throw new Error(`${definition.code} 的近重复组包含不存在的题号：${index}`);
+      }
     }
   }
 }
