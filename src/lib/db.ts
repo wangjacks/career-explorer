@@ -2,6 +2,7 @@ import { getConfig } from "./db-config";
 import { MysqlAdapter } from "./db-mysql";
 import { SqliteAdapter } from "./db-sqlite";
 import { isDemoScope, isDemoEnabled, getDemoDbPath } from "./demo-scope";
+import type { QuestionOrigin } from "./assessment-data";
 
 /**
  * 批查分片大小（#193）：单条 SQL 的绑定参数数量有引擎上限——SQLite 旧构建为
@@ -340,11 +341,23 @@ export interface AssessmentQuestionRow {
   prompt: string;
   /** 所属维度：必须是该量表 `dimensions_json` 里的某个 key */
   dimension: string;
+  /** 题目来源（#281）：`onet-mini` / `onet-sf` / `cn-original`，分层抽样与分来源分析用 */
+  origin: QuestionOrigin;
   /** 0/1：反向计分（Mini-IP 全为正向，字段为后续量表预留） */
   reverse_scored: number;
   /** 题面版本，题面改动时自增；作答快照另存 answers/scores，历史结果不因此漂移 */
   version: number;
   created_at: string;
+}
+
+/** 题库升级结果（#281，只增不改）：供单测与日志观测，不对外暴露 */
+export interface AssessmentBankUpgradeResult {
+  /** 本次补插的题目数 */
+  inserted: number;
+  /** 本次回填 origin 的题目数（已存在题号只动这一列） */
+  originBackfilled: number;
+  /** 是否因 scale_version 变化而整体更新了量表定义字段 */
+  definitionUpdated: boolean;
 }
 
 /** assessment_results 行：一次作答 + 结果快照（快照而非实时计算，学生回看仍是当时的结论） */
@@ -761,6 +774,12 @@ export interface DbAdapter {
   getAssessmentQuestions(assessmentId: number): Promise<AssessmentQuestionRow[]> | AssessmentQuestionRow[];
   /** 按 code 取题库（作答页一次调用拿全量），按题号升序 */
   getAssessmentQuestionsByCode(code: string): Promise<AssessmentQuestionRow[]> | AssessmentQuestionRow[];
+  /**
+   * 题库**只增不改**升级（#281）：补齐缺失题号 → 已存在题号只回填 `origin`（绝不动 prompt/dimension）→
+   * `scale_version` 与种子不一致时整体更新量表定义字段；落库前跑新版 `validateAssessmentSeed`；
+   * 全程单事务，SQLite / MySQL 行为一致（`init()` 在 `seedAssessments()` 之后调用）。
+   */
+  upgradeAssessmentBank(): Promise<AssessmentBankUpgradeResult> | AssessmentBankUpgradeResult;
   /**
    * 草稿 upsert：同一 (user_id, assessment_id) 至多一条 `in_progress` 记录，返回该行 id。
    * 幂等——续答只覆盖作答内容，不新增行；唯一性由 `draft_slot` 唯一约束兜住（并发自动保存不会插出第二条）。
@@ -1398,6 +1417,12 @@ export async function getAssessmentQuestions(assessmentId: number): Promise<Asse
 export async function getAssessmentQuestionsByCode(code: string): Promise<AssessmentQuestionRow[]> {
   const adapter = await ensureInit();
   return Promise.resolve(adapter.getAssessmentQuestionsByCode(code));
+}
+
+/** #281：题库只增不改升级（通常由 `init()` 自动调用；导出供迁移脚本/测试显式触发） */
+export async function upgradeAssessmentBank(): Promise<AssessmentBankUpgradeResult> {
+  const adapter = await ensureInit();
+  return Promise.resolve(adapter.upgradeAssessmentBank());
 }
 
 export async function upsertAssessmentDraft(

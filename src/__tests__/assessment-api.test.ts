@@ -21,7 +21,7 @@ vi.mock("@/lib/db-config", () => ({
 
 import { signToken } from "@/lib/token";
 import { closeDb, insertUser, queryAuditLogs } from "@/lib/db";
-import { RIASEC_CODE } from "@/lib/assessment-data";
+import { RIASEC_CODE, RIASEC_QUESTIONS } from "@/lib/assessment-data";
 import { LIKERT_ANCHORS } from "@/lib/assessment-flow";
 import { GET as startGet } from "@/app/api/shared/assessment/start/route";
 import { POST as answerPost } from "@/app/api/shared/assessment/answer/route";
@@ -29,6 +29,9 @@ import { POST as submitPost } from "@/app/api/shared/assessment/submit/route";
 import { GET as resultsGet } from "@/app/api/shared/assessment/results/route";
 
 const BASE = "http://localhost:3000";
+/** 题库总量与每维题数（#281 起 120 / 20） */
+const BANK_SIZE = RIASEC_QUESTIONS.length;
+const PER_DIMENSION = BANK_SIZE / 6;
 
 function getRequest(pathname: string, token?: string): NextRequest {
   const headers: Record<string, string> = {};
@@ -60,6 +63,7 @@ async function answerRange(token: string, from: number, to: number, value: numbe
 }
 
 beforeAll(async () => {
+  // #281：题库扩到 120，作答接口当前仍按「全库即本轮」下发（分层抽题在后续 Issue）
   tempDir = mkdtempSync(path.join(tmpdir(), "career-assessment-api-"));
   state.dbPath = path.join(tempDir, "test.db");
 
@@ -94,14 +98,14 @@ describe("鉴权（#223：路由自鉴权，只认会话本人）", () => {
 });
 
 describe("进入答题页与草稿续答", () => {
-  it("下发 30 题、量表元信息与空进度；不暴露题目维度（避免暗示答案）", async () => {
+  it("下发全量 120 题、量表元信息与空进度；不暴露题目维度（避免暗示答案）", async () => {
     const res = await startGet(getRequest(`/api/shared/assessment/start?code=${RIASEC_CODE}`, users.A.token));
     expect(res.status).toBe(200);
     const body = await res.json();
 
-    expect(body.questions).toHaveLength(30);
+    expect(body.questions).toHaveLength(BANK_SIZE);
     expect(body.questions.map((q: { index: number }) => q.index)).toEqual(
-      Array.from({ length: 30 }, (_, i) => i + 1)
+      Array.from({ length: BANK_SIZE }, (_, i) => i + 1)
     );
     expect(body.questions[0]).toEqual({ index: 1, prompt: "动手制作厨房橱柜" });
     expect(body.questions[0]).not.toHaveProperty("dimension");
@@ -109,7 +113,7 @@ describe("进入答题页与草稿续答", () => {
     expect(body.assessment.attribution).toContain("O*NET");
     expect(body.assessment.disclaimer).toContain("不作为心理诊断");
     expect(body.draft).toBeNull();
-    expect(body.progress).toEqual({ answered: 0, total: 30, percent: 0 });
+    expect(body.progress).toEqual({ answered: 0, total: BANK_SIZE, percent: 0 });
     expect(body.resumeIndex).toBe(1);
   });
 
@@ -118,13 +122,13 @@ describe("进入答题页与草稿续答", () => {
       postRequest("/api/shared/assessment/answer", { code: RIASEC_CODE, questionIndex: 1, value: 4 }, users.A.token)
     );
     expect(first.status).toBe(200);
-    expect(await first.json()).toMatchObject({ saved: true, progress: { answered: 1, total: 30 }, nextIndex: 2 });
+    expect(await first.json()).toMatchObject({ saved: true, progress: { answered: 1, total: BANK_SIZE }, nextIndex: 2 });
 
     await answerRange(users.A.token, 2, 10, 3);
 
     const resumed = await startGet(getRequest(`/api/shared/assessment/start?code=${RIASEC_CODE}`, users.A.token));
     const body = await resumed.json();
-    expect(body.progress).toEqual({ answered: 10, total: 30, percent: 33 });
+    expect(body.progress).toEqual({ answered: 10, total: BANK_SIZE, percent: 8 });
     expect(body.resumeIndex).toBe(11);
     expect(body.draft.answers["1"]).toBe(4);
     expect(body.draft.answers["10"]).toBe(3);
@@ -135,7 +139,7 @@ describe("进入答题页与草稿续答", () => {
       { body: { code: RIASEC_CODE, questionIndex: 0, value: 4 }, status: 400 },
       { body: { code: RIASEC_CODE, questionIndex: 1, value: 6 }, status: 400 },
       { body: { code: RIASEC_CODE, questionIndex: 1, value: "4" }, status: 400 },
-      { body: { code: RIASEC_CODE, questionIndex: 31, value: 4 }, status: 400 },
+      { body: { code: RIASEC_CODE, questionIndex: 121, value: 4 }, status: 400 },
       { body: { code: "unknown", questionIndex: 1, value: 4 }, status: 404 },
     ];
     for (const item of cases) {
@@ -151,24 +155,28 @@ describe("提交与结果落库", () => {
     expect(res.status).toBe(400);
     const body = await res.json();
     expect(body.error).toContain("未作答");
-    expect(body.missingIndexes).toHaveLength(20);
+    expect(body.missingIndexes).toHaveLength(BANK_SIZE - 10);
     expect(body.missingIndexes[0]).toBe(11);
 
     const failed = await queryAuditLogs({ page: 1, pageSize: 20, action: "assessment:submit" });
     expect(failed.rows.some((row) => row.status === "failed")).toBe(true);
   });
 
-  it("30 题全答后提交：三字码与引擎一致（全 4 分 → 六维 75 / RIA）", async () => {
+  it("120 题全答后提交：三字码与引擎一致（全 4 分 → 六维 75 / RIA）", async () => {
     // 统一覆盖成 4 分（上面的续答用例留了几道 3 分）：六维并列时按 R,I,A,S,E,C 破平
-    await answerRange(users.A.token, 1, 30, 4);
+    await answerRange(users.A.token, 1, BANK_SIZE, 4);
     const res = await submitPost(postRequest("/api/shared/assessment/submit", { code: RIASEC_CODE }, users.A.token));
     expect(res.status).toBe(200);
     const body = await res.json();
 
     expect(body.result.typeCode).toBe("RIA");
-    expect(body.result.questionCount).toBe(30);
+    expect(body.result.questionCount).toBe(BANK_SIZE);
     expect(body.result.scores).toHaveLength(6);
-    expect(body.result.scores.every((s: { standard: number; questionCount: number }) => s.standard === 75 && s.questionCount === 5)).toBe(true);
+    expect(
+      body.result.scores.every(
+        (s: { standard: number; questionCount: number }) => s.standard === 75 && s.questionCount === PER_DIMENSION
+      )
+    ).toBe(true);
     expect(body.result.completedAt).toBeTruthy();
     expect(body.result.disclaimer).toContain("不作为心理诊断");
   });
@@ -211,7 +219,7 @@ describe("提交与结果落库", () => {
 describe("重复测评：生成新版本而不丢历史", () => {
   it("再答一轮并提交 → 新版本成为当前版本，旧版本保留为历史", async () => {
     // 全部答 2 分：原始分 10 / 量程 5-25 → 标准分 25，六维并列仍按 R,I,A,S,E,C 破平
-    await answerRange(users.A.token, 1, 30, 2);
+    await answerRange(users.A.token, 1, BANK_SIZE, 2);
     const res = await submitPost(postRequest("/api/shared/assessment/submit", { code: RIASEC_CODE }, users.A.token));
     expect(res.status).toBe(200);
     const submitted = await res.json();
@@ -234,7 +242,7 @@ describe("学生之间互不可见", () => {
     const startB = await startGet(getRequest(`/api/shared/assessment/start?code=${RIASEC_CODE}`, users.B.token));
     const startBody = await startB.json();
     expect(startBody.draft).toBeNull();
-    expect(startBody.progress).toEqual({ answered: 0, total: 30, percent: 0 });
+    expect(startBody.progress).toEqual({ answered: 0, total: BANK_SIZE, percent: 0 });
     expect(startBody.resumeIndex).toBe(1);
 
     const resultsB = await resultsGet(getRequest(`/api/shared/assessment/results?code=${RIASEC_CODE}`, users.B.token));

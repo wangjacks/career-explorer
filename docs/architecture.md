@@ -208,8 +208,8 @@
 | `audit_logs` | 操作审计（#110）：只追加 + 查询，操作者字段快照冗余，敏感键脱敏剔除、metadata 截断 2000 字符；索引 `created_at` / `actor_id` / `(resource_type, resource_id)` | #110 | ✅ |
 | `storage_backends` | 存储后端注册表（#111）：内置本地后端（不可删）+ 多个 S3 兼容实例；凭据不入库（走 `.env.local`）；`name` 唯一 | #111 | ✅（不含凭据） |
 | `profile_submissions` | 档案提交历史版本（#95）：`user_id` + `version` + 快照字段（`tags`/`avatar_url`/`evaluation_url`/`storage_id`/`submitted_at`）+ `is_current`；索引 `(user_id, version)`、`(user_id, is_current)` | #95 | ✅ |
-| `assessments` | 测评定义（#221）：`code`（唯一，如 `riasec`）、`name`、`question_count`、`dimensions_json`（`[{key,label}]`，顺序即计分与展示顺序）、`scoring_mode`（`typological` 取类型码 / `dimensional` 多维高低分档）、`scale_version`、`attribution`（署名）/ `license_text`（授权与修改声明）/ `disclaimer`（免责声明）、`enabled` | #221 | ✅ |
-| `assessment_questions` | 题库（#221）：`assessment_id` + `question_index`（量表内从 1 开始，`UNIQUE`）+ `prompt` + `dimension`（须是 `dimensions_json` 的 key）+ `reverse_scored` + `version`（题面版本，改动时自增） | #221 | ✅ |
+| `assessments` | 测评定义（#221）：`code`（唯一，如 `riasec`）、`name`、`question_count`（语义=**题库总量**，#281 起 120；每次作答量由后续抽题 Issue 的 `items_per_attempt` 表达）、`dimensions_json`（`[{key,label}]`，顺序即计分与展示顺序）、`scoring_mode`（`typological` 取类型码 / `dimensional` 多维高低分档）、`scale_version`、`attribution`（署名）/ `license_text`（授权与修改声明）/ `disclaimer`（免责声明）、`enabled` | #221 | ✅ |
+| `assessment_questions` | 题库（#221）：`assessment_id` + `question_index`（量表内从 1 开始，`UNIQUE`）+ `prompt` + `dimension`（须是 `dimensions_json` 的 key）+ `origin`（#281：`onet-mini` / `onet-sf` / `cn-original`，`NOT NULL DEFAULT 'cn-original'`；分层抽样与分来源分析用）+ `reverse_scored` + `version`（题面版本，改动时自增） | #221 | ✅ |
 | `assessment_results` | 作答与结果**快照**（#221）：`user_id` + `assessment_id` + `status`（`in_progress` 草稿 / `completed` 完成）+ `answers_json` + `scores_json` + `type_code`（三字码，dimensional 量表为 NULL）+ `is_current` + `draft_slot`（草稿位：草稿为 1、完成为 NULL，`UNIQUE(user_id, assessment_id, draft_slot)`）+ `started_at` / `updated_at` / `completed_at` | #221 | ✅（学生个人数据） |
 | `onet_occupations` | O*NET 职业库（#226）：`code`（O*NET-SOC，唯一）、`name`（英文 Title）、`name_zh`（首批中文译名，未覆盖为 NULL）、`interest_code`（O*NET 官方兴趣高码 1–3 位）、`interests_json`（六型原始分 1–7）、`job_zone`（2–5：当前发布版把原 1–2 级合并为「Job Zone 1-2」，数据里没有 1）、`education_level`（由 Job Zone 归纳的中文学历）、`cluster`（SOC 大类中文职业群）、`dataset_version` | #226 | ❌（只读参考数据，离线可重灌，避免备份膨胀） |
 
@@ -235,7 +235,7 @@
 >
 > 仍保留现状的表：`configs_profile`（键值配置，与身份无关）、`assessments` / `assessment_questions`（参考数据，见下）、`onet_occupations`（#226 只读职业库，离线可重灌，且不引用 `users` / `classes`）、`storage_backends`（缺字段即 #111 之前的备份，其 `users` 行没有可用的 `storage_id`，恢复时回落到内置本地后端；该后端是 `storage_backends` 首行且管理端禁删，编号恒为 1）。`audit_logs` 是唯一**引用了 `users` 却仍保留**的表：**审计记录不可丢**优先于归属洁净，行内已冗余存了操作者编号/姓名/角色，`actor_id` 错配只影响展示归属与教师「只看本人」的过滤范围（该项为后续议题，见 #211）。
 
-> **测评三表的两种处理**：`assessments` + `assessment_questions` 是参考数据，**两字段齐备才整体替换**，缺字段保留现状（可被种子自愈，不会出现「换了定义没换题库」）。`assessment_results` 则**一律先清空**、备份带字段才回填：它只靠数值 `user_id` 关联，而 `users` 恢复时已整表替换，保留旧结果会把甲的结果挂到乙名下（恢复到另一套库的旧备份时尤其明显）——与分组五表的「旧备份恢复后即为未分组」同口径。
+> **测评三表的两种处理**：`assessments` + `assessment_questions` 是参考数据，**两字段齐备才整体替换**，缺字段保留现状（可被种子自愈，不会出现「换了定义没换题库」）。`assessment_results` 则**一律先清空**、备份带字段才回填（#281 新增的 `assessment_questions.origin` 在旧备份里缺失时按 `cn-original` 恢复，沿用「缺字段一律容忍」口径）：它只靠数值 `user_id` 关联，而 `users` 恢复时已整表替换，保留旧结果会把甲的结果挂到乙名下（恢复到另一套库的旧备份时尤其明显）——与分组五表的「旧备份恢复后即为未分组」同口径。
 
 ## 课堂分组（#101）
 
@@ -259,7 +259,9 @@
 
 <!-- 对账：表结构见上「数据库」；题库种子在 `src/lib/assessment-data.ts`，行为测试在 `src/__tests__/assessment-db.test.ts` -->
 
-- **量表进库、不写死代码**：`assessments` 存定义（维度 JSON / 计分类型 / 量表版本 / 署名授权），`assessment_questions` 存题面；首套量表为 O*NET Interest Profiler Mini-IP 30 题中文改编版（RIASEC，6 维各 5 题，原始量表无反向题）。种子由两适配器 `init()` 写入，判定口径是「`code` 不存在 **或** 该量表题库为空」——**非空题库一律不碰**（后台维护过的题面不会被覆盖），空题库（如恢复了一份 `assessment_questions: []` 的备份）会补种并校正 `question_count`，避免留下「可用但 0 题」的量表。坏种子在落库前被 `validateAssessmentSeed` 挡住（题数、题号连续、维度归属、题干非空）
+- **量表进库、不写死代码**：`assessments` 存定义（维度 JSON / 计分类型 / 量表版本 / 署名授权），`assessment_questions` 存题面；首套量表为 **120 题 RIASEC 题库**（#281：现有 Mini-IP 30 题一字不改 + O*NET Interest Profiler Short Form 其余 30 题中译 + 本项目原创 60 题，6 维各 20 题，无反向题；`scale_version = RIASEC-CN 2.0`）。种子由两适配器 `init()` 写入，判定口径是「`code` 不存在 **或** 该量表题库为空」——**非空题库一律不碰**（后台维护过的题面不会被覆盖），空题库（如恢复了一份 `assessment_questions: []` 的备份）会补种并校正 `question_count`，避免留下「可用但 0 题」的量表
+- **题库只增不改升级（#281）**：生产库已有 30 题时由 `upgradeAssessmentBank()`（两适配器同构、单事务）扩库，**只允许三种写动作**——① 缺失题号 INSERT；② 已存在题号**只回填 `origin`**（`prompt` / `dimension` / `version` 一个字节都不动）；③ 量表定义字段（`name` / `question_count` / `scale_version` / 署名 / 授权 / 免责）仅在 `scale_version` 与种子不一致时整体更新。重复执行幂等，第二次不改任何字段。`init()` 在 `seedAssessments()` 之后调用
+- **种子校验（#281 起）**：`validateAssessmentSeed` 拦「题数一致、题号 1..n 连续、维度归属、题干与英文原文非空」+ 新增——每维题数相等、每维 `origin` 分布（官方 ≥3 且原创 ≥3）、题干归一化后全局唯一、题干 4–24 汉字且不含收入/学历/地位线索、原创题必须带 `anchor` 且锚定职业在 O*NET 快照中存在（维度须在其官方兴趣高码前两位，查询函数由服务端注入，避免 92KB 快照进客户端 bundle）、同维度相似度 ≥ 0.45 的题对必须被 `NEAR_DUPLICATE_GROUPS` 覆盖。坏种子在安装/升级时直接报错，不留半截题库
 - **题号即作答键**：`question_index` 从 1 连续到 n，作答 JSON 以它为键，故跳号会让「已答 n 题 / 总 n 题」的进度口径失真；`dimension` 必须是 `dimensions_json` 里的 key，且每个维度至少一题（零题维度恒 0 分，会与真实低分混淆）
 - **草稿与结果同表**：`in_progress` 草稿在同一 `user_id + assessment_id` 下至多一条，靠 **可空 `draft_slot` + 唯一约束**兜住（草稿恒填 1、完成记录置 NULL，两库都允许多个 NULL，正好当「部分唯一索引」的可移植替代；MySQL 无部分唯一索引）。写入用单条 upsert（`ON CONFLICT` / `ON DUPLICATE KEY UPDATE`），并发自动保存不会插出第二条草稿。完成时**沿用草稿行**翻状态（保留 `started_at`、把 `draft_slot` 置 NULL 释放草稿位），同事务内把该用户该量表其他完成版本 `is_current` 置 0，保证当前版本唯一；历史版本用 `getAssessmentResults`（完成时间新→旧）
 - **结果是快照**：`answers_json` / `scores_json` / `type_code` 落库，学生回看是当时的结论，不随改题或重算漂移。计分由计分引擎（#220）在写入前算好，数据层不重复实现算法，`dimensional` 量表不产出三字码（该列为 NULL）。注意作答明细以**题号**为键、不含题面文本：若后续要做「逐题作答明细回看」，需先补一列记录当时的量表/题面版本，否则改题后可能套错题面（当前结果页只呈现得分快照，不受影响）

@@ -107,6 +107,25 @@ export function educationForJobZone(jobZone: number | null | undefined): string 
   return (jobZone != null && JOB_ZONE_EDUCATION[jobZone]) || JOB_ZONE_EDUCATION_FALLBACK;
 }
 
+/** 职业名 → 官方兴趣高码的索引（懒建一次，避免每次校验都线性扫 923 条快照） */
+let onetInterestIndex: Map<string, string> | null = null;
+
+/**
+ * 职业名 → 官方兴趣高码（#281 原创题的 anchor 效度校验用）。
+ *
+ * 查的是**静态快照** `onet-data.ts` 而不是数据库里的 `onet_occupations`：种子校验发生在
+ * `init()` 的早期阶段，且校验结果不应随「职业库是否灌成功」而改变。
+ */
+export function onetInterestCodeOf(occupationTitle: string): string | undefined {
+  const title = occupationTitle.trim();
+  if (!title) return undefined;
+  if (!onetInterestIndex) {
+    onetInterestIndex = new Map(ONET_OCCUPATIONS.map((tuple) => [tuple[1], tuple[2]]));
+  }
+  return onetInterestIndex.get(title);
+}
+
+
 function scoresOf(tuple: OnetOccupationTuple): RiasecVector {
   const [, , , realistic, investigative, artistic, social, enterprising, conventional] = tuple;
   return { R: realistic, I: investigative, A: artistic, S: social, E: enterprising, C: conventional };
