@@ -63,7 +63,8 @@ function normalizeTicket(raw: Partial<CaptchaTicket> | undefined): CaptchaTicket
 
 /**
  * 极验行为验证（#155，产品形态：bind —— 绑定提交按钮，点击时弹验证）
- * - 容器与文案使用项目语义 token，浅色 / 深色主题下均可见可操作（极验弹层沿用其官方样式）
+ * - 界面只有本组件的提交按钮：极验在 bind 形态下把验证弹层挂到 `<body>`，本组件里的挂载点
+ *   不渲染任何内容，因此不给它任何尺寸 / 底色 / 描边（#276：套上槽位样式就是一个空黑框）
  * - 凭证未配置或脚本不可用时降级为「直接提交」，由服务端 fail-open 策略与降级审计兜底
  */
 export default function GeetestCaptcha({
@@ -174,10 +175,15 @@ export default function GeetestCaptcha({
         onError={() => setStatus("blocked")}
       />
       {captchaId ? (
-        <div className="min-h-[46px] rounded-xl border border-border-soft bg-background/60 px-3 py-2.5 flex items-center justify-center">
-          <div ref={containerRef} className="w-full flex justify-center" aria-label="人机验证" />
+        <>
+          {/*
+            bind 形态下极验把弹层挂到 `<body>`，这个挂载点永远不会有内容（#276）。
+            元素必须留着——`initCaptcha()` 要拿到它，且不能从渲染树里摘掉（`display:none`
+            下 SDK 行为不保证）；但它不该有任何视觉，否则就是一个空框。
+          */}
+          <div ref={containerRef} />
           {status === "loading" && <p className="text-xs text-muted">正在加载人机验证…</p>}
-        </div>
+        </>
       ) : null}
       <button
         type="button"
