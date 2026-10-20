@@ -18,6 +18,7 @@ import {
 } from "@/lib/profile-assessment";
 import {
   DEFAULT_PROFILE_SORT,
+  PROFILE_QUERY_MAX_LENGTH,
   buildProfilesQueryString,
   hasActiveProfileFilters,
   type ProfileListQuery,
@@ -103,6 +104,8 @@ export default function ProfilesTab({ loadProfiles, loadStats }: Props) {
   const [historyLoading, setHistoryLoading] = useState(false);
   // 历史请求序号（review 修复）：快速切换学生时丢弃过期响应
   const historySeqRef = useRef(0);
+  // 列表请求序号（#295）：快速切换筛选/排序/翻页时丢弃过期响应，见 `refreshProfiles`
+  const profilesSeqRef = useRef(0);
 
   // 弹窗 Escape 关闭（键盘可达性）
   useEscapeKey(!!detail, () => setDetail(null));
@@ -154,9 +157,13 @@ export default function ProfilesTab({ loadProfiles, loadStats }: Props) {
 
   const refreshProfiles = useCallback(
     async (p: number, query?: ProfileListQuery) => {
+      // 请求序号（#295 review 修复）：筛选/排序/翻页每次都发服务端请求，慢的旧响应后到时
+      // 必须丢弃，否则表格显示旧条件的行与 total、chip 却是新条件（快速连点 I 再点 S 即可触发）
+      const seq = ++profilesSeqRef.current;
       const fn = loadProfilesRef.current ?? defaultLoadProfiles;
       const d = await fn(p, query);
-      if (d) setPaged(d);
+      if (!d || seq !== profilesSeqRef.current) return;
+      setPaged(d);
     },
     [defaultLoadProfiles]
   );
@@ -334,6 +341,7 @@ export default function ProfilesTab({ loadProfiles, loadStats }: Props) {
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="搜索学号/姓名..."
+            maxLength={PROFILE_QUERY_MAX_LENGTH}
             className="px-3 py-1.5 border border-gray-200 dark:border-gray-700 bg-card text-foreground rounded-lg text-sm w-48 focus:outline-none focus:ring-2 focus:ring-focus-ring"
           />
           {/* Tag dropdown */}
@@ -541,7 +549,8 @@ export default function ProfilesTab({ loadProfiles, loadStats }: Props) {
                 </td>
               </tr>
             ))}
-            {rows.length === 0 && (
+            {/* 首屏加载中 / 加载失败（paged 仍为 null）不渲染空态提示，避免把「还没取到」说成「没有数据」 */}
+            {paged && rows.length === 0 && (
               <tr>
                 <td colSpan={9} className="px-5 py-12 text-center text-gray-400">
                   {hasFilter ? "没有匹配的档案（筛选已跨页生效）" : "暂无数据"}

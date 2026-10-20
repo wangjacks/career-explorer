@@ -90,7 +90,9 @@ export function parseProfilesQuery(params: URLSearchParams): ParseProfilesQueryR
     return { ok: false, error: `搜索关键字不能超过 ${PROFILE_QUERY_MAX_LENGTH} 个字符` };
   }
 
-  const rawTags = params.getAll("tag").flatMap((value) => value.split(","));
+  // 一个 `tag` 参数就是一个标签，**不按逗号切分**：标签名允许含逗号（`/api/manage/tags` 只校验非空与长度），
+  // 切分会把「篮球,足球」这类标签筛成「同时有篮球和足球」，与下拉里选中的那一项对不上。
+  const rawTags = params.getAll("tag");
   const tags: string[] = [];
   for (const raw of rawTags) {
     const tag = raw.trim();

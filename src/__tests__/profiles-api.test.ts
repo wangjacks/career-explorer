@@ -228,10 +228,10 @@ describe("GET /api/manage/profiles — 服务端筛选参数（#295）", () => {
     });
   });
 
-  it("标签也接受逗号分隔（同一 tag 参数内多值），并去重", async () => {
-    await GET(makeRequest("?tag=%E8%BF%90%E5%8A%A8,%E6%B8%B8%E6%88%8F&tag=%E8%BF%90%E5%8A%A8"));
+  it("标签名里的逗号按字面量处理：一个 tag 参数就是一个标签，不切分（#295 review 修复）", async () => {
+    await GET(makeRequest("?tag=%E7%AF%AE%E7%90%83%2C%E8%B6%B3%E7%90%83&tag=%E8%BF%90%E5%8A%A8"));
     const call = vi.mocked(getSubmittedProfiles).mock.calls.at(-1)!;
-    expect(call[2]).toMatchObject({ tags: ["运动", "游戏"] });
+    expect(call[2]).toMatchObject({ tags: ["篮球,足球", "运动"] });
   });
 
   it("lead=none 与 sortKey=createdAt 显式传递时保持原样", async () => {

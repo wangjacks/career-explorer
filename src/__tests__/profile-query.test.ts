@@ -27,8 +27,10 @@ describe("parseProfilesQuery（#295 服务端筛选入参）", () => {
     });
   });
 
-  it("q / 标签 / 主导型 / 排序全部归一化（标签去重、去空白、支持逗号分隔）", () => {
-    const parsed = parse("?page=2&pageSize=10&q=%20%E5%BC%A0%E4%B8%89%20&tag=%E8%BF%90%E5%8A%A8,%E6%B8%B8%E6%88%8F&tag=%E8%BF%90%E5%8A%A8&lead=I&sortKey=studentId&sortDir=asc");
+  it("q / 标签 / 主导型 / 排序全部归一化（标签去重、去空白；逗号属于标签名，不切分）", () => {
+    const parsed = parse(
+      "?page=2&pageSize=10&q=%20%E5%BC%A0%E4%B8%89%20&tag=%E7%AF%AE%E7%90%83%2C%E8%B6%B3%E7%90%83&tag=%20%E8%BF%90%E5%8A%A8%20&tag=%E8%BF%90%E5%8A%A8&lead=I&sortKey=studentId&sortDir=asc"
+    );
     expect(parsed).toEqual({
       ok: true,
       value: {
@@ -36,7 +38,8 @@ describe("parseProfilesQuery（#295 服务端筛选入参）", () => {
         pageSize: 10,
         filters: {
           q: "张三",
-          tags: ["运动", "游戏"],
+          // 「篮球,足球」是一个标签；`运动` 去空白后去重——下拉里选中的项必须原样筛回去
+          tags: ["篮球,足球", "运动"],
           lead: "I",
           sortKey: "studentId",
           sortDir: "asc",
@@ -96,7 +99,8 @@ describe("buildProfilesQueryString（前端拼查询串）", () => {
     const parsed = parse(`?${qs}`);
     expect(parsed.ok).toBe(true);
     if (parsed.ok) {
-      // 标签是 AND 语义，顺序不参与判定：round-trip 后与入参一致即可\n      expect(parsed.value.filters).toEqual(query);
+      // 标签是 AND 语义，顺序不参与判定：round-trip 后与入参一致
+      expect(parsed.value.filters).toEqual(query);
     }
   });
 });
