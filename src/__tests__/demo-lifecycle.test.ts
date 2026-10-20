@@ -32,6 +32,14 @@ describe("演示库生命周期：init / reset / status（#253，真临时演示
     rmSync(path.resolve(process.cwd(), UPLOADS_ROOT), { recursive: true, force: true });
   });
 
+  it("未初始化时读 status 无副作用：不开 adapter、库文件仍不存在", async () => {
+    const s = await readDemoStatus();
+    expect(s.initialized).toBe(false);
+    expect(s.counts.students).toBe(0);
+    // 关键：GET status 不得建库（此前 getClasses→ensureInit 会 mkdir+打开文件+灌种子）
+    expect(existsSync(path.resolve(process.cwd(), getDemoDbPath()))).toBe(false);
+  });
+
   it("initDemoDb 建表演过（空库，无班级）", async () => {
     await initDemoDb();
     expect(existsSync(path.resolve(process.cwd(), getDemoDbPath()))).toBe(true);
@@ -74,5 +82,17 @@ describe("演示库生命周期：init / reset / status（#253，真临时演示
     expect(second.students).toBe(20);
     const status = await readDemoStatus();
     expect(status.counts.students).toBe(20); // 未累加（重置为干净态）
+  }, 60_000);
+
+  it("并发 resetDemo 单飞：Promise.all 只重播一次、库不损坏", async () => {
+    const [a, b] = await Promise.all([
+      resetDemo({ id: 1, name: "管理员", role: "admin" }),
+      resetDemo({ id: 1, name: "管理员", role: "admin" }),
+    ]);
+    expect(a).toBe(b); // 第二次共享第一次的 in-flight promise
+    expect(a.students).toBe(20);
+    const status = await readDemoStatus();
+    expect(status.counts.students).toBe(20); // 未被双播种（40）
+    expect(status.counts.teachers).toBe(1);
   }, 60_000);
 });
