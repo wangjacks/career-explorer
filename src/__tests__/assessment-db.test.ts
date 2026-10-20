@@ -65,7 +65,8 @@ describe("RIASEC 题库种子（#221 / #281 扩容到 120 题）", () => {
     expect(enabled[0].scale_version).toBe(RIASEC_ASSESSMENT.scaleVersion);
     expect(RIASEC_ASSESSMENT.scaleVersion).toBe(RIASEC_SCALE_VERSION);
     expect(enabled[0].name).toContain("120 题库");
-    expect(enabled[0].name).toContain("每次 30 题");
+    // 分层抽题（#282）未落地前作答的就是全库，名字不能预告「每次 30 题」
+    expect(enabled[0].name).not.toContain("每次 30 题");
 
     // 维度定义 JSON：供计分引擎直接消费的 { key, label } 数组
     const dimensions = JSON.parse(assessment.dimensions_json) as { key: string; label: string }[];

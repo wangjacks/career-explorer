@@ -87,7 +87,7 @@ export const RIASEC_LICENSE_TEXT =
   "30 题版本见 O*NET Mini Interest Profiler 技术报告（https://www.onetcenter.org/dl_files/Mini-IP.pdf）；" +
   "题库中 31–60 题同样出自上述 O*NET Interest Profiler Short Form；" +
   "61–120 题为本项目原创，其职业信息参照 O*NET Database（https://www.onetcenter.org/database.html，CC BY 4.0）。" +
-  "正式启用前已完成专家评审与一个班级的试测（试测结果只出聚合指标）；" +
+  "正式启用前须完成专家评审与一个班级的试测（试测结果只出聚合指标）；" +
   "授权条款：https://www.onetcenter.org/license_tools.html 。";
 
 /** 免责声明：随测评定义下发，结果页必须展示（不得被解读为诊断或录用依据） */
@@ -100,7 +100,7 @@ export const RIASEC_SCALE_VERSION = "RIASEC-CN 2.0";
 /** RIASEC 量表定义种子（`questionCount` 语义 = **题库总量**，每次作答量由后续抽题 Issue 的 items_per_attempt 表达） */
 export const RIASEC_ASSESSMENT: AssessmentSeed = {
   code: RIASEC_CODE,
-  name: "霍兰德职业兴趣测评（120 题库 · 每次 30 题）",
+  name: "霍兰德职业兴趣测评（120 题库）",
   questionCount: 120,
   dimensions: RIASEC_DIMENSIONS,
   scoringMode: "typological",

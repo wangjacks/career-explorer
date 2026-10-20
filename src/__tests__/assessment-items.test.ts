@@ -221,13 +221,16 @@ describe("量表定义与校验入口", () => {
     expect(RIASEC_ASSESSMENT.code).toBe(RIASEC_CODE);
     expect(RIASEC_ASSESSMENT.questionCount).toBe(BANK_SIZE);
     expect(RIASEC_ASSESSMENT.scaleVersion).toBe("RIASEC-CN 2.0");
-    expect(RIASEC_ASSESSMENT.name).toBe("霍兰德职业兴趣测评（120 题库 · 每次 30 题）");
+    expect(RIASEC_ASSESSMENT.name).toBe("霍兰德职业兴趣测评（120 题库）");
     expect(RIASEC_ASSESSMENT.attribution).toContain("O*NET");
     expect(RIASEC_ASSESSMENT.attribution).toContain("U.S. Department of Labor");
     expect(RIASEC_ASSESSMENT.licenseText).toContain("USDOL/ETA 未对这些修改进行审核");
     expect(RIASEC_ASSESSMENT.licenseText).toContain("31–60 题同样出自");
     expect(RIASEC_ASSESSMENT.licenseText).toContain("61–120 题为本项目原创");
     expect(RIASEC_ASSESSMENT.licenseText).toContain("CC BY 4.0");
+    // 专家评审与班级试测是 #284 的上线判据，尚未发生：文案只能写「须完成」
+    expect(RIASEC_ASSESSMENT.licenseText).toContain("正式启用前须完成专家评审与一个班级的试测");
+    expect(RIASEC_ASSESSMENT.licenseText).not.toMatch(/已完成[^\n]{0,12}试测/);
     expect(RIASEC_ASSESSMENT.disclaimer.length).toBeGreaterThan(0);
   });
 

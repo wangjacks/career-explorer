@@ -310,7 +310,7 @@ upgradeAssessmentBank()：
   5. 全程一个事务；SQLite / MySQL 两适配器行为一致，用同一组测试覆盖
 ```
 
-`scale_version`：`Mini-IP-CN 1.0` → **`RIASEC-CN 2.0`**（量表已不是纯 Mini-IP，名字也要改：`霍兰德职业兴趣测评（120 题库 · 每次 30 题）`）。`license_text` 必须补两句：新增 30 题同样出自 O*NET SF；61–120 为本项目原创，其职业信息参照 O*NET Database（CC BY 4.0）。
+`scale_version`：`Mini-IP-CN 1.0` → **`RIASEC-CN 2.0`**（量表已不是纯 Mini-IP，名字也要改：`霍兰德职业兴趣测评（120 题库）`）。**名字里不写「每次 30 题」**：§5 的抽题与 #283 的题量文案落地前，学生作答的就是全库 120 题，把未实现的卷量写进量表名会与行为矛盾；等抽题落地再随下一个 `scale_version` 一起改。`license_text` 必须补两句：新增 30 题同样出自 O*NET SF；61–120 为本项目原创，其职业信息参照 O*NET Database（CC BY 4.0）。§4.4 的专家评审与班级试测是 #284 的上线判据，做完之前文案只能写「正式启用前**须**完成」，不得写成已经发生。
 
 ### 8.3 `validateAssessmentSeed` 校验升级
 
@@ -374,7 +374,7 @@ upgradeAssessmentBank()：
 
 - `docs/architecture.md`：三张表的列说明加新列；「量表进库」那段改写为**120 题库 / 每次 30 题 / 分层确定性抽题 / 近重复组 / 只增不改的升级路径**；备份段落补「新列缺字段容忍」；表结构与题库种子的「对账」注释同步（`src/lib/assessment-data.ts` ↔ `assessment-db.test.ts` ↔ `assessment-items.test.ts`）
 - `docs/overview.md`：`assessment-*` 模块描述补「随机抽题」
-- `docs/plan-assessment.md`：§1.1 补一行「已扩到 120 题库 + 每次 30 题」，指向 architecture.md（不复制细节）
+- `docs/plan-assessment.md`：§1.1 补一行「已扩到 120 题库；每次作答仍是全库 120 题，每次 30 题待 §5 抽题落地」，指向 architecture.md（不复制细节）
 - 路由计数 / `TEACHER_ALLOWED`：**无变化**（不新增路由），提交前仍要复核两处对账注释
 - 授权：结果页与作答页继续展示 `attribution` / `licenseText` / `disclaimer`（文案随 §8.2 更新），O*NET 署名与「未经审核」声明不得删
 
