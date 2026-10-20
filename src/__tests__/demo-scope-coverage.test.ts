@@ -7,7 +7,6 @@ const HTTP = ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"];
 
 /** 有意不包裹的豁免路由及原因（新增豁免必须在此登记原因，否则视为违规） */
 const EXEMPT: Record<string, string> = {
-  "src/app/api/uploads/[...path]/route.ts": "纯文件系统静态服务，无 DB、无鉴权",
   "src/app/api/setup/route.ts": "安装引导，直接 new 适配器绕过单例",
   "src/app/api/setup/status/route.ts": "仅读 db-config.json，不访问 DB",
   "src/app/api/setup/test/route.ts": "连接测试，直接 new 适配器绕过单例",

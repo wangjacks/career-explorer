@@ -1,14 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
 import { readFile } from "fs/promises";
 import path from "path";
+import { withDemoScope } from "@/lib/demo-scope";
+import { getUploadsBaseDir } from "@/lib/storage-local";
 
-export async function GET(
+async function GET_impl(
   _request: NextRequest,
   { params }: { params: Promise<{ path: string[] }> }
 ) {
   const { path: pathSegments } = await params;
   const filename = pathSegments.join("/");
-  const uploadsDir = path.resolve(process.cwd(), "uploads");
+  // 演示作用域解析到 uploads/demo/（#253 S1），否则 uploads/；键始终扁平，demo 段只来自基目录
+  const uploadsDir = getUploadsBaseDir();
   const filepath = path.resolve(uploadsDir, filename);
 
   // 路径穿越防护：确保解析后的路径仍在 uploads 目录内
@@ -39,3 +42,5 @@ export async function GET(
     return NextResponse.json({ error: "文件不存在" }, { status: 404 });
   }
 }
+
+export const GET = withDemoScope(GET_impl);

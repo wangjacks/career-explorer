@@ -351,9 +351,12 @@ upgradeAssessmentBank()：
 | `src/lib/assessment-center.ts` | **不改**：它的 `questionCount` / `inProgress.total` 全部来自 `/results`，接口换成 30 口径后卡片与 `estimateMinutes`（30 题 ≈ 4 分钟）自动跟着走 |
 | `src/app/dashboard/student/assessment/page.tsx`、`.../quiz/page.tsx`、`AssessmentResultCard.tsx` | **本 Issue 不动**：页面显示的 30 来自接口，语义已正确；「每次 30 题 / 题库 120 题」的双口径文案与「本次题目为随机抽取」说明归 #283（题量口径展示），混在这里改会让抽题 Issue 的 diff 里出现文案与行为两类变更 |
 | `scripts/validate-assessment.mjs` | #282 的连带修正：读 `items_per_attempt`（旧库/旧导出缺失按 0），抽样口径下 α / CITC 必然 0 样本，报告改为直接写明「不可计算 + 需全量作答数据」，不再输出一张全是「无法计算」的表 |
+| `src/lib/demo-seed.ts`（#253 合并时对账） | 演示班级的测评数据改走同一套抽题：`buildAssessment` 用 `drawItems` 出本轮卷子、`buildItemsSnapshot` 写快照，completed 答满本轮、draft 只答本轮呈现顺序的前缀（可被真人续答），计分只传本轮抽中题。留成整库 120 题会让演示数据的题量与真实学生不一致 |
 | `scripts/assessment-item-stats.mjs`（新，§7） | 只读统计脚本，输出 CSV |
 
 **不动**：计分引擎（`assessment-scoring.ts` 已经与题量无关）、职业匹配（`assessment-match.ts` 按六维标准分算，与题目无关）、教师端统计与导出（读 `type_code` / `scores_json`）、`src/proxy.ts`、权限表、路由计数。
+
+**与第二套量表（IPIP NEO-FFI，#290）的关系**：它以 `items_per_attempt = 0` 落库 = 整库 50 题一轮，`planAttempt` 在算每维题数之前就返回整库，抽题与降级逻辑对它空转；两套量表共用 `assessment_results`，而 `attemptNo` 与排除集都按 `(user_id, assessment_id)` 各自派生，做霍兰德的重测不影响大五的轮次，反之亦然。
 
 ---
 

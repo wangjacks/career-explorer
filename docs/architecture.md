@@ -76,7 +76,7 @@
 
 ## API 路由
 
-<!-- 对账：`find src/app/api -name route.ts | wc -l`（当前 66 条 = manage 46 + auth 4 + setup 3 + shared 10 + tags/upload/uploads 各 1） -->
+<!-- 对账：`find src/app/api -name route.ts | wc -l`（当前 68 条 = manage 48 + auth 4 + setup 3 + shared 10 + tags/upload/uploads 各 1） -->
 
 ### 认证层（proxy 之外，公开）
 
@@ -97,7 +97,7 @@
 
 ### 管理域 `/api/manage/*`（proxy 拦截：admin 全放行，teacher 按声明式权限表）
 
-<!-- 对账：路由清单 `find src/app/api/manage -name route.ts`（共 46 条）；teacher 权限列须与 src/proxy.ts 的 TEACHER_ALLOWED 逐条一致 -->
+<!-- 对账：路由清单 `find src/app/api/manage -name route.ts`（共 48 条）；teacher 权限列须与 src/proxy.ts 的 TEACHER_ALLOWED 逐条一致 -->
 
 **教师禁止（不在 `TEACHER_ALLOWED`，一律 403）**
 
@@ -108,6 +108,8 @@
 | `/api/manage/settings` | GET / PUT | 数据源配置读写 |
 | `/api/manage/backup` | GET / POST | 备份下载 / 恢复 |
 | `/api/manage/test-db` | POST | 数据库连接测试 |
+| `/api/manage/demo/reset` | POST | 演示库全量重置（#253，**仅生产 admin**）：删演示库文件 + 清 `uploads/demo` + 重新 init + 全新随机重播账户/提交/测评（完成+进行中草稿）/分组/占位图；测评数据按**每次 30 题的分层抽题**生成并带 `items_json` 快照（#282：演示班级与真实施测同口径，草稿的已答题是本轮卷子的前缀、可被真人续答）；`DEMO_ENABLED` 关 404、演示会话 403；成功与生产越权拒绝落**生产**审计、演示会话越权拒绝落**演示**审计（隔离不变量）；并发重置经模块级单飞锁、播种失败丢弃半成品回到可重试态 |
+| `/api/manage/demo/status` | GET | 演示库状态（#253，仅生产 admin）：initialized + 按演示号段过滤的规模计数，绝不泄露生产；库文件不存在时直接返回未初始化（不开 adapter、无建库副作用）。成功只读不审计；越权拒绝记审计（演示会话拒绝落演示审计、生产非 admin 落生产审计） |
 | `/api/manage/storage` | GET / POST / PUT / PATCH / DELETE | 存储后端管理（#111）：注册表 CRUD + 设默认，均记审计 |
 | `/api/manage/storage/test` | POST | 存储后端连通性测试（#111） |
 | `/api/manage/storage/migrate` | POST | 本地→云后端迁移（#111，幂等，已存在对象跳过） |
@@ -264,7 +266,7 @@
 - **种子校验（#281 起）**：`validateAssessmentSeed` 拦「题数一致、题号 1..n 连续、维度归属、题干与英文原文非空」+ 新增——每维题数相等、每维 `origin` 分布（官方 ≥3 且原创 ≥3）、题干归一化后全局唯一、题干 4–24 汉字且不含收入/学历/地位线索、原创题必须带 `anchor` 且锚定职业在 O*NET 快照中存在（维度须在其官方兴趣高码前两位，查询函数由服务端注入，避免 92KB 快照进客户端 bundle）、同维度相似度 ≥ 0.45 的题对必须被 `NEAR_DUPLICATE_GROUPS` 覆盖、`items_per_attempt`（#282）为 0（全量作答）或正值且能被维度数整除且不超过题库总量。坏种子在安装/升级时直接报错，不留半截题库
 - **题号即作答键**：`question_index` 从 1 连续到 n，作答 JSON 以它为键，故跳号会让「已答 n 题 / 总 n 题」的进度口径失真；`dimension` 必须是 `dimensions_json` 里的 key，且每个维度至少一题（零题维度恒 0 分，会与真实低分混淆）
 - **草稿与结果同表**：`in_progress` 草稿在同一 `user_id + assessment_id` 下至多一条，靠 **可空 `draft_slot` + 唯一约束**兜住（草稿恒填 1、完成记录置 NULL，两库都允许多个 NULL，正好当「部分唯一索引」的可移植替代；MySQL 无部分唯一索引）。写入用单条 upsert（`ON CONFLICT` / `ON DUPLICATE KEY UPDATE`），并发自动保存不会插出第二条草稿。完成时**沿用草稿行**翻状态（保留 `started_at`、把 `draft_slot` 置 NULL 释放草稿位），同事务内把该用户该量表其他完成版本 `is_current` 置 0，保证当前版本唯一；历史版本用 `getAssessmentResults`（完成时间新→旧）
-- **每次 30 题的分层抽题（#282）**：120 题全答超过 16 分钟会掉完成率，故 `items_per_attempt = 30` 走抽题，核心是**确定性派生而不是每次随机**——`draw = f(userId, assessmentId, 题库指纹, attemptNo)`（纯函数在 `src/lib/assessment-sampling.ts`，rng 可注入、无 I/O），因此任何路由各自重算都得同一张卷子，`GET /start` 才能保持只读（#223 不变量：只点开页面不留空草稿）。卷面形状：每维 `30 / 6 = 5` 题、来源配比每维官方题（`onet-mini` + `onet-sf`）2 或 3 + 原创补足、`NEAR_DUPLICATE_GROUPS` 同卷至多一题、整卷洗牌后按维度交错修整顺序（避免 3 题及以上连续同维度泄露题目归属）。`attemptNo` **不新增列**，由该用户该量表 `completed` 行数 + 1 派生（结果行不删除，草稿进行中不推进，故稳定）；排除集取上一条完成结果的 `items_json`，所以重测不复用上一轮的题，而第 3 轮允许回到第 1 轮的题（120 题只够两轮完全互斥，这是设计口径，单测锁住防止被当 bug 改掉）。池子不足时按「来源配比 → 排除集 → 近重复组」降级并 `console.warn`，**绝不因后台删题而 500**。四个路由共用 `src/lib/assessment-attempt.ts` 的 `loadAttemptContext()` 一次算完本轮题号、题目与快照，避免各处口径分叉
+- **每次 30 题的分层抽题（#282）**：120 题全答超过 16 分钟会掉完成率，故 `items_per_attempt = 30` 走抽题，核心是**确定性派生而不是每次随机**——`draw = f(userId, assessmentId, 题库指纹, attemptNo)`（纯函数在 `src/lib/assessment-sampling.ts`，rng 可注入、无 I/O），因此任何路由各自重算都得同一张卷子，`GET /start` 才能保持只读（#223 不变量：只点开页面不留空草稿）。卷面形状：每维 `30 / 6 = 5` 题、来源配比每维官方题（`onet-mini` + `onet-sf`）2 或 3 + 原创补足、`NEAR_DUPLICATE_GROUPS` 同卷至多一题、整卷洗牌后按维度交错修整顺序（避免 3 题及以上连续同维度泄露题目归属）。`attemptNo` **不新增列**，由该用户该量表 `completed` 行数 + 1 派生（结果行不删除，草稿进行中不推进，故稳定）；排除集取上一条完成结果的 `items_json`，所以重测不复用上一轮的题，而第 3 轮允许回到第 1 轮的题（120 题只够两轮完全互斥，这是设计口径，单测锁住防止被当 bug 改掉）。池子不足时按「来源配比 → 排除集 → 近重复组」降级并 `console.warn`，**绝不因后台删题而 500**。四个路由共用 `src/lib/assessment-attempt.ts` 的 `loadAttemptContext()` 一次算完本轮题号、题目与快照，避免各处口径分叉。演示播种（#253）也走同一个 `drawItems` 出题并写快照，所以演示班级不会留下「整库 120 题」的历史形态。第二套量表 IPIP NEO-FFI（#290）`items_per_attempt = 0` = 整库 50 题一轮，抽题逻辑天然不介入（`planAttempt` 在算 `perDimension` 之前就返回）
 - **结果是快照**：`answers_json` / `scores_json` / `type_code` 落库，学生回看是当时的结论，不随改题或重算漂移。计分由计分引擎（#220）在写入前算好，数据层不重复实现算法，`dimensional` 量表不产出三字码（该列为 NULL）。注意作答明细以**题号**为键、不含题面文本：#282 的 `items_json` 已记下本轮题号与题库指纹，逐题回看能定位到「当时答的是哪 30 题、对应哪一版题库」，但题面**文本**仍未快照，改题后文字会变（当前结果页只呈现得分快照，不受影响）
 - **两库一致性靠三条硬约束**（都在 `assessment-db.test.ts` 的 Schema 对账里锁住）：① 列名/可空性逐列相同；② 外键相同——SQLite 的 `REFERENCES`（本机 `foreign_keys=ON`，真实生效）与 MySQL 的 `FOREIGN KEY` 必须成对存在；③ `code` 的唯一比较语义相同——MySQL 显式 `COLLATE utf8mb4_bin`，否则默认 collation 不区分大小写，`riasec` / `RIASEC` 在 MySQL 里撞唯一键、在 SQLite 里共存，跨库迁移直接失败
 - **完成动作串行化**：MySQL 侧事务开头 `SELECT ... FOR UPDATE` 锁学生行（与档案归档提交同款做法），否则两个「首次完成」并发时都 UPDATE 到 0 行、再各自插入 `is_current = 1`，当前版本就不唯一了；SQLite 由单写者事务天然串行

@@ -662,7 +662,9 @@ export interface DbAdapter {
     tagsJson: string,
     avatarUrl: string,
     evaluationUrl: string,
-    storageId: number
+    storageId: number,
+    /** 演示播种用：显式提交时间（与 getNow 同格式 `YYYY-MM-DD HH:mm:ss`）；生产提交省略→取当前 */
+    submittedAt?: string
   ): Promise<{ version: number }> | { version: number };
 
   // stats
@@ -1076,10 +1078,11 @@ export async function submitProfileWithVersion(
   tagsJson: string,
   avatarUrl: string,
   evaluationUrl: string,
-  storageId: number
+  storageId: number,
+  submittedAt?: string
 ): Promise<{ version: number }> {
   const adapter = await ensureInit();
-  return Promise.resolve(adapter.submitProfileWithVersion(userCode, tagsJson, avatarUrl, evaluationUrl, storageId));
+  return Promise.resolve(adapter.submitProfileWithVersion(userCode, tagsJson, avatarUrl, evaluationUrl, storageId, submittedAt));
 }
 
 export async function getStats(): Promise<Stats> {
