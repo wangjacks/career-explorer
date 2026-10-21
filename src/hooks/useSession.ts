@@ -7,6 +7,8 @@ export interface SessionInfo {
   role: string;
   uid: number | null;
   name: string;
+  /** 演示会话标志（服务端 GET /api/auth 下发）；false/缺省 = 生产会话 */
+  demo?: boolean;
 }
 
 export interface UseSessionResult {
@@ -34,7 +36,12 @@ export function useSession(): UseSessionResult {
       const data = await res.json();
       setSession(
         res.ok && data.role && data.name
-          ? { role: data.role, uid: typeof data.uid === "number" ? data.uid : null, name: data.name }
+          ? {
+              role: data.role,
+              uid: typeof data.uid === "number" ? data.uid : null,
+              name: data.name,
+              demo: data.demo === true,
+            }
           : null
       );
     } catch {
