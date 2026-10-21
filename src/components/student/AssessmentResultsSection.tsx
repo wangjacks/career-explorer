@@ -3,29 +3,54 @@
 import { useCallback, useEffect, useState } from "react";
 import { Loader2, Sparkles } from "lucide-react";
 import ProfileSectionHeader from "./ProfileSectionHeader";
+import CollapsibleCard from "./CollapsibleCard";
 import AssessmentResultCard from "./AssessmentResultCard";
 import {
   CROSS_SCALE_LINKS,
+  buildCareerCards,
   resultCardMode,
   type AssessmentResultsPayload,
+  type CareerApiItem,
+  type CareerCardView,
 } from "@/lib/assessment-view";
 import { normalizeAssessmentList, type AssessmentListItem } from "@/lib/assessment-list";
 
+/** 页尾授权卡需要的数据：由结果区（唯一数据源）向页面回传，不重复请求 */
+export interface AssessmentFooterData {
+  scales: AssessmentListItem[];
+  /** 推荐职业接口下发的 CC BY 4.0 署名 */
+  careersAttribution: string;
+}
+
+interface CareersPayload {
+  careers?: CareerApiItem[];
+  attribution?: string;
+  error?: string;
+}
+
 /**
- * 「我的档案」里的测评结果区（#224 + #292）：按**量表清单循环渲染每套量表的结果卡**。
+ * 「我的档案」里的测评结果区（#224 + #292 + #322）：按**量表清单循环渲染每套量表的结果卡**。
  *
  * 数据口径（启用量表清单只有一个家，与 #291 对齐）：
  * - 先取 `GET /api/shared/assessment/list`（#291，只列启用中的量表）拿到有哪些量表；
  * - 再逐套按 `?code=` 取本人结果，单套失败只影响那一张卡，不拖垮整个结果区；
- * - 全部数据由本组件持有，结果卡只负责按计分模式分流渲染（不再各自 fetch）。
+ * - 推荐职业（霍兰德有当前结果时）也在本组件补拉一次，结果卡只消费，不再各自 fetch；
+ * - 全部数据由本组件持有，结果卡只负责按计分模式渲染折叠卡内容。
  *
  * 与档案提交流程仍然完全解耦：不看 `submissionClosed`、不参与档案版本快照。
- * 霍兰德与大五各有一份当前结果时，在卡片下方补一张「人格与兴趣一起看」提示卡（#292）。
+ * 霍兰德与大五各有一份当前结果时，在卡片下方补一张「人格与兴趣一起看」折叠卡（#292）。
  */
-export default function AssessmentResultsSection() {
+export default function AssessmentResultsSection({
+  onData,
+}: {
+  /** 向页面回传页尾授权卡数据；必须传稳定的 setter（如 setState），避免重复渲染 */
+  onData?: (data: AssessmentFooterData) => void;
+}) {
   const [scales, setScales] = useState<AssessmentListItem[]>([]);
   const [payloads, setPayloads] = useState<Record<string, AssessmentResultsPayload>>({});
   const [failedCodes, setFailedCodes] = useState<string[]>([]);
+  const [careers, setCareers] = useState<CareerCardView[]>([]);
+  const [careersAttribution, setCareersAttribution] = useState("");
   const [loading, setLoading] = useState(true);
   const [failed, setFailed] = useState(false);
 
@@ -33,6 +58,8 @@ export default function AssessmentResultsSection() {
     setLoading(true);
     setFailed(false);
     setFailedCodes([]);
+    setCareers([]);
+    setCareersAttribution("");
     try {
       const listRes = await fetch("/api/shared/assessment/list");
       const listPayload = (await listRes.json()) as { assessments?: unknown; error?: string };
@@ -62,6 +89,22 @@ export default function AssessmentResultsSection() {
       }
       setPayloads(next);
       setFailedCodes(failures);
+
+      // 推荐职业（#226）：全页只拉一次，霍兰德有当前结果时才请求；失败/为空都静默（渐进增强）
+      const hasHollandResult = items.some(
+        (item) => resultCardMode(item) === "holland" && next[item.code]?.current
+      );
+      if (hasHollandResult) {
+        try {
+          const res = await fetch("/api/shared/assessment/careers?limit=6");
+          const payload = (await res.json()) as CareersPayload;
+          if (!res.ok) throw new Error(payload?.error || "推荐职业加载失败");
+          setCareers(buildCareerCards(payload.careers));
+          setCareersAttribution(typeof payload.attribution === "string" ? payload.attribution : "");
+        } catch (err) {
+          console.error("Failed to load career recommendations:", err);
+        }
+      }
     } catch (err) {
       console.error("Failed to load assessment results:", err);
       setFailed(true);
@@ -75,6 +118,11 @@ export default function AssessmentResultsSection() {
     void load();
   }, [load]);
   /* eslint-enable react-hooks/set-state-in-effect */
+
+  // 页尾授权卡与结果区共用同一份量表声明；onData 由页面传稳定的 setState
+  useEffect(() => {
+    onData?.({ scales, careersAttribution });
+  }, [scales, careersAttribution, onData]);
 
   if (loading) {
     return (
@@ -134,7 +182,14 @@ export default function AssessmentResultsSection() {
             </section>
           );
         }
-        return <AssessmentResultCard key={item.code} code={item.code} data={data} />;
+        return (
+          <AssessmentResultCard
+            key={item.code}
+            code={item.code}
+            data={data}
+            careers={resultCardMode(item) === "holland" ? careers : []}
+          />
+        );
       })}
 
       {hasHollandResult && hasBigFiveResult && <CrossScaleTipCard />}
@@ -142,17 +197,14 @@ export default function AssessmentResultsSection() {
   );
 }
 
-/** 「人格与兴趣一起看」提示卡（#292）：霍兰德与大五都有当前结果时出现，用学生语言解释三组常见对应关系 */
+/** 「人格与兴趣一起看」折叠卡（#292 / #322）：霍兰德与大五都有当前结果时出现 */
 function CrossScaleTipCard() {
   return (
-    <section className="bg-card rounded-xl border border-border-soft p-5 space-y-3">
-      <div className="flex items-center gap-2">
-        <Sparkles size={16} className="text-accent" aria-hidden />
-        <h2 className="text-sm font-semibold text-foreground">人格与兴趣一起看</h2>
-      </div>
-      <p className="text-xs text-muted leading-relaxed">
-        兴趣和性格常常互相印证。这两份结果放在一起对照，能帮你看得更清楚：
-      </p>
+    <CollapsibleCard
+      title="人格与兴趣一起看"
+      icon={Sparkles}
+      subtitle="兴趣和性格常常互相印证。这两份结果放在一起对照，能帮你看得更清楚："
+    >
       <ul className="space-y-2">
         {CROSS_SCALE_LINKS.map((link) => (
           <li key={`${link.riasec}-${link.bigFive}`} className="rounded-lg bg-background px-3 py-2">
@@ -166,6 +218,6 @@ function CrossScaleTipCard() {
       <p className="text-xs text-muted leading-relaxed">
         两边没有同时高也很正常：兴趣会被经历改变，性格相对稳定，放在一起看是互补，不是互相否定。
       </p>
-    </section>
+    </CollapsibleCard>
   );
 }

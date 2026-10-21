@@ -5,6 +5,7 @@ import {
   buildAssessmentListItem,
   buildAssessmentList,
   deriveLatestActive,
+  latestCompletedOf,
   normalizeAssessmentList,
   quizHref,
   resultFormCopy,
@@ -287,6 +288,35 @@ describe("deriveLatestActive：最近活跃量表（#291）", () => {
     for (const raw of [null, undefined, []]) {
       expect(deriveLatestActive(raw)).toBeNull();
     }
+  });
+});
+
+describe("latestCompletedOf：hero 与 deriveLatestActive 共用（#322）", () => {
+  it("取 completedAt 最新的一项；同时间保留列表靠前，结果可复现", () => {
+    const items = [
+      item({ code: "a", completedAt: "2026-10-19 10:00" }),
+      item({ code: "b", completedAt: "2026-10-20 09:00" }),
+    ];
+    expect(latestCompletedOf(items)?.code).toBe("b");
+    expect(
+      latestCompletedOf([
+        item({ code: "a", completedAt: "2026-10-20 09:00" }),
+        item({ code: "b", completedAt: "2026-10-20 09:00" }),
+      ])?.code
+    ).toBe("a");
+  });
+
+  it("没有完成记录 / 空列表返回 null", () => {
+    expect(latestCompletedOf([item({ completedAt: "" })])).toBeNull();
+    expect(latestCompletedOf([])).toBeNull();
+  });
+
+  it("与 deriveLatestActive 的 completed 分支同口径", () => {
+    const items = [
+      item({ code: "a", completedAt: "2026-10-19 10:00" }),
+      item({ code: "b", completedAt: "2026-10-20 09:00" }),
+    ];
+    expect(deriveLatestActive(items)?.code).toBe(latestCompletedOf(items)?.code);
   });
 });
 
