@@ -19,6 +19,7 @@ import {
   getClassByName,
   getDefaultStorageBackend,
   submitProfileWithVersion,
+  deleteStudents,
   closeDemoDb,
   closeDb,
 } from "@/lib/db";
@@ -185,6 +186,21 @@ describe("演示访客账户服务（#278）", () => {
     expect(accounts.map((a) => a.seq)).not.toContain(target);
     expect(accounts.length).toBeGreaterThanOrEqual(3);
   }, 40_000);
+
+  it("删除重试容忍：学生行已被删的中断态仍能清干净教师/admin", async () => {
+    const created = await runInDemoScope(() => createVisitorAccount());
+    const codes = created.codes;
+    // 模拟上次删除只完成了学生部分
+    await runInDemoScope(() => deleteStudents([codes.student]));
+
+    const report = await runInDemoScope(() => deleteVisitorAccount(created.seq));
+    expect(report?.deleted).toEqual({ admin: true, teacher: true, student: false });
+    const remaining = await runInDemoScope(async () => [
+      await getUserByCode(codes.admin),
+      await getUserByCode(codes.teacher),
+    ]);
+    expect(remaining.every((r) => r === undefined)).toBe(true);
+  }, 30_000);
 
   it("删除不存在的 seq → null", async () => {
     expect(await runInDemoScope(() => deleteVisitorAccount(9999))).toBeNull();

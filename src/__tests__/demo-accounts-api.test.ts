@@ -20,6 +20,7 @@ vi.mock("@/lib/captcha", () => ({
 }));
 
 import { GET, POST } from "@/app/api/manage/demo/accounts/route";
+import { GET as statusGET } from "@/app/api/manage/demo/status/route";
 import { PATCH, DELETE } from "@/app/api/manage/demo/accounts/[seq]/route";
 import { POST as demoLogin } from "@/app/api/auth/demo/route";
 import { signToken } from "@/lib/token";
@@ -140,6 +141,14 @@ describe("演示访客账户端点（#278）", () => {
       const body = await list.json();
       expect(body.accounts).toHaveLength(1);
       expect(JSON.stringify(body)).not.toContain("$2");
+
+      // status 的「名册规模」不因发放账户而虚增；访客账户单独计数
+      const status = await statusGET(req("GET", "/api/manage/demo/status", cookie));
+      expect(status.status).toBe(200);
+      const counts = (await status.json()).counts;
+      expect(counts.students).toBe(20);
+      expect(counts.teachers).toBe(1);
+      expect(counts.visitorAccounts).toBe(1);
     }, 60_000);
 
     it("非法 seq → 400；不存在的 seq → 404", async () => {
