@@ -41,6 +41,26 @@ function normalizeTime(value: string | null | undefined): string | null {
   return trimmed === "" ? null : trimmed;
 }
 
+/**
+ * 归一量表维度定义：保留定义顺序、剔除空 key 与重复 key。
+ *
+ * 路由的 `assessment.dimensions` 与三档计数共用这一份口径；否则 `dimensions_json` 有重复 key 时，
+ * 元信息会比分布多出一项。
+ */
+export function normalizeDimensionalDefinitions(
+  dimensions: readonly { key: string; label: string }[]
+): { key: string; label: string }[] {
+  const definitions: { key: string; label: string }[] = [];
+  const seenKeys = new Set<string>();
+  for (const dimension of dimensions) {
+    if (typeof dimension.key !== "string" || dimension.key === "") continue;
+    if (seenKeys.has(dimension.key)) continue;
+    seenKeys.add(dimension.key);
+    definitions.push({ key: dimension.key, label: dimension.label });
+  }
+  return definitions;
+}
+
 function readBand(value: unknown): ScoreBand | null {
   return value === "high" || value === "medium" || value === "low" ? value : null;
 }
@@ -78,14 +98,7 @@ export function parseDimensionalBands(
   dimensions: readonly { key: string; label: string }[]
 ): DimensionalBandsResult {
   // 定义顺序唯一来源；脏定义（空 key/重复 key）逐项剔除，不整份失败
-  const definitions: { key: string; label: string }[] = [];
-  const seenKeys = new Set<string>();
-  for (const dimension of dimensions) {
-    if (typeof dimension.key !== "string" || dimension.key === "") continue;
-    if (seenKeys.has(dimension.key)) continue;
-    seenKeys.add(dimension.key);
-    definitions.push({ key: dimension.key, label: dimension.label });
-  }
+  const definitions = normalizeDimensionalDefinitions(dimensions);
 
   const latestByUser = new Map<number, DimensionalResultScoreRow>();
   for (const row of rows) {
@@ -114,8 +127,9 @@ export function parseDimensionalBands(
     high: 0,
   }));
 
+  // 没有可用的维度定义时，所有行都无法归档；按 invalid 计，避免「有已测人数却 0 脏数据」掩盖配置错误
   if (definitions.length === 0) {
-    return { dimensions: counts, invalidCount: 0, lastSubmittedAt };
+    return { dimensions: counts, invalidCount: latestByUser.size, lastSubmittedAt };
   }
 
   let invalidCount = 0;

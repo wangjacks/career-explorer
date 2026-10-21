@@ -10,7 +10,7 @@ import { isInstalled } from "@/lib/db-config";
 import { IPIP_NEO_FFI_CODE } from "@/lib/assessment-data";
 import { parseDimensions } from "@/lib/assessment-flow";
 import { completionRate } from "@/lib/assessment-stats";
-import { parseDimensionalBands } from "@/lib/big-five-stats";
+import { parseDimensionalBands, normalizeDimensionalDefinitions } from "@/lib/big-five-stats";
 import { getSession, writableClassIds } from "../../classes/helpers";
 
 /** 允许的统计范围：`all` = 全校；`mine` = 只有本人归属班级（管理员 `mine` 等同全校） */
@@ -102,28 +102,41 @@ async function GET_impl(request: NextRequest) {
     }
 
     const enabled = assessment.enabled === 1;
-    const dimensions = parseDimensions(assessment.dimensions_json);
+    // 元信息与三档计数共用同一份归一后的维度定义（去空 key / 重复 key，保留定义顺序）
+    const dimensions = normalizeDimensionalDefinitions(parseDimensions(assessment.dimensions_json));
 
-    // 分母/分子复用 #310 的完成矩阵口径；停用量表也保留完成度（只是分布不展示）
+    // 停用：整卡按「未开放」处理。total 也归零，避免出现「三档全 0 但 assessed > 0」这种
+    // 违反 `low + medium + high = assessed - invalidCount` 守恒的响应，也不读取任何逐人快照
+    if (!enabled) {
+      return NextResponse.json({
+        scope,
+        assessment: {
+          code: assessment.code,
+          name: assessment.name,
+          scaleVersion: assessment.scale_version,
+          enabled: false,
+          scoringMode: assessment.scoring_mode,
+          dimensions,
+        },
+        total: { enrolled: 0, assessed: 0, rate: 0, invalidCount: 0, lastSubmittedAt: null },
+        dimensions: dimensions.map((dimension) => ({
+          ...dimension,
+          low: 0,
+          medium: 0,
+          high: 0,
+        })),
+      });
+    }
+
+    // 分母/分子复用 #310 的完成矩阵口径
     const raw = await getCompletionStats([assessment.id], classIds);
     const { enrolled, assessed } = sumCompletion(raw, assessment.id);
     const rate = completionRate(Math.min(enrolled, assessed), enrolled);
 
-    const parsed = enabled
-      ? parseDimensionalBands(
-          await getDimensionalResultScores(assessment.id, classIds),
-          dimensions
-        )
-      : {
-          dimensions: dimensions.map((dimension) => ({
-            ...dimension,
-            low: 0,
-            medium: 0,
-            high: 0,
-          })),
-          invalidCount: 0,
-          lastSubmittedAt: null,
-        };
+    const parsed = parseDimensionalBands(
+      await getDimensionalResultScores(assessment.id, classIds),
+      dimensions
+    );
 
     return NextResponse.json({
       scope,

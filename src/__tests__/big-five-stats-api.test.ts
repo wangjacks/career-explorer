@@ -146,6 +146,10 @@ describe("GET /api/manage/stats/big-five（#312 人格轮廓）", () => {
     expect(res.status).toBe(200);
     const body = await res.json();
 
+    // 教师默认 scope=all 不收窄班级（null = 全校）
+    expect(getCompletionStats).toHaveBeenCalledWith([9], null);
+    expect(getDimensionalResultScores).toHaveBeenCalledWith(9, null);
+
     expect(body.assessment).toEqual({
       code: "ipip-neo-ffi",
       name: IPIP.name,
@@ -196,7 +200,7 @@ describe("GET /api/manage/stats/big-five（#312 人格轮廓）", () => {
     }
   });
 
-  it("量表停用 → enabled:false 且分布全 0，不读取逐人快照", async () => {
+  it("量表停用 → enabled:false、total 与分布全 0，不读取完成度/逐人快照", async () => {
     vi.mocked(getAssessmentByCode).mockResolvedValue({ ...IPIP, enabled: 0 });
     const res = await GET(
       request("/api/manage/stats/big-five", await token("teacher", 3))
@@ -205,11 +209,39 @@ describe("GET /api/manage/stats/big-five（#312 人格轮廓）", () => {
     const body = await res.json();
 
     expect(body.assessment.enabled).toBe(false);
+    expect(body.total).toEqual({
+      enrolled: 0,
+      assessed: 0,
+      rate: 0,
+      invalidCount: 0,
+      lastSubmittedAt: null,
+    });
     expect(body.dimensions).toHaveLength(5);
     expect(body.dimensions.every((item: { low: number; medium: number; high: number }) => item.low + item.medium + item.high === 0)).toBe(true);
-    expect(body.total.invalidCount).toBe(0);
-    expect(body.total.lastSubmittedAt).toBeNull();
+    expect(getCompletionStats).not.toHaveBeenCalled();
     expect(getDimensionalResultScores).not.toHaveBeenCalled();
+  });
+
+  it("教师没有任何班级时 scope=mine 传空集合，返回全 0 分布", async () => {
+    vi.mocked(getTeacherClassPairs).mockResolvedValue([]);
+    vi.mocked(getCompletionStats).mockResolvedValue({ profile: [], assessments: [] });
+    vi.mocked(getDimensionalResultScores).mockResolvedValue([]);
+    const res = await GET(
+      request("/api/manage/stats/big-five?scope=mine", await token("teacher", 3))
+    );
+    expect(res.status).toBe(200);
+    const body = await res.json();
+
+    expect(getCompletionStats).toHaveBeenCalledWith([9], []);
+    expect(getDimensionalResultScores).toHaveBeenCalledWith(9, []);
+    expect(body.total).toEqual({
+      enrolled: 0,
+      assessed: 0,
+      rate: 0,
+      invalidCount: 0,
+      lastSubmittedAt: null,
+    });
+    expect(body.dimensions.every((item: { low: number; medium: number; high: number }) => item.low + item.medium + item.high === 0)).toBe(true);
   });
 
   it("量表缺失 → 200 空态，不 500", async () => {
@@ -248,6 +280,13 @@ describe("GET /api/manage/stats/big-five（#312 人格轮廓）", () => {
 
     vi.mocked(getAssessmentByCode).mockResolvedValue(IPIP);
     vi.mocked(getCompletionStats).mockRejectedValue(new Error("db down"));
+    expect(
+      (await GET(request("/api/manage/stats/big-five", await token("teacher", 3)))).status
+    ).toBe(500);
+  });
+
+  it("逐人快照读取失败 → 500（聚合主路径不静默吞错）", async () => {
+    vi.mocked(getDimensionalResultScores).mockRejectedValue(new Error("scores table down"));
     expect(
       (await GET(request("/api/manage/stats/big-five", await token("teacher", 3)))).status
     ).toBe(500);

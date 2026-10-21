@@ -119,7 +119,7 @@ describe("parseDimensionalBands（#312 人格三档计数）", () => {
     expect(result.lastSubmittedAt).toBe("2026-10-18 10:00:00");
   });
 
-  it("空输入与空维度定义都不抛错，lastSubmittedAt 为空", () => {
+  it("空输入与空维度定义都不抛错；没有维度定义时所有行计为 invalid", () => {
     expect(parseDimensionalBands([], DIMS)).toEqual({
       dimensions: DIMS.map((dimension) => ({ ...dimension, low: 0, medium: 0, high: 0 })),
       invalidCount: 0,
@@ -127,8 +127,26 @@ describe("parseDimensionalBands（#312 人格三档计数）", () => {
     });
     const empty = parseDimensionalBands([row(1, snapshot(), null)], []);
     expect(empty.dimensions).toEqual([]);
-    expect(empty.invalidCount).toBe(0);
+    expect(empty.invalidCount).toBe(1);
     expect(empty.lastSubmittedAt).toBeNull();
+  });
+
+  it("scores_json 为 null / 空白时间 / 非数组对象都按脏数据处理", () => {
+    const rows = [
+      row(1, null, "  "),
+      row(2, JSON.stringify({ N: 50 }), ""),
+      row(3, snapshot(), "2026-10-18 12:00:00"),
+    ];
+    const result = parseDimensionalBands(rows, DIMS);
+    expect(result.invalidCount).toBe(2);
+    expect(result.lastSubmittedAt).toBe("2026-10-18 12:00:00");
+  });
+
+  it("重复的维度定义只计一次，顺序保持首次出现位置", () => {
+    const duplicated = [...DIMS, { key: "N", label: "重复的神经质" }];
+    const result = parseDimensionalBands([row(1, snapshot({ N: { band: "high" } }))], duplicated);
+    expect(result.dimensions.map((item) => item.key)).toEqual(["N", "E", "O", "A", "C"]);
+    expect(result.dimensions[0]).toEqual({ key: "N", label: "神经质", low: 0, medium: 0, high: 1 });
   });
 
   it("输出不含任何个人分数（raw / standard）", () => {

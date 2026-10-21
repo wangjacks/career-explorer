@@ -362,10 +362,11 @@
 <!-- 对账：纯函数 `src/lib/big-five-stats.ts`（测试 `big-five-stats.test.ts`）；SQL 在两适配器的 getDimensionalResultScores（`stats-db-parity.test.ts` 锁同构，真实 SQLite 行为在 `assessment-stats-db.test.ts`）；接口行为测试 `big-five-stats-api.test.ts` -->
 
 - **端点与响应**：`GET /api/manage/stats/big-five` 是「人格轮廓」卡的唯一数据源；`assessment` 带量表 `code` / `name` / `scaleVersion` / `enabled` / `scoringMode` / `dimensions`，**只从 `assessments` 表读、不返回任何题目内容**；`total` 复用 #310 完成矩阵的 `enrolled / assessed / rate` 分母口径，另带 `invalidCount` 与 `lastSubmittedAt`；`dimensions` 为五维三档计数，维度顺序恒为量表定义顺序（N/E/O/A/C），**不按分值排序**。
-- **三档口径**：只读结果快照里已落库的 `band`（`completed + is_current=1 + role='student'`），**不重算分数**；旧快照缺 `band` 时用 `bandOf(standard)` 兜底（阈值 66.7 / 33.3，与计分引擎同一口径）。整条 JSON 解析失败、缺维度或 `standard` 非有限数值都整行计入 `invalidCount`、不进分布，因此 `low + medium + high` 恒等于 `assessed - invalidCount`，响应不会出现 `NaN`。
-- **数据层**：`getDimensionalResultScores(assessmentId, classIds)` 只返回 `{ user_id, scores_json, completed_at }` 三列（不取姓名学号/作答内容）；两个适配器执行同一条 SQL，班级范围 `classIds=null` 为全校、空集合直接空数组。
+- **三档口径**：只读结果快照里已落库的 `band`（`completed + is_current=1 + role='student'`），**不重算分数**；旧快照缺 `band` 时用 `bandOf(standard)` 兜底（阈值 66.7 / 33.3，与计分引擎同一口径）。整条 JSON 解析失败、缺维度或 `standard` 非有限数值都整行计入 `invalidCount`、不进分布，因此**启用态**下 `low + medium + high` 恒等于 `assessed - invalidCount`，响应不会出现 `NaN`；没有可用维度定义时所有行都计为 invalid，不掩盖配置错误。
+- **数据层**：`getDimensionalResultScores(assessmentId, classIds)` 只返回 `{ user_id, scores_json, completed_at }` 三列（不取姓名学号/作答内容）；两个适配器各执行一份同构 SQL（`stats-db-parity` 锁结构、过滤条件与参数顺序），班级范围 `classIds=null` 为全校、空集合直接空数组。
 - **范围与权限**：`scope=all`（默认，全校）或 `scope=mine`（教师收窄到 `teacher_classes`）；`classId` 再收窄单班。教师**任何** `classId` 都先过归属判定（非本人班级 403，不因 `scope=all` 放宽），管理员可查任意范围且 `scope=mine` 等同全校；非法 `scope` / `classId` → 400。
-- **停用与缺失**：量表停用返回 `enabled:false` + 五维全 0（界面渲染「未开放」而非 0%）；未安装或量表未种子化返回 `assessment:null` 的空态，均不 500。
+- **停用与缺失**：量表停用返回 `enabled:false`，`total` 与五维计数**全部归零**、不读取完成度/逐人快照（界面渲染「未开放」而非 0%）；未安装或量表未种子化返回 `assessment:null` 的空态，均不 500。
+- **已知边界**：`enrolled / assessed / rate` 来自完成矩阵聚合，三档分布来自另一条只读查询，两者不在同一事务；稳定数据下守恒，极端并发（学生恰好在两次查询之间提交）可能相差 1 人。
 - **隐私边界**：响应只有聚合计数与维度标签，没有 `raw` / `standard` / 逐人明细 / 平均分 / 排名；与 `/stats/assessment`、`/stats/completion` 同口径**不记审计**，个人明细仍走 `/assessment/roster`（那里单独记审计）。
 
 ## 数据大屏测评栏（#232）
