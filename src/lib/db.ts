@@ -440,6 +440,8 @@ export interface AssessmentStatsRaw {
   classes: { class_id: number; name: string; enrolled: number; assessed: number }[];
   /** 六型计数：key = 三字码首位字母（与计分引擎的破平优先序一致，不另算一遍） */
   types: { key: string; count: number }[];
+  /** 每班六型计数（#311）：key = 三字码首位字母；未分班学生不进入班级构成 */
+  classTypes: { class_id: number; key: string; count: number }[];
   /** 三字码计数（未排序未截断，最终展示顺序见 `finalizeAssessmentStats`） */
   codes: { code: string; count: number }[];
   total: { enrolled: number; assessed: number; last_completed_at: string | null };
@@ -852,10 +854,12 @@ export interface DbAdapter {
   /**
    * 测评聚合计数（**不含个人信息**）：班级完成度、六型计数、三字码计数与总计。
    * `classIds = null` 为全校口径；传集合则只统计这些班级（教师「只看我的班」）。
+   * `classId` 再把整个聚合范围收窄到单班（#311）。
    */
   getAssessmentStats(
     assessmentId: number,
-    classIds: number[] | null
+    classIds: number[] | null,
+    classId?: number
   ): Promise<AssessmentStatsRaw> | AssessmentStatsRaw;
   /**
    * 测评名册（**含姓名/学号，读取须记审计**）：只返回已完成且当前有效的结果。
@@ -1525,10 +1529,11 @@ export async function getOnetOccupations(): Promise<OnetOccupationRow[]> {
 /** #229：教师端测评聚合计数（不含个人信息） */
 export async function getAssessmentStats(
   assessmentId: number,
-  classIds: number[] | null
+  classIds: number[] | null,
+  classId?: number
 ): Promise<AssessmentStatsRaw> {
   const adapter = await ensureInit();
-  return Promise.resolve(adapter.getAssessmentStats(assessmentId, classIds));
+  return Promise.resolve(adapter.getAssessmentStats(assessmentId, classIds, classId));
 }
 
 /** #229：教师端测评名册（含个人信息，调用方必须记审计并先收窄班级范围） */
