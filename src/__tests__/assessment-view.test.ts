@@ -16,6 +16,7 @@ import {
   describeTypeCode,
   parseTypeCodeParts,
   resultCardMode,
+  resultCardStatus,
 } from "../lib/assessment-view";
 
 function score(key: string, standard: number, label?: string): DimensionScore {
@@ -236,7 +237,7 @@ describe("结果卡分流与口径行（#292）", () => {
 });
 
 describe("推荐职业卡片", () => {
-  it("中文名优先；无译名时回退英文名且不重复展示副标题", () => {
+  it("中文名优先；无译名时用职业群 + 学历兜底，英文只作小字（#322）", () => {
     const cards = buildCareerCards([
       {
         code: "15-1252.00",
@@ -254,10 +255,16 @@ describe("推荐职业卡片", () => {
       hasChineseName: true,
       meta: "计算机与数学 · 本科",
     });
-    expect(cards[1]).toMatchObject({ displayName: "Chief Executives", hasChineseName: false });
+    expect(cards[1]).toEqual({
+      code: "11-1011.00",
+      displayName: "管理 · 研究生",
+      englishName: "Chief Executives",
+      hasChineseName: false,
+      meta: "",
+    });
   });
 
-  it("缺字段的脏行整行丢弃；meta 只拼有值的部分", () => {
+  it("缺字段的脏行整行丢弃；无中文且无职业群 / 学历时退回「职业方向」", () => {
     const cards = buildCareerCards([
       { code: "  ", name: "No Code" },
       { code: "99-0001.00", name: "  " },
@@ -266,12 +273,37 @@ describe("推荐职业卡片", () => {
       null as never,
     ]);
     expect(cards).toHaveLength(1);
-    expect(cards[0]).toMatchObject({ code: "99-0002.00", displayName: "Only Name", meta: "" });
+    expect(cards[0]).toMatchObject({ code: "99-0002.00", displayName: "职业方向", meta: "" });
+    expect(cards[0].englishName).toBe("Only Name");
   });
 
   it("空/非数组入参返回空列表（推荐区块据此整块不渲染）", () => {
     expect(buildCareerCards([])).toEqual([]);
     expect(buildCareerCards(null)).toEqual([]);
     expect(buildCareerCards(undefined)).toEqual([]);
+  });
+});
+
+describe("结果卡折叠状态（#322）", () => {
+  const current = {
+    id: 1,
+    typeCode: "SIA",
+    scores: [],
+    completedAt: "2026-10-01 12:00",
+    isCurrent: true,
+  };
+
+  it("有当前结果 → 已测；只有草稿 → 进行中；都没有 → 未测", () => {
+    expect(resultCardStatus({ current, inProgress: null })).toBe("completed");
+    expect(
+      resultCardStatus({ current: null, inProgress: { answered: 3, total: 60, updatedAt: "2026-10-01 12:00" } })
+    ).toBe("in-progress");
+    expect(resultCardStatus({ current: null, inProgress: null })).toBe("not-started");
+  });
+
+  it("有当前结果时忽略草稿（完成态优先，与 deriveAssessmentCenter 同口径）", () => {
+    expect(
+      resultCardStatus({ current, inProgress: { answered: 3, total: 60, updatedAt: "2026-10-01 12:00" } })
+    ).toBe("completed");
   });
 });

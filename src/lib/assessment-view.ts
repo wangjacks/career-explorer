@@ -199,6 +199,18 @@ export interface AssessmentResultsPayload {
   inProgress: { answered: number; total: number; updatedAt: string } | null;
 }
 
+/** 结果卡折叠态的状态（#322）：只决定标题行显示「已测 / 进行中 / 未测」，不参与计分 */
+export type ResultCardStatus = "completed" | "in-progress" | "not-started";
+
+/** 结果卡状态（#322）：有当前结果 > 有未完成草稿 > 未开始，优先级与 `deriveAssessmentCenter` 一致 */
+export function resultCardStatus(
+  data: Pick<AssessmentResultsPayload, "current" | "inProgress">
+): ResultCardStatus {
+  if (data.current) return "completed";
+  if (data.inProgress) return "in-progress";
+  return "not-started";
+}
+
 /**
  * 结果卡右上角的口径行（#283/#292）：本次题量 · 完成时间 · 这是第几次测评。
  * 版本数撞上接口上限时显示 `N+`，不谎报正好 N 次。
@@ -222,13 +234,13 @@ export function buildResultTrailing(input: {
 /** 推荐职业卡的渲染数据（只保留渲染需要的字段） */
 export interface CareerCardView {
   code: string;
-  /** 中文名优先，没有译名时回退英文名 */
+  /** 中文名优先；无译名时用「职业群 · 学历」兜底，不把英文长名顶到主标题（#322） */
   displayName: string;
-  /** 英文原名（有中文译名时作副标题；未译名时不重复展示） */
+  /** 英文原名：有中文译名时作副标题；未译名时同样只作小字，不裸露在主标题 */
   englishName: string;
   /** 是否有中文译名 */
   hasChineseName: boolean;
-  /** 职业群 · 常见学历，如「计算机与数学 · 本科」 */
+  /** 职业群 · 常见学历，如「计算机与数学 · 本科」；未译名时已并入主标题，留空避免重复 */
   meta: string;
 }
 
@@ -414,8 +426,11 @@ export interface CareerApiItem {
 }
 
 /**
- * 推荐职业 → 卡片数据：缺 code/name 的脏行直接丢弃（整块渲染的前提是有内容），
- * 中文名优先、英文原名作副标题；meta 只拼有值的部分，避免出现「undefined · 本科」。
+ * 推荐职业 → 卡片数据（#322）：缺 code/name 的脏行直接丢弃（整块渲染的前提是有内容）。
+ *
+ * 命名兜底：有中文译名 → 中文名为主、`职业群 · 学历` 作 meta；
+ * 缺中文译名 → `职业群 · 学历` 作主标题、英文原名只作小字，避免「Athletes and Sports Competitors」
+ * 这类长英文名挤占卡片宽度；两样都缺才退回「职业方向」。
  */
 export function buildCareerCards(careers: readonly CareerApiItem[] | null | undefined): CareerCardView[] {
   if (!Array.isArray(careers)) return [];
@@ -428,12 +443,14 @@ export function buildCareerCards(careers: readonly CareerApiItem[] | null | unde
     const nameZh = typeof item.nameZh === "string" ? item.nameZh.trim() : "";
     const cluster = typeof item.cluster === "string" ? item.cluster.trim() : "";
     const education = typeof item.educationLevel === "string" ? item.educationLevel.trim() : "";
+    const meta = [cluster, education].filter(Boolean).join(" · ");
     cards.push({
       code,
-      displayName: nameZh || english,
+      // 未译名时主标题只用中文信息；英文原名仍由 englishName 以 11px 小字展示
+      displayName: nameZh || meta || "职业方向",
       englishName: english,
       hasChineseName: Boolean(nameZh),
-      meta: [cluster, education].filter(Boolean).join(" · "),
+      meta: nameZh ? meta : "",
     });
   }
   return cards;
