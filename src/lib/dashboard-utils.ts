@@ -1,4 +1,7 @@
-import { formatRateText } from "@/lib/stats-utils";
+import { formatRateText, type ClassTrendSeries, type CompareStat } from "@/lib/stats-utils";
+import { isUnassignedClassKey, type ClassGroup } from "@/lib/class-identity";
+
+export type { ClassTrendSeries };
 
 export interface TrendItem {
   date: string;
@@ -10,11 +13,7 @@ export interface DistributionItem {
   count: number;
 }
 
-export interface CompareItem {
-  key: string;
-  total: number;
-  submitted: number;
-}
+export type CompareItem = CompareStat;
 
 /** 班级提交列表行（#217）：在 compare 上补提交率与未提交数 */
 export interface ClassSubmissionRow extends CompareItem {
@@ -30,12 +29,6 @@ export interface RosterStudent {
   submitted: boolean;
   submittedAt: string | null;
   tagCount: number;
-}
-
-/** 与 /api/manage/stats/class-trends 的响应对齐（时间 × 班级交叉维度） */
-export interface ClassTrendSeries {
-  keys: string[];
-  points: { date: string; counts: Record<string, number> }[];
 }
 
 /** 点名册条超过此人数退化为按比例轨，避免上千个 DOM 节点 */
@@ -55,14 +48,14 @@ export function computeDashboardTotals(compare: CompareItem[]) {
 
 /**
  * 班级提交列表（#217）：按提交率升序——交得最少的班排最前；
- * 「未分班」固定置末；同率按班名稳定排序。
+ * 未分班（哨兵键）固定置末；同率按班名稳定排序。
  */
 export function buildClassSubmissionRows(compare: CompareItem[]): ClassSubmissionRow[] {
   const rateOf = (item: CompareItem) => (item.total > 0 ? item.submitted / item.total : 0);
   return [...compare]
     .sort((a, b) => {
-      const aUnassigned = a.key === "未分班";
-      const bUnassigned = b.key === "未分班";
+      const aUnassigned = isUnassignedClassKey(a.key);
+      const bUnassigned = isUnassignedClassKey(b.key);
       if (aUnassigned !== bUnassigned) return aUnassigned ? 1 : -1;
       const diff = rateOf(a) - rateOf(b);
       return diff !== 0 ? diff : a.key.localeCompare(b.key, "zh-CN");
@@ -114,10 +107,22 @@ export function computeRosterBits(enrolled: number, submitted: number) {
   return { groups, tickStep };
 }
 
-/** 分班多序列：recharts 要求每个分组是数据项的顶层数值字段，故把 counts 摊平。
-    班级名是用户输入，counts 里若真有名为 date 的键会覆盖 X 轴的日期字段，故 date 写在最后 */
-export function buildClassSeries(points: ClassTrendSeries["points"]) {
-  return points.map((p) => ({ ...p.counts, date: p.date }));
+/**
+ * 分班多序列：recharts 要求每个分组是数据项的顶层数值字段，故按 series 顺序生成
+ * `s0...` 位置别名。班名是用户输入，不能直接当图表字段（`date` / `__proto__` / `s0`
+ * 都会撞车），`counts` 只按 key 取值，不展开到图表行。
+ */
+export function buildClassSeries(
+  series: readonly ClassGroup[],
+  points: ClassTrendSeries["points"]
+): Record<string, string | number>[] {
+  return points.map((point) => {
+    const row: Record<string, string | number> = { date: point.date };
+    series.forEach((group, index) => {
+      row[`s${index}`] = point.counts[group.key] ?? 0;
+    });
+    return row;
+  });
 }
 
 /** 面板主页按时段问候（入参为本地小时 0–23；跨时段停留时调用方每分钟重算） */

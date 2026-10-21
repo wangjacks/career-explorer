@@ -1,4 +1,5 @@
 import { getClassByName } from "./db";
+import { isReservedClassName } from "./class-identity";
 
 /**
  * 班级名解析（#160）：单条添加与批量导入共用同一口径，
@@ -21,6 +22,21 @@ export interface ClassResolution {
 /** 班级名归一化（唯一入口）：仅去掉首尾空白，不做大小写 / 全半角折叠 */
 export function normalizeClassName(raw: unknown): string {
   return String(raw ?? "").trim();
+}
+
+export interface ClassNameValidation {
+  name: string;
+  error: string | null;
+}
+
+/** 新建/改名校验：保留名与未分班展示文案冲突，只在写入前拦截，不迁移存量 */
+export function validateNewClassName(raw: unknown): ClassNameValidation {
+  const name = normalizeClassName(raw);
+  if (!name) return { name: "", error: "请输入班级名称" };
+  if (isReservedClassName(name)) {
+    return { name, error: "该班级名称为系统保留，请换一个名称" };
+  }
+  return { name, error: null };
 }
 
 export async function resolveClassByName(raw: unknown): Promise<ClassResolution> {

@@ -54,7 +54,14 @@ import type {
   AssessmentBankUpgradeResult,
   SubmittedProfileFilters,
 } from "./db";
-import { fillGroupedTrend, fillTrendSeries, shiftDate } from "./stats-utils";
+import {
+  fillClassTrend,
+  fillTrendSeries,
+  mapCompareRows,
+  shiftDate,
+  type RawClassTrendRow,
+  type RawCompareRow,
+} from "./stats-utils";
 
 function getNow(): string {
   return new Date().toLocaleString("sv-SE", { timeZone: "Asia/Shanghai" });
@@ -1283,48 +1290,57 @@ export class SqliteAdapter implements DbAdapter {
   getTrendsByClass(days: number): ClassTrendSeries {
     const start = shiftDate(getToday(), -(days - 1));
     const end = shiftDate(getToday(), 1);
-    // ORDER BY k, d 让分组名按 SQL 排序稳定输出，凑不出「一会儿这个颜色一会儿那个」
+    // 按 classes.id 分组：NULL 自成一组，再用哨兵键与真实班名区分（#260）
     const rows = this.db
       .prepare(
-        `SELECT DATE(u.submitted_at) as d, COALESCE(c.name, '未分班') as k, COUNT(*) as c
+        `SELECT DATE(u.submitted_at) AS d, c.id AS class_id, c.name AS class_name, COUNT(*) AS cnt
          FROM users u LEFT JOIN classes c ON u.class_id = c.id
          WHERE u.role = 'student' AND u.submitted_at >= ? AND u.submitted_at < ?
-         GROUP BY d, k ORDER BY k, d`
+         GROUP BY d, c.id, c.name
+         ORDER BY CASE WHEN c.id IS NULL THEN 1 ELSE 0 END, c.name, d`
       )
-      .all(start, end) as { d: string; k: string; c: number }[];
-    return fillGroupedTrend(
-      rows.map((r) => ({ date: r.d, key: r.k, count: r.c })),
-      start,
-      days
-    );
+      .all(start, end) as RawClassTrendRow[];
+    return fillClassTrend(rows, start, days);
   }
 
   getCompareByClass(): CompareStat[] {
     // 分母口径：按 users 分组统计在册学生，不按提交过滤，故零提交班级也可见
     const rows = this.db
       .prepare(
-        `SELECT COALESCE(c.name, '未分班') as k, COUNT(*) as total,
-                SUM(CASE WHEN u.submitted_at IS NOT NULL THEN 1 ELSE 0 END) as submitted
+        `SELECT c.id AS class_id, c.name AS class_name, COUNT(*) AS total,
+                SUM(CASE WHEN u.submitted_at IS NOT NULL THEN 1 ELSE 0 END) AS submitted
          FROM users u LEFT JOIN classes c ON u.class_id = c.id
          WHERE u.role = 'student'
-         GROUP BY k ORDER BY k`
+         GROUP BY c.id, c.name
+         ORDER BY CASE WHEN c.id IS NULL THEN 1 ELSE 0 END, c.name`
       )
-      .all() as { k: string; total: number; submitted: number }[];
-    return rows.map((r) => ({ key: r.k, total: r.total, submitted: r.submitted }));
+      .all() as RawCompareRow[];
+    return mapCompareRows(rows);
   }
 
-  getClassRoster(className: string): ClassRosterRow[] {
-    // 班名口径与 getCompareByClass 保持一致；未提交置顶，其余按学号升序。
+  getClassRoster(classId: number | null): ClassRosterRow[] {
+    // 与 compare 的 NULL 分组严格互补；未提交置顶，其余按学号升序。
     // submitted_at 的空串视为未提交，避免脏数据把空时间显示成「已提交」。
+    const orderBy = `ORDER BY CASE WHEN u.submitted_at IS NULL OR TRIM(u.submitted_at) = '' THEN 0 ELSE 1 END,
+                  u.user_code`;
+    if (classId === null) {
+      return this.db
+        .prepare(
+          `SELECT u.name, u.user_code, u.submitted_at, u.tags
+           FROM users u LEFT JOIN classes c ON u.class_id = c.id
+           WHERE u.role = 'student' AND c.id IS NULL
+           ${orderBy}`
+        )
+        .all() as ClassRosterRow[];
+    }
     return this.db
       .prepare(
         `SELECT u.name, u.user_code, u.submitted_at, u.tags
-         FROM users u LEFT JOIN classes c ON u.class_id = c.id
-         WHERE u.role = 'student' AND COALESCE(c.name, '未分班') = ?
-         ORDER BY CASE WHEN u.submitted_at IS NULL OR TRIM(u.submitted_at) = '' THEN 0 ELSE 1 END,
-                  u.user_code`
+         FROM users u JOIN classes c ON u.class_id = c.id
+         WHERE u.role = 'student' AND c.id = ?
+         ${orderBy}`
       )
-      .all(className) as ClassRosterRow[];
+      .all(classId) as ClassRosterRow[];
   }
 
   // tags & classes

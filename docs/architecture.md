@@ -145,11 +145,11 @@
 | `/api/manage/export` | GET / POST | 全方法 | Excel/CSV 导出（XLSX 支持原生单元格图片与浮动图片双模式，默认单元格图片）；列按「基础信息 / 职业兴趣测评」两组可选（#233，含班级与六型分/推荐职业），默认列不变；`?capabilities=1` 只探测职业库是否就绪（不下数据） |
 | `/api/manage/export-images` | GET | 全方法 | 图片打包导出（ZIP） |
 | `/api/manage/stats` | GET | 仅 GET | 统计汇总 |
-| `/api/manage/stats/compare` | GET | 仅 GET | 班级对比：每班在册 / 已提交 / 提交率（#165） |
-| `/api/manage/stats/class-roster` | GET | 仅 GET | 班级名册明细（#217）：按班名过滤，返回姓名 / 完整学号（前端脱敏展示）/ 提交状态 / 提交时间 / 标签数；每次查询记审计 |
+| `/api/manage/stats/compare` | GET | 仅 GET | 班级对比：每班在册 / 已提交 / 提交率（#165）；每行 `{ key, label, total, submitted }`，`key` 是身份、`label` 是展示名（#260） |
+| `/api/manage/stats/class-roster` | GET | 仅 GET | 班级名册明细（#217/#260）：`?class=` 是统计分组键（班名或 `__unassigned__`），服务端用 `getClassByName()` 解析成 `class_id` 后取数（不写 `WHERE name = ?`）；返回姓名 / 完整学号（前端脱敏展示）/ 提交状态 / 提交时间 / 标签数；未知或已改名班级 404；每次查询记审计 |
 | `/api/manage/stats/distribution` | GET | 仅 GET | 标签分布 |
 | `/api/manage/stats/trends` | GET | 仅 GET | 提交趋势（全校合计，缺日补 0） |
-| `/api/manage/stats/class-trends` | GET | 仅 GET | 按班级分层的提交趋势（#165，时间 × 班级交叉维度） |
+| `/api/manage/stats/class-trends` | GET | 仅 GET | 按班级分层的提交趋势（#165，时间 × 班级交叉维度）；响应 `{ series: [{ key, label }], points: [{ date, counts }] }`，`counts` 以 `key` 索引、未分班固定最后（#260） |
 | `/api/manage/stats/assessment` | GET | 仅 GET | 测评聚合统计（#229/#311）：班级完成度 / 六型计数 / 三字码排行 / 总数小结 / 逐班六型构成，**不含任何个人标识**；`?scope=all`（默认，全校）或 `scope=mine`（仅本人归属班级）；`?code` 默认 `riasec` 且只接受 `typological` 量表；`?classId` 收窄到单班；`assessment.enabled` 供大屏区分「还没开放」与「还没人做」（#232） |
 | `/api/manage/assessment/roster` | GET | 仅 GET | 测评名册（#229）：已完测学生的姓名 / 学号 / 三字码 / 完成时间，供下钻；过滤参数 `classId` / `lead`（三字码首位，与 #305 后 `/profiles` 的任意位置包含筛选口径不同）/ `code`（完整三字码，#232）+ `scope`；教师恒收窄到本人归属班级（越权 403），每次读取记审计 `assessment:roster` |
 | `/api/manage/profiles` | GET / DELETE | GET + DELETE | 档案列表 / 清除档案字段。GET 支持**服务端筛选与排序**（#295：`q` / `tag`（可重复，**一个参数就是一个标签、不按逗号切分**——标签名允许含逗号，切分会把下拉里选中的那一项筛成别的条件）/ `lead`（兴趣测评三字码任意位置包含所选六型字母（#305）或 `none`）/ `sortKey` / `sortDir`，分页在过滤后执行、`total` 为过滤后命中数）。GET 每行另带兴趣测评字段（#234：`assessmentCode` / `assessmentStatus` / `assessmentAt` + 详情条形用的六型快照 `assessmentScores`），取「`completed` 且 `is_current=1`」的当前有效结果，未测行为 `none` / `null`；分页、总数与既有排序口径不变 |
@@ -232,6 +232,8 @@
 | `group_batch_members` | 批次内成员快照：`user_id` + **冗余的 `user_code` / `name`**，账号删除后历史批次仍可读；因此该列**不建外键**（当前侧 `class_group_members.user_id` 建外键，两侧职责不同） | ✅ |
 
 **班级名匹配口径（#191）**：`classes.name` 的比较统一为 **trim 后全等、区分大小写**，与前端 JS 全等对齐。`getClassByName()` 在两适配器内部均用 `getClasses()` + JS 全等实现（不依赖 SQL 排序规则），确保 SQLite / MySQL / MariaDB 行为恒等；归一化入口为 `resolveClassByName()`（`src/lib/class-utils.ts`），业务层禁止再写 `WHERE name = ?`。
+
+> **统计分组身份（#260）**：趋势 / 对比 / 名册统一按 `classes.id` 分组，`class_id IS NULL`（含悬空引用）映射为内部哨兵键 `__unassigned__`、展示标签「未分班」；真实班级的 `key` 仍是班名、`label` 为班名。`key` 用于取数 / 排序 / 下钻，`label` 只用于展示。禁止再写 `COALESCE(c.name, '未分班')` 当分组键。班级新建 / 改名拒绝 `未分班`、`还没分班`、`__unassigned__` 三个保留名（只拦未来写入，不迁移存量、不自动改名）。
 
 备份格式 `BackupData`（**version 6**，定义在 `src/lib/db.ts`）：十六表全量（`onet_occupations` 是唯一不纳入备份的表），其中 `audit_logs` / `configs_profile` / `storage_backends` / `profile_submissions` / 分组五表 / 测评三表为可选字段（旧备份缺失时读取方容忍 `undefined`）；含 `password_hash`，不含上传文件。
 

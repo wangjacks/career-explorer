@@ -1,3 +1,5 @@
+import { UNASSIGNED_CLASS_KEY, UNASSIGNED_CLASS_TEACHER_LABEL } from "@/lib/class-identity";
+
 /**
  * 数据大屏文案表（#231）。
  *
@@ -8,8 +10,8 @@
  * 字段（`ADMIN_DASHBOARD_COPY` 沿用既有口径，`TEACHER_DASHBOARD_COPY` 写口语），而不是把旧术语抄回去。
  *
  * 只影响显示：数据口径、取数参数、图表类型、排序与无障碍语义都不经由这里传递。
- * 例外是 `classLabel`——「未分班」是接口返回的数据值，教师侧只在展示时换成「还没分班」，
- * 任何比较与排序仍认原值。
+ * 例外是 `classLabel`——接口同时下发 `key`（身份）与 `label`（展示），比较、排序与下钻
+ * 认 `key`，教师侧只把未分班哨兵键的展示文案换成「还没分班」。
  *
  * **范围口径**：两端读的是同一份**全校**数据（`/api/manage/stats/*` 没有教师/班级过滤），
  * 所以教师侧文案里不能出现「本班 / 全班」这类会被理解成「只看我这个班」的词，
@@ -84,8 +86,8 @@ export interface DashboardCopy {
   compareTooltipTotals: (enrolled: number, rateText: string) => string;
   compareEmptyTitle: string;
   compareEmptyHint: string;
-  /** 班级名展示：数据值不变，只在教师侧把「未分班」说成口语 */
-  classLabel: (key: string) => string;
+  /** 班级名展示：key 用于比较/排序/下钻，label 是接口给的展示名 */
+  classLabel: (key: string, label: string) => string;
 }
 
 /** 管理端：保持既有系统口径，不随教师侧改动 */
@@ -141,7 +143,7 @@ export const ADMIN_DASHBOARD_COPY: DashboardCopy = {
   compareTooltipTotals: (enrolled, rateText) => `在册 ${enrolled} 人 · 提交率 ${rateText}`,
   compareEmptyTitle: "还没有在册学生",
   compareEmptyHint: "先在「班级管理」与「学生名单」中建立班级并导入学生，这里就能看到各组提交对比。",
-  classLabel: (key) => key,
+  classLabel: (_key, label) => label,
 };
 
 /** 教师端：面向一线教师的口语表述，口径词与控件名全部替换 */
@@ -196,7 +198,8 @@ export const TEACHER_DASHBOARD_COPY: DashboardCopy = {
   compareTooltipTotals: (enrolled, rateText) => `共 ${enrolled} 人 · 交齐比例 ${rateText}`,
   compareEmptyTitle: "还没有学生",
   compareEmptyHint: "先去「班级管理」建班、到「学生管理」导入名单，这里就能比较各班的完成情况。",
-  classLabel: (key) => (key === "未分班" ? "还没分班" : key),
+  classLabel: (key, label) =>
+    key === UNASSIGNED_CLASS_KEY ? UNASSIGNED_CLASS_TEACHER_LABEL : label,
 };
 
 /**
