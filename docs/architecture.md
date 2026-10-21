@@ -158,8 +158,10 @@
 | `/api/manage/profiles` | GET / DELETE | GET + DELETE | 档案列表 / 清除档案字段。GET 支持**服务端筛选与排序**（#295：`q` / `tag`（可重复，**一个参数就是一个标签、不按逗号切分**——标签名允许含逗号，切分会把下拉里选中的那一项筛成别的条件）/ `lead`（兴趣测评三字码任意位置包含所选六型字母（#305）或 `none`）/ `sortKey` / `sortDir`，分页在过滤后执行、`total` 为过滤后命中数）。GET 每行另带 `classId`（#243：教师面板据此隐藏越界行的删除入口）与兴趣测评字段（#234：`assessmentCode` / `assessmentStatus` / `assessmentAt` + 详情条形用的六型快照 `assessmentScores`），取「`completed` 且 `is_current=1`」的当前有效结果，未测行为 `none` / `null`；分页、总数与既有排序口径不变。DELETE 由 `WriteGuard` 在路由内判定班级归属（#243）：教师只能清除本人管辖班级学生的档案，未分班 / 他班 / 不在册 id 整批 403、不落任何写入；管理员仍可清除任意在册学生，不在册 id 显式 404；成功与被拒均记审计 `profile:clear`（metadata 只含学号与条数，不含档案内容） |
 | `/api/manage/profiles/submissions` | GET | GET | 管理端查看学生提交历史（#95）：admin 全量、teacher 仅管辖班级 |
 | `/api/manage/profiles/submissions/exceeding` | GET | GET | 超出版本上限的学生列表（#95） |
-| `/api/manage/groups` | GET / POST | 全方法 | 课堂分组（#101）：GET 读该班当前分组 + 指标 + 与最近一批的差异（读不限班级）；POST 触发自动分组，**完全覆盖**当前分组并追加一份历史批次归档 |
-| `/api/manage/groups/members` | PATCH | 全方法 | 手工换人（#101）：把一个成员移到本班另一个组，允许移入超员组 |
+| `/api/manage/groups` | GET / POST | 全方法 | 课堂分组（#101 / #345）：GET 读该班当前分组 + 指标 + 组长 + 与最近一批的差异（读不限班级）；POST 应用分组（`groups` = 预览里换人/设组长后的那一份，服务端再校验并重算指标），**完全覆盖**当前分组并追加一份历史批次归档 |
+| `/api/manage/groups/preview` | POST | 全方法（只算不写库） | 智能分组预览（#345）：策略 / 权重 / variant → 分组候选 + 指标 + 覆盖率 + 角色与组长建议；不写任何表 |
+| `/api/manage/groups/leader` | PATCH | 全方法 | 设置 / 取消组长（#345）：写限本人班级，组长必须是本组成员，越权 403 + 审计 `group:leader` |
+| `/api/manage/groups/members` | PATCH | 全方法 | 手工换人（#101 / #345）：把一个成员移到本班另一个组，允许移入超员组；原组长被移走时自动回退并回传 `leaderCleared` |
 | `/api/manage/groups/entries` | POST / DELETE | 全方法 | 手工建空组 / 删空组（#101）：非空组一律拒绝删除，先移人再删 |
 | `/api/manage/groups/batches` | GET | 全方法（实际只读） | 该班历史批次列表（#101，新→旧） |
 | `/api/manage/groups/batches/[id]` | GET | 全方法（实际只读） | 单批次明细：批次头 + 各组内聚度快照 + 成员姓名学号快照（#101） |
@@ -247,17 +249,17 @@
 
 | 表 | 用途 | 纳入备份 |
 |---|---|---|
-| `class_groups` | **当前**分组的组：`class_id` + `group_no`，`UNIQUE(class_id, group_no)`；允许空组（教师手工建组先占位再移人） | ✅ |
+| `class_groups` | **当前**分组的组：`class_id` + `group_no` + `leader_user_id`（#345 组长，可空；旧库 `init()` 自动补列），`UNIQUE(class_id, group_no)`；允许空组（教师手工建组先占位再移人） | ✅ |
 | `class_group_members` | **当前**分组的成员：`group_id` + `user_id`，`UNIQUE(user_id)` 全局——一个学生同时只能属于一个组，转班/删人必须清理旧行 | ✅ |
 | `group_batches` | 历史批次头（每次自动分组追加一条，永不覆盖）：`strategy`、`feature_sources`（本次用到的特征源 key/kind/weight）、`student_count` / `tagged_count`（覆盖率）、`metrics`（含两条基线）、操作者快照 | ✅ |
-| `group_batch_groups` | 批次内各组快照：`group_no` + `cohesion`（组内平均相似度）+ `member_count`；**内聚度必须存快照**，标签随时间变，事后算不出当时的质量 | ✅ |
+| `group_batch_groups` | 批次内各组快照：`group_no` + `cohesion`（组内平均相似度）+ `member_count` + `leader_user_id`（#345 组长快照）；**内聚度与组长必须存快照**，标签/组长随时间变，事后算不出当时的状态 | ✅ |
 | `group_batch_members` | 批次内成员快照：`user_id` + **冗余的 `user_code` / `name`**，账号删除后历史批次仍可读；因此该列**不建外键**（当前侧 `class_group_members.user_id` 建外键，两侧职责不同） | ✅ |
 
 **班级名匹配口径（#191）**：`classes.name` 的比较统一为 **trim 后全等、区分大小写**，与前端 JS 全等对齐。`getClassByName()` 在两适配器内部均用 `getClasses()` + JS 全等实现（不依赖 SQL 排序规则），确保 SQLite / MySQL / MariaDB 行为恒等；归一化入口为 `resolveClassByName()`（`src/lib/class-utils.ts`），业务层禁止再写 `WHERE name = ?`。
 
 > **统计分组身份（#260）**：趋势 / 对比 / 名册统一按 `classes.id` 分组，`class_id IS NULL`（含悬空引用）映射为内部哨兵键 `__unassigned__`、展示标签「未分班」；真实班级的 `key` 仍是班名、`label` 为班名。`key` 用于取数 / 排序 / 下钻，`label` 只用于展示。禁止再写 `COALESCE(c.name, '未分班')` 当分组键。班级新建 / 改名拒绝 `未分班`、`还没分班`、`__unassigned__` 三个保留名（只拦未来写入，不迁移存量、不自动改名）。
 
-备份格式 `BackupData`（**version 7**，定义在 `src/lib/db.ts`；#162 增加评价文字列）：十六表全量（`onet_occupations` 是唯一不纳入备份的表），其中 `audit_logs` / `configs_profile` / `storage_backends` / `profile_submissions` / 分组五表 / 测评三表为可选字段（旧备份缺失时读取方容忍 `undefined`；v6 及更早备份的 `evaluation_text` 按 `null` 恢复）；含 `password_hash`，不含上传文件。
+备份格式 `BackupData`（**version 8**，定义在 `src/lib/db.ts`；#162 增加评价文字列，#345 增加分组组长列）：十六表全量（`onet_occupations` 是唯一不纳入备份的表），其中 `audit_logs` / `configs_profile` / `storage_backends` / `profile_submissions` / 分组五表 / 测评三表为可选字段（旧备份缺失时读取方容忍 `undefined`；v6 及更早备份的 `evaluation_text` 按 `null` 恢复）；含 `password_hash`，不含上传文件。
 
 > `onet_occupations`（#226）**不纳入备份**：它是离线快照导出的只读参考数据，重新部署/清表后由 `init()` 按快照重灌即可，没必要让每份备份多背 923 行；它不引用 `users` / `classes`，与下面 #211 的「按 id 引用就整表清空」口径无关。
 
@@ -269,24 +271,24 @@
 
 > **测评三表的两种处理**：`assessments` + `assessment_questions` 是参考数据，**两字段齐备才整体替换**，缺字段保留现状（可被种子自愈，不会出现「换了定义没换题库」）。`assessment_results` 则**一律先清空**、备份带字段才回填（#281 新增的 `assessment_questions.origin` 在旧备份里缺失时按 `cn-original` 恢复，#282 新增的 `assessments.items_per_attempt` / `assessment_results.items_json` 缺失时按列默认值 `0` / `'[]'` 恢复，沿用「缺字段一律容忍」口径——补默认值后 `upgradeAssessmentBank()` 会把 `items_per_attempt` 补成种子口径，不留「从未存在过的卷量」）：它只靠数值 `user_id` 关联，而 `users` 恢复时已整表替换，保留旧结果会把甲的结果挂到乙名下（恢复到另一套库的旧备份时尤其明显）——与分组五表的「旧备份恢复后即为未分组」同口径。
 
-## 课堂分组（#101）
+## 课堂分组（#101 / #345）
 
-<!-- 对账：规模规则与相似度口径见 `src/__tests__/grouping-utils.test.ts`；纯函数在 `src/lib/grouping-utils.ts` / `grouping-features.ts` -->
+<!-- 对账：规模规则、策略与相似度口径见 `src/__tests__/grouping-utils.test.ts` / `grouping-strategy.test.ts`；纯函数在 `src/lib/grouping-utils.ts` / `grouping-features.ts`，测评上下文装载在 `src/lib/grouping-assessment.ts`；组长持久化与备份在 `grouping-db.test.ts` -->
 
-- **目标函数**：同质聚类——最大化各组内两两相似度之和。全班相似度总和恒定，故「组内最大」等价于「组间最小」，无需另设间组项
+- **目标函数（三种策略，默认 A）**：策略注册表在 `GROUPING_STRATEGIES`——A `interest-role-v1`「兴趣相近 + 性格互补」（兴趣相似度组内更高，大五角色覆盖 ≥3）、B `interest-contrast-v1`「兴趣互补」（每组尽量覆盖更多主导型，性格仍互补）、C `idf-cosine`「仅按标签」（沿用 #101 原算法，未做测评也能用）。策略名写进 `group_batches.strategy`，A/B 与旧批次可回放；`variant` 是**确定性变体号**（重新生成换一版候选，同输入同 variant 必得同输出）
 - **规模规则**：组数 `g = ⌈n/5⌉`，前 `n mod g` 组各多 1 人（54 人 → 10×5 + 1×4）。`n ≥ 3` 时**不产生 1–2 人组**；`n = 1 / 2` 只有一个组、就是一两个人（不拆分），`n ∈ {6,7,11}` 数学上只能到 3 人组，均属已知取舍
-- **相似度**：平滑 IDF 加权的二值余弦，`idf = ln((1+N)/(1+df)) + 1`（scikit-learn `smooth_idf` 口径）。平滑项**不可去掉**：`ln(N/df)` 在 df=N（全班都打同一标签）时退化为 0，会把所有相似度塌成 0、分组退回无意义
-- **分配两阶段**：① 容量优先贪心——有特征的学生按「最孤立者优先做种子 → 与当前组最相似者优先入组」；② FM 式交换精修——一轮内连续取当前最优交换（**允许暂时变差**），轮末回到本轮最优快照，只做等量交换所以容量天然守恒。`bestSwap` 的 delta 需要「每个学生 × 每个组」的相似度前缀和，只填自己所在组会让交叉项恒为 0（看似在精修，其实没优化目标）
-- **确定性**：输入先按 `user_code` 升序稳定排序，平局按 `user_code`，全流程无随机源；只有对比基线用固定种子（mulberry32，随机基线取 20 次均值）
-- **特征源注册表**：算法只认 `FeatureSourceDef {key,label,kind,weight,extract}`，**不碰 `users.tags`**。新增一个数据源 = 往 `FEATURE_SOURCES` 加一条（必要时新增一种 `kind` 的相似度实现），历史批次靠 `group_batches.feature_sources` 记下当时用了哪些源；某源覆盖人数 <2 时自动不参与，不会稀释其他源
-- **指标与零信号**：`coveredCount`（有特征的人）/ `nonZeroPairs`（有共同特征的配对数）如实反映信号强弱，两条基线给出「比随机好多少」。全班没标签时不报错、指标为 0，界面显示警告但**不阻断**（开学第一天必然零提交）
-- **端点边界**：读不限班级（教师可看全校），写限自建班级；触发自动分组 = **完全覆盖当前分组**（手工调整不可恢复）+ 追加一份历史归档，两步在同一事务内完成
+- **相似度**：标签源沿用平滑 IDF 加权的二值余弦（`idf = ln((1+N)/(1+df)) + 1`，scikit-learn `smooth_idf` 口径；平滑项不可去，否则全班同标签时所有相似度塌成 0）。测评源是**数值向量**：RIASEC 六维 / 大五 C·E·O·A 四维先按**班内 z-score 标准化**（看形状而非绝对高低），算余弦后映射到 `[0,1]`；某维班内方差为 0 时跳过。多源加权**逐对按可用源归一**：一方缺测（如没做测评）时该源不参与这一对、分母也只算两边都有值的源，避免「缺测 = 0 分」稀释相似度
+- **分配流程（A/B）**：按主导 RIASEC 分桶 → 给每组分配「主型配额」（variant 决定轮转起点）→ 按权重贪心填位（A 取相似度最高 / B 取最低，缺角色或新主导型有软加成）→ 角色覆盖不足做最小损失交换修复 → B 再做一次主导型分散修复 → A 做一次「不破坏角色覆盖」的相似度精修（B **不做**，否则会被拉回同型聚集）。C 保留原两阶段贪心 + FM 精修
+- **确定性**：输入先按 `user_code` 升序稳定排序，平局按 `user_code` / 下标，全流程无随机源；只有对比基线用固定种子（mulberry32，随机基线取 20 次均值）。输入顺序不影响结果
+- **特征源注册表与技术边界**：算法只认 `FeatureSourceDef {key,label,kind,weight,version,extract}`，**不碰 `users.tags`**；#345 注册 `tags` / `riasec` / `bigfive` 三个源，默认权重 `标签 0.2 / 兴趣 0.5 / 性格 0.3`（可调）。**大五 N（神经质）不注册、不参与任何权重与展示**（单测用「翻转 N 不改变分组」锁住）。测评数据不在 `users` 表：路由先按学号批查结果快照装进 `AssessmentFeatureContext`，某套量表读取失败只降级该源，不阻断分组；覆盖率按全部注册源如实统计（`coverageBySource`），「两套都没做」单列为 `untestedCount`
+- **指标**：`coveredCount` / `nonZeroPairs` / 两条基线给出信号强弱；#345 增 `roleCoverage`（每组 0–4，目标 ≥3）/ `roleCoverageAverage` / `coverageBySource` / `untestedCount` / `balance`（组间 RIASEC 均值标准差）。角色由大五高维映射（组织者=C、推进者=E、点子王=O、协调者=A，阈值 50），**只用于组合、不做能力评价、不在学生端展示**。`overall` 与内聚度只含已进组的人，覆盖率按全班算——界面对外分列标注
+- **预览与应用（#345）**：`POST /api/manage/groups/preview` 只算不写库（读权限，与 GET 一致）；`POST /api/manage/groups` 应用时若带 `groups`（预览里换人/设组长后的那一份）服务端**重新校验**（本班、不重不漏、≤5 人、组间差 ≤1、组长本组）并按当前数据重算指标，客户端传来的指标一律不信；不带 `groups` 则服务端按策略生成。应用 = **完全覆盖当前分组 + 追加历史归档**（同一事务）；覆盖式写入失败/被拒均记审计
+- **组长（#345）**：`class_groups.leader_user_id` + `group_batch_groups.leader_user_id`（批次快照）。`PATCH /api/manage/groups/leader` 写限本人班级（`canModifyClass`，越权 403 + 审计），组长必须是本组成员；成员被移组时若他是原组长则自动回退为空并回传 `leaderCleared`。**学生端小组工作区**（按批次隔离、公告/任务）由 #346 提供接口，本 issue 的应用接口先返回 `workspaceId: null`，等 #346 落地后接线
+- **端点边界**：读不限班级（教师可看全校），写限自建班级；自动分组/应用之后追加一份历史归档；历史批次记录 `strategy` / `feature_sources`（含权重与版本）/ 覆盖率 / 指标 / **组长快照**，旧批次只读
 - **界面**：管理面板「用户管理 → 课堂分组」与教师面板「数据管理 → 课堂分组」为同一组件；班级选择器列全校，非本人创建的班级标注「只读」（列表没加载成功时不下这个判断，避免误标自建班）；「当前分组 / 历史批次」分段，历史是只读快照（成员取归档时的姓名与学号，账号删除后仍可读）；头像取不到图时回落为姓名首字（`TextAvatar`）
-- **手工调整**：触发自动分组要**二次确认 + 亲手输入预期组数**（组数由 `computeGroupSizes` 现算，与算法同一口径）；换人用底部抽屉（移动端）/ 居中弹窗（桌面），抽屉里显示该生标签与各目标组的人数、内聚度、标签概览，当前组置灰、已满组标注但仍可移入；只允许删空组；界面按 `GROUP_SIZE_CAP` 标「超员」，规则破坏可见而不阻断
+- **手工调整**：主入口是「智能分组」预览面板——选策略（可调权重）→ 生成预览（不写库）→ 指标卡（兴趣相似度 vs 基线、角色覆盖、测评覆盖）→ 在组卡片里换人（等量对调）、★ 设组长、换一版候选 → 确认应用。当前分组卡片上也可直接设/取消组长；换人用底部抽屉（移动端）/ 居中弹窗（桌面），抽屉里显示该生标签与各目标组的人数、内聚度、标签概览，当前组置灰、已满组标注但仍可移入；只允许删空组；界面按 `GROUP_SIZE_CAP` 标「超员」，规则破坏可见而不阻断
 - **未进组名单**：视图返回 `ungrouped`（全班减去所有组里的学生）。自动分组之后转入、或导入漏填组号都会停在这里，不列出来就只能靠重新分组覆盖掉手工调整
-- **指标分母**：覆盖率与「有共同特征的学生对」按**全班**算，`overall` 与内聚度只含**已进组**的人——界面对外分列标注，不混用
-- **学生侧可见性**：`/api/shared/group` 只返回请求者所在组的名单；`/api/shared/storage-sign` 为学生放行**同组同学的头像**（仅此一项，词云不放行），同组判定用单条查询按 `group_id` 比对，避免两次读之间被原子重分组复用组号
-
+- **学生侧可见性**：`/api/shared/group` 只返回请求者所在组的名单（#346 起还会带分组依据与组长）；`/api/shared/storage-sign` 为学生放行**同组同学的头像**（仅此一项，词云不放行），同组判定用单条查询按 `group_id` 比对，避免两次读之间被原子重分组复用组号
 ## 职业测评数据层（#221）
 
 <!-- 对账：表结构见上「数据库」；题库种子在 `src/lib/assessment-data.ts`，行为测试在 `src/__tests__/assessment-db.test.ts` -->
