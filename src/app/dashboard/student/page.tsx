@@ -20,6 +20,7 @@ import { useSession } from "@/hooks/useSession";
 import { useFileUrl } from "@/hooks/useFileUrl";
 import { safeImageUrl } from "@/lib/sanitize";
 import { submitProfile } from "@/lib/profile-submit";
+import { nextTagCategoriesState, type TagCategoriesState } from "@/lib/tag-categories-state";
 import {
   EVALUATION_COUNT,
   MAX_EVALUATION_TEXT_LENGTH,
@@ -542,6 +543,8 @@ export default function StudentDashboardPage() {
   // 编辑模式状态
   const [editing, setEditing] = useState(false);
   const [categories, setCategories] = useState<TagCategory[]>([]);
+  // 标签目录加载状态（#261）：数组为空是合法 ready 态，不能再用 length 推断是否加载中
+  const [categoriesState, setCategoriesState] = useState<TagCategoriesState>("loading");
   const [maxCustomTags, setMaxCustomTags] = useState<number | undefined>(undefined);
   // 图片体积上限（#206）：选图前预检用，随 /api/tags 下发；服务端校验仍是最终防线
   const [avatarMaxMb, setAvatarMaxMb] = useState<number | undefined>(undefined);
@@ -631,6 +634,7 @@ export default function StudentDashboardPage() {
   // + 图片体积上限（#206，选图前预检）
   // 返回本次请求实测的截止状态：调用方要按最新值判分支，不能读可能滞后的 state
   const loadCategories = useCallback(async (): Promise<{ ok: boolean; closed: boolean }> => {
+    setCategoriesState((prev) => nextTagCategoriesState(prev, "start"));
     try {
       const res = await fetch("/api/tags");
       const data = await res.json();
@@ -641,11 +645,14 @@ export default function StudentDashboardPage() {
         const closed = data.submissionClosed === true;
         setSubmissionClosed(closed);
         setSubmissionDeadline(typeof data.submissionDeadline === "string" ? data.submissionDeadline : null);
+        setCategoriesState((prev) => nextTagCategoriesState(prev, "success"));
         return { ok: true, closed };
       }
+      setCategoriesState((prev) => nextTagCategoriesState(prev, "failure"));
       return { ok: false, closed: false };
     } catch (err) {
       console.error("Failed to load tags:", err);
+      setCategoriesState((prev) => nextTagCategoriesState(prev, "failure"));
       return { ok: false, closed: false };
     }
   }, []);
@@ -679,9 +686,9 @@ export default function StudentDashboardPage() {
         : ["", "", ""]
     );
     setEditing(true);
-    // 分类为空时等待加载（编辑态有「标签加载中...」占位）；已有分类则后台刷新，
+    // 尚未就绪时等待加载（编辑态按状态显示加载/失败占位）；已就绪则后台刷新，
     // 顺带同步提交截止状态（#96）——#168 起面板内提交是唯一入口，不能让截止态陈旧
-    if (categories.length === 0) {
+    if (categoriesState !== "ready") {
       const { ok } = await loadCategories();
       if (!ok) toast.error("标签加载失败");
     } else {
@@ -1075,8 +1082,19 @@ export default function StudentDashboardPage() {
               <div className="space-y-5">
                 <section className="bg-card rounded-xl border border-border-soft p-5 space-y-4">
                   <ProfileSectionHeader label={hasSubmitted ? "修改标签" : "选择标签"} marker="required" />
-                  {categories.length === 0 ? (
+                  {categoriesState === "loading" ? (
                     <p className="text-sm text-muted py-4 text-center">标签加载中...</p>
+                  ) : categoriesState === "failed" ? (
+                    <div className="py-4 text-center space-y-3">
+                      <p className="text-sm text-danger-strong">标签加载失败，请检查网络后重试</p>
+                      <button
+                        type="button"
+                        onClick={() => void loadCategories()}
+                        className="px-4 py-2 bg-primary hover:bg-primary-strong text-white text-sm font-medium rounded-lg transition-colors"
+                      >
+                        重试
+                      </button>
+                    </div>
                   ) : (
                     <TagSelector
                       categories={categories}
