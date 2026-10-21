@@ -17,6 +17,7 @@ import {
   roleCoverageOfVectors,
   roleLabelOf,
   rolesOf,
+  sourcesFromRecorded,
   untestedAssessmentCount,
   withWeights,
   type AssessmentFeatureContext,
@@ -129,6 +130,28 @@ describe("分组特征源（#345）：RIASEC + 大五去 N", () => {
       ["bigfive", 0.3, "1"],
     ]);
     expect(FEATURE_SOURCES.map((source) => source.kind)).toEqual(["set", "vector", "vector"]);
+  });
+
+  it("批次头可回放：sourcesFromRecorded 按注册表顺序还原源与权重，未知 key 忽略、非法权重回落默认", () => {
+    expect(
+      sourcesFromRecorded([{ key: "tags", kind: "set", weight: 0.4, version: "1" }])?.map((s) => [s.key, s.weight])
+    ).toEqual([["tags", 0.4]]);
+    expect(
+      sourcesFromRecorded([
+        { key: "bigfive", weight: 0.7 },
+        { key: "tags", weight: 0.1 },
+        { key: "legacy-source", weight: 0.5 },
+      ])?.map((s) => [s.key, s.weight])
+    ).toEqual([
+      ["tags", 0.1],
+      ["bigfive", 0.7],
+    ]);
+    expect(sourcesFromRecorded([{ key: "tags", weight: Number.NaN }])?.[0].weight).toBe(0.2);
+    expect(sourcesFromRecorded([{ key: "riasec", weight: -1 }])?.[0].weight).toBe(0.5);
+    expect(sourcesFromRecorded(null)).toBeNull();
+    expect(sourcesFromRecorded([{ weight: 0.5 } as unknown as { key: string }])).toBeNull();
+    // 回放出来的 extract 必须还是注册表那一份（否则会拿到旧版取数逻辑）
+    expect(sourcesFromRecorded([{ key: "bigfive", weight: 0.3 }])?.[0].extract).toBe(FEATURE_SOURCES[2].extract);
   });
 
   it("大五只注册 C/E/O/A：N 不在维度列表、不在角色映射、不进向量", () => {
@@ -275,6 +298,32 @@ describe("三种策略（#345）", () => {
     });
     expect(withStrategy.groups).toEqual(legacy.groups);
     expect(withStrategy.metrics.activeSourceKeys).toEqual(["tags"]);
+  });
+
+  it("C（仅按标签）+ 全班已测：覆盖率/未测/角色按展示源如实统计，且分配与相似度一位不变", () => {
+    const { users, context } = strategyClass();
+    const displayVectors = buildFeatureVectors(users, FEATURE_SOURCES, context);
+    const withDisplay = buildGrouping(displayVectors, TAG_ONLY_SOURCES, {
+      strategy: GROUPING_STRATEGY_TAGS_ONLY,
+      displaySources: FEATURE_SOURCES,
+    });
+    // 只喂标签向量时的旧口径（覆盖率只剩标签列）——展示口径的修正不允许改变分组与相似度
+    const legacyVectors = buildFeatureVectors(users, TAG_ONLY_SOURCES, context);
+    const tagsOnlyShape = buildGrouping(legacyVectors, TAG_ONLY_SOURCES, { strategy: GROUPING_STRATEGY_TAGS_ONLY });
+    expect(withDisplay.groups).toEqual(tagsOnlyShape.groups);
+    expect(withDisplay.metrics.overall).toBe(tagsOnlyShape.metrics.overall);
+    expect(withDisplay.metrics.activeSourceKeys).toEqual(["tags"]);
+    // 修正点：全班都做了两套测评时，C 不能再报「未测 12 人 / 测评覆盖 0」
+    expect(withDisplay.metrics.untestedCount).toBe(0);
+    expect(withDisplay.metrics.coverageBySource?.map((row) => row.key)).toEqual(["tags", "riasec", "bigfive"]);
+    expect(withDisplay.metrics.coverageBySource?.find((row) => row.key === "riasec")?.covered).toBe(12);
+    expect(withDisplay.metrics.coverageBySource?.find((row) => row.key === "bigfive")?.covered).toBe(12);
+    expect(withDisplay.metrics.coveredCount).toBe(12);
+    // 角色覆盖是学生属性，与本次用了哪些源无关
+    expect(Math.max(...(withDisplay.metrics.roleCoverage ?? [0]))).toBeGreaterThan(0);
+    // 旧口径的失真留个记录：不传展示向量时 C 的测评列会整列消失、未测=全班
+    expect(tagsOnlyShape.metrics.coverageBySource?.map((row) => row.key)).toEqual(["tags"]);
+    expect(tagsOnlyShape.metrics.untestedCount).toBe(12);
   });
 
   it("缺测评数据时 A 仍可生成（退化为标签），未测人数如实统计", () => {

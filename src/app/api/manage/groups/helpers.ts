@@ -1,5 +1,5 @@
 import type { NextRequest } from "next/server";
-import type { UserRow } from "@/lib/db";
+import type { GroupBatchRow, UserRow } from "@/lib/db";
 import {
   getClasses,
   getClassGroupMembers,
@@ -20,6 +20,7 @@ import {
   featureLabels,
   rolesOf,
   roleLabelOf,
+  sourcesFromRecorded,
   untestedAssessmentCount,
   withWeights,
   type FeatureSourceDef,
@@ -28,6 +29,7 @@ import {
 import {
   DEFAULT_GROUPING_STRATEGY,
   GROUPING_STRATEGIES,
+  GROUPING_STRATEGY_TAGS_ONLY,
   GROUP_SIZE_CAP,
   ROLE_COVERAGE_TARGET,
   buildGrouping,
@@ -147,6 +149,12 @@ export interface GroupingView {
   activeSourceKeys: string[];
   /** 源的展示元信息：界面据此说明「按什么分组」 */
   sources: { key: string; label: string; kind: string; version: string }[];
+  /**
+   * 上面这些指标是按哪一套口径重算的（#345 评审第 3 条）：
+   * 有批次时回放**最近一批**记录的策略/源/权重（与历史批次、预览可比），
+   * 没有批次可依据时用默认口径，`fromBatchId` 为 null，界面须如实标注。
+   */
+  metricsBasis: { strategy: string; strategyLabel: string; fromBatchId: number | null };
   /** 三种策略（界面选择器用；含默认标记） */
   strategies: typeof GROUPING_STRATEGIES;
   defaultStrategy: string;
@@ -222,6 +230,33 @@ export function parseFeatureSources(raw: string | null): GroupingBatchView["feat
   }
 }
 
+/** 当前分组指标的计算依据（源集合 + 策略 + 来自哪一批） */
+interface MetricsBasis {
+  sources: FeatureSourceDef[];
+  strategy: string;
+  fromBatchId: number | null;
+}
+
+/**
+ * 回放「生成当前分组的那一批」的源与权重（#345 评审第 3 条）。
+ *
+ * 当前分组可能被教师手工调整过，指标必须重算；但**重算要用生成它的那套源/权重**，
+ * 否则自定义权重或旧 C 批次下，「当前分组」的相似度/内聚度与历史批次、预览互不可比。
+ * 无批次可依（导入或手工维护的名单）或批次记录无法回放时，回落到默认源集合并由
+ * `fromBatchId = null` 让界面标注。
+ */
+export function metricsBasisOf(latest: GroupBatchRow | undefined): MetricsBasis {
+  if (!latest) return { sources: FEATURE_SOURCES, strategy: DEFAULT_GROUPING_STRATEGY, fromBatchId: null };
+  const strategy = isGroupingStrategyKey(latest.strategy) ? latest.strategy : DEFAULT_GROUPING_STRATEGY;
+  // 回放不出来时按策略本来的源兜底：C 只用标签，A/B 用全部注册源
+  const fallback = strategy === GROUPING_STRATEGY_TAGS_ONLY ? TAG_ONLY_SOURCES : FEATURE_SOURCES;
+  return {
+    sources: sourcesFromRecorded(parseFeatureSources(latest.feature_sources)) ?? fallback,
+    strategy,
+    fromBatchId: latest.id,
+  };
+}
+
 function memberView(vector: FeatureVector, user: UserRow): GroupMemberView {
   const dominantType = dominantRiasecOf(vector);
   return {
@@ -248,8 +283,11 @@ export async function buildGroupingView(classId: number): Promise<GroupingView> 
   const roster = rosterOf(students, classId);
   // #345：测评上下文只影响「分组依据展示 / 角色覆盖」，读失败时降级为只有标签
   const loaded = await loadAssessmentFeatureContext(roster);
+  // 展示向量：全部注册源 + 同一份测评上下文（覆盖率 / 未测 / 角色 / 成员标签按它算）
   const vectors = buildFeatureVectors(roster, FEATURE_SOURCES, { assessments: loaded.context });
-  const sim = computeSimilarities(vectors, FEATURE_SOURCES);
+  const latest = batches[0];
+  const basis = metricsBasisOf(latest);
+  const sim = computeSimilarities(vectors, basis.sources);
   const indexOf = new Map(roster.map((s, i) => [s.id, i]));
   const groupNoById = new Map(classGroups.map((g) => [g.id, g.group_no]));
   const leaderByNo = new Map(classGroups.map((g) => [g.group_no, g.leader_user_id]));
@@ -265,7 +303,7 @@ export async function buildGroupingView(classId: number): Promise<GroupingView> 
 
   const sortedNos = [...membersByNo.keys()].sort((a, b) => a - b);
   const indexGroups = sortedNos.map((no) => (membersByNo.get(no) ?? []).sort((a, b) => a - b));
-  const metrics = computeMetrics(indexGroups, sim, vectors, FEATURE_SOURCES);
+  const metrics = computeMetrics(indexGroups, sim, vectors, basis.sources, basis.strategy, FEATURE_SOURCES);
 
   const groups: GroupView[] = sortedNos.map((no, i) => {
     const members = indexGroups[i]
@@ -295,7 +333,6 @@ export async function buildGroupingView(classId: number): Promise<GroupingView> 
   });
 
   // 最近一次自动分组 + 与它的差异（只与最近一批比）
-  const latest = batches[0];
   let latestBatch: GroupingBatchView | null = null;
   let diffCount = 0;
   if (latest) {
@@ -343,7 +380,12 @@ export async function buildGroupingView(classId: number): Promise<GroupingView> 
     overall: metrics.overall,
     baselines: metrics.baselines,
     activeSourceKeys: metrics.activeSourceKeys,
-    sources: describeSourceMeta(FEATURE_SOURCES),
+    sources: describeSourceMeta(basis.sources),
+    metricsBasis: {
+      strategy: basis.strategy,
+      strategyLabel: groupingStrategyLabel(basis.strategy),
+      fromBatchId: basis.fromBatchId,
+    },
     strategies: GROUPING_STRATEGIES,
     defaultStrategy: DEFAULT_GROUPING_STRATEGY,
     coverageBySource: coverageBySource(vectors, FEATURE_SOURCES),
@@ -460,8 +502,15 @@ export async function buildGroupingPreview(
 
   const loaded = await loadAssessmentFeatureContext(roster);
   const sources = sourcesForStrategy(options.strategy, options.weights ?? null);
-  const vectors = buildFeatureVectors(roster, sources, { assessments: loaded.context });
-  const result = buildGrouping(vectors, sources, { strategy: options.strategy, variant: options.variant });
+  // 向量按**全部注册源**建，相似度只喂 `sources`：策略 C 只用标签参与计算，
+  // 但「测评覆盖 / 未测人数 / 成员主导型与角色」是这个班的数据事实，与用了哪些源无关
+  // （#345 评审第 1 条：否则 C 会把全班算成未测、测评覆盖恒 0/N）。
+  const vectors = buildFeatureVectors(roster, FEATURE_SOURCES, { assessments: loaded.context });
+  const result = buildGrouping(vectors, sources, {
+    strategy: options.strategy,
+    variant: options.variant,
+    displaySources: FEATURE_SOURCES,
+  });
 
   let applied: AppliedGroupInput[] | null = null;
   if (options.groups !== undefined && options.groups !== null) {
@@ -470,7 +519,7 @@ export async function buildGroupingPreview(
     applied = normalized.groups;
   }
   const metrics = applied
-    ? metricsForAppliedGroups(applied, result.vectors, options.strategy, sources)
+    ? metricsForAppliedGroups(applied, result.vectors, options.strategy, sources, FEATURE_SOURCES)
     : result.metrics;
   const indexByUserId = new Map(result.vectors.map((vector, index) => [vector.studentId, index]));
   const layout = applied
@@ -520,7 +569,7 @@ export async function buildGroupingPreview(
       strategyLabel: groupingStrategyLabel(options.strategy),
       variant: options.variant,
       sources: sources.map((s) => ({ key: s.key, label: s.label, kind: s.kind, weight: s.weight })),
-      coverageBySource: coverageBySource(result.vectors, sources),
+      coverageBySource: coverageBySource(result.vectors, FEATURE_SOURCES),
       untestedCount: untestedAssessmentCount(result.vectors),
       assessmentAvailable: loaded.available,
       degraded: loaded.degraded,
@@ -602,12 +651,18 @@ export function normalizeAppliedGroups(input: unknown, roster: UserRow[]): Norma
   return { ok: true, groups };
 }
 
-/** 用「应用时提交的分组」重算指标（日志/批次归档与预览同口径，但不信客户端算的数） */
+/**
+ * 用「应用时提交的分组」重算指标（日志/批次归档与预览同口径，但不信客户端算的数）。
+ *
+ * `vectors` 传**展示向量**（全部注册源），`sources` 传本次参与计算的源，
+ * `displaySources` 传覆盖率口径的源——与 `buildGrouping` 同一套区分。
+ */
 export function metricsForAppliedGroups(
   groups: AppliedGroupInput[],
   vectors: FeatureVector[],
   strategy: string,
-  sources: FeatureSourceDef[]
+  sources: FeatureSourceDef[],
+  displaySources: FeatureSourceDef[] = sources
 ): GroupingMetrics {
   const indexByUserId = new Map(vectors.map((v, index) => [v.studentId, index]));
   const indexGroups = groups.map((g) =>
@@ -617,7 +672,7 @@ export function metricsForAppliedGroups(
       .sort((a, b) => a - b)
   );
   const sim = computeSimilarities(vectors, sources);
-  return computeMetrics(indexGroups, sim, vectors, sources, strategy);
+  return computeMetrics(indexGroups, sim, vectors, sources, strategy, displaySources);
 }
 
 /** 批次头特征源 JSON（含权重与版本；与 `describeSources` 同一口径） */

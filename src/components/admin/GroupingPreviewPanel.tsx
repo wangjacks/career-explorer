@@ -95,8 +95,9 @@ interface SwapSelection {
 
 /**
  * 合并组长选择：教师选过且仍是本组成员 → 保留；显式取消 → 保持 null；
- * 其余（新组 / 原组长已被换走）→ 用服务端建议。否则重新生成后会把旧组长带进
- * 他不在的组，应用时被服务端以「组长必须是本组成员」拒绝。
+ * 原组长已被换走 → 置 null 由教师重新指定（不自动顶替，避免把教师没选的人当组长）；
+ * 该组是新生成的（previous 里没有这个组号）→ 用服务端建议。
+ * 否则重新生成后会把旧组长带进他不在的组，应用时被服务端以「组长必须是本组成员」拒绝。
  */
 function mergeLeaders(
   next: GroupingPreview,
@@ -133,7 +134,9 @@ export default function GroupingPreviewPanel({
   const [strategy, setStrategy] = useState(defaultStrategy);
   const [variant, setVariant] = useState(0);
   const [weightsOpen, setWeightsOpen] = useState(false);
-  const [weights, setWeights] = useState<Record<string, number>>({ tags: 0.2, riasec: 0.5, bigfive: 0.3 });
+  // 权重初值取自预览回显的源权重（`weights[key] ?? source.weight`），前端不再写死一份默认值，
+  // 避免与服务端默认权重漂移（评审第 7 条）
+  const [weights, setWeights] = useState<Record<string, number>>({});
   const [preview, setPreview] = useState<GroupingPreview | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -277,8 +280,26 @@ export default function GroupingPreviewPanel({
     [preview, leaders]
   );
 
+  /**
+   * 这份预览**实际用的**权重（服务端回显）。应用时必须提交它，
+   * 而不是权重输入框里的草稿——否则批次记录的权重与生成分组的权重不一致，
+   * 「历史批次可回放」的前提就没了（评审第 2 条）。
+   */
+  const previewWeights = useMemo(() => {
+    if (!preview) return null;
+    const out: Record<string, number> = {};
+    for (const source of preview.sources) out[source.key] = source.weight;
+    return out;
+  }, [preview]);
+
+  /** 输入框改过但还没「按新权重重算」：此刻分组并不是按输入框里的权重生成的 */
+  const weightsDirty = useMemo(() => {
+    if (!preview || strategy === "idf-cosine") return false;
+    return preview.sources.some((source) => (weights[source.key] ?? source.weight) !== source.weight);
+  }, [preview, strategy, weights]);
+
   const apply = async () => {
-    if (!preview) return;
+    if (!preview || !previewWeights) return;
     setApplying(true);
     try {
       const res = await fetch("/api/manage/groups", {
@@ -288,7 +309,8 @@ export default function GroupingPreviewPanel({
           classId,
           strategy,
           variant,
-          weights: strategy === "idf-cosine" ? undefined : weights,
+          // 提交预览实际用的权重（C 不用权重）
+          weights: strategy === "idf-cosine" ? undefined : previewWeights,
           groups: groupsPayload,
         }),
       });
@@ -388,11 +410,14 @@ export default function GroupingPreviewPanel({
           )}
         </div>
       )}
-      {preview && !loading && preview.groups.some((group) => group.roleCoverage < preview.roleCoverageTarget) && (
-        <p className="text-xs text-warning-strong">
-          有组的角色覆盖不足 {preview.roleCoverageTarget}：可「换一版候选」、调整策略，或直接接受（角色只用于组合参考）。
-        </p>
-      )}
+      {preview &&
+        !loading &&
+        strategy !== "idf-cosine" &&
+        preview.groups.some((group) => group.roleCoverage < preview.roleCoverageTarget) && (
+          <p className="text-xs text-warning-strong">
+            有组的角色覆盖不足 {preview.roleCoverageTarget}：可「换一版候选」、调整策略，或直接接受（角色只用于组合参考）。
+          </p>
+        )}
       {preview && !loading && preview.untestedCount > 0 && (
         <p className="text-xs text-muted">
           有 {preview.untestedCount} 名学生两套测评都没做，只按标签参与分组并被均分到各组；可在数据列表筛选「未测」提醒学生补做。
@@ -420,7 +445,7 @@ export default function GroupingPreviewPanel({
               />
             </label>
           ))}
-          <div className="sm:col-span-3">
+          <div className="sm:col-span-3 flex flex-wrap items-center gap-3">
             <button
               type="button"
               onClick={() => {
@@ -434,6 +459,11 @@ export default function GroupingPreviewPanel({
               <RefreshCw size={14} className={loading ? "animate-spin" : ""} aria-hidden />
               按新权重重算
             </button>
+            {weightsDirty && (
+              <span className="text-xs text-warning-strong">
+                权重已修改但还没重算：当前分组与指标仍是按上一版权重生成的，应用前请先「按新权重重算」。
+              </span>
+            )}
           </div>
         </div>
       )}
@@ -602,7 +632,13 @@ export default function GroupingPreviewPanel({
           </div>
 
           <div className="flex flex-wrap items-center gap-2 border-t border-border-soft pt-3">
-            <button type="button" onClick={regenerate} disabled={loading || applying || swapping} className={SECONDARY_BUTTON}>
+            <button
+              type="button"
+              onClick={regenerate}
+              disabled={loading || applying || swapping || strategy === "idf-cosine"}
+              title={strategy === "idf-cosine" ? "「仅按标签」的策略没有换候选的概念（每次结果相同）" : undefined}
+              className={SECONDARY_BUTTON}
+            >
               <RefreshCw size={14} className={loading ? "animate-spin" : ""} aria-hidden />
               换一版候选
             </button>
@@ -612,7 +648,8 @@ export default function GroupingPreviewPanel({
             <button
               type="button"
               onClick={() => setConfirmApply(true)}
-              disabled={!canModify || applying || swapping || groupsPayload.length === 0}
+              disabled={!canModify || applying || swapping || weightsDirty || groupsPayload.length === 0}
+              title={weightsDirty ? "权重已修改，请先按新权重重算" : undefined}
               className={`${PRIMARY_BUTTON} ml-auto`}
             >
               {applying ? "应用中..." : "应用分组"}

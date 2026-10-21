@@ -31,9 +31,11 @@ import { PATCH as leaderPatch } from "@/app/api/manage/groups/leader/route";
 import {
   applyGroupingResult,
   deleteGroupEntry,
+  getAssessmentByCode,
   getClassGroupMembers,
   getClassGroups,
   getClasses,
+  getCurrentAssessmentResultsByUserCodes,
   getGroupBatchDetail,
   getGroupBatches,
   getStudents,
@@ -46,6 +48,7 @@ import {
   updateClassGroupLeader,
 } from "@/lib/db";
 import type { ClassGroupMemberRow, ClassGroupRow, UserRow } from "@/lib/db";
+import { RIASEC_CODE } from "@/lib/assessment-data";
 
 const TEACHER_UID = 7;
 const OTHER_TEACHER_UID = 8;
@@ -131,8 +134,43 @@ beforeEach(() => {
   // 换人端点以 users 表的班级归属为准（#14 复核），默认按名册回查
   vi.mocked(getUserById).mockImplementation(async (id: number) => ROSTER.find((u) => u.id === id));
   vi.mocked(getGroupBatchDetail).mockResolvedValue({ batch: undefined, groups: [], members: [] });
+  // 测评上下文默认「量表已启用但无人有结果」：需要数据的用例各自覆盖（不清实现，故必须逐条给默认）
+  vi.mocked(getAssessmentByCode).mockImplementation(async (code: string) =>
+    ({ id: code === RIASEC_CODE ? 1 : 2, code }) as never
+  );
+  vi.mocked(getCurrentAssessmentResultsByUserCodes).mockResolvedValue([]);
   emptyGrouping();
 });
+
+/**
+ * 让 A 班 6 人都完成两套测评：每 3 人一个主导兴趣型，角色轮流命中 C/E/O/A。
+ * 覆盖率/未测/角色这类「展示口径」指标要有真数据才测得出来。
+ */
+function seedAllAssessed() {
+  const riasecAll = ["R", "I", "A", "S", "E", "C"];
+  const bigFiveAll = ["C", "E", "O", "A"];
+  const dominantByIndex = ["R", "I", "A"];
+  const roleByIndex = ["C", "E", "O", "A"];
+  vi.mocked(getCurrentAssessmentResultsByUserCodes).mockImplementation(async (assessmentId: number, userCodes) =>
+    (userCodes as string[]).map((user_code) => {
+      // 学号末位就是本班的 1..6 号学生
+      const index = Number(user_code.slice(-1)) - 1;
+      const json =
+        assessmentId === 1
+          ? riasecAll.map((key) => ({
+              key,
+              standard: key === dominantByIndex[index % 3] ? 90 - index : 30 + index,
+            }))
+          : bigFiveAll.map((key) => ({ key, standard: key === roleByIndex[index % 4] ? 80 : 30 }));
+      return {
+        user_code,
+        type_code: assessmentId === 1 ? dominantByIndex[index % 3] : null,
+        scores_json: JSON.stringify(json),
+        completed_at: "2026-10-01 09:00:00",
+      };
+    })
+  );
+}
 
 describe("POST /api/manage/groups — 触发自动分组（#101）", () => {
   it("未登录 → 401", async () => {
@@ -303,6 +341,109 @@ describe("GET /api/manage/groups — 读当前分组（读不限）", () => {
       "202600000006",
     ]);
     expect(view.ungrouped[0]).toMatchObject({ userId: 3, name: "学生3" });
+  });
+  it("当前分组指标回放最近批次的源与权重，与归档数字一致（#345 评审第 3 条）", async () => {
+    seedAllAssessed();
+    const cookie = await OWNER_COOKIE();
+    const weights = { tags: 0.1, riasec: 0.8, bigfive: 0.1 };
+    expect((await triggerPost(jsonRequest({ classId: CLASS_A, weights }, cookie))).status).toBe(200);
+    const batchArg = vi.mocked(applyGroupingResult).mock.calls[0][2];
+    const archived = JSON.parse(batchArg.metrics);
+    // 当前分组 = 刚应用的那一份（没有手工调整），批次头就是刚才那条
+    vi.mocked(getClassGroups).mockResolvedValue(
+      batchArg.groups.map((g, i) => ({
+        id: 100 + i,
+        class_id: CLASS_A,
+        group_no: g.groupNo,
+        created_at: "",
+      })) as ClassGroupRow[]
+    );
+    vi.mocked(getClassGroupMembers).mockResolvedValue(
+      batchArg.groups.flatMap((g, i) =>
+        g.members.map((m, k) => ({ id: i * 10 + k, group_id: 100 + i, user_id: m.userId, created_at: "" }))
+      ) as ClassGroupMemberRow[]
+    );
+    const batchRow = {
+      id: 7,
+      class_id: CLASS_A,
+      strategy: batchArg.strategy,
+      feature_sources: batchArg.featureSources,
+      group_size: 5,
+      student_count: batchArg.studentCount,
+      tagged_count: batchArg.taggedCount,
+      metrics: batchArg.metrics,
+      created_by_id: null,
+      created_by_name: null,
+      created_by_role: "teacher",
+      created_at: "2026-10-21 10:00:00",
+    };
+    vi.mocked(getGroupBatches).mockResolvedValue([batchRow]);
+
+    const view = await (await groupsGet(searchRequest(`classId=${CLASS_A}`))).json();
+    expect(view.metricsBasis).toEqual({
+      strategy: "interest-role-v1",
+      strategyLabel: "兴趣相近 + 性格互补",
+      fromBatchId: 7,
+    });
+    expect(view.sources.map((s: { key: string }) => s.key)).toEqual(["tags", "riasec", "bigfive"]);
+    expect(view.overall).toBeCloseTo(archived.overall, 9);
+    expect(view.activeSourceKeys).toEqual(archived.activeSourceKeys);
+
+    // 权重确实被回放了：把批次头换成默认权重重读，数字必须与归档不同
+    vi.mocked(getGroupBatches).mockResolvedValue([
+      {
+        ...batchRow,
+        feature_sources: JSON.stringify([
+          { key: "tags", kind: "set", weight: 0.2, version: "1" },
+          { key: "riasec", kind: "vector", weight: 0.5, version: "1" },
+          { key: "bigfive", kind: "vector", weight: 0.3, version: "1" },
+        ]),
+      },
+    ]);
+    const withDefaultWeights = await (await groupsGet(searchRequest(`classId=${CLASS_A}`))).json();
+    expect(withDefaultWeights.overall).not.toBeCloseTo(archived.overall, 6);
+  });
+
+  it("旧 C 批次的当前视图：相似度按标签口径回放，覆盖率仍按全部注册源展示", async () => {
+    seedAllAssessed();
+    vi.mocked(getClassGroups).mockResolvedValue([
+      { id: 11, class_id: CLASS_A, group_no: 1, created_at: "" },
+      { id: 12, class_id: CLASS_A, group_no: 2, created_at: "" },
+    ] as ClassGroupRow[]);
+    vi.mocked(getClassGroupMembers).mockResolvedValue([
+      { id: 1, group_id: 11, user_id: 1, created_at: "" },
+      { id: 2, group_id: 11, user_id: 2, created_at: "" },
+      { id: 3, group_id: 11, user_id: 3, created_at: "" },
+      { id: 4, group_id: 12, user_id: 4, created_at: "" },
+      { id: 5, group_id: 12, user_id: 5, created_at: "" },
+      { id: 6, group_id: 12, user_id: 6, created_at: "" },
+    ] as ClassGroupMemberRow[]);
+    vi.mocked(getGroupBatches).mockResolvedValue([
+      {
+        id: 8,
+        class_id: CLASS_A,
+        strategy: "idf-cosine",
+        feature_sources: JSON.stringify([{ key: "tags", kind: "set", weight: 0.2, version: "1" }]),
+        group_size: 5,
+        student_count: 6,
+        tagged_count: 6,
+        metrics: null,
+        created_by_id: null,
+        created_by_name: null,
+        created_by_role: "teacher",
+        created_at: "2026-10-20 10:00:00",
+      },
+    ]);
+
+    const view = await (await groupsGet(searchRequest(`classId=${CLASS_A}`))).json();
+    expect(view.metricsBasis.strategy).toBe("idf-cosine");
+    expect(view.sources.map((s: { key: string }) => s.key)).toEqual(["tags"]);
+    expect(view.activeSourceKeys).toEqual(["tags"]);
+    // 覆盖率口径与计算源无关：全班都做了测评就不能报「未测 6 人」
+    expect(view.untestedCount).toBe(0);
+    expect(view.coverageBySource.map((s: { key: string }) => s.key)).toEqual(["tags", "riasec", "bigfive"]);
+    expect(view.groups[0].members[0].dominantType).toBeTruthy();
+    expect(view.roleCoverageAverage).toBeGreaterThan(0);
   });
 });
 
@@ -717,6 +858,31 @@ describe("POST /api/manage/groups/preview — 智能分组预览（#345，不写
     expect(applyGroupingResult).not.toHaveBeenCalled();
   });
 
+  it("C（仅按标签）+ 全班已测：覆盖率/未测/成员标签按展示源如实统计（#345 评审第 1 条）", async () => {
+    seedAllAssessed();
+    const cookie = await OWNER_COOKIE();
+    const res = await previewPost(jsonRequest({ classId: CLASS_A, strategy: "idf-cosine" }, cookie));
+    expect(res.status).toBe(200);
+    const preview = (await res.json()).preview;
+    // 参与计算的源仍然只有标签
+    expect(preview.sources.map((s: { key: string }) => s.key)).toEqual(["tags"]);
+    expect(preview.metrics.activeSourceKeys).toEqual(["tags"]);
+    // 但「测评覆盖 / 未测人数 / 主导型与角色」是班级数据事实，与用了哪些源无关
+    expect(preview.coverageBySource.map((s: { key: string; covered: number }) => [s.key, s.covered])).toEqual([
+      ["tags", 4],
+      ["riasec", 6],
+      ["bigfive", 6],
+    ]);
+    expect(preview.untestedCount).toBe(0);
+    expect(preview.metrics.untestedCount).toBe(0);
+    expect(preview.metrics.coverageBySource).toHaveLength(3);
+    expect(Math.max(...(preview.metrics.roleCoverage as number[]))).toBeGreaterThan(0);
+    const firstMember = preview.groups[0].members[0];
+    expect(firstMember.dominantType).toBeTruthy();
+    expect(firstMember.roles.length).toBeGreaterThan(0);
+    expect(applyGroupingResult).not.toHaveBeenCalled();
+  });
+
   it("班级不存在 → 404；空班 → 400", async () => {
     const cookie = await OWNER_COOKIE();
     expect((await previewPost(jsonRequest({ classId: 999 }, cookie))).status).toBe(404);
@@ -746,6 +912,50 @@ describe("POST /api/manage/groups — 应用预览分组（#345）", () => {
     expect(batchArg.strategy).toBe("interest-role-v1");
     await flushAudit();
     expect(lastAudit()).toMatchObject({ action: "group:generate", status: "success" });
+  });
+
+  it("应用 C 策略：批次头只记录参与计算的源，归档指标按展示源统计（#345 评审第 1 条）", async () => {
+    seedAllAssessed();
+    const cookie = await OWNER_COOKIE();
+    const res = await triggerPost(jsonRequest({ classId: CLASS_A, strategy: "idf-cosine" }, cookie));
+    expect(res.status).toBe(200);
+    const batchArg = vi.mocked(applyGroupingResult).mock.calls[0][2];
+    expect(JSON.parse(batchArg.featureSources).map((s: { key: string }) => s.key)).toEqual(["tags"]);
+    const archived = JSON.parse(batchArg.metrics);
+    expect(archived.activeSourceKeys).toEqual(["tags"]);
+    expect(archived.untestedCount).toBe(0);
+    expect(archived.coverageBySource).toHaveLength(3);
+    // 「有分组依据」按全部注册源如实统计：6 人都有测评数据
+    expect(batchArg.taggedCount).toBe(6);
+  });
+
+  it("预览回显的权重就是本次实际用的权重：按它应用后批次记录的权重一致（#345 评审第 2 条）", async () => {
+    seedAllAssessed();
+    const cookie = await OWNER_COOKIE();
+    const weights = { tags: 0.1, riasec: 0.8, bigfive: 0.1 };
+    const preview = (await (await previewPost(jsonRequest({ classId: CLASS_A, weights }, cookie))).json()).preview;
+    expect(preview.sources.map((s: { key: string; weight: number }) => [s.key, s.weight])).toEqual([
+      ["tags", 0.1],
+      ["riasec", 0.8],
+      ["bigfive", 0.1],
+    ]);
+    const echoed = Object.fromEntries(preview.sources.map((s: { key: string; weight: number }) => [s.key, s.weight]));
+    const groups = preview.groups.map((g: { groupNo: number; members: { userId: number }[] }) => ({
+      groupNo: g.groupNo,
+      userIds: g.members.map((m: { userId: number }) => m.userId),
+      leaderUserId: null,
+    }));
+    expect((await triggerPost(jsonRequest({ classId: CLASS_A, weights: echoed, groups }, cookie))).status).toBe(200);
+    const batchArg = vi.mocked(applyGroupingResult).mock.calls[0][2];
+    expect(
+      JSON.parse(batchArg.featureSources).map((s: { key: string; weight: number }) => [s.key, s.weight])
+    ).toEqual([
+      ["tags", 0.1],
+      ["riasec", 0.8],
+      ["bigfive", 0.1],
+    ]);
+    // 应用重算的指标与预览同一口径（同权重、同成员）
+    expect(JSON.parse(batchArg.metrics).overall).toBeCloseTo(preview.metrics.overall, 9);
   });
 
   it.each([

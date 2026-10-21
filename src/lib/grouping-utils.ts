@@ -868,20 +868,33 @@ function computeBalance(groups: number[][], vectors: FeatureVector[]): number | 
   return totalStd / dims;
 }
 
+/**
+ * 指标计算。
+ *
+ * 两组源要分清（#345 评审第 1 条）：
+ * - `sources`＝**参与计算的源**：相似度矩阵由它决定，`activeSourceKeys` 也从它取；
+ *   策略 C 只有标签源，所以它的 `overall` / `cohesion` / 基线都是「仅标签」口径。
+ * - `displaySources`＝**覆盖率口径的源**：`coveredCount` / `coverageBySource` 回答的是
+ *   「这个班有多少人有兴趣/性格数据」，与本次分组用了哪些源无关。若沿用 `sources`，
+ *   C 策略会把全班算成「未测」、测评覆盖显示 0/N（向量里根本没有那两个键），
+ *   归档批次的指标也跟着失真。调用方传「全部注册源 + 同一份测评上下文的展示向量」，
+ *   C 也能如实报告覆盖率与角色覆盖。
+ */
 export function computeMetrics(
   groups: number[][],
   sim: number[][],
   vectors: FeatureVector[],
   sources: FeatureSourceDef[] = FEATURE_SOURCES,
-  strategy: string = GROUPING_STRATEGY_TAGS_ONLY
+  strategy: string = GROUPING_STRATEGY_TAGS_ONLY,
+  displaySources: FeatureSourceDef[] = sources
 ): GroupingMetrics {
   const n = vectors.length;
   const active = activeSources(vectors, sources);
-  // 覆盖率按**全部注册源**统计「有特征的人」——与「源是否参与计算」是两件事：
+  // 覆盖率按 displaySources 统计「有特征的人」——与「源是否参与计算」是两件事：
   // 班里只有 1 人有标签时，源不足以参与相似度，但覆盖率必须如实显示 1/N
   let covered = 0;
   for (const v of vectors) {
-    if (sources.some((s) => hasValue(v.values[s.key], s.kind))) covered += 1;
+    if (displaySources.some((s) => hasValue(v.values[s.key], s.kind))) covered += 1;
   }
   // 共同特征对数 / 总对数按**全班**统计，回答「有没有信号可用」；
   // overall 与 cohesion 只算组内，回答「分得好不好」——两者分母不同，界面必须分开标注
@@ -929,7 +942,7 @@ export function computeMetrics(
     roleCoverage,
     roleCoverageAverage,
     roleCoverageTarget: ROLE_COVERAGE_TARGET,
-    coverageBySource: coverageBySource(vectors, sources),
+    coverageBySource: coverageBySource(vectors, displaySources),
     untestedCount: untestedAssessmentCount(vectors),
     balance: computeBalance(groups, vectors),
   };
@@ -942,6 +955,11 @@ export interface GroupingOptions {
   strategy?: string;
   /** 重新生成候选用的确定性变体号（0 起；同输入同变体必得同输出） */
   variant?: number;
+  /**
+   * 覆盖率口径的源（见 `computeMetrics`）：调用方传「全部注册源」，
+   * 分组用 `sources`、覆盖率/角色覆盖用展示向量与展示源。缺省与 `sources` 相同。
+   */
+  displaySources?: FeatureSourceDef[];
 }
 
 export interface GroupingResult {
@@ -973,6 +991,7 @@ export function buildGrouping(
   const sim = computeSimilarities(sorted, sources);
   const strategy = options.strategy ?? GROUPING_STRATEGY_TAGS_ONLY;
   const variant = options.variant ?? 0;
+  const display = options.displaySources ?? sources;
 
   if (strategy === GROUPING_STRATEGY_INTEREST_ROLE || strategy === GROUPING_STRATEGY_INTEREST_CONTRAST) {
     const plan = assignByStrategy(sorted, sim, sizes, strategy, variant);
@@ -986,7 +1005,7 @@ export function buildGrouping(
       sizes,
       groups: guarded,
       primaryTypes: plan.primaryTypes,
-      metrics: computeMetrics(guarded, sim, sorted, sources, strategy),
+      metrics: computeMetrics(guarded, sim, sorted, sources, strategy, display),
     };
   }
 
@@ -1000,6 +1019,6 @@ export function buildGrouping(
     sizes,
     groups: refined,
     primaryTypes: refined.map(() => null),
-    metrics: computeMetrics(refined, sim, sorted, sources, strategy),
+    metrics: computeMetrics(refined, sim, sorted, sources, strategy, display),
   };
 }

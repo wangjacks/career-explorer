@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { applyGroupingResult, getStudents } from "@/lib/db";
 import { getRequestContext, recordAudit } from "@/lib/audit";
 import { getSession, canModifyClass } from "../classes/helpers";
-import { buildFeatureVectors } from "@/lib/grouping-features";
+import { buildFeatureVectors, FEATURE_SOURCES } from "@/lib/grouping-features";
 import { GROUP_SIZE_CAP, buildGrouping, computeGroupSizes } from "@/lib/grouping-utils";
 import { loadAssessmentFeatureContext } from "@/lib/grouping-assessment";
 import {
@@ -110,7 +110,8 @@ async function POST_impl(request: NextRequest) {
     // 分组依赖的测评上下文：读取失败只让「兴趣/性格」源降级（策略退化），不阻断分组
     const loaded = await loadAssessmentFeatureContext(roster);
     const sources = sourcesForStrategy(strategy, weights);
-    const vectors = buildFeatureVectors(roster, sources, { assessments: loaded.context });
+    // 展示向量（全部注册源）：相似度只按 `sources` 算，覆盖率/角色按展示向量算（与预览同口径）
+    const vectors = buildFeatureVectors(roster, FEATURE_SOURCES, { assessments: loaded.context });
 
     // 预览提交上来的分组优先（含手工换人 / 组长）；没给就服务端按策略生成
     const appliedInput = body.groups !== undefined ? normalizeAppliedGroups(body.groups, roster) : null;
@@ -118,7 +119,9 @@ async function POST_impl(request: NextRequest) {
       fail(session, appliedInput.error, { classId });
       return NextResponse.json({ error: appliedInput.error }, { status: 400 });
     }
-    const generated = appliedInput ? null : buildGrouping(vectors, sources, { strategy, variant });
+    const generated = appliedInput
+      ? null
+      : buildGrouping(vectors, sources, { strategy, variant, displaySources: FEATURE_SOURCES });
     const appliedGroups =
       appliedInput?.groups ??
       generated!.groups.map((indexes, i) => ({
@@ -128,7 +131,7 @@ async function POST_impl(request: NextRequest) {
       }));
 
     // 指标用「实际要落库的分组」重算（预览可能被教师换过人，不能沿用预览的指标）
-    const metrics = metricsForAppliedGroups(appliedGroups, vectors, strategy, sources);
+    const metrics = metricsForAppliedGroups(appliedGroups, vectors, strategy, sources, FEATURE_SOURCES);
     const userById = new Map(roster.map((student) => [student.id, student]));
     const groupsSql = appliedGroups.map((group) => ({
       group_no: group.groupNo,

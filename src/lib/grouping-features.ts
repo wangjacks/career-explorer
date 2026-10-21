@@ -282,6 +282,41 @@ export function describeSourceMeta(
   return sources.map((s) => ({ key: s.key, label: s.label, kind: s.kind, version: s.version }));
 }
 
+/** 批次头里记录的源（`describeSources` 写出的那段 JSON 解析后的形状） */
+export interface RecordedSource {
+  key: string;
+  kind?: string;
+  weight?: number;
+  version?: string;
+}
+
+/**
+ * 从批次头**回放**出当时的源集合与权重（#345 评审第 3 条）：
+ * 「当前分组」的指标必须用生成它的那套源/权重重算，否则与历史批次、预览的数字不可比。
+ *
+ * 只认注册表里存在的 key（顺序按注册表，避免批次 JSON 里的顺序影响界面列序）；
+ * 权重非法（非有限数 / 负数）时保留默认值。整段缺失或一个 key 都对不上时返回 null，
+ * 由调用方回落到默认口径并标注。
+ */
+export function sourcesFromRecorded(
+  recorded: readonly RecordedSource[] | null | undefined
+): FeatureSourceDef[] | null {
+  if (!recorded || recorded.length === 0) return null;
+  const keys = new Set(recorded.filter((item) => typeof item?.key === "string").map((item) => item.key));
+  if (keys.size === 0) return null;
+  const weightByKey = new Map<string, number>();
+  for (const item of recorded) {
+    if (typeof item.weight === "number" && Number.isFinite(item.weight) && item.weight >= 0) {
+      weightByKey.set(item.key, item.weight);
+    }
+  }
+  const replayed = FEATURE_SOURCES.filter((source) => keys.has(source.key)).map((source) => {
+    const weight = weightByKey.get(source.key);
+    return weight === undefined ? source : { ...source, weight };
+  });
+  return replayed.length > 0 ? replayed : null;
+}
+
 /** 覆盖率：有该源值的学生数 / 参与人数 */
 export function countCovered(
   vectors: FeatureVector[],
