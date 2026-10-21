@@ -7,6 +7,7 @@ import {
   EXPORT_COLUMNS,
   SCORE_COLUMN_KEYS,
 } from "@/lib/export-columns";
+import { buildExportSearchParams, downloadExportFile } from "@/lib/export-request";
 
 /** 六型得分的两种输出形态（#233）：合成一列，或拆成 R/I/A/S/E/C 六列 */
 type ScoreMode = "composite" | "split";
@@ -128,25 +129,21 @@ export default function ExportTab() {
   const handleExportFile = async () => {
     setExporting(true);
     try {
-      const params = getExportParams();
-      params.set("format", exportFormat);
-      if (exportFormat === "xlsx") {
-        params.set("imagePlacement", imagePlacement);
-        params.set("rowHeight", String(rowHeight));
-      }
-      const res = await fetch(`/api/manage/export?${params}`);
-      if (!res.ok) throw new Error("导出失败");
-      const blob = await res.blob();
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `export_${Date.now()}.${exportFormat === "xlsx" ? "xlsx" : "csv"}`;
-      a.click();
-      URL.revokeObjectURL(url);
+      const params = buildExportSearchParams({
+        format: exportFormat,
+        columns: selectedColumns,
+        scope: exportScope,
+        ids: exportIds,
+        dateFrom,
+        dateTo,
+        imagePlacement,
+        rowHeight,
+      });
+      await downloadExportFile(params, exportFormat);
       toast.success("导出成功");
     } catch (err) {
       console.error("Export failed:", err);
-      toast.error("导出失败");
+      toast.error(err instanceof Error ? err.message : "导出失败");
     } finally {
       setExporting(false);
     }
@@ -338,7 +335,7 @@ export default function ExportTab() {
         <hr className="border-gray-100 dark:border-gray-800" />
 
         <div className="space-y-2">
-          <span className="block text-xs font-medium text-muted">职业兴趣测评</span>
+          <span className="block text-xs font-medium text-muted">职业测评</span>
           <div className="flex flex-wrap gap-2">
             {ASSESSMENT_COLUMNS.map((column) => (
               <button

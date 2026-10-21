@@ -9,6 +9,7 @@
  */
 
 import { RIASEC_KEYS, type RiasecKey } from "./assessment-match";
+import { parseDimensions } from "./assessment-flow";
 import { buildBigFiveHeadline, type RiasecScoreSnapshot } from "./assessment-view";
 import type { ProfileInterestFilter, ProfilePersonalityFilter } from "./profile-query";
 
@@ -44,6 +45,21 @@ export interface ProfileAssessmentScaleView {
   /** `typological`（霍兰德三字码）/ `dimensional`（大五等） */
   scoringMode: "typological" | "dimensional" | string;
   dimensions: { key: string; label: string }[];
+}
+
+/** 数据层量表行 → 前端视图（列表与导出共用；#330 / #331） */
+export function profileScaleViewOf(row: {
+  code: string;
+  name: string;
+  scoring_mode: string;
+  dimensions_json: string;
+}): ProfileAssessmentScaleView {
+  return {
+    code: row.code,
+    name: row.name,
+    scoringMode: row.scoring_mode,
+    dimensions: parseDimensions(row.dimensions_json).map(({ key, label }) => ({ key, label })),
+  };
 }
 
 /** 兴趣字母筛选胶囊的取值：全部 / 六型 / 未测（旧接口兼容用；新界面用 `AssessmentFilter`） */

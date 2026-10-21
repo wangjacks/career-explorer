@@ -3,31 +3,40 @@ import { NextRequest, NextResponse } from "next/server";
 import {
   getStudents,
   getAllSubmitted,
+  getSubmittedProfilesForExport,
   getClasses,
-  getAssessmentByCode,
+  getEnabledAssessments,
   getCurrentAssessmentResultsByUserCodes,
   getOnetOccupations,
+  type AssessmentRow,
 } from "@/lib/db";
 import ExcelJS from "exceljs";
 import { imageSize } from "image-size";
 import { embedImagesInCells, type CellImageEntry } from "@/lib/xlsx-cell-images";
 import { getAuditActor, getRequestContext, recordAudit } from "@/lib/audit";
 import { getStorage } from "@/lib/storage";
-import { RIASEC_CODE } from "@/lib/assessment-data";
 import { parseStoredEvaluationTexts } from "@/lib/evaluation-text";
 import { profileFromDimensionScores, rankCareers, type RiasecKey } from "@/lib/assessment-match";
 import { toCareerCandidates } from "@/lib/onet";
+import { profileScaleViewOf, type ProfileAssessmentScaleView } from "@/lib/profile-assessment";
+import {
+  parseProfileFilters,
+  resolveProfilePersonalityFilter,
+  type ResolvedProfileListQuery,
+} from "@/lib/profile-query";
 import {
   DEFAULT_EXPORT_COLUMN_KEYS,
   buildClassNameMap,
   classNameOf,
   columnLetter,
   formatAssessmentStatus,
+  formatBigFiveScores,
   formatSixScores,
   formatTopCareers,
   imageColumnIndex,
-  isAssessmentColumn,
+  isHollandAssessmentColumn,
   isImageColumn,
+  isPersonalityColumn,
   parseColumnKeys,
   resolveExportColumns,
   type SixScoreValues,
@@ -58,6 +67,10 @@ interface ExportRow {
   assessment_scores_json: string | null;
   /** 推荐职业 Top3（中文名优先，分号分隔）；职业库不可用或未测评时为空串 */
   careers: string;
+  /** 大五 Top2 画像（#331）；未测 / 快照不可用时为空串 */
+  personality_traits: string;
+  /** 大五五维分合成一列（#331）；未测 / 快照不可用时为空串 */
+  big_five_scores: string;
 }
 
 interface ExportFilters {
@@ -65,9 +78,11 @@ interface ExportFilters {
   ids: string;
   dateFrom: string;
   dateTo: string;
+  /** 与列表同一份筛选口径（#331）；导出时不再内存过滤，直接由 SQL 取全量命中行 */
+  filters: ResolvedProfileListQuery;
 }
 
-function emptyRow(partial: Omit<ExportRow, "has_assessment" | "assessment_completed_at" | "assessment_code" | "assessment_scores_json" | "careers">): ExportRow {
+function emptyRow(partial: Omit<ExportRow, "has_assessment" | "assessment_completed_at" | "assessment_code" | "assessment_scores_json" | "careers" | "personality_traits" | "big_five_scores">): ExportRow {
   return {
     ...partial,
     has_assessment: false,
@@ -75,6 +90,8 @@ function emptyRow(partial: Omit<ExportRow, "has_assessment" | "assessment_comple
     assessment_code: "",
     assessment_scores_json: null,
     careers: "",
+    personality_traits: "",
+    big_five_scores: "",
   };
 }
 
@@ -134,15 +151,55 @@ function profileOfScores(scoresJson: string | null): ReturnType<typeof profileFr
   }
 }
 
+interface ScaleEntry {
+  row: AssessmentRow;
+  view: ProfileAssessmentScaleView;
+}
+
 /**
- * 组装导出行（#233）：学生表全量 / 已提交档案两种来源，班级名内存关联；
- * 选中测评列时**一次批查**当前有效测评结果（按学号），再按需算推荐职业。
+ * 取启用中的量表清单（#331）：只有勾选测评列或带人格筛选时才查。
+ * 失败只让对应列留空（`failed` 供带人格筛选的请求转 503），不打断默认列导出。
  */
-async function buildExportRows(filters: ExportFilters, selectedKeys: readonly string[]): Promise<ExportRow[]> {
+async function loadScaleEntries(
+  selectedKeys: readonly string[],
+  force = false
+): Promise<{ entries: ScaleEntry[]; failed: boolean }> {
+  const needsScales =
+    force || selectedKeys.some((key) => isHollandAssessmentColumn(key) || isPersonalityColumn(key));
+  if (!needsScales) return { entries: [], failed: false };
+  try {
+    const enabled = await getEnabledAssessments();
+    return { entries: enabled.map((row) => ({ row, view: profileScaleViewOf(row) })), failed: false };
+  } catch (err) {
+    console.error("Export assessment scale lookup degraded:", err);
+    return { entries: [], failed: true };
+  }
+}
+
+/**
+ * 组装导出行（#233 / #331）：学生表全量 / 已提交档案两种来源，班级名内存关联；
+ * 带筛选时按列表同一份 SQL 口径**全量**取行（不分页），再按需批查当前有效测评结果。
+ */
+async function buildExportRows(
+  filters: ExportFilters,
+  selectedKeys: readonly string[],
+  scaleEntries: readonly ScaleEntry[]
+): Promise<ExportRow[]> {
+  const filtersActive = Boolean(
+    filters.filters.q?.trim() ||
+      (filters.filters.tags?.length ?? 0) > 0 ||
+      filters.filters.interest ||
+      filters.filters.personality
+  );
   const [students, submitted, classes] = await Promise.all([
     // 只有「学生名单」导出需要整表名单；其余范围按已提交档案取行，避免多余的全表读
     filters.scope === "students" ? getStudents() : Promise.resolve([]),
-    filters.scope === "students" ? Promise.resolve([]) : getAllSubmitted(),
+    // #331：带筛选时直接走数据库（与列表同口径、含所有页）；无筛选保持原 getAllSubmitted 行为
+    filters.scope === "students"
+      ? Promise.resolve([])
+      : filtersActive
+        ? getSubmittedProfilesForExport(filters.filters)
+        : getAllSubmitted(),
     getClasses(),
   ]);
   const classNames = buildClassNameMap(classes);
@@ -210,26 +267,52 @@ async function buildExportRows(filters: ExportFilters, selectedKeys: readonly st
     r.evaluation_link = await resolveExportLink(r.evaluation_link, r.storage_id);
   }
 
-  const needsAssessment = selectedKeys.some(isAssessmentColumn);
+  const needsHolland = selectedKeys.some(isHollandAssessmentColumn);
+  const needsBigFive = selectedKeys.some(isPersonalityColumn);
   const needsCareers = selectedKeys.includes("careers");
-  if (!needsAssessment && !needsCareers) return rows;
+  if ((!needsHolland && !needsBigFive) || rows.length === 0) return rows;
 
-  const assessment = await getAssessmentByCode(RIASEC_CODE);
-  if (!assessment) return rows;
+  const hollandEntry = scaleEntries.find((entry) => entry.view.scoringMode === "typological") ?? null;
+  const bigFiveEntry = scaleEntries.find((entry) => entry.view.scoringMode === "dimensional") ?? null;
 
-  // 一个班一次批查：未测评学生不出现在结果里，对应格留空（不填 0）
-  const summaries = await getCurrentAssessmentResultsByUserCodes(
-    assessment.id,
-    rows.map((r) => r.student_id)
-  );
-  const summaryByCode = new Map(summaries.map((summary) => [summary.user_code, summary]));
-  for (const row of rows) {
-    const summary = summaryByCode.get(row.student_id);
-    if (!summary) continue;
-    row.has_assessment = true;
-    row.assessment_completed_at = summary.completed_at ?? "";
-    row.assessment_code = summary.type_code ?? "";
-    row.assessment_scores_json = summary.scores_json;
+  // 每个量表各批查一次：未测评学生不出现在结果里，对应格留空（不填 0）
+  if (needsHolland && hollandEntry) {
+    try {
+      const summaries = await getCurrentAssessmentResultsByUserCodes(
+        hollandEntry.row.id,
+        rows.map((r) => r.student_id)
+      );
+      const summaryByCode = new Map(summaries.map((summary) => [summary.user_code, summary]));
+      for (const row of rows) {
+        const summary = summaryByCode.get(row.student_id);
+        if (!summary) continue;
+        row.has_assessment = true;
+        row.assessment_completed_at = summary.completed_at ?? "";
+        row.assessment_code = summary.type_code ?? "";
+        row.assessment_scores_json = summary.scores_json;
+      }
+    } catch (err) {
+      console.error("Export holland results lookup degraded:", err);
+    }
+  }
+
+  if (needsBigFive && bigFiveEntry) {
+    try {
+      const summaries = await getCurrentAssessmentResultsByUserCodes(
+        bigFiveEntry.row.id,
+        rows.map((r) => r.student_id)
+      );
+      const summaryByCode = new Map(summaries.map((summary) => [summary.user_code, summary]));
+      for (const row of rows) {
+        const summary = summaryByCode.get(row.student_id);
+        if (!summary) continue;
+        const values = formatBigFiveScores(summary.scores_json, bigFiveEntry.view.dimensions);
+        row.personality_traits = values.traits;
+        row.big_five_scores = values.composite;
+      }
+    } catch (err) {
+      console.error("Export big five results lookup degraded:", err);
+    }
   }
 
   if (needsCareers) {
@@ -280,6 +363,10 @@ function formatCell(
       return sixScores.composite;
     case "careers":
       return row.careers;
+    case "personality_traits":
+      return row.personality_traits;
+    case "big_five_scores":
+      return row.big_five_scores;
     default:
       if (format === "xlsx" && isImageColumn(key)) return "";
       return String((row as unknown as Record<string, unknown>)[key] ?? "");
@@ -339,17 +426,52 @@ async function GET_impl(request: NextRequest) {
     return NextResponse.json({ error: "不支持的格式" }, { status: 400 });
   }
 
+  // #331：筛选参数与列表共用同一份解析/校验；导出只消费，不再内存过滤
+  const parsedFilters = parseProfileFilters(searchParams);
+  if (!parsedFilters.ok) {
+    return NextResponse.json({ error: parsedFilters.error }, { status: 400 });
+  }
+  const { entries: scaleEntries, failed: scaleLoadFailed } = await loadScaleEntries(
+    selectedKeys,
+    Boolean(parsedFilters.value.personality)
+  );
+  const resolvedFilters = resolveProfilePersonalityFilter(
+    parsedFilters.value,
+    scaleEntries.map((entry) => entry.view)
+  );
+  if (!resolvedFilters.ok) {
+    // 量表读取失败 ≠ 没有启用的维度型量表：前者按 503 让客户端重试
+    return NextResponse.json(
+      { error: resolvedFilters.error },
+      { status: scaleLoadFailed ? 503 : 400 }
+    );
+  }
+
   // 导出动作审计（#110）：记录范围参数；数据明细不入库（量大且含学生隐私）
   void recordAudit({
     ...actor, action: "export:excel", method: "GET", path: "/api/manage/export",
     resource_type: "export", resource_id: null,
     status: "success", error_message: null, ip, user_agent,
-    metadata: { format, scope, columns: selectedKeys.length, imagePlacement },
+    metadata: {
+      format,
+      scope,
+      columns: selectedKeys.length,
+      imagePlacement,
+      filtered:
+        Boolean(parsedFilters.value.q?.trim()) ||
+        (parsedFilters.value.tags?.length ?? 0) > 0 ||
+        Boolean(parsedFilters.value.interest) ||
+        Boolean(parsedFilters.value.personality),
+    },
   });
 
   const exportFormat: "csv" | "xlsx" = format;
   const columns = resolveExportColumns(selectedKeys, exportFormat);
-  const rows = await buildExportRows({ scope, ids: idsParam, dateFrom, dateTo }, selectedKeys);
+  const rows = await buildExportRows(
+    { scope, ids: idsParam, dateFrom, dateTo, filters: resolvedFilters.filters },
+    selectedKeys,
+    scaleEntries
+  );
 
   // CSV export
   if (exportFormat === "csv") {
@@ -482,9 +604,17 @@ async function POST_impl(request: NextRequest) {
 
   const selectedKeys = parseColumnKeys(typeof columnsParam === "string" ? columnsParam : null);
   const keys = typeof columnsParam === "string" ? selectedKeys : [...DEFAULT_EXPORT_COLUMN_KEYS];
+  const { entries: scaleEntries } = await loadScaleEntries(keys);
   const rows = await buildExportRows(
-    { scope: scope ?? "all", ids: ids ?? "", dateFrom: dateFrom ?? "", dateTo: dateTo ?? "" },
-    keys
+    {
+      scope: scope ?? "all",
+      ids: ids ?? "",
+      dateFrom: dateFrom ?? "",
+      dateTo: dateTo ?? "",
+      filters: { lead: "all" },
+    },
+    keys,
+    scaleEntries
   );
   const columns = resolveExportColumns(keys, "csv");
   const preview = rows.slice(0, 10).map((row) => formatRow(row, columns, "csv"));

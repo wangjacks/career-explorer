@@ -5,8 +5,9 @@ import JSZip from "jszip";
 vi.mock("@/lib/db", () => ({
   getStudents: vi.fn(),
   getAllSubmitted: vi.fn(),
+  getSubmittedProfilesForExport: vi.fn(),
   getClasses: vi.fn(async () => []),
-  getAssessmentByCode: vi.fn(async () => undefined),
+  getEnabledAssessments: vi.fn(async () => []),
   getCurrentAssessmentResultsByUserCodes: vi.fn(async () => []),
   getOnetOccupations: vi.fn(async () => []),
   insertAuditLog: vi.fn(),
@@ -16,8 +17,9 @@ import { GET, POST } from "@/app/api/manage/export/route";
 import {
   getStudents,
   getAllSubmitted,
+  getSubmittedProfilesForExport,
   getClasses,
-  getAssessmentByCode,
+  getEnabledAssessments,
   getCurrentAssessmentResultsByUserCodes,
   getOnetOccupations,
 } from "@/lib/db";
@@ -70,6 +72,8 @@ beforeEach(() => {
   vi.stubGlobal("fetch", vi.fn());
   vi.mocked(getStudents).mockResolvedValue(STUDENTS as never);
   vi.mocked(getAllSubmitted).mockResolvedValue(SUBMITTED as never);
+  vi.mocked(getSubmittedProfilesForExport).mockResolvedValue(SUBMITTED as never);
+  vi.mocked(getEnabledAssessments).mockResolvedValue([] as never);
 });
 
 describe("GET /api/manage/export — 参数校验与安全（#97）", () => {
@@ -214,14 +218,52 @@ describe("GET /api/manage/export — 新增列（#233）", () => {
     { key: "E", label: "企业型", standard: 31 },
     { key: "C", label: "常规型", standard: 25 },
   ]);
+  const IPIP_DIMENSIONS = [
+    { key: "N", label: "神经质" },
+    { key: "E", label: "外向性" },
+    { key: "O", label: "开放性" },
+    { key: "A", label: "宜人性" },
+    { key: "C", label: "尽责性" },
+  ];
+  const BIG_FIVE_JSON = JSON.stringify([
+    { key: "N", standard: 40 },
+    { key: "E", standard: 60 },
+    { key: "O", standard: 80 },
+    { key: "A", standard: 55 },
+    { key: "C", standard: 70 },
+  ]);
+  const RIASEC_SCALE = {
+    id: 9,
+    code: "riasec",
+    name: "霍兰德职业兴趣",
+    scoring_mode: "typological",
+    dimensions_json: JSON.stringify([
+      { key: "R", label: "现实型" },
+      { key: "I", label: "研究型" },
+      { key: "A", label: "艺术型" },
+      { key: "S", label: "社会型" },
+      { key: "E", label: "企业型" },
+      { key: "C", label: "常规型" },
+    ]),
+  };
+  const IPIP_SCALE = {
+    id: 10,
+    code: "ipip-neo-ffi",
+    name: "五大人格测评",
+    scoring_mode: "dimensional",
+    dimensions_json: JSON.stringify(IPIP_DIMENSIONS),
+  };
 
   beforeEach(() => {
     vi.mocked(getAllSubmitted).mockResolvedValue(TWO_STUDENTS as never);
     vi.mocked(getClasses).mockResolvedValue([{ id: 1, name: "2025级1班" }] as never);
-    vi.mocked(getAssessmentByCode).mockResolvedValue({ id: 9, code: "riasec" } as never);
-    vi.mocked(getCurrentAssessmentResultsByUserCodes).mockResolvedValue([
-      { user_code: "S002", type_code: "SIA", scores_json: SCORES_JSON, completed_at: "2026-09-01 10:00:00" },
-    ] as never);
+    vi.mocked(getEnabledAssessments).mockResolvedValue([RIASEC_SCALE, IPIP_SCALE] as never);
+    vi.mocked(getCurrentAssessmentResultsByUserCodes).mockImplementation(async (assessmentId: number) => {
+      if (assessmentId === RIASEC_SCALE.id) {
+        return [{ user_code: "S002", type_code: "SIA", scores_json: SCORES_JSON, completed_at: "2026-09-01 10:00:00" }];
+      }
+      return [{ user_code: "S002", type_code: null, scores_json: BIG_FIVE_JSON, completed_at: "2026-09-02 10:00:00" }];
+    });
     vi.mocked(getOnetOccupations).mockResolvedValue([] as never);
   });
 
@@ -389,5 +431,77 @@ describe("GET /api/manage/export — 新增列（#233）", () => {
     ]);
     expect(body.preview[0]).toEqual({ class_name: "2025级1班", student_id: "S001", assessment_status: "未测", score_S: "" });
     expect(body.preview[1]).toEqual({ class_name: "", student_id: "S002", assessment_status: "已测", score_S: "74" });
+  });
+
+  it("新增人格特质 / 大五得分列：按量表维度顺序输出，未测整格留空（#331）", async () => {
+    const res = await GET(
+      createGetRequest(
+        "/api/manage/export?format=csv&scope=all&columns=student_id,personality_traits,big_five_scores"
+      )
+    );
+    const text = await res.text();
+    expect(text.split("\n")[0]).toBe('"学号","人格特质","大五得分"');
+    expect(text).toContain('"S002","高开放性 · 高尽责性","N40 E60 O80 A55 C70"');
+    expect(text).toContain('"S001","",""');
+    expect(text).not.toContain("undefined");
+  });
+
+  it("筛选参数与列表同口径下推数据库并全量导出，不再退回 getAllSubmitted（#331）", async () => {
+    const filteredRows = [
+      ...TWO_STUDENTS,
+      {
+        ...TWO_STUDENTS[1],
+        id: 3,
+        user_code: "S003",
+        name: "学生丙",
+      },
+    ];
+    vi.mocked(getSubmittedProfilesForExport).mockResolvedValue(filteredRows as never);
+
+    const res = await GET(
+      createGetRequest(
+        "/api/manage/export?format=csv&scope=all&columns=student_id&q=%E5%AD%A6%E7%94%9F&tag=%E9%98%85%E8%AF%BB&interest=S,A"
+      )
+    );
+    expect(res.status).toBe(200);
+    expect(getSubmittedProfilesForExport).toHaveBeenCalledWith(
+      expect.objectContaining({
+        q: "学生",
+        tags: ["阅读"],
+        lead: "all",
+        interest: { mode: "letters", keys: ["S", "A"] },
+      })
+    );
+    expect(getAllSubmitted).not.toHaveBeenCalled();
+    const text = await res.text();
+    expect(text).toContain('"S003"');
+  });
+
+  it("非法筛选参数 400；人格筛选在量表读取失败时 503（不把故障误报成参数错误）", async () => {
+    let res = await GET(createGetRequest("/api/manage/export?format=csv&scope=all&interest=S,I,A,E"));
+    expect(res.status).toBe(400);
+
+    res = await GET(createGetRequest("/api/manage/export?format=csv&scope=all&personality=X:high"));
+    expect(res.status).toBe(400);
+    await expect(res.json()).resolves.toMatchObject({ error: expect.stringContaining("没有维度 X") });
+
+    vi.mocked(getEnabledAssessments).mockRejectedValueOnce(new Error("table missing") as never);
+    res = await GET(createGetRequest("/api/manage/export?format=csv&scope=all&personality=any"));
+    expect(res.status).toBe(503);
+  });
+
+  it("新列追加在末尾不改变既有图片锚点：班级 + 人格列 + 头像时头像仍是 B2", async () => {
+    vi.mocked(fetch).mockImplementation(() =>
+      Promise.resolve(new Response(TINY_PNG, { headers: { "content-type": "image/png" } }))
+    );
+    const res = await GET(
+      createGetRequest(
+        "/api/manage/export?format=xlsx&scope=all&columns=class_name,personality_traits,avatar_url"
+      )
+    );
+    expect(res.status).toBe(200);
+    const zip = await JSZip.loadAsync(Buffer.from(await res.arrayBuffer()));
+    const sheet = await zip.file("xl/worksheets/sheet1.xml")?.async("text");
+    expect(sheet).toMatch(/<c r="B2"[^>]*t="e"/);
   });
 });

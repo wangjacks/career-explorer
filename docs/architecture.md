@@ -440,17 +440,20 @@
 - **无结果空态**：每套量表自己的空态——折叠卡标题用该量表名，题量与预计耗时复用 `assessment-center.ts` 的统一口径（不写死数字），标题右侧 CTA 带 `?code=` 直达答题页；有未完成草稿时提示「上次答到 N/M」并把 CTA 改成「继续作答」
 - **容错**：首屏清单接口（`/list`）失败时整区显示「暂时读不到」+ 重试，不会把失败说成「没做过测评」；单套结果补拉失败只影响那一张卡；得分缺 `standard` 等脏数据在 `parseScores`（#223）与视图模型两层过滤，不用坏数据渲染
 
-## 数据导出（#233）
+## 数据导出（#233 / #331）
 
-<!-- 对账：列定义与格式化纯函数在 `src/lib/export-columns.ts`（测试 `export-columns.test.ts`）；路由 `src/app/api/manage/export/route.ts`；界面 `src/components/admin/ExportTab.tsx` -->
+<!-- 对账：列定义与格式化纯函数在 `src/lib/export-columns.ts`（测试 `export-columns.test.ts`）；导出请求共享层在 `src/lib/export-request.ts`；路由 `src/app/api/manage/export/route.ts`；界面 `src/components/admin/ExportTab.tsx` / `ExportProfilesDialog.tsx` -->
 
-- **列分两组**：基础信息（班级 / 学号 / 姓名 / 标签 / 学生头像 / 历史评价词云图片 / 他人评价1–3 / 头像 URL / 历史评价词云图片 URL / 提交时间）与职业兴趣测评（测评状态 / 测评完成时间 / 霍兰德三字码 / 六型得分 / 推荐职业 Top3）。**默认列集合在 #233 基线上追加他人评价1–3**（#162；历史图片列保留以兼容存量），新增列仍是增量勾选
-- **列顺序以 `EXPORT_COLUMNS` 为准**（与前端勾选顺序无关）：xlsx 的图片锚点由**最终列下标**算出（`columnLetter` / `imageColumnIndex`），因此插入班级/测评/评价文字列后头像与历史词云图片仍落在各自列上；评价文字列在 CSV 中单行化并对 `= + - @` 开头做公式注入防护，在 XLSX 中自动换行
+- **两个入口共用一套列定义**：管理/教师面板「数据导出」页负责范围 / 日期 / 学号 / 图片放置；「数据列表」卡头右侧「导出名单」（#331）固定导出**当前筛选结果（含所有页）**，两者都消费 `EXPORT_COLUMNS` 与 `export-request.ts` 的请求参数拼装，避免两套列定义分叉
+- **列分两组**：基础信息（班级 / 学号 / 姓名 / 标签 / 学生头像 / 历史评价词云图片 / 他人评价1–3 / 头像 URL / 历史评价词云图片 URL / 提交时间）与职业测评（测评状态 / 测评完成时间 / 霍兰德三字码 / 六型得分 / 推荐职业 Top3 / 人格特质 / 大五得分）。**默认列集合在 #233 基线上追加他人评价1–3**（#162；历史图片列保留以兼容存量），其余新增列（含 #331 的人格列）一律增量勾选
+- **列顺序以 `EXPORT_COLUMNS` 为准**（与前端勾选顺序无关）：#331 的 `personality_traits` / `big_five_scores` **追加在末尾**，既有列顺序与 xlsx 图片锚点（`columnLetter` / `imageColumnIndex`）完全不变；评价文字列在 CSV 中单行化并对 `= + - @` 开头做公式注入防护，在 XLSX 中自动换行
 - **六型得分两种形态**：合成一列 `R42 I38 A20 S74 E31 C25`，或拆成 R/I/A/S/E/C 六列；取结果快照的 0–100 标准分并取整，两种形态共用同一口径
+- **大五列（#331）**：读取启用中的 `dimensional` 量表当前有效结果（`completed + is_current=1`），按学号集合一次批查；`personality_traits` 复用结果页 `buildBigFiveHeadline`（Top2 画像，如「高开放性 · 高尽责性」），`big_five_scores` 按 `dimensions_json` 顺序输出 `N42 E58 O71 A44 C66`；未测 / 快照缺失整格留空，不补 0
 - **班级名**：学生行自带 `class_id`，内存关联班级表得到班名（不新增 SQL 联表）；未分班为空串
 - **测评列取值**：只认 `assessment_results` 的当前有效完成结果（`status=completed` + `is_current=1`），按学号集合**一次批查**（`getCurrentAssessmentResultsByUserCodes`，适配器内 500 分片）；未测评学生整格留空（不填 0 / undefined），状态列为「未测」
+- **筛选下推（#331）**：`GET /api/manage/export` 接受与列表一致的 `q` / `tag` / `interest` / `personality`，解析与人格维度下标解析复用 `profile-query.ts`；带筛选时按 `buildSubmittedProfilesSql` 同一份 SQL **全量取行（不分页）**，`scope` / `ids` / `dateFrom` / `dateTo` 语义保留；无筛选时仍走原 `getAllSubmitted`，行为不变
 - **推荐职业 Top3**：复用 #226 的匹配纯函数（画像取结果快照六维分、候选由 `toCareerCandidates` 从 `onet_occupations` 转），输出中文名（无译名回退英文名）分号分隔；职业库为空时该列不输出内容，界面按钮置灰并悬停说明（`?capabilities=1` 探测），**不隐藏**
-- **审计沿用**：导出动作仍记 `export:excel`（只记范围/列数/格式，明细不入库）；本 Issue 不做脱敏（教师本地留存）
+- **审计沿用**：导出动作仍记 `export:excel`（只记范围 / 列数 / 格式 / 是否筛选，明细不入库）；本 Issue 不做脱敏（教师本地留存）
 
 ## 他人评价与词云（#162）
 

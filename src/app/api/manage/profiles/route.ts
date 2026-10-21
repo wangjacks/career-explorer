@@ -11,33 +11,19 @@ import {
 } from "@/lib/db";
 import { getRequestContext, recordAudit } from "@/lib/audit";
 import { RIASEC_CODE } from "@/lib/assessment-data";
-import { parseDimensions, parseScores } from "@/lib/assessment-flow";
-import { assessmentLeadOf } from "@/lib/profile-assessment";
+import { parseScores } from "@/lib/assessment-flow";
+import { assessmentLeadOf, profileScaleViewOf } from "@/lib/profile-assessment";
 import type {
   ProfileAssessmentScaleView,
   ProfileScaleResultView,
 } from "@/lib/profile-assessment";
-import {
-  parseProfilesQuery,
-  type ProfileListQuery,
-  type ResolvedProfileListQuery,
-} from "@/lib/profile-query";
+import { parseProfilesQuery, resolveProfilePersonalityFilter } from "@/lib/profile-query";
 import { extractEvaluationWords, parseStoredEvaluationTexts } from "@/lib/evaluation-text";
 import { WriteGuard } from "../write-guard";
 
 const PATH = "/api/manage/profiles";
 const ENTRY = { action: "profile:clear", method: "DELETE", path: PATH, resource_type: "profile" } as const;
 const OUT_OF_SCOPE_STUDENT = "该学生不在你管理的班级";
-
-/** 启用量表行 → 下发结构（列定义与维度标签的唯一来源，前端不写死量表） */
-function toScaleView(row: AssessmentRow): ProfileAssessmentScaleView {
-  return {
-    code: row.code,
-    name: row.name,
-    scoringMode: row.scoring_mode,
-    dimensions: parseDimensions(row.dimensions_json).map(({ key, label }) => ({ key, label })),
-  };
-}
 
 /**
  * 单行单量表的「当前有效结果」（#330）。
@@ -94,14 +80,14 @@ async function GET_impl(request: NextRequest) {
     let scaleLoadFailed = false;
     try {
       const enabled = await getEnabledAssessments();
-      for (const row of enabled) scaleEntries.push({ row, view: toScaleView(row) });
+      for (const row of enabled) scaleEntries.push({ row, view: profileScaleViewOf(row) });
     } catch (err) {
       scaleLoadFailed = true;
       console.error("Profiles assessment scale lookup degraded:", err);
     }
     const scaleViews = scaleEntries.map((entry) => entry.view);
 
-    const resolvedFilters = resolvePersonalityFilter(filters, scaleViews);
+    const resolvedFilters = resolveProfilePersonalityFilter(filters, scaleViews);
     if (!resolvedFilters.ok) {
       // 量表清单读取失败 ≠ 没有启用的维度型量表：前者是服务端故障，按 503 让客户端重试，
       // 不能把 DB 故障误报成 400 参数错误（无筛选时列表仍照常降级返回）。
@@ -185,40 +171,6 @@ async function GET_impl(request: NextRequest) {
     console.error("Profiles GET error:", err);
     return NextResponse.json({ error: "获取档案列表失败" }, { status: 500 });
   }
-}
-
-/**
- * 解析人格筛选需要的信息（#330）：把维度 key 映射成「启用中的维度型量表」里的数组下标。
- *
- * 为什么要路由来算：`scores_json` 是**数组顺序**快照，SQL 按 `$[i]` 取分；下标只能由
- * 量表的 `dimensions_json` 决定，前端传下标等于把注入点交给客户端。维度不属于任何启用
- * 量表时显式 400（而不是返回空列表——那样老师会以为「没人测出这个维度」）。
- */
-function resolvePersonalityFilter(
-  filters: ProfileListQuery,
-  scales: readonly ProfileAssessmentScaleView[]
-): { ok: true; filters: ResolvedProfileListQuery } | { ok: false; error: string } {
-  const personality = filters.personality;
-  if (!personality) return { ok: true, filters };
-  const dimensional = scales.filter((scale) => scale.scoringMode === "dimensional");
-
-  if (personality.mode === "dimension") {
-    for (const scale of dimensional) {
-      const index = scale.dimensions.findIndex((dimension) => dimension.key === personality.key);
-      if (index >= 0) {
-        return {
-          ok: true,
-          filters: { ...filters, personalitySql: { scaleCode: scale.code, dimensionIndex: index } },
-        };
-      }
-    }
-    return { ok: false, error: `人格量表没有维度 ${personality.key}（或人格量表未启用）` };
-  }
-
-  // 「已测 / 未测」只需要知道按哪套量表判：取启用中的第一套维度型量表。
-  const scale = dimensional[0];
-  if (!scale) return { ok: false, error: "人格量表还没有启用，暂时无法按人格测评筛选" };
-  return { ok: true, filters: { ...filters, personalitySql: { scaleCode: scale.code } } };
 }
 
 async function DELETE_impl(request: NextRequest) {
