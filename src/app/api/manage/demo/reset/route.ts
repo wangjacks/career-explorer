@@ -39,7 +39,7 @@ async function POST_impl(request: NextRequest) {
     return NextResponse.json({ ok: false, error: "Forbidden" }, { status: 403 });
   }
 
-  // #253 仅支持全量重置；账户级 / 内容级作用域随 #278（账户管理）落地
+  // 仅支持全量重置；细粒度作用域（仅数据 / 仅账户）另开 follow-up（账户管理见 #278）
   let scope = "all";
   try {
     const body = (await request.json()) as { scope?: unknown };
