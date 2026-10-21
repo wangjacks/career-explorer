@@ -23,6 +23,8 @@ export interface ProfileStickyActionInput {
   editing: boolean;
   /** 当前面板视图（只有「我的档案」主视图才需要这条主操作） */
   activeView: string;
+  /** 移动端侧边抽屉是否打开（打开时让位给导航，避免操作条压住抽屉/遮罩） */
+  sidebarOpen: boolean;
   /** 服务端下发的提交截止状态（#96） */
   submissionClosed: boolean;
   /** 截止时间文案（Y-M-D H:M）；未知为 null */
@@ -34,10 +36,12 @@ export interface ProfileStickyActionInput {
  *
  * - 只在「已归档 + 非编辑 + 我的档案视图」出现：未提交时引导卡与 hero 已有「开始填写」；
  *   历史提交视图的操作是「恢复」，不该被「修改数据」挡住；
+ * - 移动端侧栏打开时隐藏：操作条是 fixed z-40，与抽屉同层，显示会压住抽屉并保持可点；
  * - 截止后仍显示但置灰，并给出截止时间——入口消失会让教师/学生以为界面坏了。
  */
 export function profileStickyAction(input: ProfileStickyActionInput): ProfileStickyActionState {
-  const visible = input.hasSubmitted && !input.editing && input.activeView === "profile";
+  const visible =
+    input.hasSubmitted && !input.editing && input.activeView === "profile" && !input.sidebarOpen;
   const disabled = input.submissionClosed;
   const hint = input.submissionClosed
     ? input.submissionDeadline

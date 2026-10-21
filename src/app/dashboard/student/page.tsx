@@ -722,8 +722,10 @@ export default function StudentDashboardPage() {
         listFailed: assessment.failed,
         failedCodes: assessment.data.failedCodes,
         careersFailed: assessment.data.careersFailed,
+        submissionClosed,
+        submissionDeadline,
       }),
-    [profile, assessment.data, assessment.failed]
+    [profile, assessment.data, assessment.failed, submissionClosed, submissionDeadline]
   );
 
   // 测评区（速览四卡 + 结果详情 + 页尾授权）只在「我的档案」视图、非编辑态渲染（#344）：
@@ -784,6 +786,8 @@ export default function StudentDashboardPage() {
     (card: SummaryCard) => {
       const { cta } = card;
       if (cta.action === "edit") {
+        // 截止后速览卡的编辑入口已置灰（正常点不到）；这里再兜一层，避免状态过期时绕过门控
+        if (cta.disabled) return;
         if (!editing) void startEdit();
         return;
       }
@@ -975,6 +979,7 @@ export default function StudentDashboardPage() {
     hasSubmitted,
     editing,
     activeView,
+    sidebarOpen,
     submissionClosed,
     submissionDeadline,
   });
@@ -996,7 +1001,7 @@ export default function StudentDashboardPage() {
 
         <main
           className={`flex-1 min-w-0 px-4 sm:px-6 pt-6 animate-[fade-in_0.2s_ease-out] ${
-            stickyAction.visible ? "pb-28 sm:pb-6" : "pb-6"
+            stickyAction.visible ? "pb-[calc(7rem_+_env(safe-area-inset-bottom))] sm:pb-6" : "pb-6"
           }`}
         >
           <div className="max-w-3xl mx-auto space-y-5">

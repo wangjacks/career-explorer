@@ -134,7 +134,7 @@
 - **速览卡**：桌面 2×2、`<sm` 单列（`grid-cols-1 sm:grid-cols-2`）；每卡 = 图标 + 标题 + 右上「查看详情」（**真 `<button>`**，不是 div）+ 结论主体（最多 2 行 / 3 个数字）；单卡三态（ready / empty / degraded）互不影响，**失败不能说成没测过**
 - **折叠卡**：`section[aria-labelledby]` → `h2 > button[aria-expanded][aria-controls]` → 展开面板 `role="region"` 同一标题；键盘 Enter / Space 可开合、`focus-visible` 焦点环；**收起时不挂载面板**（图表 / 大段内容等展开再渲染）；标题与口径行允许换行（`break-words`），长姓名 / 长班级名截断，不撑破卡片
 - **图表**：雷达图 `role="img"` + `aria-label` 必须含每一维数值（`chartAriaLabel`）；recharts 组件一律 `next/dynamic({ ssr:false })` 懒加载 + 固定高度占位（`ChartLoadingPlaceholder`），避免首屏为不可见图表付体积；主色用语义 token（`currentColor` + `text-primary`），不硬编码色值
-- **移动端 sticky 操作条**：`<sm` 时底部「修改数据」`fixed inset-x-0 bottom-0 z-40`，`padding-bottom: calc(... + env(safe-area-inset-bottom))` 预留安全区；主滚动区同步留底部内边距（如 `pb-28`）避免遮挡；只在「已归档 + 非编辑 + 我的档案视图」出现（历史提交 / 小组 / 编辑态都有自己的主操作，不叠两条）；提交截止后**仍显示但置灰**并注明截止时间，入口不消失
+- **移动端 sticky 操作条**：`<sm` 时底部「修改数据」`fixed inset-x-0 bottom-0 z-40`，`padding-bottom: calc(... + env(safe-area-inset-bottom))` 预留安全区；主滚动区同步留底部内边距（`calc(7rem + env(safe-area-inset-bottom))`）避免遮挡；只在「已归档 + 非编辑 + 我的档案视图 + 侧栏关闭」出现（历史提交 / 小组 / 编辑态都有自己的主操作，不叠两条；侧栏打开时让位给抽屉）；提交截止后**仍显示但置灰**并注明截止时间，入口不消失
 - **空态 CTA**：每个空态给下一步动作（去测评 / 开始填写 / 补充评价 / 重试），不渲染空占位大卡；状态判定与文案拼接落纯函数（`profile-ui.ts` / `profile-summary.ts`）并单测
 
 ## 层级（z-index）

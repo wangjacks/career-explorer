@@ -15,6 +15,7 @@ const base: ProfileStickyActionInput = {
   hasSubmitted: true,
   editing: false,
   activeView: "profile",
+  sidebarOpen: false,
   submissionClosed: false,
   submissionDeadline: "2026-10-01 23:59",
 };
@@ -24,11 +25,12 @@ describe("profileStickyAction（移动端底部「修改数据」）", () => {
     expect(profileStickyAction(base)).toEqual({ visible: true, disabled: false, hint: null });
   });
 
-  it("未归档 / 编辑态 / 其它视图 → 不显示（不抢别的视图的主操作）", () => {
+  it("未归档 / 编辑态 / 其它视图 / 侧栏打开 → 不显示（不抢别的视图的主操作，也不压住抽屉）", () => {
     expect(profileStickyAction({ ...base, hasSubmitted: false }).visible).toBe(false);
     expect(profileStickyAction({ ...base, editing: true }).visible).toBe(false);
     expect(profileStickyAction({ ...base, activeView: "history" }).visible).toBe(false);
     expect(profileStickyAction({ ...base, activeView: "group" }).visible).toBe(false);
+    expect(profileStickyAction({ ...base, sidebarOpen: true }).visible).toBe(false);
   });
 
   it("提交截止 → 仍然显示但置灰，并给出截止时间（入口不消失，避免以为界面坏了）", () => {

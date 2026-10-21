@@ -59,6 +59,8 @@ export interface SummaryCardCta {
   targetId?: string;
   /** `quiz` 时跳转的地址 */
   href?: string;
+  /** 截止等状态下禁用：入口仍展示（避免以为界面坏了），但不能进入编辑 */
+  disabled?: boolean;
 }
 
 export interface SummaryCard {
@@ -106,6 +108,10 @@ export interface BuildProfileSummaryInput {
   failedCodes?: readonly string[];
   /** 推荐职业接口失败（有霍兰德结果但没有推荐时区分「失败」与「为空」） */
   careersFailed?: boolean;
+  /** 档案提交是否已截止（#324：资料卡的编辑入口一并禁用） */
+  submissionClosed?: boolean;
+  /** 档案提交截止时间文案；未知为 null */
+  submissionDeadline?: string | null;
 }
 
 /** 结果区容器 id：清单失败时摘要卡统一指向这里重试 */
@@ -163,6 +169,8 @@ export function buildProfileSummary(input: BuildProfileSummaryInput): ProfileSum
     listFailed = false,
     failedCodes = [],
     careersFailed = false,
+    submissionClosed = false,
+    submissionDeadline = null,
   } = input;
   const hollandScale = findScale(scales, "holland");
   const bigFiveScale = findScale(scales, "big-five");
@@ -178,7 +186,7 @@ export function buildProfileSummary(input: BuildProfileSummaryInput): ProfileSum
       buildInterestCard({ hollandScale, hollandPayload, hollandFailed, listFailed }),
       buildPersonalityCard({ bigFiveScale, bigFivePayload, bigFiveFailed, listFailed }),
       buildCareersCard({ hollandScale, hollandCurrent, hollandFailed, careers, listFailed, careersFailed }),
-      buildProfileCard(profile),
+      buildProfileCard(profile, submissionClosed, submissionDeadline),
     ],
   };
 }
@@ -379,7 +387,11 @@ function buildCareersCard(input: {
   };
 }
 
-function buildProfileCard(profile: SummaryProfileInput | null): SummaryCard {
+function buildProfileCard(
+  profile: SummaryProfileInput | null,
+  submissionClosed: boolean,
+  submissionDeadline: string | null
+): SummaryCard {
   const base = { kind: "profile" as const, title: "我的档案" };
 
   if (!profile) {
@@ -403,17 +415,35 @@ function buildProfileCard(profile: SummaryProfileInput | null): SummaryCard {
   const evaluationDone = completion[2].done;
   const tokens = profile.tags.slice(0, MAX_SUMMARY_TAGS);
 
+  // 需要进入编辑态的入口：未归档或评价未填。截止后仍展示但置灰，并给出截止说明（#324）
+  const editCta: SummaryCardCta | null = !profile.submitted
+    ? { label: "开始填写", action: "edit" }
+    : !evaluationDone
+      ? { label: "补充他人评价", action: "edit" }
+      : null;
+  const deadlineHint = submissionClosed
+    ? submissionDeadline
+      ? `档案提交已于 ${submissionDeadline} 截止，无法再修改`
+      : "档案提交已截止，无法再修改"
+    : null;
+  const cta: SummaryCardCta = editCta
+    ? submissionClosed
+      ? { ...editCta, label: "提交已截止", disabled: true }
+      : editCta
+    : { label: "查看详情", action: "profile", targetId: PROFILE_INFO_ID };
+
   return {
     ...base,
     state: "ready",
     headline: profile.submitted ? `已完成 ${doneCount}/3 项资料` : "档案还没提交",
-    caption: profile.submitted ? "标签 / 头像 / 他人评价" : "标签必填，头像与他人评价选填",
+    caption:
+      editCta && deadlineHint
+        ? deadlineHint
+        : profile.submitted
+          ? "标签 / 头像 / 他人评价"
+          : "标签必填，头像与他人评价选填",
     tokens,
     completion,
-    cta: !profile.submitted
-      ? { label: "开始填写", action: "edit" }
-      : !evaluationDone
-        ? { label: "补充他人评价", action: "edit" }
-        : { label: "查看详情", action: "profile", targetId: PROFILE_INFO_ID },
+    cta,
   };
 }
