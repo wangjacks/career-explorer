@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, beforeAll } from "vitest";
 import { NextRequest } from "next/server";
 import sharp from "sharp";
 
@@ -24,14 +24,19 @@ import {
   getDefaultStorageBackend,
   getMaxAvatarSizeMb,
   getMaxEvaluationSizeMb,
+  getUserById,
   insertAuditLog,
 } from "@/lib/db";
 import { getStorage } from "@/lib/storage";
+import { signToken } from "@/lib/token";
 import { UPLOAD_UNSUPPORTED_FORMAT_MESSAGE } from "@/lib/upload-utils";
-import type { StorageBackendRow } from "@/lib/db";
+import type { StorageBackendRow, UserRow } from "@/lib/db";
 import type { StorageAdapter } from "@/lib/storage";
 
 const MB = 1024 * 1024;
+
+/** #259 起失败审计只对有身份的调用者落库：本文件所有用例都带学生会话 */
+let authToken = "";
 
 /** Node 的 Buffer 与 DOM 的 BlobPart 类型不完全对齐（Buffer 可是 SharedArrayBuffer 视图），运行期等价 */
 function toFile(bytes: Buffer, name: string, type: string): File {
@@ -51,6 +56,7 @@ function createUploadRequest(opts: {
   return new NextRequest(new URL("/api/upload", "http://localhost:3000"), {
     method: "POST",
     body: fd,
+    headers: { cookie: `auth_token=${authToken}` },
   });
 }
 
@@ -64,10 +70,28 @@ function firstAudit() {
   return { ...call[0], metadata: JSON.parse(String(call[0].metadata)) as Record<string, unknown> };
 }
 
+beforeAll(async () => {
+  authToken = await signToken({ role: "student", uid: 7, name: "测试学生" });
+});
+
 beforeEach(() => {
   vi.clearAllMocks();
   vi.mocked(getMaxAvatarSizeMb).mockResolvedValue(5);
   vi.mocked(getMaxEvaluationSizeMb).mockResolvedValue(10);
+  vi.mocked(getUserById).mockResolvedValue({
+    id: 7,
+    user_code: "202505050101",
+    password_hash: "hash",
+    role: "student",
+    name: "测试学生",
+    class_id: 1,
+    tags: null,
+    avatar_url: null,
+    evaluation_url: null,
+    submitted_at: null,
+    created_at: "",
+    storage_id: 1,
+  } as UserRow);
 });
 
 describe("POST /api/upload — 体积与格式（#206）", () => {
