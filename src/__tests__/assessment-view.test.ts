@@ -385,10 +385,10 @@ describe("shouldRenderAssessmentResults（#344 测评结果区的渲染范围）
     expect(shouldRenderAssessmentResults("group", true)).toBe(false);
   });
 
-  it("判定只认视图与编辑态，不认提交截止（测评与档案提交流程解耦）", () => {
-    // 函数签名里没有 submissionClosed：截止与否不改变渲染范围
-    expect(shouldRenderAssessmentResults.length).toBe(2);
+  it("判定只认视图与编辑态：提交截止与否不改变渲染范围（测评与档案提交流程解耦）", () => {
+    // 签名只有 (activeView, editing)；截止状态由档案侧独立管理，不参与渲染判定
     expect(shouldRenderAssessmentResults("profile", false)).toBe(true);
+    expect(shouldRenderAssessmentResults("profile", true)).toBe(false);
   });
 });
 

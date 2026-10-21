@@ -12,6 +12,7 @@
 import type { DimensionScore } from "./assessment-scoring";
 import { MAX_RESULT_VERSIONS } from "./assessment-flow";
 import { RIASEC_KEYS, RIASEC_LABELS, normalizeHollandCode, type RiasecKey } from "./assessment-match";
+import type { StudentViewKey } from "./student-nav";
 
 /** 六型通俗解读：写给第一次看结果的学生，不出现「维度 / 标准分 / 口径」这类术语 */
 export const RIASEC_INTERPRETATIONS: Readonly<Record<RiasecKey, string>> = {
@@ -554,12 +555,6 @@ export function buildAttributionGroups(input: {
 }
 
 /**
- * 「我的档案」页内视图（与 `StudentSidebar` 的 `StudentViewKey` 同口径）。
- * 这里用字面量联合而不是 import 组件类型：本模块被 API 路由与纯函数单测共享，不依赖组件层。
- */
-export type StudentProfileView = "profile" | "history" | "group";
-
-/**
  * 测评结果区是否渲染（#344）：**只在「我的档案」视图、且不在编辑态**时渲染。
  *
  * - 我的小组 / 历史提交与测评无关，此前无条件挂载会把霍兰德、大五与「人格与兴趣一起看」
@@ -568,7 +563,8 @@ export type StudentProfileView = "profile" | "history" | "group";
  * - 编辑态统一隐藏（产研结论）：填写档案时结果卡只会干扰输入，与资料卡「先保存再回来看结果」
  *   的既有交互一致；保存/取消后回到档案视图即恢复；
  * - 与档案提交流程仍完全解耦：不看 `submissionClosed`、不进档案版本快照。
+ * - 视图联合类型取自 `student-nav.ts`（唯一权威定义），本模块不重复声明。
  */
-export function shouldRenderAssessmentResults(activeView: StudentProfileView, editing: boolean): boolean {
+export function shouldRenderAssessmentResults(activeView: StudentViewKey, editing: boolean): boolean {
   return !editing && activeView === "profile";
 }
