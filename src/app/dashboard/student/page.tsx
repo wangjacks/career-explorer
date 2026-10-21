@@ -28,6 +28,7 @@ import {
   extractEvaluationWords,
 } from "@/lib/evaluation-text";
 import { MAX_RESULT_VERSIONS } from "@/lib/assessment-flow";
+import { shouldRenderAssessmentResults } from "@/lib/assessment-view";
 import { latestCompletedOf } from "@/lib/assessment-list";
 import {
   assessmentCodeFromDetailId,
@@ -717,6 +718,10 @@ export default function StudentDashboardPage() {
     [profile, assessment.data, assessment.failed]
   );
 
+  // 测评区（速览四卡 + 结果详情 + 页尾授权）只在「我的档案」视图、非编辑态渲染（#344）：
+  // 小组 / 历史视图与编辑态不挂载，避免无关结果卡挤占视图内容与填写干扰
+  const showAssessmentResults = shouldRenderAssessmentResults(activeView, editing);
+
   const startEdit = useCallback(async () => {
     if (!profile) return;
     // 从「我的小组 / 历史提交」点 hero 的修改入口时，先切回档案视图，保存后才看得到结果
@@ -1063,24 +1068,30 @@ export default function StudentDashboardPage() {
               </div>
             </section>
 
-            {/* 速览四卡（#323）：hero 之下的结论区，点「查看详情」展开并滚动到对应内容 */}
-            <ProfileSummaryBoard
-              summary={summary}
-              loading={assessment.loading}
-              onAction={handleSummaryAction}
-              tagColors={tagColorMap}
-            />
+            {/* 速览四卡（#323）：hero 之下的结论区，点「查看详情」展开并滚动到对应内容；
+                与测评结果区同范围（#344）：小组 / 历史视图与编辑态不挂载 */}
+            {showAssessmentResults && (
+              <ProfileSummaryBoard
+                summary={summary}
+                loading={assessment.loading}
+                onAction={handleSummaryAction}
+                tagColors={tagColorMap}
+              />
+            )}
 
-            {/* 测评结果区（#224 + #292 + #322 + #323）：折叠详情，与速览共用同一份数据 */}
-            <AssessmentResultsSection
-              data={assessment.data}
-              loading={assessment.loading}
-              failed={assessment.failed}
-              onRetry={assessment.reload}
-              expandedCodes={expandedCodes}
-              onExpandedChange={setCardOpen}
-              highlightId={highlightId}
-            />
+            {/* 测评结果区（#224 + #292 + #322 + #323）：折叠详情，与速览共用同一份数据；
+                只在「我的档案」视图、非编辑态渲染（#344）——不挂载就不会新增取数，仍不受提交截止门控、不进档案版本快照 */}
+            {showAssessmentResults && (
+              <AssessmentResultsSection
+                data={assessment.data}
+                loading={assessment.loading}
+                failed={assessment.failed}
+                onRetry={assessment.reload}
+                expandedCodes={expandedCodes}
+                onExpandedChange={setCardOpen}
+                highlightId={highlightId}
+              />
+            )}
 
             {/* Tab 导航（#322 上移）：速览区之后、资料区之前，保证「历史提交」在 1 屏内可达；历史提交仍懒加载 */}
             {!editing && hasSubmitted && activeView !== "group" && (
@@ -1303,8 +1314,9 @@ export default function StudentDashboardPage() {
               </div>
             )}
 
-            {/* 页尾授权与免责（#322）：全页只出现一次，结果卡内只留指针；折叠但保留 DOM 文本 */}
-            {assessment.data.scales.length > 0 && (
+            {/* 页尾授权与免责（#322）：全页只出现一次，结果卡内只留指针；与测评结果区同范围（#344），
+                小组 / 历史视图与编辑态不显示 */}
+            {showAssessmentResults && assessment.data.scales.length > 0 && (
               <AssessmentAttributionCard
                 collapsible
                 scales={assessment.data.scales}
