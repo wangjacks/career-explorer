@@ -754,6 +754,14 @@ export default function ProfilesTab({ loadProfiles, loadStats }: Props) {
                               emptyText="暂无可提取的关键词"
                             />
                             <EvaluationTexts texts={h.evaluation_texts ?? []} />
+                            {h.evaluation_url && (
+                              <details>
+                                <summary className="cursor-pointer select-none text-[10px] text-muted hover:text-foreground">
+                                  查看此版本历史图片
+                                </summary>
+                                <StorageImage url={h.evaluation_url} storageId={h.storage_id} alt="" className="mt-1 h-8 w-14 rounded object-cover border border-border-soft" />
+                              </details>
+                            )}
                           </div>
                         ) : h.evaluation_url ? (
                           <StorageImage url={h.evaluation_url} storageId={h.storage_id} alt="" className="h-8 w-14 rounded object-cover border border-border-soft" />
