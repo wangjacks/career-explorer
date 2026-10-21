@@ -32,6 +32,7 @@ describe("兴趣测评筛选口径（#234 / #305 数据列表）", () => {
     expect(assessmentLeadOf(undefined)).toBeNull();
     expect(assessmentLeadOf("")).toBeNull();
     expect(assessmentLeadOf("XYZ")).toBeNull();
+    expect(assessmentLeadOf(" XRA ")).toBeNull();
   });
 
   it("已测判定以三字码为准（不依赖 status 字段）", () => {

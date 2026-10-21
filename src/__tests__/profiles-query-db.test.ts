@@ -100,6 +100,8 @@ const CODE_23 = "202505051023";
 const CODE_22 = "202505051022";
 const CODE_21 = "202505051021";
 const CODE_20 = "202505051020";
+const CODE_19 = "202505051019";
+const CODE_18 = "202505051018";
 
 describe("getSubmittedProfiles 服务端筛选（#295）", () => {
   it("不传筛选参数时与改造前一致：提交时间倒序、默认分页、total=全体", () => {
@@ -154,6 +156,40 @@ describe("getSubmittedProfiles 服务端筛选（#295）", () => {
     // 21 号的旧版本 RIA 已被当前版本 ECS 取代：算已测（E 型），不在未测里
     expect(codes.has(CODE_21)).toBe(false);
     expect(adapter.getSubmittedProfiles(1, 25, { lead: "E" }).rows.map((row) => row.user_code)).toEqual([CODE_21]);
+    adapter.close();
+    cleanup(dbPath);
+  });
+
+  it("字母筛选只接受合法三字码：非法值只进未测，合法值的前后空白不影响匹配", () => {
+    const { dbPath, adapter, assessmentId, ids } = seed();
+    const complete = (userCode: string, typeCode: string) =>
+      adapter.completeAssessmentResult({
+        userId: ids.get(userCode)!,
+        assessmentId,
+        answersJson: "{}",
+        itemsJson: "[]",
+        scoresJson: null,
+        typeCode,
+      });
+    complete(CODE_19, "XRA");
+    complete(CODE_18, " RIA ");
+
+    for (const lead of ["R", "I", "A", "S", "E", "C"] as const) {
+      const codes = adapter.getSubmittedProfiles(1, 25, { lead }).rows.map((row) => row.user_code);
+      expect(codes).not.toContain(CODE_19);
+    }
+    expect(adapter.getSubmittedProfiles(1, 25, { lead: "none" }).rows.map((row) => row.user_code)).toContain(
+      CODE_19
+    );
+
+    for (const lead of ["R", "I", "A"] as const) {
+      const codes = adapter.getSubmittedProfiles(1, 25, { lead }).rows.map((row) => row.user_code);
+      expect(codes).toContain(CODE_18);
+    }
+    expect(adapter.getSubmittedProfiles(1, 25, { lead: "none" }).rows.map((row) => row.user_code)).not.toContain(
+      CODE_18
+    );
+
     adapter.close();
     cleanup(dbPath);
   });

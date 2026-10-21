@@ -60,7 +60,7 @@ function AssessmentCodeBadge({ code }: { code: string }) {
     <span
       className="inline-block rounded-lg px-2 py-0.5 font-mono text-xs font-semibold"
       style={{ backgroundColor: color.bar, color: color.chipFg }}
-      title={`霍兰德三字码 ${code}，首位 ${code.trim().slice(0, 1).toUpperCase()} 为主导型`}
+      title={`霍兰德三字码 ${code}，首位 ${code.trim().slice(0, 1).toUpperCase()} 为主导型（列表筛选按三字码任意位置包含）`}
     >
       {code}
     </span>
@@ -635,7 +635,7 @@ export default function ProfilesTab({ loadProfiles, loadStats }: Props) {
                 </div>
                 <div className="mt-2 flex items-center gap-2">
                   <AssessmentCodeBadge code={detail.assessmentCode as string} />
-                  <span className="text-[11px] text-muted">霍兰德三字码 · 首位即主导型</span>
+                  <span className="text-[11px] text-muted">霍兰德三字码 · 首位即主导型（列表筛选按任意位置包含）</span>
                 </div>
                 {hasAssessmentScores(detail) && (() => {
                   const bars = buildRiasecBars(detail.assessmentScores ?? [], detail.assessmentCode);

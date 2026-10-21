@@ -229,16 +229,19 @@ export function buildSubmittedProfilesSql(
 
   const lead = filters?.lead ?? "all";
   if (lead !== "all") {
-    const leadExpr = "UPPER(SUBSTR(r.type_code, 1, 1))";
+    // 字母筛选与「未测」共用同一个合法性口径：先 TRIM，再以首位是否属于 RIASEC 判定。
+    // 字母分支必须先通过这道闸，否则 XRA 这类非法存量值会同时落进 R 与「未测」两个桶。
+    const normalizedCodeExpr = "UPPER(TRIM(r.type_code))";
+    const validCodeExpr = `SUBSTR(${normalizedCodeExpr}, 1, 1) IN ('R','I','A','S','E','C')`;
     const assessedExists = (condition: string) =>
       `EXISTS (SELECT 1 FROM assessment_results r JOIN assessments a ON a.id = r.assessment_id ` +
       `WHERE r.user_id = u.id AND a.code = ? AND r.status = 'completed' AND r.is_current = 1 ` +
       `AND r.type_code IS NOT NULL AND ${condition})`;
     if (lead === "none") {
-      where.push(`NOT ${assessedExists(`${leadExpr} IN ('R','I','A','S','E','C')`)}`);
+      where.push(`NOT ${assessedExists(validCodeExpr)}`);
       params.push(assessmentCode);
     } else {
-      where.push(assessedExists(`INSTR(UPPER(r.type_code), ?) > 0`));
+      where.push(assessedExists(`${validCodeExpr} AND INSTR(${normalizedCodeExpr}, ?) > 0`));
       params.push(assessmentCode, lead);
     }
   }

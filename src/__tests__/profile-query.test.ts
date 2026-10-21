@@ -131,13 +131,18 @@ describe("buildSubmittedProfilesSql（两适配器共用的 SQL 口径）", () =
 
   it("兴趣测评：六型按三字码任意位置包含；none 用 NOT EXISTS（含三字码非法/无结果）", () => {
     const leadSql = buildSubmittedProfilesSql("sqlite", { lead: "I" }, "riasec");
-    expect(leadSql.whereSql).toContain("INSTR(UPPER(r.type_code), ?) > 0");
+    expect(leadSql.whereSql).toContain(
+      "SUBSTR(UPPER(TRIM(r.type_code)), 1, 1) IN ('R','I','A','S','E','C')"
+    );
+    expect(leadSql.whereSql).toContain("INSTR(UPPER(TRIM(r.type_code)), ?) > 0");
     expect(leadSql.whereSql).toContain("a.code = ?");
     expect(leadSql.params).toEqual(["riasec", "I"]);
 
     const noneSql = buildSubmittedProfilesSql("sqlite", { lead: "none" }, "riasec");
     expect(noneSql.whereSql).toContain("NOT EXISTS");
-    expect(noneSql.whereSql).toContain("IN ('R','I','A','S','E','C')");
+    expect(noneSql.whereSql).toContain(
+      "SUBSTR(UPPER(TRIM(r.type_code)), 1, 1) IN ('R','I','A','S','E','C')"
+    );
     expect(noneSql.params).toEqual(["riasec"]);
   });
 
