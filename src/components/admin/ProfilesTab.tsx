@@ -31,6 +31,9 @@ interface Props {
   /** 可选：由页面/OverviewTab 透传的加载实现（admin 端删除后统计卡联动）；未传时组件内部自 fetch */
   loadProfiles?: (p: number, query?: ProfileListQuery) => Promise<PagedData | null>;
   loadStats?: () => Promise<Stats | null>;
+  /** 面板归属（#243）：教师端按 teacher_classes 收敛删除入口，管理员默认全量 */
+  mode?: "admin" | "teacher";
+  teacherUid?: number | null;
 }
 
 /** 版本历史行（#95）：详情弹窗内展示 */
@@ -77,7 +80,12 @@ function NotAssessedPill() {
 }
 
 /** 已提交档案数据列表：分页、搜索、标签筛选、详情查看、单个/批量删除 */
-export default function ProfilesTab({ loadProfiles, loadStats }: Props) {
+export default function ProfilesTab({
+  loadProfiles,
+  loadStats,
+  mode = "admin",
+  teacherUid = null,
+}: Props) {
   // 标签三色映射（#95）：详情弹窗版本历史标签按分类着色
   const tagColorMap = useTagColorMap();
 
@@ -106,6 +114,9 @@ export default function ProfilesTab({ loadProfiles, loadStats }: Props) {
   const historySeqRef = useRef(0);
   // 列表请求序号（#295）：快速切换筛选/排序/翻页时丢弃过期响应，见 `refreshProfiles`
   const profilesSeqRef = useRef(0);
+  // 教师可写班级范围（#243）：null = 尚未取到，删除入口一律隐藏；管理员不依赖此集合
+  const [ownedClassIds, setOwnedClassIds] = useState<Set<number> | null>(null);
+  const [ownershipFailed, setOwnershipFailed] = useState(false);
 
   // 弹窗 Escape 关闭（键盘可达性）
   useEscapeKey(!!detail, () => setDetail(null));
@@ -143,6 +154,39 @@ export default function ProfilesTab({ loadProfiles, loadStats }: Props) {
     }
     return null;
   }, []);
+
+  // 教师端班级归属（#243）：只用于隐藏越界行的删除入口，服务端仍会独立判定。
+  // 取不到时按空集合处理——宁可少显示删除，也不让教师点到 403。
+  useEffect(() => {
+    if (mode !== "teacher" || teacherUid == null) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch("/api/manage/classes");
+        if (!res.ok) throw new Error("加载班级归属失败");
+        const data = (await res.json()) as {
+          teacher_classes?: { teacher_id: number; class_id: number }[];
+        };
+        if (cancelled) return;
+        setOwnedClassIds(
+          new Set(
+            (data.teacher_classes ?? [])
+              .filter((p) => p.teacher_id === teacherUid)
+              .map((p) => p.class_id)
+          )
+        );
+        setOwnershipFailed(false);
+      } catch (err) {
+        if (cancelled) return;
+        console.error("Failed to load profile ownership:", err);
+        setOwnedClassIds(new Set());
+        setOwnershipFailed(true);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [mode, teacherUid]);
 
   const handleSort = (key: ProfileSortKey) => {
     if (sortKey === key) {
@@ -217,6 +261,16 @@ export default function ProfilesTab({ loadProfiles, loadStats }: Props) {
   const rows = paged?.data ?? [];
   const hasFilter = hasActiveProfileFilters(query);
 
+  // 删除入口归属（#243）：管理员恒可删；教师只对本人管辖班级的行开放（classId 缺失按不可删）
+  const canDeleteProfile = (p: Profile): boolean => {
+    if (mode !== "teacher") return true;
+    return p.classId != null && ownedClassIds !== null && ownedClassIds.has(p.classId);
+  };
+  const deletableRows = rows.filter(canDeleteProfile);
+  const selectedDeletableIds = Array.from(selected).filter((id) =>
+    deletableRows.some((p) => p.studentId === id)
+  );
+
   // 页码越界自愈（#295）：筛选后结果变少、或删掉最后一页的最后一行时，别把老师留在空页上
   /* eslint-disable react-hooks/set-state-in-effect -- 越界页码只能在拿到服务端 totalPages 后修正 */
   useEffect(() => {
@@ -226,9 +280,9 @@ export default function ProfilesTab({ loadProfiles, loadStats }: Props) {
   }, [paged, page]);
   /* eslint-enable react-hooks/set-state-in-effect */
 
-  // 表头全选态：按「当前可见行是否全部已选」判定（只比数量在筛选后会误判）
+  // 表头全选态：按「当前可删除行是否全部已选」判定（只比数量在筛选后会误判）
   const allVisibleSelected =
-    rows.length > 0 && rows.every((p) => selected.has(p.studentId));
+    deletableRows.length > 0 && deletableRows.every((p) => selected.has(p.studentId));
 
   // Close tag dropdown on outside click
   useEffect(() => {
@@ -264,13 +318,22 @@ export default function ProfilesTab({ loadProfiles, loadStats }: Props) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ ids }),
       });
-      if (!res.ok) throw new Error("删除失败");
-      const { deleted } = await res.json();
+      const data = (await res.json().catch(() => null)) as
+        | { deleted?: number; error?: string }
+        | null;
+      if (!res.ok) {
+        toast.error(data?.error ?? "删除失败");
+        // 403 多为客户端班级归属已过期（学生刚被转班）：刷新列表纠正删除入口
+        if (res.status === 403) void refreshProfiles(page, query);
+        return;
+      }
+      const deleted = data?.deleted ?? 0;
       toast.success(`已删除 ${deleted} 条记录`);
       setSelected(new Set());
       refreshStats();
       void refreshProfiles(page, query);
-    } catch {
+    } catch (err) {
+      console.error("Failed to delete profiles:", err);
       toast.error("删除失败");
     }
   };
@@ -285,14 +348,14 @@ export default function ProfilesTab({ loadProfiles, loadStats }: Props) {
   };
 
   const toggleSelectAll = () => {
-    const visible = rows;
-    // 以「当前可见行是否全部已选」为准：只按数量比较会在筛选后把别人的选择误判成全选
-    const allVisibleSelected =
+    const visible = deletableRows;
+    // 以「当前可删除行是否全部已选」为准：只按数量比较会在筛选后把别人的选择误判成全选
+    const allSelected =
       visible.length > 0 && visible.every((p) => selected.has(p.studentId));
     setSelected((prev) => {
       const next = new Set(prev);
       for (const p of visible) {
-        if (allVisibleSelected) next.delete(p.studentId);
+        if (allSelected) next.delete(p.studentId);
         else next.add(p.studentId);
       }
       return next;
@@ -326,16 +389,21 @@ export default function ProfilesTab({ loadProfiles, loadStats }: Props) {
   return (
     <div className="bg-card rounded-xl border border-border-soft">
       <div className="px-5 py-4 border-b border-border-soft flex flex-col gap-3">
-        <div className="flex items-center justify-between">
-          <h2 className="font-semibold text-foreground">
-            数据列表 {paged && `(${paged.total} 条${hasFilter ? " · 已筛选" : ""})`}
-          </h2>
-          {selected.size > 0 && (
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex min-w-0 flex-wrap items-center gap-2">
+            <h2 className="font-semibold text-foreground">
+              数据列表 {paged && `(${paged.total} 条${hasFilter ? " · 已筛选" : ""})`}
+            </h2>
+            {mode === "teacher" && ownershipFailed && (
+              <span className="text-xs text-danger-strong">班级归属加载失败，暂不可删除档案</span>
+            )}
+          </div>
+          {selectedDeletableIds.length > 0 && (
             <button
-              onClick={() => setConfirmDelete(Array.from(selected))}
+              onClick={() => setConfirmDelete(selectedDeletableIds)}
               className="px-4 py-1.5 bg-danger hover:bg-red-600 text-white text-sm font-medium rounded-lg transition-colors"
             >
-              删除选中（{selected.size}）
+              删除选中（{selectedDeletableIds.length}）
             </button>
           )}
         </div>
@@ -466,13 +534,15 @@ export default function ProfilesTab({ loadProfiles, loadStats }: Props) {
           <thead>
             <tr className="bg-gray-50 dark:bg-gray-800 text-left text-muted">
               <th className="px-5 py-3 font-medium w-10">
-                <input
-                  type="checkbox"
-                  aria-label="全选档案"
-                  checked={allVisibleSelected}
-                  onChange={toggleSelectAll}
-                  className="rounded border-gray-300"
-                />
+                {(mode !== "teacher" || deletableRows.length > 0) && (
+                  <input
+                    type="checkbox"
+                    aria-label="全选可删除的档案"
+                    checked={allVisibleSelected}
+                    onChange={toggleSelectAll}
+                    className="rounded border-gray-300"
+                  />
+                )}
               </th>
               <th aria-sort={sortKey === "studentId" ? (sortDir === "asc" ? "ascending" : "descending") : "none"} className="px-5 py-3 font-medium">
                 <button type="button" onClick={() => handleSort("studentId")} className="cursor-pointer select-none">学号<SortIcon active={sortKey === "studentId"} dir={sortDir} /></button>
@@ -497,13 +567,15 @@ export default function ProfilesTab({ loadProfiles, loadStats }: Props) {
                 className={`hover:bg-gray-50/50 dark:hover:bg-gray-800/40 ${selected.has(p.studentId) ? "bg-blue-50/30 dark:bg-blue-900/20" : ""}`}
               >
                 <td className="px-5 py-3">
-                  <input
-                    type="checkbox"
-                    aria-label={`选择 ${p.studentName || p.studentId}`}
-                    checked={selected.has(p.studentId)}
-                    onChange={() => toggleSelect(p.studentId)}
-                    className="rounded border-gray-300"
-                  />
+                  {canDeleteProfile(p) && (
+                    <input
+                      type="checkbox"
+                      aria-label={`选择 ${p.studentName || p.studentId}`}
+                      checked={selected.has(p.studentId)}
+                      onChange={() => toggleSelect(p.studentId)}
+                      className="rounded border-gray-300"
+                    />
+                  )}
                 </td>
                 <td className="px-5 py-3 font-mono text-xs text-gray-600 dark:text-gray-300">{p.studentId}</td>
                 <td className="px-5 py-3 text-gray-700 dark:text-gray-200">{p.studentName || "-"}</td>
@@ -545,8 +617,10 @@ export default function ProfilesTab({ loadProfiles, loadStats }: Props) {
                   <div className="flex items-center gap-2">
                     <button onClick={() => openDetail(p)}
                       className="text-green-600 hover:text-green-700 text-xs font-medium">查看</button>
-                    <button onClick={() => setConfirmDelete([p.studentId])}
-                      className="text-red-500 hover:text-red-600 text-xs font-medium">删除</button>
+                    {canDeleteProfile(p) && (
+                      <button onClick={() => setConfirmDelete([p.studentId])}
+                        className="text-red-500 hover:text-red-600 text-xs font-medium">删除</button>
+                    )}
                   </div>
                 </td>
               </tr>
@@ -733,10 +807,12 @@ export default function ProfilesTab({ loadProfiles, loadStats }: Props) {
                 className="flex-1 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm font-medium rounded-lg transition-colors">
                 关闭
               </button>
-              <button onClick={() => { setConfirmDelete([detail.studentId]); setDetail(null); }}
-                className="flex-1 py-2 bg-danger hover:bg-red-600 text-white text-sm font-medium rounded-lg transition-colors">
-                删除此记录
-              </button>
+              {canDeleteProfile(detail) && (
+                <button onClick={() => { setConfirmDelete([detail.studentId]); setDetail(null); }}
+                  className="flex-1 py-2 bg-danger hover:bg-red-600 text-white text-sm font-medium rounded-lg transition-colors">
+                  删除此记录
+                </button>
+              )}
             </div>
           </div>
         </div>
@@ -746,7 +822,7 @@ export default function ProfilesTab({ loadProfiles, loadStats }: Props) {
       <ConfirmDialog
         open={!!confirmDelete}
         title="确认删除"
-        message={`确定删除选中的 ${confirmDelete?.length} 条档案记录？勾选只覆盖当前页可见的行（不是${
+        message={`确定删除选中的 ${confirmDelete?.length} 条档案记录（含当前档案与全部历史版本）？勾选只覆盖当前页可见的行（不是${
             hasFilter ? "筛选结果的全部" : "全部档案"
           }），此操作不可恢复。`}
         variant="danger"

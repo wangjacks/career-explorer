@@ -152,7 +152,7 @@
 | `/api/manage/stats/class-trends` | GET | 仅 GET | 按班级分层的提交趋势（#165，时间 × 班级交叉维度）；响应 `{ series: [{ key, label }], points: [{ date, counts }] }`，`counts` 以 `key` 索引、未分班固定最后（#260） |
 | `/api/manage/stats/assessment` | GET | 仅 GET | 测评聚合统计（#229/#311）：班级完成度 / 六型计数 / 三字码排行 / 总数小结 / 逐班六型构成，**不含任何个人标识**；`?scope=all`（默认，全校）或 `scope=mine`（仅本人归属班级）；`?code` 默认 `riasec` 且只接受 `typological` 量表；`?classId` 收窄到单班；`assessment.enabled` 供大屏区分「还没开放」与「还没人做」（#232） |
 | `/api/manage/assessment/roster` | GET | 仅 GET | 测评名册（#229）：已完测学生的姓名 / 学号 / 三字码 / 完成时间，供下钻；过滤参数 `classId` / `lead`（三字码首位，与 #305 后 `/profiles` 的任意位置包含筛选口径不同）/ `code`（完整三字码，#232）+ `scope`；教师恒收窄到本人归属班级（越权 403），每次读取记审计 `assessment:roster` |
-| `/api/manage/profiles` | GET / DELETE | GET + DELETE | 档案列表 / 清除档案字段。GET 支持**服务端筛选与排序**（#295：`q` / `tag`（可重复，**一个参数就是一个标签、不按逗号切分**——标签名允许含逗号，切分会把下拉里选中的那一项筛成别的条件）/ `lead`（兴趣测评三字码任意位置包含所选六型字母（#305）或 `none`）/ `sortKey` / `sortDir`，分页在过滤后执行、`total` 为过滤后命中数）。GET 每行另带兴趣测评字段（#234：`assessmentCode` / `assessmentStatus` / `assessmentAt` + 详情条形用的六型快照 `assessmentScores`），取「`completed` 且 `is_current=1`」的当前有效结果，未测行为 `none` / `null`；分页、总数与既有排序口径不变 |
+| `/api/manage/profiles` | GET / DELETE | GET + DELETE | 档案列表 / 清除档案字段。GET 支持**服务端筛选与排序**（#295：`q` / `tag`（可重复，**一个参数就是一个标签、不按逗号切分**——标签名允许含逗号，切分会把下拉里选中的那一项筛成别的条件）/ `lead`（兴趣测评三字码任意位置包含所选六型字母（#305）或 `none`）/ `sortKey` / `sortDir`，分页在过滤后执行、`total` 为过滤后命中数）。GET 每行另带 `classId`（#243：教师面板据此隐藏越界行的删除入口）与兴趣测评字段（#234：`assessmentCode` / `assessmentStatus` / `assessmentAt` + 详情条形用的六型快照 `assessmentScores`），取「`completed` 且 `is_current=1`」的当前有效结果，未测行为 `none` / `null`；分页、总数与既有排序口径不变。DELETE 由 `WriteGuard` 在路由内判定班级归属（#243）：教师只能清除本人管辖班级学生的档案，未分班 / 他班 / 不在册 id 整批 403、不落任何写入；管理员仍可清除任意在册学生，不在册 id 显式 404；成功与被拒均记审计 `profile:clear`（metadata 只含学号与条数，不含档案内容） |
 | `/api/manage/profiles/submissions` | GET | GET | 管理端查看学生提交历史（#95）：admin 全量、teacher 仅管辖班级 |
 | `/api/manage/profiles/submissions/exceeding` | GET | GET | 超出版本上限的学生列表（#95） |
 | `/api/manage/groups` | GET / POST | 全方法 | 课堂分组（#101）：GET 读该班当前分组 + 指标 + 与最近一批的差异（读不限班级）；POST 触发自动分组，**完全覆盖**当前分组并追加一份历史批次归档 |
@@ -174,7 +174,7 @@
 >
 > 数据范围：`/api/manage/stats/*` 只做角色放行，不按班级裁剪，教师与管理员读到同一份全校数据（#165 的决策，界面已在面板标题与各卡片标注，非缺陷）。
 >
-> **#229 测评统计的两层范围**：聚合 `/stats/assessment` 沿用上面这条口径（默认全校，`scope=mine` 才收窄到本人归属班级）；**个人明细 `/assessment/roster` 例外**——它是唯一**专用的**「测评结果 + 姓名学号」下钻端点，教师恒为本人归属班级（`classId` 越权直接 403），并每次读取记审计。注意「唯一」只指**专用测评端点**：档案数据列表 `/api/manage/profiles` GET 自 #234 起也在每行附带三字码/完成时间/六型分，它沿用档案列表既有权限（教师可见全校已提交档案学生、无班级收窄、不记审计），不是第二套测评权限。两者的取舍见「教师端测评统计（#229）」与「教师端数据列表测评列（#234）」。
+> **#229 测评统计的两层范围**：聚合 `/stats/assessment` 沿用上面这条口径（默认全校，`scope=mine` 才收窄到本人归属班级）；**个人明细 `/assessment/roster` 例外**——它是唯一**专用的**「测评结果 + 姓名学号」下钻端点，教师恒为本人归属班级（`classId` 越权直接 403），并每次读取记审计。注意「唯一」只指**专用测评端点**：档案数据列表 `/api/manage/profiles` GET 自 #234 起也在每行附带三字码/完成时间/六型分，它沿用档案列表既有权限（教师可见全校已提交档案学生、GET 无班级收窄且不记审计；DELETE 按 #243 记审计），不是第二套测评权限。两者的取舍见「教师端测评统计（#229）」与「教师端数据列表测评列（#234）」。
 
 ### 共享域 `/api/shared/*`（不进 proxy，路由自鉴权）
 
