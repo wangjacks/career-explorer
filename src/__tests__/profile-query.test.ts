@@ -15,7 +15,7 @@ function parse(query: string) {
 }
 
 describe("parseProfilesQuery（#295 服务端筛选入参）", () => {
-  it("不传参数时给默认值：第 1 页 / 每页 20 / 不限主导型 / 提交时间倒序", () => {
+  it("不传参数时给默认值：第 1 页 / 每页 20 / 不限兴趣测评 / 提交时间倒序", () => {
     const parsed = parse("");
     expect(parsed).toEqual({
       ok: true,
@@ -27,7 +27,7 @@ describe("parseProfilesQuery（#295 服务端筛选入参）", () => {
     });
   });
 
-  it("q / 标签 / 主导型 / 排序全部归一化（标签去重、去空白；逗号属于标签名，不切分）", () => {
+  it("q / 标签 / 兴趣测评 / 排序全部归一化（标签去重、去空白；逗号属于标签名，不切分）", () => {
     const parsed = parse(
       "?page=2&pageSize=10&q=%20%E5%BC%A0%E4%B8%89%20&tag=%E7%AF%AE%E7%90%83%2C%E8%B6%B3%E7%90%83&tag=%20%E8%BF%90%E5%8A%A8%20&tag=%E8%BF%90%E5%8A%A8&lead=I&sortKey=studentId&sortDir=asc"
     );
