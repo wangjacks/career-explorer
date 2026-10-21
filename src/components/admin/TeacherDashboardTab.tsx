@@ -172,18 +172,16 @@ export default function TeacherDashboardTab() {
   }, [scope, selectedClassId, reloadKey]);
   /* eslint-enable react-hooks/set-state-in-effect */
 
-  // 范围变化后班表可能变：已选班级不在新范围里（或新范围不可下钻）就回到「全部班级」
+  // 范围变化后班表可能变：已选班级不在选择项里就回到「全部班级」（含人数归零的班）
+  const classOptions = useMemo(() => buildStructureClassOptions(completion?.rows ?? []), [completion]);
+
   /* eslint-disable react-hooks/set-state-in-effect -- 班级列表变化时的兜底重置 */
   useEffect(() => {
     if (selectedClassId === null) return;
-    const exists = (completion?.rows ?? []).some(
-      (row) => row.classId === selectedClassId && row.canDrilldown
-    );
-    if (!exists) setSelectedClassId(null);
-  }, [completion, selectedClassId]);
+    if (!classOptions.some((option) => option.classId === selectedClassId)) setSelectedClassId(null);
+  }, [classOptions, selectedClassId]);
   /* eslint-enable react-hooks/set-state-in-effect */
 
-  const classOptions = useMemo(() => buildStructureClassOptions(completion?.rows ?? []), [completion]);
   const selectedClassName = useMemo(
     () => classOptions.find((option) => option.classId === selectedClassId)?.name ?? "",
     [classOptions, selectedClassId]

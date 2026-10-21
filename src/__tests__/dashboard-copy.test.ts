@@ -594,10 +594,29 @@ describe("教师说明内容（#315 teacher-board-content）", () => {
     expect(all).toContain("不用于评价");
   });
 
-  it("五项教师叫法：N 换成「情绪敏感度」，其余保留量表名与字母角标", () => {
+  it("五项教师叫法：只特判 N，其余中文名跟随接口下发的量表名", () => {
     expect(bigFiveTeacherLabel("N", "神经质")).toBe("情绪敏感度（神经质 N）");
-    expect(bigFiveTeacherLabel("C", "尽责性")).toBe("尽责性（C）");
-    expect(bigFiveTeacherLabel("unknown", "未知方面")).toBe("未知方面");
+    expect(bigFiveTeacherLabel("E", "外向性")).toBe("外向性（E）");
+    // 换一份接口标签就必须跟着变，证明前端没有写死 E/O/A/C
+    expect(bigFiveTeacherLabel("O", "经验开放性")).toBe("经验开放性（O）");
+    expect(bigFiveTeacherLabel("A", "合作性")).toBe("合作性（A）");
+    expect(bigFiveTeacherLabel("C", "自律性")).toBe("自律性（C）");
+    // fallback 为空时退回 key，不产出空标签
+    expect(bigFiveTeacherLabel("E", "  ")).toBe("E");
+    expect(bigFiveTeacherLabel("unknown", "未知方面")).toBe("未知方面（unknown）");
+  });
+
+  it("「怎么用」Tab 覆盖 #315 §4.3 的必备内容，页脚声明不是死文案", () => {
+    const titles = TEACHER_BOARD_CONTENT.howTo.map((item) => item.title).join("\n");
+    const bodies = TEACHER_BOARD_CONTENT.howTo.map((item) => item.body).join("\n");
+    expect(titles).toContain("先看完成度");
+    expect(titles).toContain("一人只计一次");
+    expect(bodies).toContain("第一位");
+    expect(titles).toContain("不做个人排名");
+    expect(titles).toContain("投屏");
+    const drawer = readFileSync(join(process.cwd(), "src/components/admin/BoardHelpDrawer.tsx"), "utf8");
+    expect(drawer).toContain("content.footerDisclaimer");
+    expect(drawer).not.toContain("helpFooterNote");
   });
 });
 

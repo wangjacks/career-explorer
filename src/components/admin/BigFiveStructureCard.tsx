@@ -156,8 +156,8 @@ export default function BigFiveStructureCard({
 
           {invalidCount > 0 && <p className="text-[11px] text-amber-700 dark:text-amber-300">{copy.bigFiveInvalidNote(invalidCount)}</p>}
 
-          <div className="mt-auto flex items-center justify-between gap-2 border-t border-border-soft pt-3">
-            {canDrilldown && assessed > 0 && (
+          {canDrilldown && assessed > 0 && (
+            <div className="mt-auto flex items-center justify-between gap-2 border-t border-border-soft pt-3">
               <button
                 type="button"
                 onClick={openRoster}
@@ -167,8 +167,8 @@ export default function BigFiveStructureCard({
                 {copy.bigFiveRosterButton}
                 <ArrowRight className="h-3 w-3" aria-hidden />
               </button>
-            )}
-          </div>
+            </div>
+          )}
         </div>
       )}
     </section>

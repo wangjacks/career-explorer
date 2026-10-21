@@ -450,7 +450,6 @@ export const TEACHER_BOARD_COPY = {
   helpTabHow: "怎么用",
   helpClose: "知道了",
   helpCloseAria: "关闭说明",
-  helpFooterNote: "结果用于生涯探索与教学参考，不构成心理诊断。",
   helpRiasecLead: "兴趣没有好坏，只说明学生更愿意把精力放在哪类事情上。先看哪些型更集中，再看具体是谁。",
   helpBigFiveLead: "大五不是五种类型。每个人五项都有分数，只看偏高 / 中等 / 偏低；没有好坏，也不预测成绩。",
   helpHowLead: "这些结果最适合用来开启谈话、设计分组和调整任务，不适合用来评价学生。",

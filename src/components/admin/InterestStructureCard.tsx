@@ -44,7 +44,7 @@ export default function InterestStructureCard({
   const view = useMemo(() => buildInterestStructure(stats, selectedClassId), [stats, selectedClassId]);
   const codeChips = view.codes;
   const hasData = state === "ready" && view.assessed > 0;
-  const scaleLabel = stats?.scaleName ?? copy.scaleLabels.riasec;
+  const scaleLabel = stats?.scaleName || copy.scaleLabels.riasec;
 
   const openCodeRoster = (code: string) => {
     onOpenRoster({

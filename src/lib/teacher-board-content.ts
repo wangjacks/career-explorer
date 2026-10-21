@@ -11,7 +11,6 @@
  * 维度 / 学生名单 / 全校 / 全班 / 本班」…），也不出现任何商业量表名与诊断式表述。
  */
 
-import type { BigFiveKey } from "./assessment-center-content";
 import type { RiasecKey } from "./assessment-match";
 
 export interface TeacherBoardHowTo {
@@ -20,7 +19,7 @@ export interface TeacherBoardHowTo {
 }
 
 export interface TeacherBoardContent {
-  /** 「怎么用」Tab 的三条主线 */
+  /** 「怎么用」Tab 的正文条目 */
   howTo: readonly TeacherBoardHowTo[];
   /** 可以这样和学生聊（不点名、不贴标签的开放式提问） */
   conversationStarters: readonly string[];
@@ -32,26 +31,20 @@ export interface TeacherBoardContent {
   riasecClassroom: Readonly<Record<RiasecKey, string>>;
   /** 五项三档阈值，以及与学生端 50 分中线口径的差异说明 */
   bigFiveBandNote: string;
-  /** 教师界面里五项的叫法：N 换成不带诊断味的说法，其余保留学生端口径 */
-  bigFiveTeacherLabels: Readonly<Record<BigFiveKey, string>>;
   /** E/A/C 同名不同义的显式警告（#315 硬约束） */
   crossScaleWarning: string;
   /** 抽屉页脚的合规声明 */
   footerDisclaimer: string;
 }
 
-/** 五项在教师页上的显示名：`N` 说「情绪敏感度」，其余与量表定义一致 */
-export const BIG_FIVE_TEACHER_LABELS: Readonly<Record<BigFiveKey, string>> = {
-  N: "情绪敏感度（神经质 N）",
-  E: "外向性（E）",
-  O: "开放性（O）",
-  A: "宜人性（A）",
-  C: "尽责性（C）",
-};
-
-/** 取教师侧的五项显示名；未知 key 回退接口下发的正式标签，不抛错 */
+/**
+ * 五项在教师页上的显示名：只把 `N` 换成不带诊断味的说法，
+ * 其余一律跟随接口 `assessment.dimensions` 下发的量表名，前端不写死。
+ */
 export function bigFiveTeacherLabel(key: string, fallback: string): string {
-  return BIG_FIVE_TEACHER_LABELS[key as BigFiveKey] ?? fallback;
+  if (key === "N") return "情绪敏感度（神经质 N）";
+  const label = fallback.trim();
+  return label === "" ? key : `${label}（${key}）`;
 }
 
 export const TEACHER_BOARD_CONTENT: TeacherBoardContent = {
@@ -63,6 +56,18 @@ export const TEACHER_BOARD_CONTENT: TeacherBoardContent = {
     {
       title: "两边一起看",
       body: "兴趣回答「愿不愿意做」，性格回答「习惯怎么做」；两边互相补充，不做因果推断。",
+    },
+    {
+      title: "一人只计一次",
+      body: "兴趣卡按每位学生三字码的第一位归型：一个人只落进一个型，六项人数相加就是已测学生数，不会重复统计。",
+    },
+    {
+      title: "不做个人排名",
+      body: "图里只有分布，不比较谁高谁低；同一种兴趣或相近的分数，背后的经历和意愿可能完全不同。",
+    },
+    {
+      title: "投屏前先检查",
+      body: "投屏时只开这两张结构卡，先关掉带姓名的弹窗；讨论现象和趋势，不点名、不把单个学生的结果放上屏幕。",
     },
     {
       title: "用在教学上",
@@ -90,7 +95,6 @@ export const TEACHER_BOARD_CONTENT: TeacherBoardContent = {
   },
   bigFiveBandNote:
     "班级分布用三档：低 <33、中 33–67、高 ≥67。学生本人看到的是按 50 分中线的偏高 / 偏低描述——两者都是常规做法，不必互相校正；学生那边保持原样。",
-  bigFiveTeacherLabels: BIG_FIVE_TEACHER_LABELS,
   crossScaleWarning:
     "别把两套字母混在一起：霍兰德的 E / A / C 是兴趣类型，大五的 E / A / C 是性格方面——企业型 ≠ 外向性，艺术型 ≠ 宜人性，常规型 ≠ 尽责性。它们可能相关，但不是一回事。",
   footerDisclaimer: "结果用于生涯探索与教学参考，不构成心理诊断，也不作为评价学生的依据。",

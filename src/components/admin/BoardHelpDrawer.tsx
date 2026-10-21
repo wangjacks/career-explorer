@@ -31,9 +31,11 @@ export default function BoardHelpDrawer({
   onClose: () => void;
 }) {
   const copy = TEACHER_BOARD_COPY;
+  const content = TEACHER_BOARD_CONTENT;
   const titleId = useId();
   const hintId = useId();
   const panelRef = useRef<HTMLDivElement>(null);
+  const closeButtonRef = useRef<HTMLButtonElement>(null);
   const tabRefs = useRef<Partial<Record<BoardHelpTab, HTMLButtonElement | null>>>({});
   const [activeTab, setActiveTab] = useState<BoardHelpTab>(initialTab);
 
@@ -56,20 +58,22 @@ export default function BoardHelpDrawer({
     const prevActive = document.activeElement as HTMLElement | null;
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
-    panelRef.current?.focus();
+    // 落在真实可聚焦元素上（关闭按钮），避免焦点停在 tabIndex=-1 的 panel 上时 Shift+Tab 逃出弹层
+    closeButtonRef.current?.focus();
 
     const onKeyDown = (event: globalThis.KeyboardEvent) => {
       if (event.key !== "Tab" || !panelRef.current) return;
       const focusables = panelRef.current.querySelectorAll<HTMLElement>(
-        'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+        'a[href], button:not([disabled]):not([tabindex="-1"]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
       );
       if (focusables.length === 0) return;
       const first = focusables[0];
       const last = focusables[focusables.length - 1];
-      if (event.shiftKey && document.activeElement === first) {
+      const active = document.activeElement;
+      if (event.shiftKey && (active === first || active === panelRef.current)) {
         event.preventDefault();
         last.focus();
-      } else if (!event.shiftKey && document.activeElement === last) {
+      } else if (!event.shiftKey && (active === last || active === panelRef.current)) {
         event.preventDefault();
         first.focus();
       }
@@ -136,6 +140,7 @@ export default function BoardHelpDrawer({
             </p>
           </div>
           <button
+            ref={closeButtonRef}
             type="button"
             onClick={onClose}
             aria-label={copy.helpCloseAria}
@@ -193,7 +198,7 @@ export default function BoardHelpDrawer({
         ))}
 
         <footer className="flex shrink-0 items-center justify-between gap-3 border-t border-border-soft px-5 py-3">
-          <p className="text-[11px] text-muted">{copy.helpFooterNote}</p>
+          <p className="text-[11px] text-muted">{content.footerDisclaimer}</p>
           <button
             type="button"
             onClick={onClose}
