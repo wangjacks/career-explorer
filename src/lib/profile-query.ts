@@ -1,19 +1,21 @@
 /**
  * 教师端「数据列表」的服务端查询口径（#295）：筛选 / 排序 / 分页全部下推到数据库，
- * 这样跨页的学生也能被搜到（此前搜索、标签、主导型筛选都只过滤当前页 20 行）。
+ * 这样跨页的学生也能被搜到（此前搜索、标签、兴趣测评筛选都只过滤当前页 20 行）。
  *
  * 这里是纯函数（无 IO），三处共用同一份口径：
  * - 前端 `ProfilesTab` / `useAdminAuth` 用它把界面状态拼成查询串；
  * - API 路由 `GET /api/manage/profiles` 用它校验并归一化入参；
  * - 数据层两适配器按归一化后的 filters 拼 SQL。
  *
- * **主导型语义（#295 定稿）**：保持「三字码首位」= 主导型，与数据大屏按首位归型的统计口径一致；
- * 不做「包含该字母」的模糊匹配（那样 `SIA` 会同时落在 S/I/A 三型里，与「主导型」名称和大屏数字互相矛盾）。
- * 界面用 tooltip 把这个语义讲清楚，避免教师把「按 I 筛选」误读成「兴趣包含 I」。
+ * **兴趣字母筛选语义（#305）**：已测评行只要三字码任意位置包含所选字母即命中，
+ * 例如 `SIA` 同时命中 S / I / A。数据大屏的「类型分布」仍按首位归型，两处语义独立。
  */
 
 import { RIASEC_KEYS } from "./assessment-match";
-import { ASSESSMENT_LEAD_FILTERS, type AssessmentLeadFilter } from "./profile-assessment";
+import {
+  ASSESSMENT_INTEREST_FILTERS,
+  type AssessmentInterestFilter,
+} from "./profile-assessment";
 
 /** 列表可排序的字段：与表格表头一一对应（沿用前端既有的 key 名，避免两处映射漂移） */
 export const PROFILE_SORT_KEYS = ["studentId", "studentName", "createdAt"] as const;
@@ -32,8 +34,8 @@ export interface ProfileListQuery {
   q?: string;
   /** 标签名（AND 语义：必须同时拥有所选标签，与前端多选一致） */
   tags?: string[];
-  /** 兴趣测评主导型：六型取值之一 / `none` 未测 / `all` 不限 */
-  lead?: AssessmentLeadFilter;
+  /** 兴趣测评：六型字母之一（三字码包含即命中）/ `none` 未测 / `all` 不限 */
+  lead?: AssessmentInterestFilter;
   sortKey?: ProfileSortKey;
   sortDir?: SortDir;
 }
@@ -50,8 +52,8 @@ function isSortKey(value: string): value is ProfileSortKey {
   return (PROFILE_SORT_KEYS as readonly string[]).includes(value);
 }
 
-function isLeadFilter(value: string): value is AssessmentLeadFilter {
-  return ASSESSMENT_LEAD_FILTERS.some((item) => item.value === value);
+function isInterestFilter(value: string): value is AssessmentInterestFilter {
+  return ASSESSMENT_INTEREST_FILTERS.some((item) => item.value === value);
 }
 
 export interface NormalizedProfilesQuery {
@@ -107,8 +109,11 @@ export function parseProfilesQuery(params: URLSearchParams): ParseProfilesQueryR
   }
 
   const rawLead = params.get("lead");
-  const lead: AssessmentLeadFilter = rawLead === null || rawLead.trim() === "" ? "all" : (rawLead.trim() as AssessmentLeadFilter);
-  if (!isLeadFilter(lead)) {
+  const lead: AssessmentInterestFilter =
+    rawLead === null || rawLead.trim() === ""
+      ? "all"
+      : (rawLead.trim() as AssessmentInterestFilter);
+  if (!isInterestFilter(lead)) {
     return { ok: false, error: `lead 只支持 all / ${RIASEC_KEYS.join(" / ")} / none` };
   }
 
@@ -193,7 +198,7 @@ export interface SubmittedProfilesSql {
  * 两适配器共用这一份，保证「跨页筛选」的语义只有一个实现：
  * - `q`：学号 / 姓名包含匹配，`%` `_` `\` 按字面量处理（配 `ESCAPE '\'`）；
  * - `tags`：AND 语义；`users.tags` 是 JSON 文本数组，用 `INSTR(tags, '"标签"')` 精确匹配元素；
- * - `lead`：六型按**三字码首位**匹配，`none` = 没有当前有效测评结果（含三字码非法）；
+ * - `lead`：六型按**三字码任意位置包含**匹配，`none` = 没有当前有效测评结果（含三字码非法）；
  * - 排序：学号 / 姓名 / 提交时间，MySQL 侧对姓名显式 `COLLATE utf8mb4_bin`，与 SQLite 的字节序一致；
  *   同值时统一按学号升序破平，翻页结果稳定。
  */
@@ -224,16 +229,19 @@ export function buildSubmittedProfilesSql(
 
   const lead = filters?.lead ?? "all";
   if (lead !== "all") {
-    const leadExpr = "UPPER(SUBSTR(r.type_code, 1, 1))";
+    // 字母筛选与「未测」共用同一个合法性口径：先 TRIM，再以首位是否属于 RIASEC 判定。
+    // 字母分支必须先通过这道闸，否则 XRA 这类非法存量值会同时落进 R 与「未测」两个桶。
+    const normalizedCodeExpr = "UPPER(TRIM(r.type_code))";
+    const validCodeExpr = `SUBSTR(${normalizedCodeExpr}, 1, 1) IN ('R','I','A','S','E','C')`;
     const assessedExists = (condition: string) =>
       `EXISTS (SELECT 1 FROM assessment_results r JOIN assessments a ON a.id = r.assessment_id ` +
       `WHERE r.user_id = u.id AND a.code = ? AND r.status = 'completed' AND r.is_current = 1 ` +
       `AND r.type_code IS NOT NULL AND ${condition})`;
     if (lead === "none") {
-      where.push(`NOT ${assessedExists(`${leadExpr} IN ('R','I','A','S','E','C')`)}`);
+      where.push(`NOT ${assessedExists(validCodeExpr)}`);
       params.push(assessmentCode);
     } else {
-      where.push(assessedExists(`${leadExpr} = ?`));
+      where.push(assessedExists(`${validCodeExpr} AND INSTR(${normalizedCodeExpr}, ?) > 0`));
       params.push(assessmentCode, lead);
     }
   }

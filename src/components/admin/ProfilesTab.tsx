@@ -11,10 +11,10 @@ import { buildRiasecBars } from "@/lib/assessment-view";
 import { typeColorOf } from "@/lib/assessment-colors";
 import { formatResultTime } from "@/lib/assessment-flow";
 import {
-  ASSESSMENT_LEAD_FILTERS,
+  ASSESSMENT_INTEREST_FILTERS,
   hasAssessmentScores,
   isAssessed,
-  type AssessmentLeadFilter,
+  type AssessmentInterestFilter,
 } from "@/lib/profile-assessment";
 import {
   DEFAULT_PROFILE_SORT,
@@ -60,7 +60,7 @@ function AssessmentCodeBadge({ code }: { code: string }) {
     <span
       className="inline-block rounded-lg px-2 py-0.5 font-mono text-xs font-semibold"
       style={{ backgroundColor: color.bar, color: color.chipFg }}
-      title={`霍兰德三字码 ${code}，首位 ${code.trim().slice(0, 1).toUpperCase()} 为主导型`}
+      title={`霍兰德三字码 ${code}，首位 ${code.trim().slice(0, 1).toUpperCase()} 为主导型（列表筛选按三字码任意位置包含）`}
     >
       {code}
     </span>
@@ -93,8 +93,8 @@ export default function ProfilesTab({ loadProfiles, loadStats }: Props) {
   const [confirmDelete, setConfirmDelete] = useState<string[] | null>(null);
   const [sortKey, setSortKey] = useState<ProfileSortKey>(DEFAULT_PROFILE_SORT.sortKey);
   const [sortDir, setSortDir] = useState<SortDir>(DEFAULT_PROFILE_SORT.sortDir);
-  // 主导型筛选（#234 / #295）：语义 = 三字码首位；与搜索、标签一起下推服务端，跨页生效
-  const [leadFilter, setLeadFilter] = useState<AssessmentLeadFilter>("all");
+  // 兴趣字母筛选（#234 / #295 / #305）：三字码任意位置包含即命中；与搜索、标签一起下推服务端
+  const [interestFilter, setInterestFilter] = useState<AssessmentInterestFilter>("all");
   const [tagDropdownOpen, setTagDropdownOpen] = useState(false);
   const [tagSearch, setTagSearch] = useState("");
   const tagDropdownRef = useRef<HTMLDivElement>(null);
@@ -172,16 +172,16 @@ export default function ProfilesTab({ loadProfiles, loadStats }: Props) {
     [defaultLoadProfiles]
   );
 
-  // 查询条件（#295）：搜索 / 标签 / 主导型 / 排序；条件变化时回到第 1 页，避免停留在空页
+  // 查询条件（#295）：搜索 / 标签 / 兴趣测评 / 排序；条件变化时回到第 1 页，避免停留在空页
   const query = useMemo<ProfileListQuery>(
     () => ({
       ...(appliedSearch.trim() ? { q: appliedSearch.trim() } : {}),
       ...(selectedTags.size > 0 ? { tags: Array.from(selectedTags).sort() } : {}),
-      lead: leadFilter,
+      lead: interestFilter,
       sortKey,
       sortDir,
     }),
-    [appliedSearch, selectedTags, leadFilter, sortKey, sortDir]
+    [appliedSearch, selectedTags, interestFilter, sortKey, sortDir]
   );
   const queryKey = useMemo(() => JSON.stringify(query), [query]);
   const lastQueryKeyRef = useRef(queryKey);
@@ -414,27 +414,25 @@ export default function ProfilesTab({ loadProfiles, loadStats }: Props) {
               <button onClick={() => toggleTag(tag)} className="hover:text-green-900 leading-none">×</button>
             </span>
           ))}
-          {/* 主导型筛选（#234 / #295）：语义 = 三字码首位（如 SIA 只在 S 下命中），与搜索、标签一起跨页生效 */}
-          <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label="主导型筛选">
-            {ASSESSMENT_LEAD_FILTERS.map(({ value, label }) => {
-              const active = leadFilter === value;
+          {/* 兴趣测评筛选（#234 / #295 / #305）：三字码任意位置包含所选字母即命中，与搜索、标签一起跨页生效 */}
+          <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label="兴趣测评筛选">
+            {ASSESSMENT_INTEREST_FILTERS.map(({ value, label }) => {
+              const active = interestFilter === value;
               return (
                 <button
                   key={value}
                   type="button"
                   aria-pressed={active}
-                  // 可见文本只有单字母，读屏需要更完整的名字（R 型之类不出现「型」字）
-                  aria-label={value === "all" ? "全部测评状态" : value === "none" ? "未测" : `主导型 ${label}`}
-                  // #295 定稿：主导型 = 三字码首位（与数据大屏按首位归型的口径一致），
-                  // 不是「包含该字母」，用 tooltip 把这个语义讲清楚
+                  // 可见文本只有单字母，读屏需要更完整的名字
+                  aria-label={value === "all" ? "全部测评状态" : value === "none" ? "未测" : `兴趣测评包含 ${label}`}
                   title={
                     value === "all"
                       ? "不按兴趣类型筛选"
                       : value === "none"
                         ? "未完成测评（或三字码无效）"
-                        : `按三字码首位（主导型）筛选 ${label}，如 SIA 只在 S 下命中`
+                        : `兴趣测评三字码包含 ${label}（任意位置），如 SIA 会命中 S、I、A`
                   }
-                  onClick={() => setLeadFilter(value)}
+                  onClick={() => setInterestFilter(value)}
                   className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-medium transition-colors ${
                     active
                       ? "bg-green-50 dark:bg-green-900/30 text-green-700 dark:text-green-300 border-green-200 dark:border-green-800"
@@ -453,9 +451,9 @@ export default function ProfilesTab({ loadProfiles, loadStats }: Props) {
               );
             })}
           </div>
-          {(selectedTags.size > 0 || search || leadFilter !== "all" || hasFilter) && (
+          {(selectedTags.size > 0 || search || interestFilter !== "all" || hasFilter) && (
             <button
-              onClick={() => { setSelectedTags(new Set()); setSearch(""); setAppliedSearch(""); setLeadFilter("all"); }}
+              onClick={() => { setSelectedTags(new Set()); setSearch(""); setAppliedSearch(""); setInterestFilter("all"); }}
               className="text-xs text-gray-400 hover:text-gray-600 ml-1 transition-colors"
             >
               清除筛选
@@ -637,7 +635,7 @@ export default function ProfilesTab({ loadProfiles, loadStats }: Props) {
                 </div>
                 <div className="mt-2 flex items-center gap-2">
                   <AssessmentCodeBadge code={detail.assessmentCode as string} />
-                  <span className="text-[11px] text-muted">霍兰德三字码 · 首位即主导型</span>
+                  <span className="text-[11px] text-muted">霍兰德三字码 · 首位即主导型（列表筛选按任意位置包含）</span>
                 </div>
                 {hasAssessmentScores(detail) && (() => {
                   const bars = buildRiasecBars(detail.assessmentScores ?? [], detail.assessmentCode);

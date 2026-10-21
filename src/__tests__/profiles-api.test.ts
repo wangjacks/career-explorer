@@ -212,7 +212,7 @@ describe("GET /api/manage/profiles — 兴趣测评字段（#234）", () => {
 });
 
 describe("GET /api/manage/profiles — 服务端筛选参数（#295）", () => {
-  it("把 q / 标签 / 主导型 / 排序透传给列表查询（筛选下推服务端，跨页生效）", async () => {
+  it("把 q / 标签 / 兴趣测评 / 排序透传给列表查询（筛选下推服务端，跨页生效）", async () => {
     await GET(
       makeRequest(
         "?page=1&q=%E5%BC%A0%E4%B8%89&tag=%E8%BF%90%E5%8A%A8&tag=%E6%B8%B8%E6%88%8F&lead=I&sortKey=studentId&sortDir=asc"
