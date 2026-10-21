@@ -2057,33 +2057,49 @@ export class SqliteAdapter implements DbAdapter {
   }
 
   // 教师端测评统计（#229）：只数数，完成率/排序/标签交给 `assessment-stats.ts`，两适配器不重复口径
-  getAssessmentStats(assessmentId: number, classIds: number[] | null): AssessmentStatsRaw {
+  getAssessmentStats(assessmentId: number, classIds: number[] | null, classId?: number): AssessmentStatsRaw {
     if (classIds !== null && classIds.length === 0) {
-      return { classes: [], types: [], codes: [], total: { enrolled: 0, assessed: 0, last_completed_at: null } };
+      return {
+        classes: [],
+        types: [],
+        classTypes: [],
+        codes: [],
+        total: { enrolled: 0, assessed: 0, last_completed_at: null },
+      };
     }
-    const inClause = classIds === null ? "" : ` AND u.class_id IN (${classIds.map(() => "?").join(",")})`;
-    const params = classIds ?? [];
+    const scopeClauses: string[] = [];
+    const params: number[] = [];
+    if (classIds !== null) {
+      scopeClauses.push(`u.class_id IN (${classIds.map(() => "?").join(",")})`);
+      params.push(...classIds);
+    }
+    if (classId !== undefined) {
+      scopeClauses.push("u.class_id = ?");
+      params.push(classId);
+    }
+    const scopeClause = scopeClauses.length === 0 ? "" : ` AND ${scopeClauses.join(" AND ")}`;
     // 完成/当前有效的结果，且必须是学生账号（教师/管理员本人作答不计入班级完成度）
-    const resultWhere = `r.assessment_id = ? AND r.status = 'completed' AND r.is_current = 1 AND u.role = 'student'${inClause}`;
+    const resultWhere = `r.assessment_id = ? AND r.status = 'completed' AND r.is_current = 1 AND u.role = 'student'${scopeClause}`;
 
-    const classRows = (
-      classIds === null
-        ? this.db
-            .prepare(
-              `SELECT c.id AS class_id, c.name AS name, COUNT(u.id) AS enrolled
-               FROM classes c LEFT JOIN users u ON u.class_id = c.id AND u.role = 'student'
-               GROUP BY c.id, c.name`
-            )
-            .all()
-        : this.db
-            .prepare(
-              `SELECT c.id AS class_id, c.name AS name, COUNT(u.id) AS enrolled
-               FROM classes c LEFT JOIN users u ON u.class_id = c.id AND u.role = 'student'
-               WHERE c.id IN (${classIds.map(() => "?").join(",")})
-               GROUP BY c.id, c.name`
-            )
-            .all(...classIds)
-    ) as { class_id: number; name: string; enrolled: number }[];
+    const classClauses: string[] = [];
+    const classParams: number[] = [];
+    if (classIds !== null) {
+      classClauses.push(`c.id IN (${classIds.map(() => "?").join(",")})`);
+      classParams.push(...classIds);
+    }
+    if (classId !== undefined) {
+      classClauses.push("c.id = ?");
+      classParams.push(classId);
+    }
+    const classWhere = classClauses.length === 0 ? "" : ` WHERE ${classClauses.join(" AND ")}`;
+    const classRows = this.db
+      .prepare(
+        `SELECT c.id AS class_id, c.name AS name, COUNT(u.id) AS enrolled
+         FROM classes c LEFT JOIN users u ON u.class_id = c.id AND u.role = 'student'
+         ${classWhere}
+         GROUP BY c.id, c.name`
+      )
+      .all(...classParams) as { class_id: number; name: string; enrolled: number }[];
 
     const assessedRows = this.db
       .prepare(
@@ -2104,6 +2120,17 @@ export class SqliteAdapter implements DbAdapter {
       )
       .all(assessmentId, ...params) as { key: string; count: number }[];
 
+    const classTypeRows = this.db
+      .prepare(
+        `SELECT u.class_id AS class_id,
+                SUBSTR(r.type_code, 1, 1) AS key,
+                COUNT(*) AS count
+         FROM assessment_results r JOIN users u ON u.id = r.user_id
+         WHERE ${resultWhere} AND u.class_id IS NOT NULL AND r.type_code IS NOT NULL AND TRIM(r.type_code) <> ''
+         GROUP BY u.class_id, SUBSTR(r.type_code, 1, 1)`
+      )
+      .all(assessmentId, ...params) as { class_id: number; key: string; count: number }[];
+
     const codeRows = this.db
       .prepare(
         `SELECT r.type_code AS code, COUNT(*) AS count
@@ -2113,11 +2140,18 @@ export class SqliteAdapter implements DbAdapter {
       )
       .all(assessmentId, ...params) as { code: string; count: number }[];
 
-    const totalParams = classIds === null ? [] : classIds;
+    const totalClauses = ["role = 'student'"];
+    const totalParams: number[] = [];
+    if (classIds !== null) {
+      totalClauses.push(`class_id IN (${classIds.map(() => "?").join(",")})`);
+      totalParams.push(...classIds);
+    }
+    if (classId !== undefined) {
+      totalClauses.push("class_id = ?");
+      totalParams.push(classId);
+    }
     const { c: enrolled } = this.db
-      .prepare(
-        `SELECT COUNT(*) AS c FROM users WHERE role = 'student'${classIds === null ? "" : ` AND class_id IN (${classIds.map(() => "?").join(",")})`}`
-      )
+      .prepare(`SELECT COUNT(*) AS c FROM users WHERE ${totalClauses.join(" AND ")}`)
       .get(...totalParams) as { c: number };
     const { c: assessed, last } = this.db
       .prepare(
@@ -2135,6 +2169,11 @@ export class SqliteAdapter implements DbAdapter {
         assessed: assessedByClass.get(row.class_id) ?? 0,
       })),
       types: typeRows.map((row) => ({ key: String(row.key), count: Number(row.count) })),
+      classTypes: classTypeRows.map((row) => ({
+        class_id: Number(row.class_id),
+        key: String(row.key),
+        count: Number(row.count),
+      })),
       codes: codeRows.map((row) => ({ code: String(row.code), count: Number(row.count) })),
       total: { enrolled: Number(enrolled), assessed: Number(assessed), last_completed_at: last ?? null },
     };

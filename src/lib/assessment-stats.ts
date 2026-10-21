@@ -32,6 +32,14 @@ export interface AssessmentTypeCount {
   count: number;
 }
 
+/** 单个班级的六型构成（#311）：给看板矩阵直接消费，不再带一次重复的标签 */
+export interface AssessmentClassTypeComposition {
+  classId: number;
+  name: string;
+  assessed: number;
+  types: { key: string; count: number }[];
+}
+
 /** 三字码排行的一项：`lead` 是首位类型标记（= 该生归型依据） */
 export interface AssessmentCodeCount {
   code: string;
@@ -51,6 +59,7 @@ export interface AssessmentTotalSummary {
 export interface AssessmentStats {
   classes: AssessmentClassCompletion[];
   types: AssessmentTypeCount[];
+  byClass: AssessmentClassTypeComposition[];
   codes: AssessmentCodeCount[];
   total: AssessmentTotalSummary;
 }
@@ -105,6 +114,30 @@ export function finalizeAssessmentStats(
     count: Math.max(0, typeCounts.get(dim.key) ?? 0),
   }));
 
+  const classTypeCounts = new Map<string, number>();
+  for (const row of raw.classTypes) {
+    const key = `${row.class_id}:${row.key}`;
+    classTypeCounts.set(key, (classTypeCounts.get(key) ?? 0) + Math.max(0, row.count));
+  }
+  const byClass: AssessmentClassTypeComposition[] = raw.classes
+    .map((row) => {
+      const assessed = Math.min(Math.max(0, row.enrolled), Math.max(0, row.assessed));
+      return {
+        classId: row.class_id,
+        name: row.name,
+        assessed,
+        types: dimensions.map((dim) => ({
+          key: dim.key,
+          count: classTypeCounts.get(`${row.class_id}:${dim.key}`) ?? 0,
+        })),
+      };
+    })
+    .sort(
+      (a, b) =>
+        a.name.localeCompare(b.name, "zh-CN") ||
+        a.classId - b.classId
+    );
+
   const codes: AssessmentCodeCount[] = raw.codes
     .filter((row) => typeof row.code === "string" && row.code.trim() !== "")
     .map((row) => {
@@ -120,6 +153,7 @@ export function finalizeAssessmentStats(
   return {
     classes,
     types,
+    byClass,
     codes,
     total: {
       enrolled,

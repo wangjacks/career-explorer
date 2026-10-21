@@ -187,15 +187,15 @@ export default function ClassRosterDialog({ open, classKey, displayName, onClose
               })}
             </div>
 
-            <label className="relative block w-full sm:w-56">
-              <span className="sr-only">按姓名或学号搜索</span>
-              <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted/60" />
+            <label className="flex w-full items-center gap-2 rounded-lg border border-border-soft bg-background py-1.5 pl-2.5 pr-3 text-xs focus-within:ring-2 focus-within:ring-focus-ring sm:w-56">
+              <Search aria-hidden="true" className="h-3.5 w-3.5 shrink-0 text-muted/60" />
               <input
                 type="search"
+                aria-label="按姓名或学号搜索"
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
                 placeholder="搜索姓名或学号"
-                className="w-full rounded-lg border border-border-soft bg-background py-1.5 pl-8 pr-3 text-xs text-foreground placeholder:text-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
+                className="min-w-0 flex-1 bg-transparent p-0 text-xs text-foreground outline-none placeholder:text-muted/60"
               />
             </label>
           </div>

@@ -2290,24 +2290,51 @@ export class MysqlAdapter implements DbAdapter {
   }
 
   // 教师端测评统计（#229）：与 SQLite 适配器同构（同一套 SQL 口径），只数数，口径统一在 assessment-stats.ts
-  async getAssessmentStats(assessmentId: number, classIds: number[] | null): Promise<AssessmentStatsRaw> {
+  async getAssessmentStats(
+    assessmentId: number,
+    classIds: number[] | null,
+    classId?: number
+  ): Promise<AssessmentStatsRaw> {
     if (classIds !== null && classIds.length === 0) {
-      return { classes: [], types: [], codes: [], total: { enrolled: 0, assessed: 0, last_completed_at: null } };
+      return {
+        classes: [],
+        types: [],
+        classTypes: [],
+        codes: [],
+        total: { enrolled: 0, assessed: 0, last_completed_at: null },
+      };
     }
-    const inClause = classIds === null ? "" : ` AND u.class_id IN (${classIds.map(() => "?").join(",")})`;
-    const params = classIds ?? [];
-    const resultWhere = `r.assessment_id = ? AND r.status = 'completed' AND r.is_current = 1 AND u.role = 'student'${inClause}`;
+    const scopeClauses: string[] = [];
+    const params: number[] = [];
+    if (classIds !== null) {
+      scopeClauses.push(`u.class_id IN (${classIds.map(() => "?").join(",")})`);
+      params.push(...classIds);
+    }
+    if (classId !== undefined) {
+      scopeClauses.push("u.class_id = ?");
+      params.push(classId);
+    }
+    const scopeClause = scopeClauses.length === 0 ? "" : ` AND ${scopeClauses.join(" AND ")}`;
+    const resultWhere = `r.assessment_id = ? AND r.status = 'completed' AND r.is_current = 1 AND u.role = 'student'${scopeClause}`;
 
-    const classSql =
-      classIds === null
-        ? `SELECT c.id AS class_id, c.name AS name, COUNT(u.id) AS enrolled
-           FROM classes c LEFT JOIN users u ON u.class_id = c.id AND u.role = 'student'
-           GROUP BY c.id, c.name`
-        : `SELECT c.id AS class_id, c.name AS name, COUNT(u.id) AS enrolled
-           FROM classes c LEFT JOIN users u ON u.class_id = c.id AND u.role = 'student'
-           WHERE c.id IN (${classIds.map(() => "?").join(",")})
-           GROUP BY c.id, c.name`;
-    const [classRows] = await this.pool.execute(classSql, classIds ?? []);
+    const classClauses: string[] = [];
+    const classParams: number[] = [];
+    if (classIds !== null) {
+      classClauses.push(`c.id IN (${classIds.map(() => "?").join(",")})`);
+      classParams.push(...classIds);
+    }
+    if (classId !== undefined) {
+      classClauses.push("c.id = ?");
+      classParams.push(classId);
+    }
+    const classWhere = classClauses.length === 0 ? "" : ` WHERE ${classClauses.join(" AND ")}`;
+    const [classRows] = await this.pool.execute(
+      `SELECT c.id AS class_id, c.name AS name, COUNT(u.id) AS enrolled
+       FROM classes c LEFT JOIN users u ON u.class_id = c.id AND u.role = 'student'
+       ${classWhere}
+       GROUP BY c.id, c.name`,
+      classParams
+    );
     const [assessedRows] = await this.pool.execute(
       `SELECT u.class_id AS class_id, COUNT(DISTINCT r.user_id) AS assessed
        FROM assessment_results r JOIN users u ON u.id = r.user_id
@@ -2322,6 +2349,15 @@ export class MysqlAdapter implements DbAdapter {
        GROUP BY SUBSTR(r.type_code, 1, 1)`,
       [assessmentId, ...params]
     );
+    const [classTypeRows] = await this.pool.execute(
+      `SELECT u.class_id AS class_id,
+              SUBSTR(r.type_code, 1, 1) AS \`key\`,
+              COUNT(*) AS count
+       FROM assessment_results r JOIN users u ON u.id = r.user_id
+       WHERE ${resultWhere} AND u.class_id IS NOT NULL AND r.type_code IS NOT NULL AND TRIM(r.type_code) <> ''
+       GROUP BY u.class_id, SUBSTR(r.type_code, 1, 1)`,
+      [assessmentId, ...params]
+    );
     const [codeRows] = await this.pool.execute(
       `SELECT r.type_code AS code, COUNT(*) AS count
        FROM assessment_results r JOIN users u ON u.id = r.user_id
@@ -2329,11 +2365,19 @@ export class MysqlAdapter implements DbAdapter {
        GROUP BY r.type_code`,
       [assessmentId, ...params]
     );
+    const totalClauses = ["role = 'student'"];
+    const totalParams: number[] = [];
+    if (classIds !== null) {
+      totalClauses.push(`class_id IN (${classIds.map(() => "?").join(",")})`);
+      totalParams.push(...classIds);
+    }
+    if (classId !== undefined) {
+      totalClauses.push("class_id = ?");
+      totalParams.push(classId);
+    }
     const [totalRows] = await this.pool.execute(
-      `SELECT COUNT(*) AS c FROM users WHERE role = 'student'${
-        classIds === null ? "" : ` AND class_id IN (${classIds.map(() => "?").join(",")})`
-      }`,
-      classIds ?? []
+      `SELECT COUNT(*) AS c FROM users WHERE ${totalClauses.join(" AND ")}`,
+      totalParams
     );
     const [assessedTotalRows] = await this.pool.execute(
       `SELECT COUNT(DISTINCT r.user_id) AS c, MAX(r.completed_at) AS last
@@ -2355,6 +2399,11 @@ export class MysqlAdapter implements DbAdapter {
         assessed: assessedByClass.get(Number(row.class_id)) ?? 0,
       })),
       types: (typeRows as { key: string; count: number }[]).map((row) => ({
+        key: String(row.key),
+        count: Number(row.count),
+      })),
+      classTypes: (classTypeRows as { class_id: number; key: string; count: number }[]).map((row) => ({
+        class_id: Number(row.class_id),
         key: String(row.key),
         count: Number(row.count),
       })),

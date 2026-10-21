@@ -40,6 +40,12 @@ function statsFixture(overrides: Partial<AssessmentStats> = {}): AssessmentStats
   return {
     classes: CLASSES,
     types: TYPE_COUNT,
+    byClass: CLASSES.map((item) => ({
+      classId: item.classId,
+      name: item.name,
+      assessed: item.assessed,
+      types: TYPE_COUNT.map(({ key, count }) => ({ key, count })),
+    })),
     codes: [
       { code: "SIA", count: 4, lead: "S", leadLabel: "社会型" },
       { code: "RIC", count: 2, lead: "R", leadLabel: "现实型" },
