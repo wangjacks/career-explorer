@@ -6,8 +6,13 @@ import { useEscapeKey } from "@/hooks/useEscapeKey";
 import { ASSESSMENT_DASHBOARD_COPY, TEACHER_BOARD_COPY } from "@/lib/dashboard-copy";
 import { typeColorOf } from "@/lib/assessment-colors";
 import { maskStudentCode } from "@/lib/dashboard-utils";
+import { describeTypeCode } from "@/lib/assessment-view";
 import { formatSubmittedAt } from "@/lib/student-status";
-import type { RosterRequest, RosterScaleOption } from "@/lib/teacher-board";
+import {
+  rosterCodeFilter,
+  type RosterRequest,
+  type RosterScaleOption,
+} from "@/lib/teacher-board";
 
 /** 名册行（服务端 `/api/manage/assessment/roster` 已按 scale × status 分流） */
 interface RosterRow {
@@ -101,6 +106,11 @@ export default function AssessmentRosterDialog({
   }, [open, request]);
   /* eslint-enable react-hooks/set-state-in-effect */
 
+  // 三字码过滤只在「仍是发起胶囊的那套兴趣量表」时成立：切到人格 Tab 后
+  // 服务端会因 scale≠riasec 直接 400，标题也不能继续显示三字码
+  const effectiveScale = activeScale === "" ? (request?.scale ?? "") : activeScale;
+  const codeFilter = request ? rosterCodeFilter(request, activeScale) : null;
+
   /* eslint-disable react-hooks/set-state-in-effect -- 打开 / 切量表 / 重试时重新取数 */
   useEffect(() => {
     if (!open || !request) return;
@@ -108,6 +118,9 @@ export default function AssessmentRosterDialog({
     const controller = new AbortController();
     const params = new URLSearchParams({ scale, status: request.status });
     if (request.classId !== null) params.set("classId", String(request.classId));
+    // 三字码过滤（#315）：兴趣结构 Top-6 胶囊下钻，只在同一套兴趣量表的 Tab 下发送
+    const code = codeFilter;
+    if (code !== null) params.set("code", code);
 
     setRows(null);
     setLoading(true);
@@ -134,7 +147,7 @@ export default function AssessmentRosterDialog({
       });
 
     return () => controller.abort();
-  }, [open, request, activeScale, reloadKey]);
+  }, [open, request, activeScale, codeFilter, reloadKey]);
   /* eslint-enable react-hooks/set-state-in-effect */
 
   // 焦点捕获、背景滚动锁与关闭后的焦点还原（与班级名册弹窗一致）
@@ -184,16 +197,22 @@ export default function AssessmentRosterDialog({
 
   if (!open || !request) return null;
 
-  const activeLabel = scales.find((option) => option.code === activeScale)?.label ?? request.scaleLabel;
+  const activeLabel = scales.find((option) => option.code === effectiveScale)?.label ?? request.scaleLabel;
   const status = request.status;
   const allClasses = request.classId === null;
-  const title = allClasses
-    ? status === "missing"
-      ? board.rosterTitleAllMissing(activeLabel)
-      : board.rosterTitleAllDone(activeLabel)
-    : status === "missing"
-      ? board.rosterTitleMissing(request.className, activeLabel)
-      : board.rosterTitleDone(request.className, activeLabel);
+  const codeLabels = codeFilter !== null ? describeTypeCode(codeFilter) : "";
+  const title =
+    codeFilter !== null
+      ? request.className !== ""
+        ? board.rosterTitleCodeClass(request.className, codeFilter, codeLabels)
+        : board.rosterTitleCode(codeFilter, codeLabels)
+      : allClasses
+        ? status === "missing"
+          ? board.rosterTitleAllMissing(activeLabel)
+          : board.rosterTitleAllDone(activeLabel)
+        : status === "missing"
+          ? board.rosterTitleMissing(request.className, activeLabel)
+          : board.rosterTitleDone(request.className, activeLabel);
 
   return (
     <div
@@ -248,7 +267,7 @@ export default function AssessmentRosterDialog({
                 className="inline-flex flex-wrap items-center gap-0.5 self-start rounded-lg bg-gray-100 p-0.5 dark:bg-gray-800"
               >
                 {scales.map((option) => {
-                  const active = option.code === activeScale;
+                  const active = option.code === effectiveScale;
                   return (
                     <button
                       key={option.code}
