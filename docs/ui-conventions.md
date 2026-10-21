@@ -127,3 +127,4 @@
 - UserMenu 必须高于导航栏（同处顶栏位置），但低于弹窗（弹窗打开时遮罩覆盖 UserMenu）
 - 弹窗必须高于全局导航，遮罩区域点击不被拦截
 - 粘性元素：NavigationBar `sticky z-40`、表头 `sticky z-10`（卡片内局部）
+- 演示横幅（#256）为**在流顶部条**，紧贴 NavigationBar 之下，**不新增 z-index 层级**、不改变既有 3rem 顶栏偏移；仅 demo 会话渲染，配色走 warning 语义 token（`bg-warning/10` / `text-warning-strong` / `border-warning/30`）。
