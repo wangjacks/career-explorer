@@ -26,7 +26,7 @@
 |---|---|
 | `/` | 首页 |
 | `/about` | 关于页（学生探索 / 教师管理 / 数据统计三段产品介绍） |
-| `/login` | 登录页（三角色统一） |
+| `/login` | 登录页（三角色统一）；`?demo=1` 为演示访客登录入口（提交到 `/api/auth/demo`，#350） |
 | `/activate` | 学生账户激活（学号 + 姓名 + 邀请码三要素核验；支持 `?invite=` 二维码预填，仅预填不绕过校验） |
 | `/dashboard/admin` | 管理面板（分组见「面板导航结构」） |
 | `/dashboard/teacher` | 教师面板（分组见「面板导航结构」） |
@@ -90,7 +90,7 @@
 | `/api/auth` | POST / GET / DELETE | 登录（#155 起需携带极验票据）/ 会话检测 / 登出 |
 | `/api/auth/activate/verify` | POST | 激活前置核验（#93 两步激活第一步）：校验学号 + 姓名 + 邀请码三要素，不设置密码；通过时返回名单姓名供第二步问候语展示（#155 起需携带极验票据） |
 | `/api/auth/activate` | POST | 学生账户激活（#93 第二步）：三要素核验通过后设置密码并自动登录 |
-| `/api/auth/demo` | POST | 演示登录（#252）：在演示库作用域内校验演示账号、签发带 `demo` 的会话 cookie；同样 captcha 前置、错误口径与生产一致；`DEMO_ENABLED` 关闭时 404 |
+| `/api/auth/demo` | POST | 演示登录（#252）：在演示库作用域内校验演示账号、签发带 `demo` 的会话 cookie；同样 captcha 前置、错误口径与生产一致；`DEMO_ENABLED` 关闭时 404；页面入口 `/login?demo=1`（#350） |
 | `/api/auth/demo-switch` | POST | 演示角色切换（#255）：仅 demo 会话；按当前身份反解 `seq`，取同账户目标角色身份（admin/teacher/student），重签 `role+uid+name+demo` 并刷新 cookie；非 demo / 名册学生（seq<1000）/ 目标身份缺失 / 禁用账户拒绝，审计按作用域分流 |
 
 ### 安装层（proxy 之外）
