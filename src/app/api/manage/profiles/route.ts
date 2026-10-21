@@ -2,12 +2,14 @@ import { withDemoScope } from "@/lib/demo-scope";
 import { NextRequest, NextResponse } from "next/server";
 import {
   getSubmittedProfiles,
+  getStudents,
   clearSubmissions,
   getEnabledAssessments,
   getCurrentAssessmentResultsByUserCodes,
   type AssessmentResultSummary,
   type AssessmentRow,
 } from "@/lib/db";
+import { getRequestContext, recordAudit } from "@/lib/audit";
 import { RIASEC_CODE } from "@/lib/assessment-data";
 import { parseDimensions, parseScores } from "@/lib/assessment-flow";
 import { assessmentLeadOf } from "@/lib/profile-assessment";
@@ -20,6 +22,11 @@ import {
   type ProfileListQuery,
   type ResolvedProfileListQuery,
 } from "@/lib/profile-query";
+import { WriteGuard } from "../write-guard";
+
+const PATH = "/api/manage/profiles";
+const ENTRY = { action: "profile:clear", method: "DELETE", path: PATH, resource_type: "profile" } as const;
+const OUT_OF_SCOPE_STUDENT = "该学生不在你管理的班级";
 
 /** 启用量表行 → 下发结构（列定义与维度标签的唯一来源，前端不写死量表） */
 function toScaleView(row: AssessmentRow): ProfileAssessmentScaleView {
@@ -139,6 +146,8 @@ async function GET_impl(request: NextRequest) {
           userId: r.id,
           studentId: r.user_code,
           studentName: r.name,
+          // #243：教师面板据此判断行是否在其管辖班级内，决定是否展示删除入口
+          classId: r.class_id,
           tags,
           avatarUrl: r.avatar_url,
           evaluationUrl: r.evaluation_url,
@@ -201,12 +210,62 @@ function resolvePersonalityFilter(
 }
 
 async function DELETE_impl(request: NextRequest) {
+  const { ip, user_agent } = getRequestContext(request);
   try {
-    const { ids } = await request.json();
+    const guard = await WriteGuard.from(request);
+    if (!guard.session) return guard.unauthenticated();
+
+    let payload: unknown;
+    try {
+      payload = await request.json();
+    } catch {
+      return NextResponse.json({ error: "请求格式不正确" }, { status: 400 });
+    }
+    const ids = (payload as { ids?: unknown } | null)?.ids;
     if (!Array.isArray(ids) || ids.length === 0) {
       return NextResponse.json({ error: "请选择要删除的记录" }, { status: 400 });
     }
-    const deleted = await clearSubmissions(ids);
+
+    // 去重后统一以字符串学号处理：后续批量预检、清除与审计用同一份目标集合
+    const codes = [...new Set(ids.map(String))];
+    const roster = await getStudents();
+    const classOf = new Map(roster.map((s) => [s.user_code, s.class_id]));
+    const missing = codes.filter((code) => !classOf.has(code));
+
+    // 归属校验（#243）：教师只能清除本人管辖班级学生的档案；不在册 id 同样按越界处理。
+    // 整批预检通过后才落写入，任一越界即整批拒绝，不留半删状态。
+    if (!guard.canWriteGlobal) {
+      const foreign = codes.filter(
+        (code) => classOf.has(code) && !guard.canWriteClass(classOf.get(code) ?? null)
+      );
+      if (missing.length > 0 || foreign.length > 0) {
+        return guard.deny(ENTRY, null, OUT_OF_SCOPE_STUDENT, 403, {
+          requested: codes.length,
+          missing: missing.length,
+          foreign: foreign.length,
+        });
+      }
+    } else if (missing.length > 0) {
+      return guard.deny(
+        ENTRY,
+        null,
+        `有 ${missing.length} 名学生不存在或已不在名单中`,
+        404,
+        { requested: codes.length, missing: missing.length }
+      );
+    }
+
+    const deleted = await clearSubmissions(codes);
+    void recordAudit({
+      ...guard.actor,
+      ...ENTRY,
+      resource_id: null,
+      status: "success",
+      error_message: null,
+      ip,
+      user_agent,
+      metadata: { requested: codes.length, ids: codes, deleted },
+    });
     return NextResponse.json({ deleted, message: `已删除 ${deleted} 条记录` });
   } catch (err) {
     console.error("Profiles DELETE error:", err);

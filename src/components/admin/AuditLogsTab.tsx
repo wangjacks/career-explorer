@@ -42,7 +42,7 @@ const ACTIONS = [
   "settings:update", "profile-config:update",
   "export:excel", "export:images",
   "backup:create", "backup:restore",
-  "test-db:run", "profile:submit", "profile:restore", "profile-submission:cleanup",
+  "test-db:run", "profile:submit", "profile:restore", "profile:clear", "profile-submission:cleanup",
   "media:query", "media:config-update", "media:cleanup", "media:thumbnail-backfill",
   "upload:rejected", "upload:failed",
   "group:generate", "group:move", "group:create", "group:delete", "group:import", "group:export",

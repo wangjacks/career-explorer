@@ -202,7 +202,7 @@ export default function TeacherDashboardPage() {
 
             {activeTab === "export" && <ExportTab />}
 
-            {activeTab === "profiles" && <ProfilesTab />}
+            {activeTab === "profiles" && <ProfilesTab mode="teacher" teacherUid={session.uid} />}
 
             {activeTab === "students" && (
               <StudentsTab
