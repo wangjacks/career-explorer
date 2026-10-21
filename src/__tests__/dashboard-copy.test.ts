@@ -445,8 +445,8 @@ const BOARD_FUNCTION_SAMPLES: Record<string, unknown[][]> = {
   bigFiveRowAria: [["情绪敏感度（神经质 N）", 12, 18, 16]],
   bigFiveCountLabel: [[12, 18, 16]],
   bigFiveInvalidNote: [[3]],
-  bigFiveRosterButton: [[46]],
-  bigFiveRosterAria: [[46]],
+  bigFiveRosterButton: [[]],
+  bigFiveRosterAria: [[]],
 };
 
 function collectBoardStrings(): string[] {

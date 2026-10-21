@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo } from "react";
-import { Pie, PieChart, Cell, ResponsiveContainer } from "recharts";
+import { Pie, PieChart, Cell } from "recharts";
 import { PieChart as PieChartIcon, ArrowRight } from "lucide-react";
 import { TEACHER_BOARD_COPY } from "@/lib/dashboard-copy";
 import {
@@ -25,6 +25,7 @@ export default function InterestStructureCard({
   state,
   selectedClassId,
   selectedClassName,
+  canDrilldown,
   onOpenRoster,
   onOpenHelp,
   onRetry,
@@ -33,6 +34,8 @@ export default function InterestStructureCard({
   state: SectionState;
   selectedClassId: number | null;
   selectedClassName: string;
+  /** 「所有班级」下教师只能看合计；三字码胶囊随个人下钻一起禁用 */
+  canDrilldown: boolean;
   onOpenRoster: (request: RosterRequest) => void;
   onOpenHelp: () => void;
   onRetry: () => void;
@@ -114,25 +117,24 @@ export default function InterestStructureCard({
         <div className="mt-3 flex min-w-0 flex-1 flex-col gap-3">
           <div className="flex flex-col items-center gap-4 sm:flex-row">
             <div className="relative h-40 w-40 flex-shrink-0">
-              <ResponsiveContainer width="100%" height="100%">
-                <PieChart>
-                  <Pie
-                    data={view.slices.filter((slice) => slice.count > 0)}
-                    dataKey="count"
-                    nameKey="label"
-                    innerRadius={52}
-                    outerRadius={78}
-                    strokeWidth={0}
-                    isAnimationActive={false}
-                  >
-                    {view.slices
-                      .filter((slice) => slice.count > 0)
-                      .map((slice) => (
-                        <Cell key={slice.key} fill={slice.color} />
-                      ))}
-                  </Pie>
-                </PieChart>
-              </ResponsiveContainer>
+              {/* 固定 160×160：父容器尺寸恒定，不用 ResponsiveContainer（#322 起弃用） */}
+              <PieChart width={160} height={160}>
+                <Pie
+                  data={view.slices.filter((slice) => slice.count > 0)}
+                  dataKey="count"
+                  nameKey="label"
+                  innerRadius={52}
+                  outerRadius={78}
+                  strokeWidth={0}
+                  isAnimationActive={false}
+                >
+                  {view.slices
+                    .filter((slice) => slice.count > 0)
+                    .map((slice) => (
+                      <Cell key={slice.key} fill={slice.color} />
+                    ))}
+                </Pie>
+              </PieChart>
               <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
                 <span className="text-2xl font-extrabold leading-none text-foreground">{view.assessed}</span>
                 <span className="mt-1 text-[11px] text-muted">{copy.interestCenterLabel}</span>
@@ -165,24 +167,38 @@ export default function InterestStructureCard({
               <p className="text-[11px] text-muted">{copy.interestCodeHint}</p>
             </div>
             {codeChips.length > 0 ? (
-              <ul className="mt-2 flex flex-wrap gap-1.5">
-                {codeChips.map((chip) => {
-                  const labels = interestCodeLabel(chip.code);
-                  return (
-                    <li key={chip.code}>
-                      <button
-                        type="button"
-                        onClick={() => openCodeRoster(chip.code)}
-                        aria-label={copy.interestCodeAria(chip.code, labels, chip.count)}
-                        className="inline-flex items-center gap-1 rounded-full border border-border-soft px-2.5 py-1 text-[11px] text-foreground transition-colors hover:bg-primary/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
-                      >
+              <>
+                <ul className="mt-2 flex flex-wrap gap-1.5">
+                  {codeChips.map((chip) => {
+                    const labels = interestCodeLabel(chip.code);
+                    const content = (
+                      <>
                         <span className="font-mono font-semibold">{copy.interestCodeLabel(chip.code, labels)}</span>
                         <span className="font-mono tabular-nums text-muted">{chip.count}</span>
-                      </button>
-                    </li>
-                  );
-                })}
-              </ul>
+                      </>
+                    );
+                    return (
+                      <li key={chip.code}>
+                        {canDrilldown ? (
+                          <button
+                            type="button"
+                            onClick={() => openCodeRoster(chip.code)}
+                            aria-label={copy.interestCodeAria(chip.code, labels, chip.count)}
+                            className="inline-flex items-center gap-1 rounded-full border border-border-soft px-2.5 py-1 text-[11px] text-foreground transition-colors hover:bg-primary/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
+                          >
+                            {content}
+                          </button>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 rounded-full border border-border-soft px-2.5 py-1 text-[11px] text-foreground">
+                            {content}
+                          </span>
+                        )}
+                      </li>
+                    );
+                  })}
+                </ul>
+                {!canDrilldown && <p className="mt-1.5 text-[11px] text-muted">{copy.interestCodeRestrictedHint}</p>}
+              </>
             ) : (
               <p className="mt-2 text-[11px] text-muted">{copy.interestCodeAllOnlyHint}</p>
             )}

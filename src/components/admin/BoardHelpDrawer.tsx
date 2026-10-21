@@ -34,7 +34,14 @@ export default function BoardHelpDrawer({
   const titleId = useId();
   const hintId = useId();
   const panelRef = useRef<HTMLDivElement>(null);
+  const tabRefs = useRef<Partial<Record<BoardHelpTab, HTMLButtonElement | null>>>({});
   const [activeTab, setActiveTab] = useState<BoardHelpTab>(initialTab);
+
+  // WAI-ARIA tabs：键盘切换后焦点跟随选中项
+  const selectTab = (next: BoardHelpTab) => {
+    setActiveTab(next);
+    tabRefs.current[next]?.focus();
+  };
 
   // 打开时回到触发它的那个 Tab（兴趣卡的「六型怎么看？」/ 人格卡的「五项怎么看？」）
   /* eslint-disable react-hooks/set-state-in-effect -- 打开时按入口重置 Tab */
@@ -90,16 +97,16 @@ export default function BoardHelpDrawer({
     const index = TAB_ORDER.indexOf(activeTab);
     if (event.key === "ArrowRight" || event.key === "ArrowDown") {
       event.preventDefault();
-      setActiveTab(TAB_ORDER[(index + 1) % TAB_ORDER.length]);
+      selectTab(TAB_ORDER[(index + 1) % TAB_ORDER.length]);
     } else if (event.key === "ArrowLeft" || event.key === "ArrowUp") {
       event.preventDefault();
-      setActiveTab(TAB_ORDER[(index - 1 + TAB_ORDER.length) % TAB_ORDER.length]);
+      selectTab(TAB_ORDER[(index - 1 + TAB_ORDER.length) % TAB_ORDER.length]);
     } else if (event.key === "Home") {
       event.preventDefault();
-      setActiveTab(TAB_ORDER[0]);
+      selectTab(TAB_ORDER[0]);
     } else if (event.key === "End") {
       event.preventDefault();
-      setActiveTab(TAB_ORDER[TAB_ORDER.length - 1]);
+      selectTab(TAB_ORDER[TAB_ORDER.length - 1]);
     }
   };
 
@@ -152,10 +159,13 @@ export default function BoardHelpDrawer({
                 type="button"
                 role="tab"
                 id={`help-tab-${tab}`}
+                ref={(node) => {
+                  tabRefs.current[tab] = node;
+                }}
                 aria-selected={selected}
                 aria-controls={`help-panel-${tab}`}
                 tabIndex={selected ? 0 : -1}
-                onClick={() => setActiveTab(tab)}
+                onClick={() => selectTab(tab)}
                 className={`relative px-3 py-2.5 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring ${
                   selected ? "text-primary" : "text-muted hover:text-foreground"
                 }`}
@@ -167,16 +177,20 @@ export default function BoardHelpDrawer({
           })}
         </div>
 
-        <div
-          role="tabpanel"
-          id={`help-panel-${activeTab}`}
-          aria-labelledby={`help-tab-${activeTab}`}
-          className="min-h-0 flex-1 overflow-y-auto px-5 py-4"
-        >
-          {activeTab === "riasec" && <RiasecHelpPanel />}
-          {activeTab === "bigFive" && <BigFiveHelpPanel />}
-          {activeTab === "how" && <HowToHelpPanel />}
-        </div>
+        {TAB_ORDER.map((tab) => (
+          <div
+            key={tab}
+            role="tabpanel"
+            id={`help-panel-${tab}`}
+            aria-labelledby={`help-tab-${tab}`}
+            hidden={tab !== activeTab}
+            className="min-h-0 flex-1 overflow-y-auto px-5 py-4"
+          >
+            {tab === "riasec" && <RiasecHelpPanel />}
+            {tab === "bigFive" && <BigFiveHelpPanel />}
+            {tab === "how" && <HowToHelpPanel />}
+          </div>
+        ))}
 
         <footer className="flex shrink-0 items-center justify-between gap-3 border-t border-border-soft px-5 py-3">
           <p className="text-[11px] text-muted">{copy.helpFooterNote}</p>

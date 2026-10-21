@@ -414,6 +414,7 @@ export const TEACHER_BOARD_COPY = {
   interestCodeAria: (code: string, labels: string, count: number) =>
     `${code}（${labels}）· ${count} 人 · 查看名单`,
   interestCodeAllOnlyHint: "选「全部班级」时显示常见组合",
+  interestCodeRestrictedHint: "当前范围只提供合计；切到「我带的班」可查看名单",
   interestEmptyTitle: "还没有学生完成兴趣测评",
   interestEmptyHint: "提醒学生到「职业测评」里答完题，这里会出现六型结构和常见组合。",
   interestFailedTitle: "兴趣结构没取到",
@@ -436,8 +437,8 @@ export const TEACHER_BOARD_COPY = {
   bigFiveEmptyHint: "提醒学生到「职业测评」里答完题，这里会出现五项分布。",
   bigFiveFailedTitle: "人格轮廓没取到",
   bigFiveHelpLabel: "五项怎么看？",
-  bigFiveRosterButton: (count: number) => `看这 ${count} 人是谁`,
-  bigFiveRosterAria: (count: number) => `查看完成人格测评的 ${count} 人名单`,
+  bigFiveRosterButton: "查看已完成名单",
+  bigFiveRosterAria: "查看完成人格测评的名单",
 
   /* 说明抽屉（#315） */
   helpEyebrow: "结果说明",

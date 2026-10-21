@@ -415,6 +415,9 @@ import {
   interestCodeLabel,
   normalizeBigFiveStats,
   normalizeInterestStats,
+  resolveBigFiveStructureState,
+  resolveInterestStructureState,
+  rosterCodeFilter,
   type BigFiveStatsView,
   type InterestStatsView,
 } from "../lib/teacher-board";
@@ -481,14 +484,39 @@ function bigFivePayload() {
 }
 
 describe("结构卡班级选择（#315）", () => {
-  it("全部班级排第一，空班不进选项，其余沿用矩阵顺序", () => {
+  it("全部班级排第一，空班与不可下钻的班不进选项，其余沿用矩阵顺序", () => {
     const options = buildStructureClassOptions([
-      { classId: 2, name: "2班", enrolled: 10 },
-      { classId: 1, name: "1班", enrolled: 0 },
-      { classId: 3, name: "3班", enrolled: 5 },
+      { classId: 2, name: "2班", enrolled: 10, canDrilldown: true },
+      { classId: 1, name: "1班", enrolled: 0, canDrilldown: true },
+      { classId: 3, name: "3班", enrolled: 5, canDrilldown: true },
+      { classId: 4, name: "别班的班", enrolled: 8, canDrilldown: false },
     ]);
     expect(options.map((option) => option.classId)).toEqual([null, 2, 3]);
     expect(options[0].name).toBe("");
+  });
+
+  it("教师看「所有班级」时行全不可下钻 → 只剩「全部班级」", () => {
+    const options = buildStructureClassOptions([
+      { classId: 1, name: "1班", enrolled: 10, canDrilldown: false },
+    ]);
+    expect(options).toEqual([{ classId: null, name: "" }]);
+  });
+});
+
+describe("rosterCodeFilter（#315 名册 code 只随兴趣 Tab）", () => {
+  const request = { scale: "riasec", code: "SIA" };
+
+  it("停在发起胶囊的兴趣量表 Tab 时保留 code（含打开初值空串）", () => {
+    expect(rosterCodeFilter(request, "riasec")).toBe("SIA");
+    expect(rosterCodeFilter(request, "")).toBe("SIA");
+    expect(rosterCodeFilter({ scale: "riasec", code: " SIA " }, "riasec")).toBe("SIA");
+  });
+
+  it("切到人格 Tab 或非兴趣量表 → 不发送 code，标题回落普通标题", () => {
+    expect(rosterCodeFilter(request, "ipip-neo-ffi")).toBeNull();
+    expect(rosterCodeFilter({ scale: "ipip-neo-ffi", code: "SIA" }, "ipip-neo-ffi")).toBeNull();
+    expect(rosterCodeFilter({ scale: "riasec" }, "riasec")).toBeNull();
+    expect(rosterCodeFilter({ scale: "riasec", code: "  " }, "riasec")).toBeNull();
   });
 });
 
@@ -530,6 +558,20 @@ describe("normalizeInterestStats / buildInterestStructure（#315 兴趣结构卡
     expect(buildInterestStructure(stats, 99).assessed).toBe(0);
     expect(buildInterestStructure(stats, 99).sampleTooSmall).toBe(false);
     expect(INTEREST_SAMPLE_THRESHOLD).toBe(5);
+  });
+
+  it("卡片状态按当前所选班级判空：合计有 4 人、所选班 0 人 → empty", () => {
+    const stats = normalizeInterestStats(interestPayload());
+    expect(resolveInterestStructureState("ready", stats, null)).toBe("ready");
+    expect(resolveInterestStructureState("ready", stats, 1)).toBe("ready");
+    expect(resolveInterestStructureState("ready", stats, 99)).toBe("empty");
+  });
+
+  it("加载 / 失败 / 未开放状态原样透传，不被空态覆盖", () => {
+    const stats = normalizeInterestStats(interestPayload());
+    for (const state of ["loading", "failed", "disabled", "empty"] as const) {
+      expect(resolveInterestStructureState(state, stats, 99)).toBe(state);
+    }
   });
 
   it("脏数据：错误形状返回 null，脏计数按 0，界面不会出现 NaN", () => {
@@ -577,7 +619,7 @@ describe("normalizeBigFiveStats / buildBigFiveTeacherRows（#315 人格轮廓卡
     expect(disabled?.enabled).toBe(false);
   });
 
-  it("形状不对返回 null；五项为空数组仍可渲染空态", () => {
+  it("形状不对返回 null；五项为空数组仍返回视图，由状态函数判未开放", () => {
     expect(normalizeBigFiveStats(null)).toBeNull();
     expect(normalizeBigFiveStats({})).toBeNull();
     const empty = normalizeBigFiveStats({
@@ -586,6 +628,27 @@ describe("normalizeBigFiveStats / buildBigFiveTeacherRows（#315 人格轮廓卡
       total: { enrolled: 10, assessed: 0, rate: 0, invalidCount: 0 },
     });
     expect(empty?.dimensions).toEqual([]);
+    expect(resolveBigFiveStructureState("ready", empty)).toBe("disabled");
+  });
+
+  it("卡片状态：当前范围 0 人已测 → empty，有已测 → ready", () => {
+    expect(resolveBigFiveStructureState("ready", normalizeBigFiveStats(bigFivePayload()))).toBe("ready");
+    const untouched = normalizeBigFiveStats({
+      ...bigFivePayload(),
+      total: { enrolled: 10, assessed: 0, rate: 0, invalidCount: 0 },
+    });
+    expect(resolveBigFiveStructureState("ready", untouched)).toBe("empty");
+  });
+
+  it("停用 → disabled；加载 / 失败原样透传", () => {
+    const disabled = normalizeBigFiveStats({
+      ...bigFivePayload(),
+      assessment: { ...bigFivePayload().assessment, enabled: false },
+    });
+    expect(resolveBigFiveStructureState("ready", disabled)).toBe("disabled");
+    for (const state of ["loading", "failed", "empty"] as const) {
+      expect(resolveBigFiveStructureState(state, normalizeBigFiveStats(bigFivePayload()))).toBe(state);
+    }
   });
 
   it("教师显示名按 key 注入（N 换成情绪敏感度），行顺序不变", () => {

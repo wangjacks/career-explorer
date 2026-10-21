@@ -560,20 +560,38 @@ export const INTEREST_SAMPLE_THRESHOLD = 5;
 export const RIASEC_SCALE_CODE = "riasec";
 export const BIG_FIVE_SCALE_CODE = "ipip-neo-ffi";
 
+/**
+ * 名册的三字码过滤：只有仍是发起胶囊的那套兴趣量表 Tab 才生效。
+ * 切到人格等其它量表后必须回落为 null——服务端对 `scale≠riasec` + `code` 组合直接 400。
+ */
+export function rosterCodeFilter(
+  request: Pick<RosterRequest, "scale" | "code">,
+  activeScale: string
+): string | null {
+  const scale = activeScale === "" ? request.scale : activeScale;
+  if (scale !== request.scale || scale !== RIASEC_SCALE_CODE) return null;
+  const code = typeof request.code === "string" ? request.code.trim() : "";
+  return code === "" ? null : code;
+}
+
 /** 两卡共用的班级选择项：`classId=null` 表示「全部班级」（展示名由文案表给） */
 export interface StructureClassOption {
   classId: number | null;
   name: string;
 }
 
-/** 班级选择项：全部班级在前，其余沿用矩阵的行顺序（服务端已按班名升序） */
+/**
+ * 班级选择项：全部班级在前，其余沿用矩阵的行顺序（服务端已按班名升序）。
+ * 只列 `canDrilldown` 的班——教师看「所有班级」时行不可下钻，选别班会让
+ * `/stats/big-five?classId=` 直接 403；此时两卡只提供全部班级的合计。
+ */
 export function buildStructureClassOptions(
-  rows: readonly Pick<CompletionRowView, "classId" | "enrolled" | "name">[]
+  rows: readonly Pick<CompletionRowView, "classId" | "enrolled" | "name" | "canDrilldown">[]
 ): StructureClassOption[] {
   return [
     { classId: null, name: "" },
     ...rows
-      .filter((row) => row.enrolled > 0)
+      .filter((row) => row.enrolled > 0 && row.canDrilldown)
       .map((row) => ({ classId: row.classId, name: row.name })),
   ];
 }
@@ -736,6 +754,19 @@ export function buildInterestStructure(
   };
 }
 
+/**
+ * 兴趣卡的展示状态：空态必须按**当前所选班级**判定，而不是全部合计。
+ * 全部合计 > 0 但所选班 0 人时，卡片正文本来就画不出六型，必须走空态。
+ */
+export function resolveInterestStructureState(
+  base: SectionState,
+  stats: InterestStatsView | null,
+  selectedClassId: number | null
+): SectionState {
+  if (base !== "ready" || !stats) return base;
+  return buildInterestStructure(stats, selectedClassId).assessed > 0 ? "ready" : "empty";
+}
+
 /** 三字码胶囊的展示名：`SIA` + 中文展开（复用学生端同一份 `describeTypeCode`） */
 export function interestCodeLabel(code: string): string {
   return describeTypeCode(code);
@@ -837,6 +868,19 @@ export function normalizeBigFiveStats(payload: unknown): BigFiveStatsView | null
       lastSubmittedAt: toNullableTime(total.lastSubmittedAt),
     },
   };
+}
+
+/**
+ * 人格卡的展示状态：当前范围 / 所选班 0 人已测 → 空态；
+ * 量表缺失（接口回 `dimensions: []`）或停用 → 未开放，不能画五行 0 的空壳。
+ */
+export function resolveBigFiveStructureState(
+  base: SectionState,
+  stats: BigFiveStatsView | null
+): SectionState {
+  if (base !== "ready" || !stats) return base;
+  if (!stats.enabled || stats.dimensions.length === 0) return "disabled";
+  return stats.total.assessed > 0 ? "ready" : "empty";
 }
 
 /** 人格轮廓卡的一行：教师显示名 + 三档人数 */

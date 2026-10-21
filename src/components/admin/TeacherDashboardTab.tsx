@@ -21,6 +21,8 @@ import {
   normalizeCompletionStats,
   normalizeInterestStats,
   pickActionTarget,
+  resolveBigFiveStructureState,
+  resolveInterestStructureState,
   scaleColumns,
   scaleLabelOf,
   type BigFiveStatsView,
@@ -170,11 +172,13 @@ export default function TeacherDashboardTab() {
   }, [scope, selectedClassId, reloadKey]);
   /* eslint-enable react-hooks/set-state-in-effect */
 
-  // 范围变化后班表可能变：已选班级不在新范围里就回到「全部班级」
+  // 范围变化后班表可能变：已选班级不在新范围里（或新范围不可下钻）就回到「全部班级」
   /* eslint-disable react-hooks/set-state-in-effect -- 班级列表变化时的兜底重置 */
   useEffect(() => {
     if (selectedClassId === null) return;
-    const exists = (completion?.rows ?? []).some((row) => row.classId === selectedClassId);
+    const exists = (completion?.rows ?? []).some(
+      (row) => row.classId === selectedClassId && row.canDrilldown
+    );
     if (!exists) setSelectedClassId(null);
   }, [completion, selectedClassId]);
   /* eslint-enable react-hooks/set-state-in-effect */
@@ -184,7 +188,7 @@ export default function TeacherDashboardTab() {
     () => classOptions.find((option) => option.classId === selectedClassId)?.name ?? "",
     [classOptions, selectedClassId]
   );
-  const bigFiveCanDrilldown = useMemo(() => {
+  const structureCanDrilldown = useMemo(() => {
     const rows = completion?.rows ?? [];
     if (selectedClassId === null) return rows.some((row) => row.canDrilldown);
     return rows.find((row) => row.classId === selectedClassId)?.canDrilldown ?? false;
@@ -206,10 +210,15 @@ export default function TeacherDashboardTab() {
     });
   }, [completion, copy.scaleLabels]);
 
-  const interestCardState: SectionState = useMemo(() => {
-    if (interestState !== "ready") return interestState;
-    return (interestStats?.total.assessed ?? 0) === 0 ? "empty" : "ready";
-  }, [interestState, interestStats]);
+  // 空态按当前所选班级判定：全部合计 > 0 不代表所选班也有人
+  const interestCardState: SectionState = useMemo(
+    () => resolveInterestStructureState(interestState, interestStats, selectedClassId),
+    [interestState, interestStats, selectedClassId]
+  );
+  const bigFiveCardState: SectionState = useMemo(
+    () => resolveBigFiveStructureState(bigFiveState, bigFiveStats),
+    [bigFiveState, bigFiveStats]
+  );
 
   const handleRefresh = useCallback(() => {
     setReloadKey((key) => key + 1);
@@ -344,6 +353,7 @@ export default function TeacherDashboardTab() {
               state={interestCardState}
               selectedClassId={selectedClassId}
               selectedClassName={selectedClassName}
+              canDrilldown={structureCanDrilldown}
               onOpenRoster={setRosterRequest}
               onOpenHelp={() => openHelp("riasec")}
               onRetry={handleRefresh}
@@ -352,10 +362,10 @@ export default function TeacherDashboardTab() {
           <div className="min-w-0 lg:col-span-5">
             <BigFiveStructureCard
               stats={bigFiveStats}
-              state={bigFiveState}
+              state={bigFiveCardState}
               selectedClassId={selectedClassId}
               selectedClassName={selectedClassName}
-              canDrilldown={bigFiveCanDrilldown}
+              canDrilldown={structureCanDrilldown}
               onOpenRoster={setRosterRequest}
               onOpenHelp={() => openHelp("bigFive")}
               onRetry={handleRefresh}

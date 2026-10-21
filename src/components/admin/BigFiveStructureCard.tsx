@@ -161,10 +161,10 @@ export default function BigFiveStructureCard({
               <button
                 type="button"
                 onClick={openRoster}
-                aria-label={copy.bigFiveRosterAria(assessed)}
+                aria-label={copy.bigFiveRosterAria}
                 className="inline-flex flex-shrink-0 items-center gap-1 rounded-lg px-2 py-1 text-[11px] font-medium text-primary transition-colors hover:bg-primary/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
               >
-                {copy.bigFiveRosterButton(assessed)}
+                {copy.bigFiveRosterButton}
                 <ArrowRight className="h-3 w-3" aria-hidden />
               </button>
             )}
