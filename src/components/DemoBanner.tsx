@@ -46,7 +46,8 @@ export default function DemoBanner() {
       toast.success(`已切换到${ROLE_LABELS[role]}视角`);
       await refresh();
       const target = ROLE_DASHBOARD[role];
-      if (target && target !== pathname) router.push(target);
+      // 用 replace 而非 push：避免后退回到角色不匹配的旧面板（会被重定向到登录页）
+      if (target && target !== pathname) router.replace(target);
     } catch (err) {
       console.error("Demo role switch error:", err);
       toast.error("切换失败，请重试");
