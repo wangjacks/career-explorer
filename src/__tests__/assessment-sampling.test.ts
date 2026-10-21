@@ -5,7 +5,6 @@ import {
   RIASEC_DIMENSIONS,
   RIASEC_QUESTIONS,
   RIASEC_SCALE_VERSION,
-  type QuestionSeed,
   type QuestionOrigin,
 } from "@/lib/assessment-data";
 import {
@@ -32,11 +31,20 @@ const BANK: DrawItem[] = RIASEC_QUESTIONS.map((q) => ({
   origin: q.origin,
 }));
 const POOL: PoolItem[] = BANK.map((item) => ({ ...item, version: 1 }));
+/** #284 回退后真正可抽的题：60 道 O*NET 官方题（30 Mini-IP + 30 SF） */
+const ELIGIBLE: DrawItem[] = BANK.filter((item) => item.origin !== "cn-original");
 const PER_DIMENSION = RIASEC_ASSESSMENT.itemsPerAttempt / RIASEC_DIMENSIONS.length;
 
 const byIndex = new Map<number, DrawItem>(BANK.map((item) => [item.index, item]));
+/**
+ * #284 回退后每维只剩 10 道官方题：排除上一轮 5 题后，C / E 两维剩余题里仍有近重复组，
+ * 抽满 5 题必须放宽排除集，因此这两维允许出现个别重题；其余维度必须完全换新。
+ */
+const GROUP_CONSTRAINED_DIMENSIONS = new Set(
+  NEAR_DUPLICATE_GROUPS.flat().map((index) => byIndex.get(index)!.dimension)
+);
 
-/** 卷面形状断言：题量、每维题数、官方 2-3、近重复同卷一题、无 3 连同维 */
+/** 卷面形状断言：题量、每维题数、只用已放行来源、近重复同卷一题、无 3 连同维 */
 function expectPaperShape(indexes: readonly number[], perDimension = PER_DIMENSION) {
   expect(indexes).toHaveLength(perDimension * RIASEC_DIMENSIONS.length);
   expect(new Set(indexes).size).toBe(indexes.length);
@@ -45,9 +53,11 @@ function expectPaperShape(indexes: readonly number[], perDimension = PER_DIMENSI
   for (const dimension of RIASEC_DIMENSIONS) {
     const items = indexes.map((index) => byIndex.get(index)!).filter((item) => item.dimension === dimension.key);
     expect(items, `维度 ${dimension.key} 题数`).toHaveLength(perDimension);
-    const official = items.filter((item) => item.origin !== "cn-original").length;
-    expect(official, `维度 ${dimension.key} 官方题数`).toBeGreaterThanOrEqual(2);
-    expect(official, `维度 ${dimension.key} 官方题数`).toBeLessThanOrEqual(3);
+    // #284 回退：原创题未通过专家评审与试测，整批不进抽题池
+    expect(
+      items.every((item) => item.origin !== "cn-original"),
+      `维度 ${dimension.key} 不应抽到未放行的原创题`
+    ).toBe(true);
   }
 
   for (const group of NEAR_DUPLICATE_GROUPS) {
@@ -90,6 +100,10 @@ describe("题库指纹与抽题种子", () => {
     expect(poolFingerprint(asSet.slice(1), RIASEC_SCALE_VERSION)).not.toBe(
       poolFingerprint(asSet, RIASEC_SCALE_VERSION)
     );
+    // #284 放行状态也是题库指纹的一部分：验证通过、恢复原创题后旧卷子必须重派
+    expect(poolFingerprint(asSet, RIASEC_SCALE_VERSION, new Set())).not.toBe(
+      poolFingerprint(asSet, RIASEC_SCALE_VERSION)
+    );
   });
 
   it("种子把「谁 + 哪个量表 + 哪个题库 + 第几轮」四元组都吃进去", () => {
@@ -122,7 +136,7 @@ describe("drawItems：卷面形状", () => {
     );
   });
 
-  it("真实题库在多种子下都是「每维 5 题 + 官方 2-3 + 近重复一题 + 无 3 连」且不带降级", () => {
+  it("真实题库在多种子下都是「每维 5 题 + 只用官方题 + 近重复一题 + 无 3 连」且不带降级", () => {
     for (let seed = 0; seed < 30; seed += 1) {
       const draw = drawItems({
         items: BANK,
@@ -135,7 +149,7 @@ describe("drawItems：卷面形状", () => {
     }
   });
 
-  it("排除上一轮题号后重抽：两轮完全不重叠，形状规则仍成立", () => {
+  it("排除上一轮题号后重抽：除近重复受限的维度外完全换新，形状规则仍成立", () => {
     const first = drawItems({
       items: BANK,
       dimensions: RIASEC_DIMENSIONS,
@@ -149,11 +163,15 @@ describe("drawItems：卷面形状", () => {
       excludeIndexes: new Set(first.indexes),
       rng: mulberry32(deriveDrawSeed(1, 1, "fp", 2)),
     });
-    expect(second.indexes.filter((index) => first.indexes.includes(index))).toEqual([]);
+    // #284 回退后每维只剩 10 道官方题：C / E 两维排除上轮 5 题后再被近重复组挤掉可选题目，
+    // 阶梯只能放宽排除集；其余四维必须完全换新，两轮也不能是同一张卷子
+    const repeated = second.indexes.filter((index) => first.indexes.includes(index));
+    expect(repeated.every((index) => GROUP_CONSTRAINED_DIMENSIONS.has(byIndex.get(index)!.dimension))).toBe(true);
+    expect(second.indexes).not.toEqual(first.indexes);
     expectPaperShape(second.indexes);
   });
 
-  it("多种子轮换覆盖题库：每道题都至少在一张卷子里出现过", () => {
+  it("多种子轮换覆盖可抽题库：60 道官方题都至少出现过一次，原创题永不被抽中", () => {
     const seen = new Set<number>();
     for (let attemptNo = 1; attemptNo <= 60; attemptNo += 1) {
       for (const index of drawItems({
@@ -165,12 +183,13 @@ describe("drawItems：卷面形状", () => {
         seen.add(index);
       }
     }
-    expect(BANK.filter((item) => !seen.has(item.index))).toEqual([]);
+    expect(ELIGIBLE.filter((item) => !seen.has(item.index))).toEqual([]);
+    expect([...seen].some((index) => byIndex.get(index)!.origin === "cn-original")).toBe(false);
   });
 
   it("1000 次抽题：同类可交换题的频率在 3σ 内一致（分层抽样不偏袒具体题目）", () => {
     const draws = 1000;
-    const counts = new Map<number, number>(BANK.map((item) => [item.index, 0]));
+    const counts = new Map<number, number>(ELIGIBLE.map((item) => [item.index, 0]));
     for (let userId = 1; userId <= draws; userId += 1) {
       for (const index of drawItems({
         items: BANK,
@@ -182,15 +201,15 @@ describe("drawItems：卷面形状", () => {
       }
     }
 
-    // **可交换类**内的频率必须一致：同维度、同来源侧（官方 / 原创）、同近重复组归属的题目对抽样器
-    // 完全对称，谁都不该比同类兄弟更常考。类的整体概率可以偏离 0.25——来源配比与近重复组压低的是
-    // 整类（近重复组全是官方题，被压掉的额度会流回同维其他题），但类内出现系统差就是抽样器有偏。
+    // **可交换类**内的频率必须一致：同维度、同来源侧（当前只有官方题）、同近重复组归属的题目对
+    // 抽样器完全对称，谁都不该比同类兄弟更常考。类的整体概率可以偏离 0.25——近重复组压低的是
+    // 整类（被压掉的额度会流回同维其他题），但类内出现系统差就是抽样器有偏。
     const groupIdOf = new Map<number, number>();
     NEAR_DUPLICATE_GROUPS.forEach((group, id) => {
       for (const index of group) groupIdOf.set(index, id);
     });
     const classes = new Map<string, number[]>();
-    for (const item of BANK) {
+    for (const item of ELIGIBLE) {
       const key = `${item.dimension}:${item.origin === "cn-original" ? "original" : "official"}:${groupIdOf.get(item.index) ?? "free"}`;
       const list = classes.get(key);
       if (list) list.push(counts.get(item.index) ?? 0);
@@ -213,7 +232,7 @@ describe("drawItems：卷面形状", () => {
 });
 
 describe("drawItems：降级阶梯（只打 warning，绝不抛错）", () => {
-  it("来源配比凑不平：整维只剩官方题时放宽配比并记 warning", () => {
+  it("池里没有可抽的原创题（#284 回退）时不适用来源配比，不报配比 warning", () => {
     const synthetic = fakeBank([
       { key: "A", items: [[1, "onet-mini"], [2, "onet-sf"], [3, "onet-mini"], [4, "onet-sf"]] },
       { key: "B", items: [[5, "onet-mini"], [6, "onet-sf"], [7, "onet-mini"], [8, "onet-sf"]] },
@@ -225,14 +244,31 @@ describe("drawItems：降级阶梯（只打 warning，绝不抛错）", () => {
       nearDuplicateGroups: [],
       rng: () => 0.4,
     });
+    expect(draw.warnings).toEqual([]);
+    expect(draw.indexes).toHaveLength(6);
+  });
+
+  it("恢复原创题后（验证通过）：原创不够时仍按阶梯放宽配比并记 warning", () => {
+    const synthetic = fakeBank([
+      { key: "A", items: [[1, "onet-mini"], [2, "onet-sf"], [3, "onet-mini"], [4, "cn-original"]] },
+      { key: "B", items: [[5, "onet-mini"], [6, "onet-sf"], [7, "onet-mini"], [8, "cn-original"]] },
+    ]);
+    const draw = drawItems({
+      items: synthetic.items,
+      dimensions: synthetic.dimensions,
+      perDimension: 3,
+      nearDuplicateGroups: [],
+      excludedOrigins: new Set(),
+      rng: () => 0.4,
+    });
     expect(draw.warnings).toContain("来源配比放宽：该维度无法按官方 2-3 + 原创 2-3 抽取");
     expect(draw.indexes).toHaveLength(6);
   });
 
   it("排除上轮后不足每维题数：放宽排除集凑数，允许与上轮重复", () => {
     const synthetic = fakeBank([
-      { key: "A", items: [[1, "onet-mini"], [2, "onet-sf"], [3, "onet-mini"], [4, "cn-original"], [5, "cn-original"]] },
-      { key: "B", items: [[6, "onet-mini"], [7, "onet-sf"], [8, "onet-mini"], [9, "cn-original"], [10, "cn-original"]] },
+      { key: "A", items: [[1, "onet-mini"], [2, "onet-sf"], [3, "onet-mini"], [4, "onet-sf"], [5, "onet-mini"]] },
+      { key: "B", items: [[6, "onet-mini"], [7, "onet-sf"], [8, "onet-mini"], [9, "onet-sf"], [10, "onet-mini"]] },
     ]);
     const draw = drawItems({
       items: synthetic.items,
@@ -249,8 +285,8 @@ describe("drawItems：降级阶梯（只打 warning，绝不抛错）", () => {
 
   it("近重复组被前一维度占用后本维无题可抽：放宽同组约束而不是少抽", () => {
     const synthetic = fakeBank([
-      { key: "A", items: [[1, "cn-original"]] },
-      { key: "B", items: [[3, "cn-original"]] },
+      { key: "A", items: [[1, "onet-sf"]] },
+      { key: "B", items: [[3, "onet-sf"]] },
     ]);
     const draw = drawItems({
       items: synthetic.items,
@@ -265,7 +301,7 @@ describe("drawItems：降级阶梯（只打 warning，绝不抛错）", () => {
   });
 
   it("同组的题落在同一维度时，一次抽取内也只能取一题", () => {
-    const synthetic = fakeBank([{ key: "A", items: [[1, "cn-original"], [2, "cn-original"], [3, "cn-original"]] }]);
+    const synthetic = fakeBank([{ key: "A", items: [[1, "onet-sf"], [2, "onet-sf"], [3, "onet-sf"]] }]);
     const draw = drawItems({
       items: synthetic.items,
       dimensions: synthetic.dimensions,
@@ -279,7 +315,7 @@ describe("drawItems：降级阶梯（只打 warning，绝不抛错）", () => {
 
   it("某维一道题都没有：有多少抽多少，卷面短于目标题数也不 500", () => {
     const synthetic = fakeBank([
-      { key: "A", items: [[1, "cn-original"], [2, "cn-original"], [3, "cn-original"]] },
+      { key: "A", items: [[1, "onet-sf"], [2, "onet-sf"], [3, "onet-sf"]] },
       { key: "B", items: [] },
     ]);
     const draw = drawItems({
@@ -334,18 +370,19 @@ describe("planAttempt：本轮题号口径", () => {
     });
   }
 
-  it("items_per_attempt = 0 是全量作答口径：题库即本轮，不抽不排序", () => {
+  it("items_per_attempt = 0 是全量作答口径：本题库的可作答部分即本轮，不抽不排序", () => {
     const full = plan({ itemsPerAttempt: 0 });
-    expect(full.indexes).toEqual(RIASEC_QUESTIONS.map((q: QuestionSeed) => q.index));
+    // #284 回退：全量口径也只含已放行来源（原创题不进卷）
+    expect(full.indexes).toEqual(ELIGIBLE.map((item) => item.index));
     expect(full.poolFingerprint).toBe(fingerprint);
     expect(full.warnings).toEqual([]);
   });
 
   it("草稿带有效快照时直接复用快照：不受 rng 影响，也不重算抽题", () => {
-    const indexes = [1, 20, 41, 62, 83, 104, 2, 21, 42, 63, 84, 105, 3, 22, 43, 64, 85, 106, 4, 23, 44, 65, 86, 107, 5, 24, 45, 66, 87, 108];
+    const indexes = ELIGIBLE.slice(0, 30).map((item) => item.index);
     const snapshotRaw = buildItemsSnapshot(indexes, fingerprint);
     for (const value of [0.01, 0.99]) {
-      const result = plan({ snapshotRaw, answeredIndexes: new Set([1, 20]), rng: () => value });
+      const result = plan({ snapshotRaw, answeredIndexes: new Set(indexes.slice(0, 2)), rng: () => value });
       expect(result.indexes).toEqual(indexes);
       expect(result.warnings).toEqual([]);
     }
@@ -370,7 +407,9 @@ describe("planAttempt：本轮题号口径", () => {
   it("全新一轮按排除集轮换，同 (用户, 轮次) 重算永远同一张卷子", () => {
     const first = plan({});
     const second = plan({ attemptNo: 2, excludedIndexes: new Set(first.indexes) });
-    expect(second.indexes.filter((index) => first.indexes.includes(index))).toEqual([]);
+    const repeated = second.indexes.filter((index) => first.indexes.includes(index));
+    expect(repeated.every((index) => GROUP_CONSTRAINED_DIMENSIONS.has(byIndex.get(index)!.dimension))).toBe(true);
+    expect(second.indexes).not.toEqual(first.indexes);
     expect(plan({ attemptNo: 2, excludedIndexes: new Set(first.indexes) })).toEqual(second);
   });
 
@@ -378,7 +417,10 @@ describe("planAttempt：本轮题号口径", () => {
     const first = plan({ attemptNo: 1 }).indexes;
     const second = plan({ attemptNo: 2, excludedIndexes: new Set(first) }).indexes;
     const third = plan({ attemptNo: 3, excludedIndexes: new Set(second) });
-    expect(third.indexes.filter((index) => second.includes(index))).toEqual([]);
+    // 近重复受限的维度同样允许个别重题，其余四维必须与第 2 轮完全换新
+    const repeated = third.indexes.filter((index) => second.includes(index));
+    expect(repeated.every((index) => GROUP_CONSTRAINED_DIMENSIONS.has(byIndex.get(index)!.dimension))).toBe(true);
+    expect(third.indexes).not.toEqual(second);
     // 排除集只取「上一条完成结果」，所以第 1 轮的题重新可选；实测确实回来了，否则等于题池逐轮单调缩小
     expect(third.indexes.filter((index) => first.includes(index)).length).toBeGreaterThan(0);
     expectPaperShape(third.indexes);
@@ -408,7 +450,7 @@ describe("planAttempt：本轮题号口径", () => {
     expect(result.warnings).toEqual([]);
   });
 
-  it("在途草稿的已答题即使把某维配比锁死，也只记 warning、不作废已答", () => {
+  it("在途草稿已答 4 题时补第 5 题，不再报来源配比 warning（#284 回退后无配比约束）", () => {
     const officialInR = BANK.filter((item) => item.dimension === "R" && item.origin !== "cn-original").map(
       (item) => item.index
     );
@@ -418,13 +460,22 @@ describe("planAttempt：本轮题号口径", () => {
     const rOfficial = result.indexes
       .map((index) => byIndex.get(index)!)
       .filter((item) => item.dimension === "R" && item.origin !== "cn-original").length;
-    expect(rOfficial).toBe(4);
-    expect(result.warnings.join("\n")).toContain("来源配比放宽：整维官方题 4 题，超出 2-3 区间");
+    expect(rOfficial).toBe(PER_DIMENSION);
+    expect(result.warnings).toEqual([]);
     expect([...answered].every((index) => result.indexes.includes(index))).toBe(true);
   });
 
+  it("在途草稿里的原创题作答不再进入本轮口径（#284 回退）", () => {
+    const original = BANK.find((item) => item.origin === "cn-original")!;
+    const official = BANK.find((item) => item.origin === "onet-mini")!;
+    const result = plan({ answeredIndexes: new Set([original.index, official.index]) });
+    expect(result.indexes).not.toContain(original.index);
+    expect(result.indexes).toContain(official.index);
+    expect(result.indexes.every((index) => byIndex.get(index)!.origin !== "cn-original")).toBe(true);
+  });
+
   it("兼容路径不会重复抽到已答题（放宽排除集也不放宽本卷）", () => {
-    const synthetic = fakeBank([{ key: "A", items: [[1, "cn-original"], [2, "cn-original"]] }]);
+    const synthetic = fakeBank([{ key: "A", items: [[1, "onet-sf"], [2, "onet-sf"]] }]);
     const result = planAttempt({
       pool: synthetic.items.map((item) => ({ ...item, version: 1 })),
       dimensions: synthetic.dimensions,

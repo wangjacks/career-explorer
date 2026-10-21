@@ -471,21 +471,23 @@ export class SqliteAdapter implements DbAdapter {
 
   /**
    * 题库**只增不改**升级（#281）：生产库已有的题库由 `seedAssessments` 的「非空一律不碰」保护，
-   * 所以扩库必须另走这里，且**只允许四种写动作**：
+   * 所以扩库必须另走这里，且**只允许五种写动作**：
    * 1. 缺失的题号 → INSERT；
    * 2. 已存在的题号 → **只回填 `origin`**（`prompt` / `dimension` / `version` 一个字节都不动，
    *    后台维护过的题面神圣不可侵犯）；
    * 3. 量表定义字段 → 仅当 `scale_version` 与种子不一致时整体更新（名字/题数/署名/授权/免责）；
-   * 4. `items_per_attempt`（#282）→ 与版本号无关，只要与种子不一致就只回填这一列。
+   * 4. `items_per_attempt`（#282）→ 与版本号无关，只要与种子不一致就只回填这一列；
+   * 5. `license_text`（#284）→ 合规文案与版本号无关，同版本库与种子不一致时只刷新这一列。
    *
    * 写之前跑新版 `validateAssessmentSeed`（含 anchor 与近重复校验）；全程单事务。
-   * 重复执行幂等：第二次没有缺题、origin 已一致、版本号与每次题量都已一致，什么都不改。
+   * 重复执行幂等：第二次没有缺题、origin 已一致、版本号 / 每次题量 / 授权文案都已一致，什么都不改。
    */
   upgradeAssessmentBank(): AssessmentBankUpgradeResult {
     const result: AssessmentBankUpgradeResult = {
       inserted: 0,
       originBackfilled: 0,
       definitionUpdated: false,
+      licenseTextUpdated: false,
       itemsPerAttemptUpdated: false,
     };
     const findAssessment = this.db.prepare("SELECT * FROM assessments WHERE code = ?");
@@ -509,6 +511,11 @@ export class SqliteAdapter implements DbAdapter {
     // （不并入上面整条定义 UPDATE——同版本库里后台改过的名字/署名不能被顺带覆盖）
     const updateItemsPerAttempt = this.db.prepare(
       "UPDATE assessments SET items_per_attempt = ?, updated_at = ? WHERE id = ?"
+    );
+    // #284：授权与放行状态文案随合规要求变化，与 scale_version 无关；同版本库只刷新这一列，
+    // 避免整条定义 UPDATE 把后台维护的 name / attribution 顺带覆盖
+    const updateLicenseText = this.db.prepare(
+      "UPDATE assessments SET license_text = ?, updated_at = ? WHERE id = ?"
     );
 
     const upgrade = this.db.transaction(() => {
@@ -561,6 +568,9 @@ export class SqliteAdapter implements DbAdapter {
             existing.id
           );
           result.definitionUpdated = true;
+        } else if (existing.license_text !== definition.licenseText) {
+          updateLicenseText.run(definition.licenseText, now, existing.id);
+          result.licenseTextUpdated = true;
         }
 
         // #282：`items_per_attempt` 与 scale_version 无关也要补齐——生产库在 #281 时已是

@@ -1,7 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { Suspense, useCallback, useEffect, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { Toaster, toast } from "sonner";
 import { ArrowLeft, ArrowRight, Check, Compass, Loader2, RotateCcw } from "lucide-react";
@@ -9,8 +9,8 @@ import NavigationBar from "@/components/NavigationBar";
 import ConfirmDialog from "@/components/admin/ConfirmDialog";
 import { useSession } from "@/hooks/useSession";
 import { RIASEC_CODE } from "@/lib/assessment-data";
-import { LIKERT_ANCHORS, formatResultTime, type AssessmentAnswers } from "@/lib/assessment-flow";
-import type { DimensionScore } from "@/lib/assessment-scoring";
+import { formatResultTime, resultSummaryCopy, type AssessmentAnswers } from "@/lib/assessment-flow";
+import type { DimensionScore, ScoringMode } from "@/lib/assessment-scoring";
 
 interface AssessmentMeta {
   code: string;
@@ -20,6 +20,9 @@ interface AssessmentMeta {
   /** 题库总量（#283 的抽题说明用） */
   poolSize: number;
   scaleVersion: string;
+  scoringMode: ScoringMode;
+  /** 锚点随量表下发（#289）：兴趣=意愿、人格=同意度 */
+  anchors: { value: number; label: string }[];
   dimensions: { key: string; label: string }[];
   attribution: string;
   licenseText: string;
@@ -46,6 +49,7 @@ interface SubmitResult {
   completedAt: string | null;
   questionCount: number;
   scaleVersion: string;
+  scoringMode: ScoringMode;
   disclaimer: string;
 }
 
@@ -66,7 +70,12 @@ function ProgressBar({ answered, total }: { answered: number; total: number }) {
   );
 }
 
-/** 提交后的结果摘要：三字码 + 六维标准分（完整解读与职业推荐在「我的档案」测评区） */
+/**
+ * 提交后的结果摘要：按计分模式分流（#289）。
+ * - typological：三字码 + 六型标准分；
+ * - dimensional：五大人格画像 + 五维标准分，不渲染三字码（结果里本来就是 null）。
+ * 署名 / 授权 / 免责随结果展示（#283）；完整解读与职业推荐在「我的档案」测评区。
+ */
 function ResultSummary({
   result,
   attribution,
@@ -78,11 +87,18 @@ function ResultSummary({
   licenseText: string;
   onRetry: () => void;
 }) {
+  const copy = resultSummaryCopy(result.scoringMode);
   return (
     <div className="space-y-5">
       <section className="bg-brand rounded-2xl p-5 sm:p-6 shadow-sm text-white">
-        <p className="text-xs text-white/80">你的职业兴趣三字码</p>
-        <p className="mt-1 text-4xl font-extrabold tracking-[0.2em]">{result.typeCode ?? "—"}</p>
+        {copy.showTypeCode ? (
+          <>
+            <p className="text-xs text-white/80">{copy.headline}</p>
+            <p className="mt-1 text-4xl font-extrabold tracking-[0.2em]">{result.typeCode ?? "—"}</p>
+          </>
+        ) : (
+          <p className="text-2xl font-extrabold tracking-wide">{copy.headline}</p>
+        )}
         <p className="mt-3 text-sm text-white/90">
           已完成 {result.questionCount} 题，结果已保存
           {result.completedAt ? `（${formatResultTime(result.completedAt)}）` : ""}。
@@ -90,7 +106,7 @@ function ResultSummary({
       </section>
 
       <section className="bg-card rounded-xl border border-border-soft p-5 space-y-4">
-        <h2 className="text-sm font-semibold text-foreground">六型兴趣得分</h2>
+        <h2 className="text-sm font-semibold text-foreground">{copy.scoresTitle}</h2>
         <ul className="space-y-3">
           {result.scores.map((score) => (
             <li key={score.key} className="space-y-1">
@@ -136,15 +152,19 @@ function ResultSummary({
 }
 
 /**
- * 职业兴趣测评答题页（#223）：单题单屏 + 进度条 + Likert 1-5。
+ * 测评答题页（#223 + #289）：单题单屏 + 进度条 + Likert 1-5，量表由 `?code=` 指定。
  *
  * - **进度以服务端草稿为唯一真相**：每答一题即 `POST /answer` 落库，退出再进从上次题号继续（不用 localStorage）；
+ * - 锚点、计分模式、标题都来自 start 响应的量表元信息，页面不写死某一套量表；
  * - 上一步可回头修改（再答一次覆盖同一题）；提交前二次确认，提交后由服务端计分并写结果快照；
- * - 认证走 `useSession`（/dashboard/student/* 不进 proxy），真正的权限判定仍在 API 路由内。
+ * - 认证走 `useSession`（`/dashboard/student/*` 不进 proxy），真正的权限判定仍在 API 路由内。
  */
-export default function AssessmentQuizPage() {
+function AssessmentQuizContent() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { session, checking } = useSession();
+  // 缺省 riasec：老入口（不带 code）行为不变；未知 code 由 start 路由回 404
+  const code = searchParams.get("code")?.trim().toLowerCase() || RIASEC_CODE;
 
   const [start, setStart] = useState<StartPayload | null>(null);
   const [answers, setAnswers] = useState<AssessmentAnswers>({});
@@ -167,7 +187,7 @@ export default function AssessmentQuizPage() {
     setLoading(true);
     setLoadError(null);
     try {
-      const res = await fetch(`/api/shared/assessment/start?code=${encodeURIComponent(RIASEC_CODE)}`);
+      const res = await fetch(`/api/shared/assessment/start?code=${encodeURIComponent(code)}`);
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "测评加载失败");
       const payload = data as StartPayload;
@@ -186,7 +206,7 @@ export default function AssessmentQuizPage() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [code]);
 
   /* eslint-disable react-hooks/set-state-in-effect -- 会话确认后加载题面，与 useSession 同步 */
   useEffect(() => {
@@ -201,6 +221,9 @@ export default function AssessmentQuizPage() {
     void load();
   };
 
+  // 标题用服务端下发的量表名（#289）；加载完成前用通用名，避免闪一下某一套量表的标题
+  const assessmentTitle = start?.assessment.name ?? "职业测评";
+
   if (checking || !session || session.role !== "student") {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center px-4">
@@ -213,7 +236,7 @@ export default function AssessmentQuizPage() {
     return (
       <div className="min-h-screen bg-background">
         <Toaster position="top-center" />
-        <NavigationBar title="职业兴趣测评" showHome />
+        <NavigationBar title={assessmentTitle} showHome />
         <main className="max-w-2xl mx-auto px-4 sm:px-6 py-6 pb-16">
           <ResultSummary
             result={result}
@@ -229,7 +252,7 @@ export default function AssessmentQuizPage() {
   if (loading) {
     return (
       <div className="min-h-screen bg-background">
-        <NavigationBar title="职业兴趣测评" showHome />
+        <NavigationBar title={assessmentTitle} showHome />
         <main className="max-w-2xl mx-auto px-4 sm:px-6 py-6">
           <div className="bg-card rounded-xl border border-border-soft p-10 text-center">
             <Loader2 className="w-6 h-6 mx-auto text-muted animate-spin" aria-hidden />
@@ -243,7 +266,7 @@ export default function AssessmentQuizPage() {
   if (loadError || !start || start.questions.length === 0) {
     return (
       <div className="min-h-screen bg-background">
-        <NavigationBar title="职业兴趣测评" showHome />
+        <NavigationBar title={assessmentTitle} showHome />
         <main className="max-w-2xl mx-auto px-4 sm:px-6 py-6">
           <div className="bg-card rounded-xl border border-border-soft p-10 text-center space-y-4">
             <p className="text-sm text-red-500">{loadError ?? "测评暂无题目"}</p>
@@ -261,6 +284,7 @@ export default function AssessmentQuizPage() {
 
   const questions = start.questions;
   const total = questions.length;
+  const copy = resultSummaryCopy(start.assessment.scoringMode);
   const current = questions[Math.min(position, total - 1)];
   const answeredCount = questions.filter((q) => answers[q.index] !== undefined).length;
   const allAnswered = answeredCount >= total;
@@ -323,7 +347,7 @@ export default function AssessmentQuizPage() {
   return (
     <div className="min-h-screen bg-background">
       <Toaster position="top-center" />
-      <NavigationBar title="职业兴趣测评" showHome />
+      <NavigationBar title={assessmentTitle} showHome />
 
       <main className="max-w-2xl mx-auto px-4 sm:px-6 py-6 pb-16 space-y-5 animate-[fade-in_0.2s_ease-out]">
         {/* 退出：进度在服务端草稿里，随时可以回来续答 */}
@@ -360,8 +384,8 @@ export default function AssessmentQuizPage() {
           <p className="text-xs text-muted">{start.assessment.name}</p>
           <h1 className="text-lg sm:text-xl font-semibold text-foreground leading-relaxed">{current.prompt}</h1>
 
-          <div className="grid grid-cols-1 sm:grid-cols-5 gap-2" role="group" aria-label="选择你对这个活动的意愿">
-            {LIKERT_ANCHORS.map((anchor) => {
+          <div className="grid grid-cols-1 sm:grid-cols-5 gap-2" role="group" aria-label={copy.answerGroupLabel}>
+            {start.assessment.anchors.map((anchor) => {
               const active = selected === anchor.value;
               return (
                 <button
@@ -419,9 +443,7 @@ export default function AssessmentQuizPage() {
               <Compass size={18} className="text-accent" aria-hidden />
               <p className="text-sm font-semibold text-foreground">全部答完啦</p>
             </div>
-            <p className="text-sm text-muted leading-relaxed">
-              提交后会立刻算出你的职业兴趣三字码并保存这一份结果；之后想重测可以再来一次（会生成新的一次结果）。
-            </p>
+            <p className="text-sm text-muted leading-relaxed">{copy.submitHint}</p>
             <button
               type="button"
               onClick={() => setConfirming(true)}
@@ -449,11 +471,20 @@ export default function AssessmentQuizPage() {
       <ConfirmDialog
         open={confirming}
         title="确认提交测评"
-        message={`你已完成全部 ${total} 题。提交后立即算出结果并保存，本次结果记为当前版本；之后可以重新测评（历史结果保留）。`}
+        message={copy.confirmMessage(total)}
         confirmText="确认提交"
         onConfirm={() => void submit()}
         onCancel={() => setConfirming(false)}
       />
     </div>
+  );
+}
+
+export default function AssessmentQuizPage() {
+  // useSearchParams 需要 Suspense 边界（与 login / activate 同款）
+  return (
+    <Suspense fallback={null}>
+      <AssessmentQuizContent />
+    </Suspense>
   );
 }
