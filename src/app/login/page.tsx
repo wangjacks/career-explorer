@@ -9,6 +9,7 @@ import NavigationBar from "@/components/NavigationBar";
 import GeetestCaptcha, { type GeetestCaptchaHandle } from "@/components/GeetestCaptcha";
 import type { CaptchaTicket } from "@/lib/captcha";
 import { roleHome } from "@/lib/role-home";
+import { isDemoLoginParam, resolveLoginMode } from "@/lib/login-mode";
 
 /** 校验 next 回跳目标：仅接受站内相对路径，防开放重定向 */
 function safeNext(raw: string | null): string | null {
@@ -20,6 +21,8 @@ function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const next = safeNext(searchParams.get("next"));
+  const demoLogin = isDemoLoginParam(searchParams.get("demo"));
+  const mode = resolveLoginMode(demoLogin);
   const { session, checking } = useSession();
   const [userCode, setUserCode] = useState("");
   const [password, setPassword] = useState("");
@@ -40,7 +43,7 @@ function LoginForm() {
     setError("");
     setLoading(true);
     try {
-      const res = await fetch("/api/auth", {
+      const res = await fetch(mode.endpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ userCode, password, ...(ticket ? { captcha: ticket } : {}) }),
@@ -64,7 +67,7 @@ function LoginForm() {
   if (checking || session) {
     return (
       <div className="min-h-screen bg-brand">
-        <NavigationBar title="登录" showHome />
+        <NavigationBar title={mode.navTitle} showHome />
         <div className="min-h-[calc(100vh-3rem)] flex items-center justify-center px-4">
           <p className="text-sm text-white/70">加载中...</p>
         </div>
@@ -74,15 +77,15 @@ function LoginForm() {
 
   return (
     <div className="min-h-screen bg-brand">
-      <NavigationBar title="登录" showHome />
+      <NavigationBar title={mode.navTitle} showHome />
       <main className="min-h-[calc(100vh-3rem)] flex items-center justify-center px-4">
         <div className="w-full max-w-sm sm:max-w-md bg-card rounded-2xl shadow-xl p-8 space-y-6">
           <div className="text-center">
             <div className="w-12 h-12 rounded-xl bg-green-500 flex items-center justify-center mx-auto mb-3 shadow-sm">
               <Compass size={24} strokeWidth={2} className="text-white" />
             </div>
-            <h1 className="text-xl font-bold text-gray-900 dark:text-gray-100">登录</h1>
-            <p className="text-sm text-gray-500 mt-1 dark:text-gray-400">使用编号和密码登录（管理员 / 教师 / 学生）</p>
+            <h1 className="text-xl font-bold text-gray-900 dark:text-gray-100">{mode.title}</h1>
+            <p className="text-sm text-gray-500 mt-1 dark:text-gray-400">{mode.description}</p>
           </div>
 
           <div className="space-y-4">
@@ -106,20 +109,29 @@ function LoginForm() {
 
           <GeetestCaptcha
             ref={captchaRef}
-            label="登录"
-            loadingLabel="登录中..."
+            label={mode.submitLabel}
+            loadingLabel={mode.loadingLabel}
             disabled={!userCode || !password}
             loading={loading}
             resetSignal={captchaResetSignal}
             onVerified={handleLogin}
           />
 
-          <p className="text-center text-sm text-muted">
-            还未激活账户？{" "}
-            <Link href="/activate" className="text-green-600 dark:text-green-400 hover:underline">
-              激活账户
-            </Link>
-          </p>
+          {mode.showActivation ? (
+            <p className="text-center text-sm text-muted">
+              还未激活账户？{" "}
+              <Link href="/activate" className="text-green-600 dark:text-green-400 hover:underline">
+                激活账户
+              </Link>
+            </p>
+          ) : (
+            <p className="text-center text-sm text-muted">
+              {/* 硬链接强制重挂载，避免演示凭据在切换后提交到生产端点 */}
+              <a href="/login" className="text-green-600 dark:text-green-400 hover:underline">
+                返回普通登录
+              </a>
+            </p>
+          )}
         </div>
       </main>
     </div>
