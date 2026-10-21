@@ -119,6 +119,10 @@ export default function TagSelector({ categories, selectedTags, onToggle, onRemo
         );
       })}
 
+      {categories.length === 0 && (
+        <p className="text-sm text-muted">还没有预设标签，可自行添加。</p>
+      )}
+
       {maxCustomTags !== undefined && (
         <section className="space-y-2">
           <h2 className="text-sm font-semibold text-muted">
