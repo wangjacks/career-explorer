@@ -399,6 +399,7 @@ describe("缺测学生的降级与均分（#345 验收）", () => {
     // 覆盖率与未测人数如实统计
     expect(result.metrics.coverageBySource?.find((row) => row.key === "riasec")?.covered).toBe(6);
     expect(result.metrics.coverageBySource?.find((row) => row.key === "bigfive")?.covered).toBe(6);
-    // 6 人两套都做了、6 人两套都没做 → 未测 6 人\n    expect(result.metrics.untestedCount).toBe(6);
+    // 6 人两套都做了、6 人两套都没做 → 未测 6 人
+    expect(result.metrics.untestedCount).toBe(6);
   });
 });
