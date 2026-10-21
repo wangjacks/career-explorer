@@ -119,11 +119,14 @@ export function finalizeCompletionStats(
   const allowed = scopedClassIds === null ? null : new Set(scopedClassIds);
   const canDrilldown = options.canDrilldown ?? true;
 
-  // 同一 code 只出一列（脏数据/重复种子下不产生重复 key）；顺序保留启用量表顺序
-  const scales = assessments.filter((scale, index) => {
+  // 先剔除非法量表，再按 code 去重：否则前面的非法重复项会让后面的合法量表被 findIndex 误判掉
+  const seenCodes = new Set<string>();
+  const scales = assessments.filter((scale) => {
     if (!Number.isInteger(scale.id) || scale.id <= 0) return false;
     if (typeof scale.code !== "string" || scale.code.trim() === "") return false;
-    return assessments.findIndex((other) => other.code === scale.code) === index;
+    if (seenCodes.has(scale.code)) return false;
+    seenCodes.add(scale.code);
+    return true;
   });
 
   const columns: CompletionColumn[] = [

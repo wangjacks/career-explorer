@@ -165,6 +165,22 @@ describe("GET /api/manage/stats/completion（#310 完成矩阵）", () => {
     expect(body.rows.map((row: { classId: number }) => row.classId)).toEqual([9, 7]);
   });
 
+  it("量表结果表读取失败但档案可读时，重试为只有档案列", async () => {
+    vi.mocked(getCompletionStats)
+      .mockRejectedValueOnce(new Error("assessment_results missing"))
+      .mockResolvedValueOnce({ profile: RAW.profile, assessments: [] });
+    const res = await GET(
+      request("/api/manage/stats/completion", await token("teacher", 3))
+    );
+    expect(res.status).toBe(200);
+    const body = await res.json();
+
+    expect(getCompletionStats).toHaveBeenNthCalledWith(1, [5, 9], null);
+    expect(getCompletionStats).toHaveBeenNthCalledWith(2, [], null);
+    expect(body.columns).toEqual([{ key: "profile", label: "档案提交" }]);
+    expect(body.rows.map((row: { classId: number }) => row.classId)).toEqual([9, 7]);
+  });
+
   it("量表停用不出列（只透传 enabled=1 的量表）", async () => {
     vi.mocked(getEnabledAssessments).mockResolvedValue([
       RIASEC,

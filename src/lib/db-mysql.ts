@@ -61,6 +61,11 @@ import {
   type RawClassTrendRow,
   type RawCompareRow,
 } from "./stats-utils";
+import {
+  buildCompletionStatsSql,
+  mapCompletionStatsRows,
+  type CompletionStatsRow,
+} from "./completion-query";
 
 function getNow(): string {
   return new Date().toLocaleString("sv-SE", { timeZone: "Asia/Shanghai" });
@@ -2417,64 +2422,15 @@ export class MysqlAdapter implements DbAdapter {
     };
   }
 
-  // 班级完成矩阵（#310）：与 SQLite 适配器同构（同一套 SQL 口径），只数数，口径统一在 completion-stats.ts
+  // 班级完成矩阵（#310）：SQL 与行映射由 `completion-query.ts` 与 SQLite 共用，避免两适配器分叉
   async getCompletionStats(
     assessmentIds: number[],
     classIds: number[] | null
   ): Promise<CompletionStatsRaw> {
-    if (classIds !== null && classIds.length === 0) return { profile: [], assessments: [] };
-    const ids = [...new Set(assessmentIds.filter((id) => Number.isInteger(id) && id > 0))];
-    const classFilter =
-      classIds === null ? "" : ` AND u.class_id IN (${classIds.map(() => "?").join(",")})`;
-    const classParams = classIds ?? [];
-    let sql = `SELECT NULL AS assessment_id, u.class_id AS class_id, c.name AS name,
-                      COUNT(*) AS enrolled,
-                      SUM(CASE WHEN u.submitted_at IS NOT NULL AND TRIM(u.submitted_at) <> '' THEN 1 ELSE 0 END) AS submitted,
-                      0 AS assessed
-               FROM users u LEFT JOIN classes c ON c.id = u.class_id
-               WHERE u.role = 'student'${classFilter}
-               GROUP BY u.class_id, c.name`;
-    const params: number[] = [...classParams];
-    if (ids.length > 0) {
-      sql += `
-        UNION ALL
-        SELECT r.assessment_id AS assessment_id, u.class_id AS class_id, NULL AS name,
-               0 AS enrolled, 0 AS submitted,
-               COUNT(DISTINCT r.user_id) AS assessed
-        FROM assessment_results r JOIN users u ON u.id = r.user_id
-        WHERE r.assessment_id IN (${ids.map(() => "?").join(",")})
-          AND r.status = 'completed' AND r.is_current = 1 AND u.role = 'student'${classFilter}
-        GROUP BY r.assessment_id, u.class_id`;
-      params.push(...ids, ...classParams);
-    }
+    const { sql, params } = buildCompletionStatsSql(assessmentIds, classIds);
+    if (!sql) return { profile: [], assessments: [] };
     const [rows] = await this.pool.execute(sql, params);
-    const profile: CompletionStatsRaw["profile"] = [];
-    const assessments: CompletionStatsRaw["assessments"] = [];
-    for (const row of rows as {
-      assessment_id: number | string | null;
-      class_id: number | string | null;
-      name: string | null;
-      enrolled: number | string;
-      submitted: number | string | null;
-      assessed: number | string;
-    }[]) {
-      const classId = row.class_id === null ? null : Number(row.class_id);
-      if (row.assessment_id === null) {
-        profile.push({
-          class_id: classId,
-          name: row.name ?? null,
-          enrolled: Number(row.enrolled),
-          submitted: Number(row.submitted ?? 0),
-        });
-      } else {
-        assessments.push({
-          assessment_id: Number(row.assessment_id),
-          class_id: classId,
-          assessed: Number(row.assessed),
-        });
-      }
-    }
-    return { profile, assessments };
+    return mapCompletionStatsRows(rows as CompletionStatsRow[]);
   }
 
   async getAssessmentRoster(

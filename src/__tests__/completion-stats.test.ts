@@ -168,6 +168,15 @@ describe("finalizeCompletionStats（#310 完成矩阵）", () => {
       "profile",
       "assessment:riasec",
     ]);
+
+    // 非法项排在合法项前面时，不能把后面的合法列挤掉
+    const invalidFirst = finalizeCompletionStats(RAW, [
+      { ...RIASEC, id: 0 },
+      RIASEC,
+    ]);
+    expect(invalidFirst.columns.map((column) => column.key)).toContain(
+      "assessment:riasec"
+    );
   });
 
   it("响应不含学生姓名/学号等个人标识", () => {

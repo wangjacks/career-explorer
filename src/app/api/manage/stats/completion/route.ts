@@ -1,6 +1,6 @@
 import { withDemoScope } from "@/lib/demo-scope";
 import { NextRequest, NextResponse } from "next/server";
-import { getCompletionStats, getEnabledAssessments } from "@/lib/db";
+import { getCompletionStats, getEnabledAssessments, type CompletionStatsRaw } from "@/lib/db";
 import { isInstalled } from "@/lib/db-config";
 import {
   COMPLETION_PROFILE_KEY,
@@ -76,10 +76,22 @@ async function GET_impl(request: NextRequest) {
       console.error("Completion stats: enabled assessments unavailable:", err);
     }
 
-    const raw = await getCompletionStats(
-      assessments.map((assessment) => assessment.id),
-      classIds
-    );
+    let raw: CompletionStatsRaw;
+    try {
+      raw = await getCompletionStats(
+        assessments.map((assessment) => assessment.id),
+        classIds
+      );
+    } catch (err) {
+      if (assessments.length === 0) throw err;
+      // 量表结果表不可读/缺失时退化为只有档案列；不要因附属列坏掉整块看板
+      console.error(
+        "Completion stats: assessment aggregate unavailable, retrying profile-only:",
+        err
+      );
+      assessments = [];
+      raw = await getCompletionStats([], classIds);
+    }
     const canDrilldown = session.role === "admin" || scope === "mine";
     const result = finalizeCompletionStats(raw, assessments, { classIds, canDrilldown });
 

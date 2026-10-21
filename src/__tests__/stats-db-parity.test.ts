@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { buildCompletionStatsSql } from "../lib/completion-query";
 
 /**
  * CI 没有 MySQL 实例，无法跑双适配器行为对照（实机复核并入 #204）。
@@ -40,11 +41,17 @@ describe("SQLite / MySQL 分班统计同构（#260）", () => {
     expect(text).toContain("AND c.id = ?");
   });
 
-  it.each(ADAPTERS)("%s 完成矩阵用 UNION ALL 按 class_id 分组，与班名解耦", (path) => {
+  it.each(ADAPTERS)("%s 完成矩阵共用 completion-query 的 SQL 与行映射", (path) => {
     const text = source(path);
-    expect(text).toContain("getCompletionStats(");
-    expect(text).toContain("UNION ALL");
-    expect(text).toContain("GROUP BY u.class_id, c.name");
-    expect(text).toContain("GROUP BY r.assessment_id, u.class_id");
+    expect(text).toContain("buildCompletionStatsSql(");
+    expect(text).toContain("mapCompletionStatsRows(");
+  });
+
+  it("完成矩阵 SQL 由共享构造器生成，两适配器同构", () => {
+    const { sql, params } = buildCompletionStatsSql([5, 9], [7]);
+    expect(sql).toContain("UNION ALL");
+    expect(sql).toContain("GROUP BY u.class_id, c.name");
+    expect(sql).toContain("GROUP BY r.assessment_id, u.class_id");
+    expect(params).toEqual([7, 5, 9, 7]);
   });
 });
