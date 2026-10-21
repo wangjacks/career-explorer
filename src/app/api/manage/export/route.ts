@@ -188,6 +188,7 @@ async function buildExportRows(
   const filtersActive = Boolean(
     filters.filters.q?.trim() ||
       (filters.filters.tags?.length ?? 0) > 0 ||
+      (filters.filters.lead ?? "all") !== "all" ||
       filters.filters.interest ||
       filters.filters.personality
   );
@@ -460,6 +461,7 @@ async function GET_impl(request: NextRequest) {
       filtered:
         Boolean(parsedFilters.value.q?.trim()) ||
         (parsedFilters.value.tags?.length ?? 0) > 0 ||
+        (parsedFilters.value.lead ?? "all") !== "all" ||
         Boolean(parsedFilters.value.interest) ||
         Boolean(parsedFilters.value.personality),
     },

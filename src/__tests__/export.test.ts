@@ -477,6 +477,15 @@ describe("GET /api/manage/export — 新增列（#233）", () => {
     expect(text).toContain('"S003"');
   });
 
+  it("旧 lead 参数仍下推数据库，保持 #305 兼容（#331）", async () => {
+    const res = await GET(
+      createGetRequest("/api/manage/export?format=csv&scope=all&columns=student_id&lead=I")
+    );
+    expect(res.status).toBe(200);
+    expect(getSubmittedProfilesForExport).toHaveBeenCalledWith(expect.objectContaining({ lead: "I" }));
+    expect(getAllSubmitted).not.toHaveBeenCalled();
+  });
+
   it("非法筛选参数 400；人格筛选在量表读取失败时 503（不把故障误报成参数错误）", async () => {
     let res = await GET(createGetRequest("/api/manage/export?format=csv&scope=all&interest=S,I,A,E"));
     expect(res.status).toBe(400);
