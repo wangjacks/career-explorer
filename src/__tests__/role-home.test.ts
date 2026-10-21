@@ -48,6 +48,9 @@ describe("role-home", () => {
     it("falls back to /login for an expired or tampered cookie", () => {
       // verifyToken 在过期/签名无效时只返回 { valid: false }
       expect(resolveExploreHref({ valid: false, role: undefined })).toBe("/login");
+      // 先判 valid 再取 role：即使 role 合法，未验签也必须回登录页
+      expect(resolveExploreHref({ valid: false, role: "admin" })).toBe("/login");
+      expect(resolveExploreHref({ valid: false, role: "student" })).toBe("/login");
     });
 
     it("falls back to /login when the role is missing or unexpected", () => {
@@ -55,7 +58,7 @@ describe("role-home", () => {
       expect(resolveExploreHref({ valid: true, role: "" })).toBe("/login");
       expect(resolveExploreHref({ valid: true, role: "guardian" })).toBe("/login");
       // 绝不能把非学生账号默认送进学生面板
-      expect(resolveExploreHref({ valid: true, role: "unknown" })).not.toBe("/dashboard/student");
+      expect(resolveExploreHref({ valid: true, role: "unknown" })).toBe("/login");
     });
 
     it("routes demo sessions by role; the demo flag does not change the target", () => {
@@ -75,11 +78,15 @@ describe("role-home", () => {
     it("login page takes the landing map from role-home instead of its own copy", () => {
       expect(LOGIN_PAGE).toContain('from "@/lib/role-home"');
       expect(LOGIN_PAGE).not.toMatch(/const\s+ROLE_HOME\s*[:=]/);
+      // 会话命中（已登录回跳）与登录成功两处都必须走共享取值
+      expect(LOGIN_PAGE.match(/roleHome\(/g) ?? []).toHaveLength(2);
     });
 
     it("homepage resolves the CTA target through the shared pure function", () => {
       expect(HOME_PAGE).toContain('from "@/lib/role-home"');
       expect(HOME_PAGE).toContain("resolveExploreHref(");
+      // 判定结果必须真的用在主 CTA 的 href 上，而不只是被调用
+      expect(HOME_PAGE).toContain("href={exploreHref}");
       // 首页只在服务端读 cookie 判定，不走客户端会话探测
       expect(HOME_PAGE).toContain("cookies()");
       expect(HOME_PAGE).not.toContain("useSession");

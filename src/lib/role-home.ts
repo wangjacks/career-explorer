@@ -14,10 +14,8 @@ export const ROLE_HOME: Record<Role, string> = {
 
 /** 角色 → 落点；缺失或未知角色返回 undefined，由调用方决定兜底 */
 export function roleHome(role: string | null | undefined): string | undefined {
-  if (role === "admin" || role === "teacher" || role === "student") {
-    return ROLE_HOME[role];
-  }
-  return undefined;
+  if (!role || !Object.hasOwn(ROLE_HOME, role)) return undefined;
+  return ROLE_HOME[role as Role];
 }
 
 /** 会话判定的最小输入：`verifyToken` 返回值的结构子集（`demo` 仅是数据作用域标记） */

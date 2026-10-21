@@ -6,7 +6,7 @@ import SiteFooter from "@/components/SiteFooter";
 import { verifyToken } from "@/lib/token";
 import { resolveExploreHref } from "@/lib/role-home";
 
-// 强制动态渲染：主 CTA 落点按请求读 cookie 判定，不能被静态预渲染固化成某一刻的登录态
+// cookies() 是请求时 API，已使本路由按请求动态渲染；这里保留显式声明，避免被误加静态缓存
 export const dynamic = "force-dynamic";
 
 export default async function IndexPage() {
