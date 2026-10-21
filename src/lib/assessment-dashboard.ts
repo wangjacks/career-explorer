@@ -12,6 +12,8 @@ import type {
   AssessmentStats,
   AssessmentTypeCount,
 } from "./assessment-stats";
+import { bandOf, type ScoreBand } from "./assessment-scoring";
+import { parseScores } from "./assessment-flow";
 
 /**
  * 六型配色（issue #232 指定的六色）：每型四档用途色。
@@ -184,25 +186,68 @@ export function drilldownCounts(
   return { assessed: Math.max(0, row?.count ?? 0), total: Math.max(0, stats.total.assessed) };
 }
 
-/** 名册行（与 `/api/manage/assessment/roster` 的白名单字段一致） */
+/** 名册档位行（#313，dimensional 量表用）：只有维度名与高/中/低档，**不含 raw / standard** */
+export interface AssessmentRosterBand {
+  key: string;
+  label: string;
+  band: ScoreBand;
+}
+
+/**
+ * 结果快照 → 名册档位（#313）：教师看的是「这一维偏高还是偏低」，不是分数。
+ *
+ * 快照里的 `band` 由计分引擎写入；旧快照缺 `band` 时按 `standard` 用 `bandOf` 兜底
+ * （与学生端解读同一口径）。解析失败/非数组一律返回空数组：脏数据只让这一行没有档位，不阻断整张名册。
+ */
+export function rosterBands(scoresJson: string | null | undefined): AssessmentRosterBand[] {
+  return parseScores(scoresJson).map((score) => ({
+    key: score.key,
+    label: score.label,
+    band: score.band ?? bandOf(score.standard),
+  }));
+}
+
+/**
+ * 名册行（与 `/api/manage/assessment/roster` 的白名单字段一致）。
+ *
+ * #313 起一份名册可能是三种形态之一：
+ * - `riasec` + `status=done`：`code`（三字码）+ `assessedAt`；
+ * - dimensional 量表（如 `ipip-neo-ffi`）+ `status=done`：`bands`（档位）+ `assessedAt`，**没有 `code`**；
+ * - `status=missing`：只有定位信息（用 `AssessmentMissingRosterItem`），没有任何测评字段。
+ */
 export interface AssessmentRosterItem {
   classId: number | null;
   className: string | null;
   name: string;
   userCode: string;
-  code: string;
-  assessedAt: string;
+  /** 三字码；dimensional 量表与未完成名单都没有 */
+  code?: string;
+  /** dimensional 量表的逐维档位；riasec 与未完成名单都没有 */
+  bands?: AssessmentRosterBand[];
+  /** 完成时间；未完成名单没有 */
+  assessedAt?: string;
 }
 
-/** 弹窗内的即时筛选：姓名/学号关键字（不区分大小写）+ 只看某一型（服务端也已过滤，这里兜切换瞬间） */
-export function filterRosterItems(
-  items: readonly AssessmentRosterItem[],
+/** 未完成名单行（#313）：在册但还没有该量表当前有效结果的学生，只给定位信息 */
+export interface AssessmentMissingRosterItem {
+  classId: number | null;
+  className: string | null;
+  name: string;
+  userCode: string;
+}
+
+/**
+ * 弹窗内的即时筛选：姓名/学号关键字（不区分大小写）+ 只看某一型（服务端也已过滤，这里兜切换瞬间）。
+ * 对没有 `code` 的行（dimensional 量表 / 未完成名单），带 `lead` 时一律不命中——接口层也已拒绝这种组合。
+ */
+export function filterRosterItems<T extends { name: string; userCode: string; code?: string }>(
+  items: readonly T[],
   filters: { query?: string; lead?: string | null } = {}
-): AssessmentRosterItem[] {
+): T[] {
   const query = (filters.query ?? "").trim().toLowerCase();
   const lead = filters.lead ?? null;
   return items.filter((item) => {
-    if (lead && item.code.slice(0, 1).toUpperCase() !== lead) return false;
+    if (lead && (item.code ?? "").slice(0, 1).toUpperCase() !== lead) return false;
     if (query === "") return true;
     return item.name.toLowerCase().includes(query) || item.userCode.toLowerCase().includes(query);
   });
