@@ -312,7 +312,7 @@ describe("提交与结果落库", () => {
   });
 
   it("结果查询：当前结果带当轮题量，历史与进度口径一致，并记读取审计", async () => {
-    const res = await resultsGet(getRequest(`/api/shared/assessment/results?code=${RIASEC_CODE}`, users.A.token));
+    const res = await resultsGet(getRequest("/api/shared/assessment/results", users.A.token));
     expect(res.status).toBe(200);
     const body = await res.json();
 
@@ -328,7 +328,7 @@ describe("提交与结果落库", () => {
     expect(body.assessment.questionCount).toBe(ROUND_SIZE);
     expect(body.assessment.poolSize).toBe(BANK_SIZE);
 
-    // 量表清单（#292）：一次响应带全部已启用量表，档案页按它循环渲染结果卡
+    // 量表清单（#292）：缺省请求一次带全部已启用量表，档案页按它循环渲染结果卡
     expect(body.assessments.map((a: { code: string }) => a.code)).toEqual([RIASEC_CODE, IPIP_NEO_FFI_CODE]);
     expect(body.assessments[0]).toMatchObject({
       questionCount: ROUND_SIZE,
@@ -591,5 +591,7 @@ describe("多量表作答链路（#289）", () => {
       IPIP_DIMENSIONS.map((dimension) => dimension.key)
     );
     expect(resultsBody.history).toHaveLength(1);
+    // 按 code 的单套查询保持既有响应形状：不附带档案页的批量清单（#292）
+    expect(resultsBody.assessments).toBeUndefined();
   });
 });

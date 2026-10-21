@@ -158,8 +158,14 @@ describe("五大人格结果（#292）", () => {
     expect(bars.find((b) => b.key === "N")?.label).toBe("神经质");
   });
 
-  it("画像标签取最高两维：高尽责性 · 高外向性", () => {
+  it("画像标签取最高两维，前缀与逐维解读同口径：高尽责性 · 高外向性", () => {
     expect(buildBigFiveHeadline(five({ C: 90, E: 70 }), BIG_FIVE_DIMENSIONS)).toBe("高尽责性 · 高外向性");
+    // 最高两维都没过中线时不能自称「高」，否则与下方逐维的「偏低」自相矛盾
+    expect(buildBigFiveHeadline(five({ N: 40, E: 30, O: 20, A: 10, C: 0 }), BIG_FIVE_DIMENSIONS)).toBe(
+      "偏低神经质 · 偏低外向性"
+    );
+    // 50 分恰好在中线上，与解读一致算「高」
+    expect(buildBigFiveHeadline(five({ A: 50, C: 50 }), BIG_FIVE_DIMENSIONS)).toBe("高宜人性 · 高尽责性");
   });
 
   it("逐维解读以 50 分为中线取高分 / 低分文案（3 分折算恒为 50，算高分）", () => {
@@ -204,6 +210,8 @@ describe("五大人格结果（#292）", () => {
       expect(link.text).toContain(link.riasecLabel);
       expect(link.text).toContain(link.bigFiveLabel);
       expect(link.text).not.toContain("维度");
+      // 通用科普不能对学生实际结果下判断：文案写成条件句，而不是断言两边的分都高
+      expect(link.text).toContain("两边都高");
     }
   });
 });

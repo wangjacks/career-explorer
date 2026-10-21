@@ -71,21 +71,22 @@ export const CROSS_SCALE_LINKS: readonly {
     bigFive: "A",
     riasecLabel: "社会型",
     bigFiveLabel: "宜人性",
-    text: "社会型高、宜人性也高：你喜欢帮人不是一时兴起，性格里本来就带着耐心和体谅。",
+    // 文案是通用科普，不假设学生两边都高：写成条件句，避免对具体结果下错判断
+    text: "社会型和宜人性常常一起出现：两边都高的人，喜欢帮人不只是一时兴起，性格里本来就带着耐心和体谅。",
   },
   {
     riasec: "E",
     bigFive: "E",
     riasecLabel: "企业型",
     bigFiveLabel: "外向性",
-    text: "企业型高、外向性也高：组织活动、说服别人对你来说比较自然，人也更容易在人群里找到能量。",
+    text: "企业型和外向性常常一起出现：两边都高的人，组织活动、说服别人会更自然，也更容易从人群里获得能量。",
   },
   {
     riasec: "C",
     bigFive: "C",
     riasecLabel: "常规型",
     bigFiveLabel: "尽责性",
-    text: "常规型高、尽责性也高：你既喜欢把事情理清楚，也有把它做到底的自律。",
+    text: "常规型和尽责性常常一起出现：两边都高的人，既喜欢把事情理清楚，也有把它做到底的自律。",
   },
 ];
 
@@ -357,14 +358,19 @@ export function buildBigFiveBars(
   }));
 }
 
-/** 画像标签：排名前两维拼成「高开放性 · 高尽责性」 */
+/**
+ * 画像标签：排名前两维拼成「高开放性 · 高尽责性」。
+ *
+ * 前缀与逐维解读同口径：≥50 用「高X」，低于中线用「偏低X」——否则五个维度都低于 50 时，
+ * 头部会写「高X」而下方同一维又标「偏低」，同一张卡自相矛盾。
+ */
 export function buildBigFiveHeadline(
   scores: readonly DimensionScore[],
   dimensions: readonly { key: string; label: string }[]
 ): string {
   return rankBigFive(scores, dimensions)
     .slice(0, PRIMARY_TRAIT_COUNT)
-    .map((row) => `高${row.label}`)
+    .map((row) => (row.standard >= BIG_FIVE_MIDPOINT ? `高${row.label}` : `偏低${row.label}`))
     .join(" · ");
 }
 

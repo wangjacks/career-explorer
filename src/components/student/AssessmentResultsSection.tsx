@@ -10,7 +10,8 @@ import { CROSS_SCALE_LINKS, type AssessmentResultsPayload, type AssessmentScaleM
  * 「我的档案」里的测评结果区（#224 + #292）：按**量表清单循环渲染每套量表的结果卡**。
  *
  * 数据口径：
- * - 首次请求不带 code，拿到主测评（霍兰德）的完整结果 + `assessments` 已启用量表清单（#292）；
+ * - 首次请求不带 code，拿到主测评（霍兰德）的完整结果 + `assessments` 已启用量表清单（#292，
+ *   清单只随缺省请求下发，按 code 的单套查询保持既有响应形状）；
  * - 其余量表按 `?code=` 各自补拉，单套失败只影响那一张卡，不拖垮整个结果区；
  * - 全部数据由本组件持有，结果卡只负责按计分模式分流渲染（不再各自 fetch）。
  *
@@ -160,7 +161,7 @@ function CrossScaleTipCard() {
         ))}
       </ul>
       <p className="text-xs text-muted leading-relaxed">
-        两边一边高、一边不高也很正常：兴趣会被经历改变，性格相对稳定，放在一起看是互补，不是互相否定。
+        两边没有同时高也很正常：兴趣会被经历改变，性格相对稳定，放在一起看是互补，不是互相否定。
       </p>
     </section>
   );
