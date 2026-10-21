@@ -153,6 +153,7 @@
 | `/api/manage/stats/class-trends` | GET | 仅 GET | 按班级分层的提交趋势（#165，时间 × 班级交叉维度）；响应 `{ series: [{ key, label }], points: [{ date, counts }] }`，`counts` 以 `key` 索引、未分班固定最后（#260） |
 | `/api/manage/stats/assessment` | GET | 仅 GET | 测评聚合统计（#229/#311）：班级完成度 / 六型计数 / 三字码排行 / 总数小结 / 逐班六型构成，**不含任何个人标识**；`?scope=all`（默认，全校）或 `scope=mine`（仅本人归属班级）；`?code` 默认 `riasec` 且只接受 `typological` 量表；`?classId` 收窄到单班；`assessment.enabled` 供大屏区分「还没开放」与「还没人做」（#232） |
 | `/api/manage/stats/completion` | GET | 仅 GET | 班级 × 事项完成矩阵（#310）：档案提交 + 各启用量表各一列，**不含姓名/学号**；`?scope=all`（默认，所有班级）或 `scope=mine`（教师仅本人归属班级）；`unassigned` 与 `total` 含未分班学生（scope=all 时）；教师看所有班级时行 `canDrilldown=false`；纯聚合不记审计 |
+| `/api/manage/stats/big-five` | GET | 仅 GET | 大五人格班级分布（#312）：五维各按低/中/高三档计数，**响应不含姓名/学号/逐人分数**；`?scope=all`（默认，全校）或 `scope=mine`（教师仅本人班级）；`?classId` 收窄单班、教师非本人班级 403；量表元信息只从 `assessments` 表读，停用返回 `enabled:false` + 全 0；未安装/量表缺失返回 `assessment:null` 空态；纯聚合不记审计 |
 | `/api/manage/assessment/roster` | GET | 仅 GET | 测评名册（#229）：已完测学生的姓名 / 学号 / 三字码 / 完成时间，供下钻；过滤参数 `classId` / `lead`（三字码首位，与 #305 后 `/profiles` 的任意位置包含筛选口径不同）/ `code`（完整三字码，#232）+ `scope`；**#313 增** `scale`（默认 `riasec`，白名单 = 启用量表的完整 `code`，非法 400）与 `status`（`done` 默认 / `missing` 未完成名单）：`lead` / `code` 与非 `riasec` 或与 `missing` 组合一律 400；`missing` 只回姓名 / 学号 / 班级；dimensional 量表（如 `ipip-neo-ffi`）已测名册以 `bands` 取代三字码、不含 raw / standard；教师恒收窄到本人归属班级（越权 403），每次读取记审计 `assessment:roster` |
 | `/api/manage/profiles` | GET / DELETE | GET + DELETE | 档案列表 / 清除档案字段。GET 支持**服务端筛选与排序**（#295：`q` / `tag`（可重复，**一个参数就是一个标签、不按逗号切分**——标签名允许含逗号，切分会把下拉里选中的那一项筛成别的条件）/ `lead`（兴趣测评三字码任意位置包含所选六型字母（#305）或 `none`）/ `sortKey` / `sortDir`，分页在过滤后执行、`total` 为过滤后命中数）。GET 每行另带 `classId`（#243：教师面板据此隐藏越界行的删除入口）与兴趣测评字段（#234：`assessmentCode` / `assessmentStatus` / `assessmentAt` + 详情条形用的六型快照 `assessmentScores`），取「`completed` 且 `is_current=1`」的当前有效结果，未测行为 `none` / `null`；分页、总数与既有排序口径不变。DELETE 由 `WriteGuard` 在路由内判定班级归属（#243）：教师只能清除本人管辖班级学生的档案，未分班 / 他班 / 不在册 id 整批 403、不落任何写入；管理员仍可清除任意在册学生，不在册 id 显式 404；成功与被拒均记审计 `profile:clear`（metadata 只含学号与条数，不含档案内容） |
 | `/api/manage/profiles/submissions` | GET | GET | 管理端查看学生提交历史（#95）：admin 全量、teacher 仅管辖班级 |
@@ -174,7 +175,7 @@
 
 > 前缀匹配特性：`/api/manage/export` 覆盖 `export-images`；`/api/manage/profiles` 的 GET+DELETE 覆盖 submissions 子路由的 GET，但 `submissions/cleanup` 是 POST，教师被拒。
 >
-> 数据范围：`/api/manage/stats/*` 只做角色放行，不按班级裁剪，教师与管理员读到同一份全校数据（#165 的决策，界面已在面板标题与各卡片标注，非缺陷）。
+> 数据范围：`/api/manage/stats/*` 默认全校（#165 的决策：教师与管理员读到同一份聚合数据）；需要按教师归属收窄的端点走显式参数——`scope=mine` 收窄到本人班级（#310/#312），`classId` 再收窄单班，其中 #312 对教师传非本人班级直接 403。聚合端点本身不含个人信息。
 >
 > **#229 测评统计的两层范围**：聚合 `/stats/assessment` 沿用上面这条口径（默认全校，`scope=mine` 才收窄到本人归属班级）；**个人明细 `/assessment/roster` 例外**——它是唯一**专用的**「测评结果 + 姓名学号」下钻端点，教师恒为本人归属班级（`classId` 越权直接 403），并每次读取记审计。注意「唯一」只指**专用测评端点**：档案数据列表 `/api/manage/profiles` GET 自 #234 起也在每行附带三字码/完成时间/六型分，它沿用档案列表既有权限（教师可见全校已提交档案学生、GET 无班级收窄且不记审计；DELETE 按 #243 记审计），不是第二套测评权限。两者的取舍见「教师端测评统计（#229）」与「教师端数据列表测评列（#234）」。
 
@@ -218,7 +219,7 @@
 | 路由 | 方法 | 说明 |
 |---|---|---|
 | `/api/tags` | GET | 预设标签 + 自定义标签上限（#94）+ 提交截止状态（#96）加载（学生面板与标签着色复用） |
-| `/api/upload` | POST | 文件上传（头像 / **历史评价词云图片**；#111 起按默认后端路由 + 服务端压缩 + 大小上限 + SVG 拒绝；#162 起评价改为文字，evaluation 前缀仅兼容存量客户端） |
+| `/api/upload` | POST | 文件上传（头像 / **历史评价词云图片**；#111 起按默认后端路由 + 服务端压缩 + 大小上限 + SVG 拒绝；#162 起评价改为文字，evaluation 前缀仅兼容存量客户端）；失败审计只对有会话的调用者落库，匿名失败仅保留服务器 stdout 告警（#259） |
 | `/api/uploads/[...path]` | GET | 静态文件服务（本地后端的代理路径，含路径穿越防护） |
 
 ## 数据库
@@ -356,6 +357,18 @@
 - **范围与下钻**：`scope=all` 默认看所有班级；教师 `scope=mine` 收窄到 `teacher_classes`，管理员 `scope=mine` 等同所有班级。教师看「所有班级」时响应行 `canDrilldown=false`（只读聚合），教师「我带的班」与管理员为 true；未分班不提供下钻。
 - **降级与审计**：量表读取失败退化为只有档案列；未安装返回空矩阵，均不 500。响应无个人信息，与 `/stats/assessment` 同口径**不记审计**；个人明细仍走 `/assessment/roster`（单独记审计）。
 
+## 人格轮廓统计（#312）
+
+<!-- 对账：纯函数 `src/lib/big-five-stats.ts`（测试 `big-five-stats.test.ts`）；SQL 在两适配器的 getDimensionalResultScores（`stats-db-parity.test.ts` 锁同构，真实 SQLite 行为在 `assessment-stats-db.test.ts`）；接口行为测试 `big-five-stats-api.test.ts` -->
+
+- **端点与响应**：`GET /api/manage/stats/big-five` 是「人格轮廓」卡的唯一数据源；`assessment` 带量表 `code` / `name` / `scaleVersion` / `enabled` / `scoringMode` / `dimensions`，**只从 `assessments` 表读、不返回任何题目内容**；`total` 复用 #310 完成矩阵的 `enrolled / assessed / rate` 分母口径，另带 `invalidCount` 与 `lastSubmittedAt`；`dimensions` 为五维三档计数，维度顺序恒为量表定义顺序（N/E/O/A/C），**不按分值排序**。
+- **三档口径**：只读结果快照里已落库的 `band`（`completed + is_current=1 + role='student'`），**不重算分数**；旧快照缺 `band` 时用 `bandOf(standard)` 兜底（阈值 66.7 / 33.3，与计分引擎同一口径）。整条 JSON 解析失败、缺维度或 `standard` 非有限数值都整行计入 `invalidCount`、不进分布，因此**启用态**下 `low + medium + high` 恒等于 `assessed - invalidCount`，响应不会出现 `NaN`；没有可用维度定义时所有行都计为 invalid，不掩盖配置错误。
+- **数据层**：`getDimensionalResultScores(assessmentId, classIds)` 只返回 `{ user_id, scores_json, completed_at }` 三列（不取姓名学号/作答内容）；两个适配器各执行一份同构 SQL（`stats-db-parity` 锁结构、过滤条件与参数顺序），班级范围 `classIds=null` 为全校、空集合直接空数组。
+- **范围与权限**：`scope=all`（默认，全校）或 `scope=mine`（教师收窄到 `teacher_classes`）；`classId` 再收窄单班。教师**任何** `classId` 都先过归属判定（非本人班级 403，不因 `scope=all` 放宽），管理员可查任意范围且 `scope=mine` 等同全校；非法 `scope` / `classId` → 400。
+- **停用与缺失**：量表停用返回 `enabled:false`，`total` 与五维计数**全部归零**、不读取完成度/逐人快照（界面渲染「未开放」而非 0%）；未安装或量表未种子化返回 `assessment:null` 的空态，均不 500。
+- **已知边界**：`enrolled / assessed / rate` 来自完成矩阵聚合，三档分布来自另一条只读查询，两者不在同一事务；稳定数据下守恒，极端并发（学生恰好在两次查询之间提交）可能相差 1 人。
+- **隐私边界**：响应只有聚合计数与维度标签，没有 `raw` / `standard` / 逐人明细 / 平均分 / 排名；与 `/stats/assessment`、`/stats/completion` 同口径**不记审计**，个人明细仍走 `/assessment/roster`（那里单独记审计）。
+
 ## 数据大屏测评栏（#232）
 
 <!-- 对账：视图口径纯函数 `src/lib/assessment-dashboard.ts`（测试 `assessment-dashboard.test.ts`）；组件 `TeacherAssessmentCard` + `AssessmentRosterDialog`；文案 `ASSESSMENT_DASHBOARD_COPY`（`dashboard-copy.test.ts` 锁词表与对比度） -->
@@ -368,16 +381,24 @@
 - **下钻弹窗**：复用班级名册弹窗的范式（`dialog` 语义 + Escape + Tab 焦点捕获 + 关闭后焦点还原；窄屏全屏抽屉、桌面 `max-h-[85vh] max-w-2xl`），标题下与页脚**常驻**「投屏提醒」；列只展示姓名 / 学号（首 4 末 4 脱敏）/ 三字码 / 完成时间，支持关键字搜索与「只看某一型」二级筛选，弹窗内还会按 `lead` 再向服务端收窄一次
 - **降级**：本栏自管加载 / 失败 / 未开放 / 无人完成四种状态——失败态只坏这一栏且带重试；量表停用（`assessment.enabled=false`）或量表未配置（404）显示「还没开放」的行动邀请，**不写「暂无数据」**；无人完成时提示去哪儿做测评
 
-## 教师端数据列表测评列（#234）
+## 教师端数据列表测评列（#234 / #330）
 
-<!-- 对账：配色 `src/lib/assessment-colors.ts`；筛选/徽章口径 `src/lib/profile-assessment.ts`；SQL 在两适配器的 getCurrentAssessmentResultsByUserCodes（与 #233 导出共用同一个数据层方法）；测试 `assessment-colors` / `profile-assessment` / `profiles-api` / `assessment-db` -->
+<!-- 对账：配色 `src/lib/assessment-colors.ts`；筛选/徽章口径 `src/lib/profile-assessment.ts`；SQL 在 `src/lib/profile-query.ts`（两适配器共用）与适配器的 getCurrentAssessmentResultsByUserCodes（与 #233 导出共用同一个数据层方法）；测试 `assessment-colors` / `profile-assessment` / `profile-query` / `profiles-query-db` / `profiles-api` / `assessment-db` -->
 
-- **只加一列**：8 列 → 9 列（「兴趣测评」插在「标签」与「提交时间」之间，空态 `colSpan` 同步改 9）。窄屏仍靠既有横向滚动，不拆「六型」六列
-- **数据来源**：`/api/manage/profiles` 每行补三个字段 + 六型快照；SQL 只认 `assessment_id = riasec`、`status='completed'`、`is_current=1`（草稿、旧版本都不算「测过」），按**当页学号集合**批查（`IN` 分片 500，与 #193 同一套 `chunkArray`），不做全校扫表。该批查方法与 #233 教师导出**共用同一份实现**（`getCurrentAssessmentResultsByUserCodes`，四列轻量快照），避免两个功能各写一条 SQL
-- **展示口径**：已测 = 三字码徽章（底色取首位字母的类型色、文字色按对比度选）；未测 = 灰态「未测」胶囊，不用红叉这类否定式样式；该列**不提供排序**（三字码非数值），学号/姓名/提交时间排序行为不变
+- **双测评列（#330）**：9 列 → 10 列——「兴趣测评」（霍兰德三字码徽章）与「人格特质」（五大人格 Top2 画像，如「高外向性 · 高尽责性」，带 `IPIP` 小标、hover 显示完成时间）并排插在「标签」与「提交时间」之间，空态 `colSpan` 同步改 10。**两列都不提供排序**（三字码/画像非数值），未测统一灰态「未测」胶囊；窄屏仍靠既有横向滚动
+- **数据来源**：`/api/manage/profiles` 响应根新增 `assessmentScales`（**启用中的量表清单**：`code` / `name` / `scoringMode` / `dimensions[{key,label}]`，列定义与维度标签的唯一来源，前端不写死量表），每行新增 `assessmentResults: { [code]: { status, typeCode, completedAt, scores[{key,standard}] } }`；依旧按**当页学号集合**逐量表各批查一次（`IN` 分片 500），不做全校扫表。某套量表查询失败**只让该列降级为「未测」**，其它列与档案列表不受影响；旧字段 `assessmentCode` / `assessmentStatus` / `assessmentAt` / `assessmentScores` 过渡期保留（取自霍兰德结果），旧前端与 #233 导出继续可用
+- **两列口径**：只认「当前有效结果」（`completed + is_current=1`）；`typological` 量表要求三字码合法才算已测（脏值按未测），`dimensional` 量表有当前结果即已测、快照缺失时 `scores=null`（界面显示「已测（分数快照缺失）」，**不画假的 0 分画像**）
 - **配色单一来源**：六型固定色值定义在 `assessment-colors.ts`，数据列表徽章、数据大屏测评栏（#232）、导出列（#233）都应 import 这里，避免三处各异；`C` 的底色偏亮，文字色用深色以保证 WCAG AA（白字只有 3.68:1），单测锁每对文本/底色对比度 ≥ 4.5:1
-- **筛选与排序口径（#295 起为服务端）**：兴趣测评胶囊「全部 / R / I / A / S / E / C / 未测」、搜索（学号/姓名）、标签筛选与排序（学号 / 姓名 / 提交时间）全部通过 `GET /api/manage/profiles` 的查询参数下推到数据库，**分页在过滤后执行**，因此跨页学生也能被筛到、`total` 是过滤后的命中数（此前只过滤当前页 20 行，跨页学生筛不到；搜索/标签/排序同病，一并修复）。SQL 由 `src/lib/profile-query.ts` 的 `buildSubmittedProfilesSql` 统一生成（两适配器共用，`q` 的通配符按字面量、标签按 JSON 元素精确匹配、MySQL 姓名排序显式 `COLLATE utf8mb4_bin` 与 SQLite 字节序一致、同值按学号破平）。**兴趣测评筛选语义（#305）= 三字码任意位置包含所选字母**（`SIA` 同时命中 S / I / A），与数据大屏「类型分布」按首位归型的统计口径相互独立；`lead=none` = 没有当前有效结果（含三字码非法、只有草稿）
-- **详情弹窗**：新增「职业兴趣测评」区块——三字码徽章 + 六型横向条（顺序/百分比/前三型标记复用结果页 `buildRiasecBars`，与学生端报告必然一致）+ 完成时间 + 「该生重测」指引文案；未测时整块不渲染，**快照缺失/损坏（解析为空）时只显示徽章与时间、不画六条 0**。下发的快照只含 `{ key, standard }`（不带 raw / band / 作答计数），`buildRiasecBars` 对缺 `label` 的轻量快照回退中文型名。弹窗宽度仍 `max-w-md`，不放雷达图
+- **测评筛选（#330）**：工具条只保留**一个**「测评筛选」按钮 + 弹层（有值时带计数徽章与已应用 chip），弹层内两个 tab，**同一时间只按一种测评筛选**——互斥三处保证：① 前端 `AssessmentFilter` 联合类型（`none` / `interest` / `personality`）从类型层面禁止并存；② 服务端同时收到 `interest` 与 `personality` 直接 400（与旧 `lead` 也不能混用）；③ SQL 生成器只走一个分支
+  - **兴趣**：状态「全部 / 未测」+ 六型字母多选（**AND 语义 = 三字码同时包含所选字母**，最多 3 个，`interest=S,A,I` / `interest=none`），如 `S+A+I` 即「三字码含 SAI 的同学」
+  - **人格**：「全部 / 已测 / 未测」+ 单一维度 + 偏高/偏低（`personality=C:high` / `personality=any` / `personality=none`）；阈值 50 与结果页同一口径；不做多维叠加
+  - **维度下标由路由解析**：`personality` 只传维度 key，路由按该量表 `dimensions_json` 的顺序算出 `scores_json` 数组下标（客户端传下标 = 把注入点交给客户端）；维度不属于任何启用量表 → 400，不返回空列表
+  - **量表清单读取失败时**：无测评筛选的列表照常降级（双列显示未测）；带 `personality` 筛选返回 **503**（服务端故障，不误报成 400 参数错误），由客户端稍后重试
+  - **量表来源边界**：筛选弹层的 `R I A S E C` 与兴趣列选表仍固定 RIASEC（当前唯一 `typological` 量表）；`assessmentScales` 是列定义与维度标签的唯一来源，将来启用第二套 typological 量表时需同步扩展筛选字母与兴趣列选表口径
+  - **筛选下推服务端**：`interest` / `personality` 与搜索、标签一起进 `buildSubmittedProfilesSql`，**分页在过滤后执行**，`total` 为过滤后的命中数（跨页可筛，沿用 #295 口径）；不传新参数时行为与改造前完全一致，旧 `lead` 参数继续可用
+  - **人格取分 SQL**：`scores_json` 是数组快照，按下标同时校验 `key` 与 `standard`（SQLite `json_valid` + `json_extract`，MySQL `JSON_VALID` + `JSON_UNQUOTE(JSON_EXTRACT)` / `CAST(... AS DECIMAL(10,2))`）——**旧快照顺序与当前维度定义不一致时不命中**，不按位置误筛；人格阈值必须是数值参数（SQLite 里 number < text，传字符串会恒不命中）
+- **排序（#295）**：学号 / 姓名 / 提交时间可排序，两列测评列不参与排序；SQL 由 `src/lib/profile-query.ts` 的 `buildSubmittedProfilesSql` 统一生成（两适配器共用，`q` 的通配符按字面量、标签按 JSON 元素精确匹配、MySQL 姓名排序显式 `COLLATE utf8mb4_bin`、同值按学号破平）
+- **详情弹窗**：新增「职业兴趣测评」区块——三字码徽章 + 六型横向条（顺序/百分比/前三型标记复用结果页 `buildRiasecBars`，与学生端报告必然一致）+ 完成时间 + 「该生重测」指引文案；未测时整块不渲染，**快照缺失/损坏（解析为空）时只显示徽章与时间、不画六条 0**。下发的快照只含 `{ key, standard }`（不带 raw / band / 作答计数），`buildRiasecBars` 对缺 `label` 的轻量快照回退中文型名。弹窗宽度仍 `max-w-md`，不放雷达图；人格的详情区块留给后续 issue（本 issue 只做列表双列与筛选）
 - **数据敏感度与权限边界**：列表 GET 沿用档案列表既有权限（`proxy.ts` 放行教师 GET，路由内不做班级收窄——教师能看全校已提交档案的学生），本列只是把「测没测 / 什么型」补进同一行，因此**不新增审计**（与 `/stats/assessment` 等只读 GET 同口径）。它与 #229 的 `/assessment/roster` 不同：后者是**专用的**测评下钻端点、教师恒收窄本人归属班级且每次读取记审计。#229 段落里「全仓唯一」的旧表述已按本节对齐
 
 

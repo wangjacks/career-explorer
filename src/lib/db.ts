@@ -3,13 +3,13 @@ import { MysqlAdapter } from "./db-mysql";
 import { SqliteAdapter } from "./db-sqlite";
 import { isDemoScope, isDemoEnabled, getDemoDbPath } from "./demo-scope";
 import type { QuestionOrigin } from "./assessment-data";
-import type { ProfileListQuery } from "./profile-query";
+import type { ResolvedProfileListQuery } from "./profile-query";
 import type { ClassTrendSeries, CompareStat } from "./stats-utils";
 
 export type { ClassTrendSeries, CompareStat };
 
 /** 数据列表筛选与排序入参（#295）：与前端 / API 共用同一形状，避免三处各定义一遍 */
-export type SubmittedProfileFilters = ProfileListQuery;
+export type SubmittedProfileFilters = ResolvedProfileListQuery;
 
 /**
  * 批查分片大小（#193）：单条 SQL 的绑定参数数量有引擎上限——SQLite 旧构建为
@@ -440,6 +440,18 @@ export interface AssessmentStatsRaw {
   /** 三字码计数（未排序未截断，最终展示顺序见 `finalizeAssessmentStats`） */
   codes: { code: string; count: number }[];
   total: { enrolled: number; assessed: number; last_completed_at: string | null };
+}
+
+/**
+ * dimensional 量表的逐人结果快照（#312）：只取三列，供纯函数解析档位。
+ *
+ * 刻意不取姓名/学号：人格分布是**纯聚合**，个人分数与身份都不离开数据层；
+ * 原始分数（`raw` / `standard`）由纯函数解析后只留下三档计数，响应里不出现。
+ */
+export interface DimensionalResultScoreRow {
+  user_id: number;
+  scores_json: string | null;
+  completed_at: string | null;
 }
 
 /**
@@ -902,6 +914,15 @@ export interface DbAdapter {
     assessmentIds: number[],
     classIds: number[] | null
   ): Promise<CompletionStatsRaw> | CompletionStatsRaw;
+  /**
+   * dimensional 量表逐人结果快照（#312）：`completed + is_current` 的学生各一行，
+   * 只返回 `user_id / scores_json / completed_at`，班级范围按 `classIds` 收窄
+   * （`null` = 全校，空集合直接返回空数组）。解析与三档归并统一在纯函数里做。
+   */
+  getDimensionalResultScores(
+    assessmentId: number,
+    classIds: number[] | null
+  ): Promise<DimensionalResultScoreRow[]> | DimensionalResultScoreRow[];
   /**
    * 测评名册（**含姓名/学号，读取须记审计**）：只返回已完成且当前有效的结果。
    * `classIds` 收窄班级范围（教师归属班级），`filters.classId` 再收窄到单班，
@@ -1606,6 +1627,15 @@ export async function getCompletionStats(
 ): Promise<CompletionStatsRaw> {
   const adapter = await ensureInit();
   return Promise.resolve(adapter.getCompletionStats(assessmentIds, classIds));
+}
+
+/** #312：dimensional 量表逐人结果快照（不含身份字段，解析在纯函数） */
+export async function getDimensionalResultScores(
+  assessmentId: number,
+  classIds: number[] | null
+): Promise<DimensionalResultScoreRow[]> {
+  const adapter = await ensureInit();
+  return Promise.resolve(adapter.getDimensionalResultScores(assessmentId, classIds));
 }
 
 /** #229：教师端测评名册（含个人信息，调用方必须记审计并先收窄班级范围） */

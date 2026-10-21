@@ -40,6 +40,9 @@ interface UploadFailureContext {
  * 学生端与管理端都看不到任何原因。动作取 "upload:rejected"（校验类拒绝）/
  * "upload:failed"（解码与其它异常），细节进 metadata，**不记文件名与文件内容**。
  * recordAudit 内部静默降级，审计绝不阻断响应。
+ *
+ * #259：无有效会话（actor_id 为 null）的失败只写 stdout 告警、不落 audit_logs——
+ * 本端点不在 proxy matcher 内，匿名调用者可用廉价请求无界写入只追加的审计表。
  */
 function auditUploadFailure(request: NextRequest, ctx: UploadFailureContext): void {
   const { ip, user_agent } = getRequestContext(request);
@@ -52,6 +55,21 @@ function auditUploadFailure(request: NextRequest, ctx: UploadFailureContext): vo
   };
   void (async () => {
     const actor = await getAuditActor(request);
+    if (actor.actor_id === null) {
+      // 结构化 + JSON 序列化：UA / MIME 由调用方控制，直接拼接可能向 stdout 注入换行
+      console.warn(
+        "[upload] anonymous upload failure (audit skipped):",
+        JSON.stringify({
+          action: ctx.action,
+          message: ctx.message,
+          resourceId: normalizeClaimedStudentId(ctx.claimedStudentId),
+          ip,
+          userAgent: user_agent,
+          metadata,
+        })
+      );
+      return;
+    }
     await recordAudit({
       ...actor,
       action: ctx.action,

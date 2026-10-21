@@ -173,5 +173,143 @@ describe("小工具", () => {
     expect(hasActiveProfileFilters({ q: "张" })).toBe(true);
     expect(hasActiveProfileFilters({ tags: ["运动"] })).toBe(true);
     expect(hasActiveProfileFilters({ lead: "I" })).toBe(true);
+    // #330：新的兴趣 / 人格筛选同样算「已筛选」
+    expect(hasActiveProfileFilters({ interest: { mode: "none" } })).toBe(true);
+    expect(hasActiveProfileFilters({ interest: { mode: "letters", keys: ["S", "A"] } })).toBe(true);
+    expect(hasActiveProfileFilters({ personality: { mode: "any" } })).toBe(true);
+  });
+});
+
+describe("parseProfilesQuery — #330 双测评筛选", () => {
+  it("兴趣多选：逗号分隔、大小写不敏感、去重保序", () => {
+    const parsed = parse("?interest=a,s,I,A");
+    expect(parsed.ok).toBe(true);
+    if (parsed.ok) {
+      expect(parsed.value.filters.interest).toEqual({ mode: "letters", keys: ["A", "S", "I"] });
+      // 多选上限 3：第 4 个字母被拒绝，而不是静默丢弃
+      expect(parsed.value.filters.lead).toBe("all");
+    }
+    expect(parse("?interest=S,A,I,E").ok).toBe(false);
+    expect(parse("?interest=none").ok).toBe(true);
+    expect(parse("?interest=").ok).toBe(false);
+    expect(parse("?interest=X").ok).toBe(false);
+  });
+
+  it("人格筛选：none / any / 单维度方向，格式与字母规范化", () => {
+    const any = parse("?personality=any");
+    expect(any.ok && any.value.filters.personality).toEqual({ mode: "any" });
+    const none = parse("?personality=none");
+    expect(none.ok && none.value.filters.personality).toEqual({ mode: "none" });
+    const dim = parse("?personality=c:HIGH");
+    expect(dim.ok && dim.value.filters.personality).toEqual({ mode: "dimension", key: "C", dir: "high" });
+
+    expect(parse("?personality=C").ok).toBe(false);
+    expect(parse("?personality=C:mid").ok).toBe(false);
+    expect(parse("?personality=:high").ok).toBe(false);
+  });
+
+  it("互斥双保险：同时传 interest 与 personality → 400；新参数与旧 lead 也不能并存", () => {
+    const both = parse("?interest=S&personality=C:high");
+    expect(both.ok).toBe(false);
+    if (!both.ok) expect(both.error).toContain("同一时间只按一种测评筛选");
+
+    const mixedLegacy = parse("?lead=S&interest=A");
+    expect(mixedLegacy.ok).toBe(false);
+    if (!mixedLegacy.ok) expect(mixedLegacy.error).toContain("同一时间只按一种测评筛选");
+  });
+
+  it("前端拼查询串：兴趣用 interest=…，人格用 personality=…，round-trip 一致", () => {
+    const interest: ProfileListQuery = { interest: { mode: "letters", keys: ["S", "A", "I"] } };
+    const qs = buildProfilesQueryString(2, interest);
+    expect(qs).toContain("interest=S%2CA%2CI");
+    const parsedInterest = parse(`?${qs}`);
+    expect(parsedInterest.ok && parsedInterest.value.filters.interest).toEqual({
+      mode: "letters",
+      keys: ["S", "A", "I"],
+    });
+
+    const personality: ProfileListQuery = { personality: { mode: "dimension", key: "C", dir: "low" } };
+    const personQuery = buildProfilesQueryString(1, personality);
+    expect(personQuery).toContain("personality=C%3Alow");
+    const parsedPerson = parse(`?${personQuery}`);
+    expect(parsedPerson.ok && parsedPerson.value.filters.personality).toEqual({
+      mode: "dimension",
+      key: "C",
+      dir: "low",
+    });
+  });
+});
+
+describe("buildSubmittedProfilesSql — #330 测评筛选 SQL", () => {
+  it("兴趣多选 = AND：每个字母各一条 INSTR 条件，参数顺序固定", () => {
+    const sql = buildSubmittedProfilesSql("sqlite", { interest: { mode: "letters", keys: ["S", "A", "I"] } }, "riasec");
+    expect(sql.whereSql.match(/INSTR\(UPPER\(TRIM\(r\.type_code\)\), \?\) > 0/g)).toHaveLength(3);
+    expect(sql.whereSql).toContain("a.code = ?");
+    expect(sql.params).toEqual(["riasec", "S", "A", "I"]);
+  });
+
+  it("兴趣未测：NOT EXISTS 且同样要求三字码合法（非法码归未测）", () => {
+    const sql = buildSubmittedProfilesSql("sqlite", { interest: { mode: "none" } }, "riasec");
+    expect(sql.whereSql).toContain("NOT EXISTS");
+    expect(sql.whereSql).toContain("SUBSTR(UPPER(TRIM(r.type_code)), 1, 1) IN ('R','I','A','S','E','C')");
+    expect(sql.params).toEqual(["riasec"]);
+  });
+
+  it("人格已测 / 未测：按量表 code 的 EXISTS / NOT EXISTS", () => {
+    const anySql = buildSubmittedProfilesSql(
+      "sqlite",
+      { personality: { mode: "any" }, personalitySql: { scaleCode: "ipip-neo-ffi" } },
+      "riasec"
+    );
+    expect(anySql.whereSql).toContain("a.code = ?");
+    expect(anySql.params).toEqual(["ipip-neo-ffi"]);
+
+    const noneSql = buildSubmittedProfilesSql(
+      "sqlite",
+      { personality: { mode: "none" }, personalitySql: { scaleCode: "ipip-neo-ffi" } },
+      "riasec"
+    );
+    expect(noneSql.whereSql).toContain("NOT EXISTS");
+    expect(noneSql.params).toEqual(["ipip-neo-ffi"]);
+  });
+
+  it("人格单维度：按下标取 key 与 standard（同时校验 key），阈值 50；两库方言各自正确", () => {
+    const filters = {
+      personality: { mode: "dimension", key: "C", dir: "high" } as const,
+      personalitySql: { scaleCode: "ipip-neo-ffi", dimensionIndex: 4 },
+    };
+    const sqliteSql = buildSubmittedProfilesSql("sqlite", filters, "riasec");
+    expect(sqliteSql.whereSql).toContain("json_valid(r.scores_json) = 1");
+    expect(sqliteSql.whereSql).toContain("json_extract(r.scores_json, '$[4].key') = ?");
+    expect(sqliteSql.whereSql).toContain("json_extract(r.scores_json, '$[4].standard') >= ?");
+    expect(sqliteSql.params).toEqual(["ipip-neo-ffi", "C", 50]);
+
+    const mysqlSql = buildSubmittedProfilesSql("mysql", filters, "riasec");
+    expect(mysqlSql.whereSql).toContain("JSON_VALID(r.scores_json) = 1");
+    expect(mysqlSql.whereSql).toContain("JSON_UNQUOTE(JSON_EXTRACT(r.scores_json, '$[4].key')) = ?");
+    expect(mysqlSql.whereSql).toContain("CAST(JSON_EXTRACT(r.scores_json, '$[4].standard') AS DECIMAL(10,2)) >= ?");
+
+    const low = buildSubmittedProfilesSql(
+      "sqlite",
+      { personality: { mode: "dimension", key: "C", dir: "low" }, personalitySql: { scaleCode: "x", dimensionIndex: 0 } },
+      "riasec"
+    );
+    expect(low.whereSql).toContain("json_extract(r.scores_json, '$[0].standard') < ?");
+  });
+
+  it("personality 缺少量表层信息时显式抛错：不静默退化成已测、也不按错误量表拼条件", () => {
+    expect(() => buildSubmittedProfilesSql("sqlite", { personality: { mode: "any" } }, "riasec")).toThrow(
+      /personalitySql/
+    );
+    expect(() => buildSubmittedProfilesSql("mysql", { personality: { mode: "none" } }, "riasec")).toThrow(
+      /personalitySql/
+    );
+    expect(() =>
+      buildSubmittedProfilesSql(
+        "sqlite",
+        { personality: { mode: "dimension", key: "C", dir: "high" }, personalitySql: { scaleCode: "ipip-neo-ffi" } },
+        "riasec"
+      )
+    ).toThrow(/维度下标/);
   });
 });
