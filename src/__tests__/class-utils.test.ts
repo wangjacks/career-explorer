@@ -6,7 +6,7 @@ vi.mock("@/lib/db", () => ({
 
 import { resolveClassByName } from "@/lib/class-utils";
 import { getClassByName } from "@/lib/db";
-import { normalizeClassName, resolveClassNames } from "@/lib/class-utils";
+import { normalizeClassName, resolveClassNames, validateNewClassName } from "@/lib/class-utils";
 
 describe("resolveClassByName（#160 班级名解析口径）", () => {
   beforeEach(() => {
@@ -61,6 +61,28 @@ describe("normalizeClassName（归一化唯一入口）", () => {
     expect(normalizeClassName("Ａ班")).toBe("Ａ班");
     expect(normalizeClassName(null)).toBe("");
     expect(normalizeClassName(undefined)).toBe("");
+  });
+});
+
+describe("validateNewClassName（#260 保留名）", () => {
+  it("空值 / 纯空白 → 请输入班级名称", () => {
+    for (const raw of [undefined, null, "", "   "]) {
+      expect(validateNewClassName(raw)).toEqual({ name: "", error: "请输入班级名称" });
+    }
+  });
+
+  it("哨兵键与两套未分班展示文案都拒绝，trim 后判定", () => {
+    for (const name of ["__unassigned__", "未分班", "还没分班"]) {
+      expect(validateNewClassName(` ${name} `)).toEqual({
+        name,
+        error: "该班级名称为系统保留，请换一个名称",
+      });
+    }
+  });
+
+  it("正常班级名只做 trim，不改大小写", () => {
+    expect(validateNewClassName(" 2025级1班 ")).toEqual({ name: "2025级1班", error: null });
+    expect(validateNewClassName("A班")).toEqual({ name: "A班", error: null });
   });
 });
 

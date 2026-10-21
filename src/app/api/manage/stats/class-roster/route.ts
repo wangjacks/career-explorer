@@ -1,10 +1,12 @@
 import { withDemoScope } from "@/lib/demo-scope";
 import { NextRequest, NextResponse } from "next/server";
-import { getClassRoster } from "@/lib/db";
+import { getClassByName, getClassRoster } from "@/lib/db";
 import { getAuditActor, getRequestContext, recordAudit } from "@/lib/audit";
 import { isSubmitted } from "@/lib/student-status";
+import { isUnassignedClassKey, UNASSIGNED_CLASS_LABEL } from "@/lib/class-identity";
+import { normalizeClassName } from "@/lib/class-utils";
 
-const MAX_CLASS_NAME_LENGTH = 80;
+const MAX_CLASS_KEY_LENGTH = 80;
 
 /** tags 存的是名称数组 JSON；脏数据/空值一律按 0 计，不阻断名册返回 */
 function countTags(tags: string | null): number {
@@ -18,23 +20,23 @@ function countTags(tags: string | null): number {
 }
 
 /**
- * 班级名册（#217）：按班名返回学生提交明细，供教师大屏「具体查看」弹窗使用。
- * 只读；班名口径与 /api/manage/stats/compare 一致（未分班 = '未分班'）。
- * 学号返回完整值、由前端展示时脱敏，这样教师仍可按完整学号搜索。
+ * 班级名册（#217/#260）：`?class=` 是统计分组键（班名或 `__unassigned__`）。
+ * 班名先经 getClassByName 解析成 class_id，再按 class_id 取名册——不写 `WHERE name = ?`，
+ * 真实班名「未分班」与未分班学生因此不会合并。学号返回完整值、由前端脱敏展示。
  */
 async function GET_impl(request: NextRequest) {
   const { ip, user_agent } = getRequestContext(request);
   const actor = await getAuditActor(request);
-  const className = String(request.nextUrl.searchParams.get("class") ?? "").trim();
+  const classKey = normalizeClassName(request.nextUrl.searchParams.get("class") ?? "");
 
-  if (!className || className.length > MAX_CLASS_NAME_LENGTH) {
+  if (!classKey || classKey.length > MAX_CLASS_KEY_LENGTH) {
     void recordAudit({
       ...actor,
       action: "class:roster",
       method: "GET",
       path: "/api/manage/stats/class-roster",
       resource_type: "class",
-      resource_id: className || null,
+      resource_id: classKey || null,
       status: "failed",
       error_message: "班级参数缺失或过长",
       ip,
@@ -45,7 +47,31 @@ async function GET_impl(request: NextRequest) {
   }
 
   try {
-    const rows = await getClassRoster(className);
+    let classId: number | null = null;
+    let className = UNASSIGNED_CLASS_LABEL;
+    if (!isUnassignedClassKey(classKey)) {
+      const klass = await getClassByName(classKey);
+      if (!klass) {
+        void recordAudit({
+          ...actor,
+          action: "class:roster",
+          method: "GET",
+          path: "/api/manage/stats/class-roster",
+          resource_type: "class",
+          resource_id: classKey,
+          status: "failed",
+          error_message: "班级不存在或已改名",
+          ip,
+          user_agent,
+          metadata: { classKey },
+        });
+        return NextResponse.json({ error: "班级不存在或已改名" }, { status: 404 });
+      }
+      classId = klass.id;
+      className = klass.name;
+    }
+
+    const rows = await getClassRoster(classId);
     const students = rows.map((row) => {
       const submitted = isSubmitted(row.submitted_at);
       return {
@@ -64,16 +90,17 @@ async function GET_impl(request: NextRequest) {
       method: "GET",
       path: "/api/manage/stats/class-roster",
       resource_type: "class",
-      resource_id: className,
+      resource_id: classKey,
       status: "success",
       error_message: null,
       ip,
       user_agent,
       // 只记聚合，不把学生姓名/学号写进审计
-      metadata: { className, total: students.length, submitted },
+      metadata: { classKey, className, classId, total: students.length, submitted },
     });
 
     return NextResponse.json({
+      classKey,
       className,
       total: students.length,
       submitted,
@@ -87,12 +114,12 @@ async function GET_impl(request: NextRequest) {
       method: "GET",
       path: "/api/manage/stats/class-roster",
       resource_type: "class",
-      resource_id: className,
+      resource_id: classKey,
       status: "failed",
       error_message: err instanceof Error ? err.message : "获取班级名册失败",
       ip,
       user_agent,
-      metadata: { className },
+      metadata: { classKey },
     });
     return NextResponse.json({ error: "获取班级名册失败" }, { status: 500 });
   }

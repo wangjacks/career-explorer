@@ -4,6 +4,9 @@ import { SqliteAdapter } from "./db-sqlite";
 import { isDemoScope, isDemoEnabled, getDemoDbPath } from "./demo-scope";
 import type { QuestionOrigin } from "./assessment-data";
 import type { ProfileListQuery } from "./profile-query";
+import type { ClassTrendSeries, CompareStat } from "./stats-utils";
+
+export type { ClassTrendSeries, CompareStat };
 
 /** 数据列表筛选与排序入参（#295）：与前端 / API 共用同一形状，避免三处各定义一遍 */
 export type SubmittedProfileFilters = ProfileListQuery;
@@ -207,25 +210,12 @@ export interface TrendPoint {
   count: number;
 }
 
-/** 分组对比项（#165）：total 为该组在册学生数，submitted 为其中已提交数 */
-export interface CompareStat {
-  key: string;
-  total: number;
-  submitted: number;
-}
-
-/** 班级名册行（#217）：按班名聚合口径，只取展示所需字段，绝不带 password_hash */
+/** 班级名册行（#217）：按班级身份聚合口径，只取展示所需字段，绝不带 password_hash */
 export interface ClassRosterRow {
   name: string;
   user_code: string;
   submitted_at: string | null;
   tags: string | null;
-}
-
-/** 按班级分层的提交趋势（#165）：keys 为分组名，points 为窗口内逐日多序列（已补齐 0） */
-export interface ClassTrendSeries {
-  keys: string[];
-  points: { date: string; counts: Record<string, number> }[];
 }
 
 /* ---------- 分组（#101） ---------- */
@@ -692,12 +682,12 @@ export interface DbAdapter {
   // stats
   getStats(): Promise<Stats> | Stats;
   getTrends(days: number): Promise<TrendPoint[]> | TrendPoint[];
-  /** 按班级分层的趋势（#165）：时间 × 班级交叉维度 */
+  /** 按班级分层的趋势（#165）：按 classes.id 分组，未分班用内部哨兵键 */
   getTrendsByClass(days: number): Promise<ClassTrendSeries> | ClassTrendSeries;
-  /** 按班级分组统计在册/已提交（#165） */
+  /** 按班级分组统计在册/已提交（#165）：与趋势同口径 */
   getCompareByClass(): Promise<CompareStat[]> | CompareStat[];
-  /** 按班名取学生名册（#217）；班名口径与 getCompareByClass 的 COALESCE(c.name, '未分班') 一致 */
-  getClassRoster(className: string): Promise<ClassRosterRow[]> | ClassRosterRow[];
+  /** 按班级身份取名册（#217）：classId 为 null 表示未分班，口径与 compare 的 NULL 分组一致 */
+  getClassRoster(classId: number | null): Promise<ClassRosterRow[]> | ClassRosterRow[];
 
   // tags & classes
   getTags(): Promise<TagRow[]> | TagRow[];
@@ -1133,9 +1123,9 @@ export async function getCompareByClass(): Promise<CompareStat[]> {
   return Promise.resolve(adapter.getCompareByClass());
 }
 
-export async function getClassRoster(className: string): Promise<ClassRosterRow[]> {
+export async function getClassRoster(classId: number | null): Promise<ClassRosterRow[]> {
   const adapter = await ensureInit();
-  return Promise.resolve(adapter.getClassRoster(className));
+  return Promise.resolve(adapter.getClassRoster(classId));
 }
 
 export async function getTags(): Promise<TagRow[]> {
