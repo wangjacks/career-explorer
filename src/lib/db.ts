@@ -2,6 +2,7 @@ import { getConfig } from "./db-config";
 import { MysqlAdapter } from "./db-mysql";
 import { SqliteAdapter } from "./db-sqlite";
 import { isDemoScope, isDemoEnabled, getDemoDbPath } from "./demo-scope";
+import { getDemoDbState } from "./demo-db-state";
 import type { QuestionOrigin } from "./assessment-data";
 import type { ResolvedProfileListQuery } from "./profile-query";
 import type { ClassTrendSeries, CompareStat } from "./stats-utils";
@@ -982,11 +983,8 @@ let currentAdapter: DbAdapter | null = null;
 let currentType: string = "";
 let initPromise: Promise<void> | null = null;
 
-// 演示库 adapter 使用独立的 memo 槽，避免与生产 adapter 在 createAdapter() 的
-// 「切换即关闭旧 adapter」逻辑里相互 thrash（两者可能在同一进程内并存）。
-let demoAdapter: DbAdapter | null = null;
-let demoType: string = "";
-let demoInitPromise: Promise<void> | null = null;
+// 演示库 adapter 的 memo 槽放在 globalThis（demo-db-state.ts）：Next 每个 route bundle
+// 各有一份 db.ts，模块级变量会让各路由各持一条连接，reset 无法关闭其他 bundle 的句柄。
 
 function createAdapter(): DbAdapter {
   const config = getConfig();
@@ -1024,12 +1022,13 @@ function getDemoAdapter(): DbAdapter {
   }
   const demoPath = getDemoDbPath();
   const configKey = `sqlite:${demoPath}`;
+  const state = getDemoDbState();
 
-  if (demoAdapter && demoType === configKey) return demoAdapter;
+  if (state.adapter && state.type === configKey) return state.adapter;
 
-  if (demoAdapter) {
+  if (state.adapter) {
     try {
-      const c = demoAdapter.close();
+      const c = state.adapter.close();
       if (c instanceof Promise) c.catch(() => {});
     } catch (err) {
       console.error("关闭旧演示 adapter 失败:", err);
@@ -1037,10 +1036,10 @@ function getDemoAdapter(): DbAdapter {
   }
 
   const adapter = new SqliteAdapter(demoPath);
-  demoAdapter = adapter;
-  demoType = configKey;
-  demoInitPromise = Promise.resolve(adapter.init());
-  demoInitPromise.catch((err) => {
+  state.adapter = adapter;
+  state.type = configKey;
+  state.init = Promise.resolve(adapter.init());
+  state.init.catch((err) => {
     console.error("演示库初始化失败（后续请求将 await 到同一 rejected promise 并抛 500）:", err);
   });
   return adapter;
@@ -1049,7 +1048,8 @@ function getDemoAdapter(): DbAdapter {
 async function ensureInit(): Promise<DbAdapter> {
   if (isDemoScope()) {
     const adapter = getDemoAdapter();
-    if (demoInitPromise) await demoInitPromise;
+    const state = getDemoDbState();
+    if (state.init) await state.init;
     return adapter;
   }
   const adapter = createAdapter();
@@ -1700,10 +1700,14 @@ export async function closeDb(): Promise<void> {
  * 生产 adapter 反带旧配置常驻。故作用域归作用域、关闭各自显式。
  */
 export async function closeDemoDb(): Promise<void> {
-  if (demoAdapter) {
-    await Promise.resolve(demoAdapter.close());
-    demoAdapter = null;
-    demoType = "";
-    demoInitPromise = null;
+  const state = getDemoDbState();
+  if (!state.adapter) return;
+  const adapter = state.adapter;
+  try {
+    await Promise.resolve(adapter.close());
+  } finally {
+    state.adapter = null;
+    state.type = "";
+    state.init = null;
   }
 }
