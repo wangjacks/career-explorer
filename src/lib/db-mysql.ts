@@ -1163,6 +1163,16 @@ export class MysqlAdapter implements DbAdapter {
     return { rows: rows as UserRow[], total };
   }
 
+  async getSubmittedProfilesForExport(filters?: SubmittedProfileFilters): Promise<UserRow[]> {
+    // #331：与列表共用同一份 WHERE / ORDER BY，只是不套 LIMIT/OFFSET（导出「当前筛选结果」含所有页）
+    const { whereSql, params, orderBySql } = buildSubmittedProfilesSql("mysql", filters, RIASEC_CODE);
+    const [rows] = await this.pool.query(
+      `SELECT u.* FROM users u WHERE ${whereSql} ORDER BY ${orderBySql}`,
+      params
+    );
+    return rows as UserRow[];
+  }
+
   async getAllSubmitted(): Promise<UserRow[]> {
     const [rows] = await this.pool.execute(
       `SELECT * FROM users WHERE role = 'student' AND submitted_at IS NOT NULL

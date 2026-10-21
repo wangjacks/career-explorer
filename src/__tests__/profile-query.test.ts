@@ -2,13 +2,17 @@ import { describe, it, expect } from "vitest";
 import {
   DEFAULT_PROFILE_SORT,
   PROFILE_QUERY_MAX_TAGS,
+  buildProfileFilterParams,
   buildProfilesQueryString,
   buildSubmittedProfilesSql,
   escapeLikePattern,
   hasActiveProfileFilters,
+  parseProfileFilters,
   parseProfilesQuery,
+  resolveProfilePersonalityFilter,
   type ProfileListQuery,
 } from "../lib/profile-query";
+import type { ProfileAssessmentScaleView } from "../lib/profile-assessment";
 
 function parse(query: string) {
   return parseProfilesQuery(new URLSearchParams(query));
@@ -311,5 +315,113 @@ describe("buildSubmittedProfilesSql — #330 测评筛选 SQL", () => {
         "riasec"
       )
     ).toThrow(/维度下标/);
+  });
+});
+
+describe("parseProfileFilters / buildProfileFilterParams（列表与导出共用，#331）", () => {
+  it("只解析筛选，不含分页与排序", () => {
+    const parsed = parseProfileFilters(
+      new URLSearchParams("q=%20%E5%BC%A0%E4%B8%89%20&tag=%E8%BF%90%E5%8A%A8&interest=s,a&page=3&sortKey=studentId")
+    );
+    expect(parsed.ok).toBe(true);
+    if (parsed.ok) {
+      expect(parsed.value).toEqual({
+        q: "张三",
+        tags: ["运动"],
+        lead: "all",
+        interest: { mode: "letters", keys: ["S", "A"] },
+      });
+      expect(parsed.value).not.toHaveProperty("sortKey");
+      expect(parsed.value).not.toHaveProperty("page");
+    }
+  });
+
+  it("非法筛选参数同样返回错误（导出侧不会静默忽略）", () => {
+    expect(parseProfileFilters(new URLSearchParams("interest=S,I,A,E")).ok).toBe(false);
+    expect(parseProfileFilters(new URLSearchParams("personality=C:mid")).ok).toBe(false);
+    expect(parseProfileFilters(new URLSearchParams("lead=Z")).ok).toBe(false);
+  });
+
+  it("拼筛选串：无筛选不带任何参数，标签逐一 append，兴趣/人格只带一个", () => {
+    const empty = buildProfileFilterParams(undefined);
+    expect(empty.toString()).toBe("");
+
+    const interest = buildProfileFilterParams({
+      q: " 张三 ",
+      tags: ["运动", "阅读"],
+      interest: { mode: "letters", keys: ["S", "A"] },
+    });
+    expect(interest.get("q")).toBe("张三");
+    expect(interest.getAll("tag")).toEqual(["运动", "阅读"]);
+    expect(interest.get("interest")).toBe("S,A");
+    expect(interest.has("personality")).toBe(false);
+
+    const personality = buildProfileFilterParams({
+      personality: { mode: "dimension", key: "C", dir: "high" },
+    });
+    expect(personality.get("personality")).toBe("C:high");
+  });
+});
+
+describe("resolveProfilePersonalityFilter（#330 / #331 列表与导出共用）", () => {
+  const scales: ProfileAssessmentScaleView[] = [
+    {
+      code: "riasec",
+      name: "霍兰德",
+      scoringMode: "typological",
+      dimensions: [{ key: "R", label: "现实型" }],
+    },
+    {
+      code: "ipip-neo-ffi",
+      name: "大五",
+      scoringMode: "dimensional",
+      dimensions: [
+        { key: "N", label: "神经质" },
+        { key: "E", label: "外向性" },
+        { key: "O", label: "开放性" },
+        { key: "A", label: "宜人性" },
+        { key: "C", label: "尽责性" },
+      ],
+    },
+  ];
+
+  it("单维度：按 dimensions 顺序解析下标；any/none 取第一套维度型量表", () => {
+    const dimension = resolveProfilePersonalityFilter(
+      { personality: { mode: "dimension", key: "C", dir: "low" } },
+      scales
+    );
+    expect(dimension).toEqual({
+      ok: true,
+      filters: {
+        personality: { mode: "dimension", key: "C", dir: "low" },
+        personalitySql: { scaleCode: "ipip-neo-ffi", dimensionIndex: 4 },
+      },
+    });
+
+    const any = resolveProfilePersonalityFilter({ personality: { mode: "any" } }, scales);
+    expect(any).toEqual({
+      ok: true,
+      filters: { personality: { mode: "any" }, personalitySql: { scaleCode: "ipip-neo-ffi" } },
+    });
+  });
+
+  it("维度不存在 / 没有启用的维度型量表时显式报错", () => {
+    const missing = resolveProfilePersonalityFilter(
+      { personality: { mode: "dimension", key: "X", dir: "high" } },
+      scales
+    );
+    expect(missing.ok).toBe(false);
+    if (!missing.ok) expect(missing.error).toContain("没有维度 X");
+
+    const noDimensional = resolveProfilePersonalityFilter(
+      { personality: { mode: "any" } },
+      scales.filter((scale) => scale.scoringMode !== "dimensional")
+    );
+    expect(noDimensional.ok).toBe(false);
+  });
+
+  it("没有传人格筛选时原样返回", () => {
+    const filters: ProfileListQuery = { q: "张三" };
+    expect(resolveProfilePersonalityFilter(filters, scales)).toEqual({ ok: true, filters });
   });
 });
