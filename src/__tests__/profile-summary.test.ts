@@ -217,6 +217,38 @@ describe("速览四卡：空态与降级", () => {
     expect(draftCard.cta.label).toBe("继续作答");
   });
 
+  it("学生受众：空态 headline 用「还没测」，不出现第三人称「该生」（#332 回归）", () => {
+    const summary = build({ results: {} });
+    expect(cardOf(summary, "interest").headline).toBe("还没测兴趣类型");
+    expect(cardOf(summary, "personality").headline).toBe("还没测人格特质");
+    expect(cardOf(summary, "interest").caption).toContain("你的三字码");
+  });
+
+  it("教师受众：同一张卡的空态 headline 换成「该生」", () => {
+    const summary = build({ audience: "teacher", results: {} });
+    expect(cardOf(summary, "interest").headline).toBe("该生还没测兴趣类型");
+    expect(cardOf(summary, "personality").headline).toBe("该生还没测人格特质");
+  });
+
+  it("已测但快照缺失：兴趣卡保留三字码、人格卡不伪造特质排名（不画 0 分）", () => {
+    const summary = build({
+      results: {
+        riasec: { ...HOLLAND_RESULT, current: { ...HOLLAND_RESULT.current!, scores: [] } },
+        "ipip-neo-ffi": { ...BIG_FIVE_RESULT, current: { ...BIG_FIVE_RESULT.current!, scores: [] } },
+      },
+    });
+    const interest = cardOf(summary, "interest");
+    expect(interest.state).toBe("ready");
+    expect(interest.code).toBe("SIA");
+    expect(interest.bars).toHaveLength(0);
+    expect(interest.caption).toContain("快照缺失");
+    const personality = cardOf(summary, "personality");
+    expect(personality.bars).toHaveLength(0);
+    expect(personality.headline).toBe("已测 · 分数快照缺失");
+    expect(personality.headline).not.toMatch(/偏低/);
+    expect(personality.caption).toContain("快照缺失");
+  });
+
   it("人格量表未启用：降级为「暂未开放」，不误报未测", () => {
     const card = cardOf(build({ scales: [HOLLAND_SCALE] }), "personality");
     expect(card.state).toBe("degraded");

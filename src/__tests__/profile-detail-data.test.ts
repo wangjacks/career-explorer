@@ -1,7 +1,5 @@
 import { describe, it, expect } from "vitest";
 import {
-  buildInterestQuickView,
-  buildPersonalityQuickView,
   buildTeacherAssessmentDetail,
   buildTeacherCareers,
   buildTeacherProfileSummary,
@@ -211,6 +209,24 @@ describe("buildTeacherProfileSummary（#332 速览四卡，与学生端同一实
     expect(summary.cards.find((card) => card.kind === "interest")?.headline).toBe("该生还没测兴趣类型");
   });
 
+  it("已测但分数快照缺失：三字码照样展示，不画 0 分条形也不伪造特质排名（与列表「已测 · 快照缺失」同口径）", () => {
+    const detail = buildTeacherAssessmentDetail(SCALES, {
+      riasec: result({ typeCode: "SIA", scores: null }),
+      "ipip-neo-ffi": result({ scores: null }),
+    });
+    // 适配层只负责如实下发「有结果、无分数」，闸门在共享视图层（hasScoreSnapshot）
+    expect(detail.payloads["ipip-neo-ffi"].current?.scores).toEqual([]);
+    const summary = buildTeacherProfileSummary({ row: ROW, detail });
+    const byKind = (kind: string) => summary.cards.find((card) => card.kind === kind) as SummaryCard;
+    expect(byKind("interest")).toMatchObject({ state: "ready", code: "SIA" });
+    expect(byKind("interest").bars).toHaveLength(0);
+    expect(byKind("interest").caption).toContain("快照缺失");
+    expect(byKind("personality").bars ?? []).toHaveLength(0);
+    expect(byKind("personality").headline).toBe("已测 · 分数快照缺失");
+    expect(byKind("personality").headline).not.toMatch(/偏低/);
+    expect(byKind("personality").caption).toContain("该生");
+  });
+
   it("资料入参：未归档/缺字段时降级而不抛错；versionCount 只在 >0 时并入", () => {
     expect(toSummaryProfileInput(ROW)).toMatchObject({ submitted: true, tags: ["摄影", "编程"] });
     const withVersion = toSummaryProfileInput(ROW, 2);
@@ -233,22 +249,10 @@ describe("推荐职业与速览辅助（#332）", () => {
     });
     expect(built.careers).toHaveLength(3);
     expect(built.careers[0].displayName).toBe("甲");
-    // 缺中文译名时用「职业群 · 学历」当主标题（shared buildCareerCards 口径）\n    expect(built.careers[2].displayName).toBe("硕士");
+    // 缺中文译名时用「职业群 · 学历」当主标题（shared buildCareerCards 口径）
+    expect(built.careers[2].displayName).toBe("硕士");
     expect(built.attribution).toBe("CC BY 4.0");
     expect(buildTeacherCareers(null)).toEqual({ careers: [], attribution: "" });
-  });
-
-  it("兴趣/人格速览：与共享视图函数同口径，未测返回 null", () => {
-    const interest = buildInterestQuickView(SCALES, RESULTS);
-    expect(interest?.typeCode).toBe("SIA");
-    expect(interest?.labels).toBe("社会型 · 研究型 · 艺术型");
-    expect(interest?.topBars[0]).toEqual({ label: "社会型", standard: 92 });
-    expect(buildInterestQuickView(SCALES, {})).toBeNull();
-
-    const personality = buildPersonalityQuickView(SCALES, RESULTS);
-    expect(personality?.headline).toBe("高尽责性 · 高外向性");
-    expect(personality?.bars).toHaveLength(2);
-    expect(buildPersonalityQuickView(SCALES, {})).toBeNull();
   });
 
   it("速览卡「查看详情」落点：测评卡锚点可反解量表 code", () => {
