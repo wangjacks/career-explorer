@@ -1630,6 +1630,10 @@ export class MysqlAdapter implements DbAdapter {
     }
   }
 
+  async deleteUserById(id: number): Promise<void> {
+    await this.pool.execute("DELETE FROM users WHERE id = ?", [id]);
+  }
+
   getProfileConfigs(): Promise<ConfigRow[]> {
     return (async () => {
       const [rows] = await this.pool.execute("SELECT `key` as `key`, value FROM configs_profile ORDER BY id");

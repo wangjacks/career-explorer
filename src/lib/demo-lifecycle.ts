@@ -40,6 +40,11 @@ function removeDbArtifacts(): void {
   for (const suffix of ["", "-wal", "-shm"]) rmSync(dbFile + suffix, { force: true });
 }
 
+/** 演示库文件是否存在（只 stat 文件，不打开 adapter）；供账户端点做无副作用门禁 */
+export function demoDbExists(): boolean {
+  return existsSync(demoDbFile());
+}
+
 /** 仅确保演示库存在并完成 init（建表 + seedTags/seedAssessments/seedO*NET + 本地默认后端）。幂等 */
 export function initDemoDb(): Promise<void> {
   if (!isDemoEnabled()) throw new Error("演示模式未启用（DEMO_ENABLED != true）");

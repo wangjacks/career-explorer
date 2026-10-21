@@ -1469,6 +1469,10 @@ export class SqliteAdapter implements DbAdapter {
     tx(id);
   }
 
+  deleteUserById(id: number): void {
+    this.db.prepare("DELETE FROM users WHERE id = ?").run(id);
+  }
+
   getProfileConfigs(): ConfigRow[] {
     return this.db.prepare("SELECT key, value FROM configs_profile ORDER BY id").all() as ConfigRow[];
   }
