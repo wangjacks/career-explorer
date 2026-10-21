@@ -241,6 +241,7 @@ export class SqliteAdapter implements DbAdapter {
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         class_id INTEGER NOT NULL REFERENCES classes(id),
         group_no INTEGER NOT NULL,
+        leader_user_id INTEGER,
         created_at TEXT NOT NULL,
         UNIQUE(class_id, group_no)
       )
@@ -281,6 +282,7 @@ export class SqliteAdapter implements DbAdapter {
         group_no INTEGER NOT NULL,
         cohesion REAL,
         member_count INTEGER NOT NULL,
+        leader_user_id INTEGER,
         created_at TEXT NOT NULL,
         UNIQUE(batch_id, group_no)
       )
@@ -299,6 +301,16 @@ export class SqliteAdapter implements DbAdapter {
         UNIQUE(batch_id, user_id)
       )
     `);
+    // #345 补列：旧库（#101 时期创建）没有组长列。SQLite 的 ALTER TABLE 只能加可空列，
+    // 正好符合「组长可空」的语义；新库由上面的 CREATE TABLE 直接带列。
+    const classGroupColumns = this.db.prepare("PRAGMA table_info(class_groups)").all() as { name: string }[];
+    if (!classGroupColumns.some((column) => column.name === "leader_user_id")) {
+      this.db.exec("ALTER TABLE class_groups ADD COLUMN leader_user_id INTEGER");
+    }
+    const batchGroupColumns = this.db.prepare("PRAGMA table_info(group_batch_groups)").all() as { name: string }[];
+    if (!batchGroupColumns.some((column) => column.name === "leader_user_id")) {
+      this.db.exec("ALTER TABLE group_batch_groups ADD COLUMN leader_user_id INTEGER");
+    }
     this.db.exec(`CREATE INDEX IF NOT EXISTS idx_class_groups_class ON class_groups(class_id)`);
     this.db.exec(
       `CREATE INDEX IF NOT EXISTS idx_class_group_members_group ON class_group_members(group_id)`
@@ -1734,14 +1746,18 @@ export class SqliteAdapter implements DbAdapter {
       .run(classId);
     this.db.prepare("DELETE FROM class_groups WHERE class_id = ?").run(classId);
     const insertGroup = this.db.prepare(
-      "INSERT INTO class_groups (class_id, group_no, created_at) VALUES (?, ?, ?)"
+      "INSERT INTO class_groups (class_id, group_no, leader_user_id, created_at) VALUES (?, ?, ?, ?)"
     );
     const insertMember = this.db.prepare(
       "INSERT INTO class_group_members (group_id, user_id, created_at) VALUES (?, ?, ?)"
     );
     const now = getNow();
     for (const g of groups) {
-      const info = insertGroup.run(classId, g.group_no, now);
+      // #345：组长必须是本组成员；不满足就整批拒绝（事务回滚，不留半套分组）
+      if (g.leader_user_id != null && !g.user_ids.includes(g.leader_user_id)) {
+        throw new Error("组长必须是本组成员");
+      }
+      const info = insertGroup.run(classId, g.group_no, g.leader_user_id ?? null, now);
       const groupId = Number(info.lastInsertRowid);
       for (const userId of g.user_ids) insertMember.run(groupId, userId, now);
     }
@@ -1789,8 +1805,8 @@ export class SqliteAdapter implements DbAdapter {
       );
     const batchId = Number(info.lastInsertRowid);
     const insertGroup = this.db.prepare(
-      `INSERT INTO group_batch_groups (batch_id, group_no, cohesion, member_count, created_at)
-       VALUES (?, ?, ?, ?, ?)`
+      `INSERT INTO group_batch_groups (batch_id, group_no, cohesion, member_count, leader_user_id, created_at)
+       VALUES (?, ?, ?, ?, ?, ?)`
     );
     const insertMember = this.db.prepare(
       `INSERT INTO group_batch_members (batch_id, group_id, user_id, user_code, name, created_at)
@@ -1798,7 +1814,7 @@ export class SqliteAdapter implements DbAdapter {
     );
     const now = getNow();
     for (const g of input.groups) {
-      const gInfo = insertGroup.run(batchId, g.groupNo, g.cohesion, g.members.length, now);
+      const gInfo = insertGroup.run(batchId, g.groupNo, g.cohesion, g.members.length, g.leaderUserId ?? null, now);
       const groupId = Number(gInfo.lastInsertRowid);
       for (const m of g.members) {
         insertMember.run(batchId, groupId, m.userId, m.userCode, m.name, now);
@@ -1882,6 +1898,17 @@ export class SqliteAdapter implements DbAdapter {
         .run(target.id, userId, getNow());
     });
     tx();
+  }
+
+  /**
+   * 设置 / 取消某组组长（#345）：定位条件带上 class_id，避免组号跨班误写。
+   * 「组长是否本组成员」由路由校验（这里不查成员表，保持单条 UPDATE）。
+   */
+  updateClassGroupLeader(classId: number, groupNo: number, leaderUserId: number | null): void {
+    const info = this.db
+      .prepare("UPDATE class_groups SET leader_user_id = ? WHERE class_id = ? AND group_no = ?")
+      .run(leaderUserId, classId, groupNo);
+    if (info.changes === 0) throw new Error("该组不存在");
   }
 
   getGroupBatches(classId: number): GroupBatchRow[] {
@@ -2371,7 +2398,7 @@ export class SqliteAdapter implements DbAdapter {
       .prepare("SELECT * FROM assessment_results ORDER BY id")
       .all() as AssessmentResultRow[];
     return {
-      version: 7,
+      version: 8,
       sourceType: "sqlite",
       createdAt: new Date().toISOString(),
       users,
@@ -2657,9 +2684,9 @@ export class SqliteAdapter implements DbAdapter {
       // 当前侧与历史侧各自成对处理，避免出现「删了组却留着成员」的半截状态
       if (Array.isArray(d.class_groups)) {
         const stmt = this.db.prepare(
-          `INSERT INTO class_groups (id, class_id, group_no, created_at) VALUES (?, ?, ?, ?)`
+          `INSERT INTO class_groups (id, class_id, group_no, leader_user_id, created_at) VALUES (?, ?, ?, ?, ?)`
         );
-        for (const g of d.class_groups) stmt.run(g.id, g.class_id, g.group_no, g.created_at ?? getNow());
+        for (const g of d.class_groups) stmt.run(g.id, g.class_id, g.group_no, g.leader_user_id ?? null, g.created_at ?? getNow());
         const memberStmt = this.db.prepare(
           `INSERT INTO class_group_members (id, group_id, user_id, created_at) VALUES (?, ?, ?, ?)`
         );
@@ -2691,8 +2718,8 @@ export class SqliteAdapter implements DbAdapter {
           );
         }
         const groupStmt = this.db.prepare(
-          `INSERT INTO group_batch_groups (id, batch_id, group_no, cohesion, member_count, created_at)
-           VALUES (?, ?, ?, ?, ?, ?)`
+          `INSERT INTO group_batch_groups (id, batch_id, group_no, cohesion, member_count, leader_user_id, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?)`
         );
         for (const g of d.group_batch_groups ?? []) {
           groupStmt.run(
@@ -2701,6 +2728,7 @@ export class SqliteAdapter implements DbAdapter {
             g.group_no,
             g.cohesion ?? null,
             g.member_count ?? 0,
+            g.leader_user_id ?? null,
             g.created_at ?? getNow()
           );
         }

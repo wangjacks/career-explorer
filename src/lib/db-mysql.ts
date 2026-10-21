@@ -247,6 +247,7 @@ export class MysqlAdapter implements DbAdapter {
         id INT AUTO_INCREMENT PRIMARY KEY,
         class_id INT NOT NULL,
         group_no INT NOT NULL,
+        leader_user_id INT NULL,
         created_at TEXT NOT NULL,
         UNIQUE KEY uniq_class_group_no (class_id, group_no),
         INDEX idx_class_groups_class (class_id),
@@ -295,6 +296,7 @@ export class MysqlAdapter implements DbAdapter {
         group_no INT NOT NULL,
         cohesion DOUBLE,
         member_count INT NOT NULL,
+        leader_user_id INT NULL,
         created_at TEXT NOT NULL,
         UNIQUE KEY uniq_batch_group_no (batch_id, group_no),
         INDEX idx_group_batch_groups_batch (batch_id),
@@ -319,6 +321,13 @@ export class MysqlAdapter implements DbAdapter {
         CONSTRAINT fk_batch_members_group FOREIGN KEY (group_id) REFERENCES group_batch_groups(id)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
     `);
+    // #345 补列：旧库（#101 时期创建）没有组长列，与 SQLite 侧同步补可空列
+    if (!(await this.columnExists("class_groups", "leader_user_id"))) {
+      await this.pool.execute("ALTER TABLE class_groups ADD COLUMN leader_user_id INT NULL");
+    }
+    if (!(await this.columnExists("group_batch_groups", "leader_user_id"))) {
+      await this.pool.execute("ALTER TABLE group_batch_groups ADD COLUMN leader_user_id INT NULL");
+    }
   }
 
   /**
@@ -1912,9 +1921,13 @@ export class MysqlAdapter implements DbAdapter {
     await conn.execute("DELETE FROM class_groups WHERE class_id = ?", [classId]);
     const now = getNow();
     for (const g of groups) {
+      // #345：组长必须是本组成员；不满足就整批拒绝（事务回滚，不留半套分组）
+      if (g.leader_user_id != null && !g.user_ids.includes(g.leader_user_id)) {
+        throw new Error("组长必须是本组成员");
+      }
       const [info] = await conn.execute(
-        "INSERT INTO class_groups (class_id, group_no, created_at) VALUES (?, ?, ?)",
-        [classId, g.group_no, now]
+        "INSERT INTO class_groups (class_id, group_no, leader_user_id, created_at) VALUES (?, ?, ?, ?)",
+        [classId, g.group_no, g.leader_user_id ?? null, now]
       );
       const groupId = (info as { insertId: number }).insertId;
       for (const userId of g.user_ids) {
@@ -1951,9 +1964,9 @@ export class MysqlAdapter implements DbAdapter {
     const batchId = (info as { insertId: number }).insertId;
     for (const g of input.groups) {
       const [gInfo] = await conn.execute(
-        `INSERT INTO group_batch_groups (batch_id, group_no, cohesion, member_count, created_at)
-         VALUES (?, ?, ?, ?, ?)`,
-        [batchId, g.groupNo, g.cohesion, g.members.length, now]
+        `INSERT INTO group_batch_groups (batch_id, group_no, cohesion, member_count, leader_user_id, created_at)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+        [batchId, g.groupNo, g.cohesion, g.members.length, g.leaderUserId ?? null, now]
       );
       const groupId = (gInfo as { insertId: number }).insertId;
       for (const m of g.members) {
@@ -2090,6 +2103,14 @@ export class MysqlAdapter implements DbAdapter {
     }
   }
 
+  /** 设置 / 取消某组组长（#345）：定位带 class_id，避免组号跨班误写；成员归属由路由校验 */
+  async updateClassGroupLeader(classId: number, groupNo: number, leaderUserId: number | null): Promise<void> {
+    const [result] = await this.pool.execute(
+      "UPDATE class_groups SET leader_user_id = ? WHERE class_id = ? AND group_no = ?",
+      [leaderUserId, classId, groupNo]
+    );
+    if ((result as { affectedRows: number }).affectedRows === 0) throw new Error("该组不存在");
+  }
   async getGroupBatches(classId: number): Promise<GroupBatchRow[]> {
     const [rows] = await this.pool.execute(
       "SELECT * FROM group_batches WHERE class_id = ? ORDER BY id DESC",
@@ -2599,7 +2620,7 @@ export class MysqlAdapter implements DbAdapter {
       const [assessmentResults] = await conn.execute("SELECT * FROM assessment_results ORDER BY id");
       await conn.commit();
       return {
-        version: 7,
+        version: 8,
         sourceType: "mysql",
         createdAt: new Date().toISOString(),
         users: users as UserRow[],
@@ -2895,10 +2916,11 @@ export class MysqlAdapter implements DbAdapter {
             g.id,
             g.class_id,
             g.group_no,
+            g.leader_user_id ?? null,
             g.created_at ?? getNow(),
           ]);
           await conn.query(
-            "INSERT INTO class_groups (id, class_id, group_no, created_at) VALUES ?",
+            "INSERT INTO class_groups (id, class_id, group_no, leader_user_id, created_at) VALUES ?",
             [values]
           );
         }
@@ -2946,10 +2968,11 @@ export class MysqlAdapter implements DbAdapter {
             g.group_no,
             g.cohesion ?? null,
             g.member_count ?? 0,
+            g.leader_user_id ?? null,
             g.created_at ?? getNow(),
           ]);
           await conn.query(
-            "INSERT INTO group_batch_groups (id, batch_id, group_no, cohesion, member_count, created_at) VALUES ?",
+            "INSERT INTO group_batch_groups (id, batch_id, group_no, cohesion, member_count, leader_user_id, created_at) VALUES ?",
             [values]
           );
         }

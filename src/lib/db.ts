@@ -225,6 +225,8 @@ export interface ClassGroupRow {
   id: number;
   class_id: number;
   group_no: number;
+  /** 组长（#345）：该组组长 userId；未设置 / 旧库迁移前为 null */
+  leader_user_id: number | null;
   created_at: string;
 }
 
@@ -240,6 +242,8 @@ export interface ClassGroupMemberRow {
 export interface ClassGroupingInput {
   group_no: number;
   user_ids: number[];
+  /** 组长（#345）：必须是本组成员；不传 / null 表示未设置 */
+  leader_user_id?: number | null;
 }
 
 /** group_batches 行：一次自动分组的批次头（历史归档，只追加） */
@@ -271,6 +275,8 @@ export interface GroupBatchGroupRow {
   /** 组内平均相似度快照 */
   cohesion: number | null;
   member_count: number;
+  /** 组长快照（#345）：旧批次该列为 null */
+  leader_user_id: number | null;
   created_at: string;
 }
 
@@ -301,6 +307,8 @@ export interface NewGroupBatchInput {
   groups: {
     groupNo: number;
     cohesion: number | null;
+    /** 组长快照（#345）：设置组长时记入批次，历史回看仍能知道当时谁是组长 */
+    leaderUserId?: number | null;
     members: { userId: number; userCode: string | null; name: string | null }[];
   }[];
 }
@@ -811,6 +819,15 @@ export interface DbAdapter {
   deleteGroupEntry(classId: number, groupNo: number): Promise<void> | void;
   /** 把成员移到本班的另一个组（目标组必须已存在） */
   moveGroupMember(classId: number, userId: number, toGroupNo: number): Promise<void> | void;
+  /**
+   * 设置 / 取消某组组长（#345）。调用方负责校验「组长是本组成员」与写权限；
+   * 数据层只做「本班 + 组号」定位，避免跨班误写。
+   */
+  updateClassGroupLeader(
+    classId: number,
+    groupNo: number,
+    leaderUserId: number | null
+  ): Promise<void> | void;
   /** 事务：追加一个历史批次（头 + 组 + 成员），返回批次 id */
   insertGroupBatch(input: NewGroupBatchInput): Promise<number> | number;
   /**
@@ -1483,6 +1500,16 @@ export async function deleteGroupEntry(classId: number, groupNo: number): Promis
 export async function moveGroupMember(classId: number, userId: number, toGroupNo: number): Promise<void> {
   const adapter = await ensureInit();
   return Promise.resolve(adapter.moveGroupMember(classId, userId, toGroupNo));
+}
+
+/** 设置 / 取消组长（#345；权限与成员归属由路由校验） */
+export async function updateClassGroupLeader(
+  classId: number,
+  groupNo: number,
+  leaderUserId: number | null
+): Promise<void> {
+  const adapter = await ensureInit();
+  return Promise.resolve(adapter.updateClassGroupLeader(classId, groupNo, leaderUserId));
 }
 
 export async function insertGroupBatch(input: NewGroupBatchInput): Promise<number> {

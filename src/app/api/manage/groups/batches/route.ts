@@ -1,6 +1,7 @@
 import { withDemoScope } from "@/lib/demo-scope";
 import { NextRequest, NextResponse } from "next/server";
 import { getGroupBatches } from "@/lib/db";
+import { groupingStrategyLabel } from "@/lib/grouping-utils";
 
 /** GET：某班的历史批次列表（新→旧）。读不限班级，与当前分组一致 */
 async function GET_impl(request: NextRequest) {
@@ -15,6 +16,7 @@ async function GET_impl(request: NextRequest) {
         id: b.id,
         classId: b.class_id,
         strategy: b.strategy,
+        strategyLabel: groupingStrategyLabel(b.strategy),
         groupSize: b.group_size,
         studentCount: b.student_count,
         taggedCount: b.tagged_count,
