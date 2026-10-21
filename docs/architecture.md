@@ -180,9 +180,9 @@
 | `/api/shared/profile/submissions/restore` | POST | 学生恢复历史版本（#95）：截止后 403 → 校验版本归属 → 生成新版本（不回写旧记录）→ 审计 `profile:restore` |
 | `/api/shared/group` | GET | 学生读本组名单（#101）：只返回**本人所在组**的成员（姓名/学号/头像引用/标签），不提供遍历班级的接口；未分组返回 `grouped:false` |
 | `/api/shared/storage-sign` | GET | 文件访问地址签发（#111）：本地后端回显代理路径；云后端按归属记录的 `storage_id` 签发 30 分钟签名 URL；权限校验：学生仅本人与**同组同学的头像**（#101，词云不放行、非同组 403）、教师仅管辖班级、管理员全量 |
-| `/api/shared/assessment/start` | GET | 进入答题页（#223）：**派生本轮抽题**（#282，`draw = f(uid, assessmentId, 题库指纹, attemptNo)`）后下发题面（不含维度，避免暗示答案）+ 量表元信息（署名/授权/免责）+ 草稿进度与续答落点；响应 `questionCount` = 本轮题数、`poolSize` = 题库总量；**只读，不建草稿行** |
+| `/api/shared/assessment/start` | GET | 进入答题页（#223）：按 `?code=` 取量表（缺省 `riasec`）并**派生本轮抽题**（#282，`draw = f(uid, assessmentId, 题库指纹, attemptNo)`）后下发题面（不含维度，避免暗示答案）+ 量表元信息（`scoringMode`、`anchors`、署名/授权/免责）+ 草稿进度与续答落点；响应 `questionCount` = 本轮题数、`poolSize` = 题库总量；**只读，不建草稿行** |
 | `/api/shared/assessment/answer` | POST | 保存一次作答（#223）：题号必须属于**本轮卷子**（在题库里但不在本轮 → 400 + 失败审计），服务端**合并**进 `status=in_progress` 草稿并回进度 + 下一个未答题；首次作答把抽题快照一起写进草稿 `items_json`（#282）；非法题号/取值 400，停用量表 403 |
-| `/api/shared/assessment/submit` | POST | 提交作答（#223）：未答完 400（回带本轮 `missingIndexes`）→ 复用 #220 引擎计分（只传本轮抽中题，标准分按各维实际已答数折算）→ 结果快照落库（含 `items_json`；`is_current` 唯一，重复提交生成新版本；**沿用草稿行**不新增记录）→ 审计 `assessment:submit`（带 `attemptNo` 与题库指纹，不带作答内容） |
+| `/api/shared/assessment/submit` | POST | 提交作答（#223）：未答完 400（回带本轮 `missingIndexes`）→ 复用 #220 引擎按量表 `scoring_mode` 计分（只传本轮抽中题，标准分按各维实际已答数折算）→ 结果快照落库（含 `items_json`；`is_current` 唯一，重复提交生成新版本；**沿用草稿行**不新增记录）→ 响应 `result` 带 `scoringMode`（dimensional 的 `typeCode` 为 null，不能靠 null 反推模式）→ 审计 `assessment:submit`（带 `attemptNo` 与题库指纹，不带作答内容） |
 | `/api/shared/assessment/results` | GET | 结果查询（#223）：当前有效结果 + 最近 10 个历史版本 + 进行中进度，供「我的档案」测评区（#224）与测评中心（#222）消费；`assessment.questionCount` = 每次作答题数、`poolSize` = 题库总量（#282），`inProgress` 按**本轮题号**算（不是整库 120）；每条记录带自己的 `questionCount`（快照缺失的旧数据回退作答条数）；量表元信息带 `enabled`（停用时测评中心收掉作答入口，历史结果仍可读）；只按会话 uid 读取，**无 userId 参数**，因此没有越权读他人结果的路径 |
 | `/api/shared/assessment/careers` | GET | 本人最新霍兰德结果 → Top-N 推荐职业（#226）：只认会话 uid（显式传别人的 `user_id` 直接 403，非学生 403），`?limit=1–20`（非法值 400），返回推荐列表 + O*NET 署名与快照版本；没完成测评 404、结果里既无六维分也无三字码 409、职业库为空 503 |
 
@@ -284,7 +284,7 @@
 - **提交必须完整**：缺答一律 400 并回带**本轮** `missingIndexes`（答题页据此跳回漏题）；计分复用 #220 的引擎（`src/lib/assessment-scoring.ts`），只传本轮抽中题——`standardizeLinear` 按「该维已答题数 × 1..5」折算，与题库大小无关，所以每维 5 题与每维 20 题的标准分同一量程（全 4 分恒为 75）；数据层不重复实现算法，作答内容**只认服务端草稿**，不接受客户端传来的答案或 userId，改分无从下手
 - **结果与审计**：得分 JSON + 三字码 + 本轮抽题快照（`items_json`，#282）作为快照写入 `assessment_results`，重复提交生成新版本（旧版本保留、`is_current` 唯一）。审计动作为 `assessment:answer`（**只记进度与本轮口径（`attemptNo` / 题库指纹），不记选了哪一项**——选项是个人数据不重复落审计表）、`assessment:submit`（成功/失败）、`assessment:results`（读取也记）；**被拒的写同样落审计**——参数非法 400、量表不存在 404、量表停用 403 各记一条 failed（带 `reason` / 题号，「题号在题库里但不在本轮」也记 `question-not-in-round`，同样不落选项值），停用后仍有人刷题或刷错 `code` 在审计里看得到
 - **停用与越权**：停用的量表拒绝 start / answer / submit（403），但**历史结果仍可读**（结果不随量表下线消失）；所有端点只按会话 uid 读写，无 userId 入参，因此不存在越权读他人结果的路径（教师/管理员访问同样 403）
-- **作答锚点**：Likert 1-5 记为「非常不愿意 → 非常愿意」（兴趣量表问的是愿不愿意做，与计分引擎 1-5 量程同一口径，锚点常量在 `assessment-flow.ts`）
+- **作答锚点随量表下发（#289）**：1-5 量程统一但语义按量表区分——霍兰德问「愿不愿意」（非常不愿意 → 非常愿意），IPIP 问「同不同意」（非常不同意 → 非常同意）。锚点表 `ASSESSMENT_ANCHORS` 与取值入口 `getAssessmentAnchors()` 在 `assessment-data.ts`，由 `GET /start` 随 `scoringMode` 一起下发，答题页不再写死某一套量表的锚点（两套量表都是 1–5，与计分引擎量程同一口径）
 
 ## 职业库与推荐匹配（#226）
 

@@ -22,13 +22,18 @@ vi.mock("@/lib/db-config", () => ({
 import { signToken } from "@/lib/token";
 import { closeDb, getAssessmentQuestionsByCode, insertUser, queryAuditLogs } from "@/lib/db";
 import {
+  ASSESSMENT_ANCHORS,
+  IPIP_ASSESSMENT,
+  IPIP_DIMENSIONS,
+  IPIP_NEO_FFI_CODE,
+  IPIP_QUESTIONS,
   RIASEC_ASSESSMENT,
   RIASEC_CODE,
   RIASEC_DIMENSIONS,
   RIASEC_QUESTIONS,
   NEAR_DUPLICATE_GROUPS,
+  getAssessmentAnchors,
 } from "@/lib/assessment-data";
-import { LIKERT_ANCHORS } from "@/lib/assessment-flow";
 import { parseItemsSnapshot } from "@/lib/assessment-sampling";
 import { GET as startGet } from "@/app/api/shared/assessment/start/route";
 import { POST as answerPost } from "@/app/api/shared/assessment/answer/route";
@@ -102,12 +107,13 @@ function expectPaperShape(indexes: readonly number[]) {
 
 let tempDir = "";
 const users: Record<
-  "A" | "B" | "C",
+  "A" | "B" | "C" | "D",
   { uid: number; token: string; code: string; name: string }
 > = {
   A: { uid: 0, token: "", code: "202505050101", name: "张三" },
   B: { uid: 0, token: "", code: "202505050102", name: "李四" },
   C: { uid: 0, token: "", code: "202505050103", name: "王五" },
+  D: { uid: 0, token: "", code: "202505050104", name: "赵六" },
 };
 let teacherToken = "";
 
@@ -121,9 +127,11 @@ beforeAll(async () => {
   users.A.uid = await insertUser({ user_code: users.A.code, role: "student", name: users.A.name });
   users.B.uid = await insertUser({ user_code: users.B.code, role: "student", name: users.B.name });
   users.C.uid = await insertUser({ user_code: users.C.code, role: "student", name: users.C.name });
+  users.D.uid = await insertUser({ user_code: users.D.code, role: "student", name: users.D.name });
   users.A.token = await signToken({ role: "student", uid: users.A.uid, name: users.A.name });
   users.B.token = await signToken({ role: "student", uid: users.B.uid, name: users.B.name });
   users.C.token = await signToken({ role: "student", uid: users.C.uid, name: users.C.name });
+  users.D.token = await signToken({ role: "student", uid: users.D.uid, name: users.D.name });
   teacherToken = await signToken({ role: "teacher", uid: 999, name: "王老师" });
 });
 
@@ -162,6 +170,9 @@ describe("进入答题页：本轮 30 题的卷子（#282）", () => {
     expect(body.assessment.questionCount).toBe(ROUND_SIZE);
     expect(body.assessment.poolSize).toBe(BANK_SIZE);
     expect(body.assessment.itemsPerAttempt).toBe(ROUND_SIZE);
+    expect(body.assessment.scoringMode).toBe("typological");
+    expect(body.assessment.anchors).toEqual(ASSESSMENT_ANCHORS[RIASEC_CODE]);
+    expect(body.assessment.anchors).toHaveLength(5);
     expect(body.assessment.dimensions.map((d: { key: string }) => d.key)).toEqual(DIMENSION_KEYS);
     expect(body.assessment.attribution).toContain("O*NET");
     expect(body.assessment.disclaimer).toContain("不作为心理诊断");
@@ -467,10 +478,70 @@ describe("题库为参考数据的口径", () => {
   });
 });
 
-describe("作答锚点", () => {
-  it("答题页展示的 5 档锚点与引擎量程一致（不愿→愿意，兴趣量表口径）", () => {
-    expect(LIKERT_ANCHORS).toHaveLength(5);
-    expect(LIKERT_ANCHORS[0]).toEqual({ value: 1, label: "非常不愿意" });
-    expect(LIKERT_ANCHORS[4]).toEqual({ value: 5, label: "非常愿意" });
+describe("作答锚点随量表下发（#289）", () => {
+  it("两套量表的锚点都来自 ASSESSMENT_ANCHORS，未登记 code 回退到兴趣量表", () => {
+    expect(ASSESSMENT_ANCHORS[RIASEC_CODE].map((a) => a.value)).toEqual([1, 2, 3, 4, 5]);
+    expect(ASSESSMENT_ANCHORS[RIASEC_CODE][0].label).toBe("非常不愿意");
+    expect(ASSESSMENT_ANCHORS[RIASEC_CODE][4].label).toBe("非常愿意");
+    expect(ASSESSMENT_ANCHORS[IPIP_NEO_FFI_CODE][0].label).toBe("非常不同意");
+    expect(ASSESSMENT_ANCHORS[IPIP_NEO_FFI_CODE][4].label).toBe("非常同意");
+    expect(getAssessmentAnchors(RIASEC_CODE)).toBe(ASSESSMENT_ANCHORS[RIASEC_CODE]);
+    expect(getAssessmentAnchors("unknown-scale")).toBe(ASSESSMENT_ANCHORS[RIASEC_CODE]);
+  });
+});
+
+describe("多量表作答链路（#289）", () => {
+  it("不带 code 进入仍是霍兰德（老入口行为不变）", async () => {
+    const res = await startGet(getRequest("/api/shared/assessment/start", users.D.token));
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.assessment.code).toBe(RIASEC_CODE);
+    expect(body.assessment.scoringMode).toBe("typological");
+  });
+
+  it("code=ipip-neo-ffi：同意度锚点、全量 50 题、提交结果 dimensional 且无三字码", async () => {
+    const res = await startGet(
+      getRequest(`/api/shared/assessment/start?code=${IPIP_NEO_FFI_CODE}`, users.D.token)
+    );
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.assessment.code).toBe(IPIP_NEO_FFI_CODE);
+    expect(body.assessment.name).toBe(IPIP_ASSESSMENT.name);
+    expect(body.assessment.scoringMode).toBe("dimensional");
+    expect(body.assessment.anchors).toEqual(ASSESSMENT_ANCHORS[IPIP_NEO_FFI_CODE]);
+    expect(body.questions).toHaveLength(IPIP_QUESTIONS.length);
+    expect(body.assessment.questionCount).toBe(IPIP_QUESTIONS.length);
+    expect(body.assessment.poolSize).toBe(IPIP_QUESTIONS.length);
+    expect(body.progress).toEqual({ answered: 0, total: IPIP_QUESTIONS.length, percent: 0 });
+    expect(body.questions[0]).not.toHaveProperty("dimension");
+
+    for (const question of body.questions as { index: number }[]) {
+      const answered = await answerPost(
+        postRequest(
+          "/api/shared/assessment/answer",
+          { code: IPIP_NEO_FFI_CODE, questionIndex: question.index, value: 4 },
+          users.D.token
+        )
+      );
+      expect(answered.status).toBe(200);
+    }
+
+    const submitted = await submitPost(
+      postRequest("/api/shared/assessment/submit", { code: IPIP_NEO_FFI_CODE }, users.D.token)
+    );
+    expect(submitted.status).toBe(200);
+    const payload = await submitted.json();
+    expect(payload.result.scoringMode).toBe("dimensional");
+    expect(payload.result.typeCode).toBeNull();
+    expect(payload.result.questionCount).toBe(IPIP_QUESTIONS.length);
+    expect(payload.result.scores.map((s: { key: string }) => s.key)).toEqual(
+      IPIP_DIMENSIONS.map((dimension) => dimension.key)
+    );
+    for (const score of payload.result.scores as { questionCount: number; answered: number; standard: number }[]) {
+      expect(score.questionCount).toBe(10);
+      expect(score.answered).toBe(10);
+      expect(score.standard).toBeGreaterThanOrEqual(0);
+      expect(score.standard).toBeLessThanOrEqual(100);
+    }
   });
 });
