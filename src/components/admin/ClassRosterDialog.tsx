@@ -189,6 +189,7 @@ export default function ClassRosterDialog({ open, classKey, displayName, onClose
 
             <label className="relative block w-full sm:w-56">
               <span className="sr-only">按姓名或学号搜索</span>
+              {/* Align to the input height without a percentage transform that can drift under font scaling. */}
               <span
                 aria-hidden="true"
                 className="pointer-events-none absolute inset-y-0 left-2.5 flex items-center text-muted/60"
