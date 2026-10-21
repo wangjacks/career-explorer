@@ -85,6 +85,12 @@ describe("IPIP NEO-FFI 50 题种子（#290）", () => {
     expect(ASSESSMENT_ANCHORS[IPIP_NEO_FFI_CODE][4].label).toBe("非常同意");
   });
 
+  it("每个已发布量表都登记了作答锚点（#289：锚点随量表下发，漏登记会被兜底到兴趣锚点）", () => {
+    for (const seed of ASSESSMENT_SEEDS) {
+      expect(ASSESSMENT_ANCHORS[seed.code], `量表 ${seed.code} 未登记锚点`).toHaveLength(5);
+    }
+  });
+
   it("量表无关校验通过，且不会把 IPIP 送进 O*NET 锚点查询", () => {
     const onetLookup = vi.fn(() => {
       throw new Error("IPIP 不应查询 O*NET");

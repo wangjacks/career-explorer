@@ -629,6 +629,16 @@ export const ASSESSMENT_ANCHORS: Record<string, readonly AssessmentAnchor[]> = {
 };
 
 /**
+ * 按量表 code 取作答锚点（#289）：两套量表共用 1–5 量程，但语义不同
+ * （兴趣问「愿不愿意」，人格问「同不同意」），锚点随量表下发而不是页面写死。
+ * 未登记的 code 回退到兴趣量表锚点，只保证历史库里的量表仍可作答；
+ * 新增量表必须在 `ASSESSMENT_ANCHORS` 登记语义（种子测试会拦住漏登记）。
+ */
+export function getAssessmentAnchors(code: string): readonly AssessmentAnchor[] {
+  return ASSESSMENT_ANCHORS[code] ?? ASSESSMENT_ANCHORS[RIASEC_CODE];
+}
+
+/**
  * 近重复题组（#281）：同一张卷子至多抽到组内一题。
  *
  * 抽题逻辑在后续 Issue（每次 30 题的分层随机抽题）实现，本期只落常量并由
