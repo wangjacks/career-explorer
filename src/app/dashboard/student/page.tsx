@@ -7,7 +7,7 @@ import { Compass, SquarePen, UsersRound, X } from "lucide-react";
 import NavigationBar from "@/components/NavigationBar";
 import StudentSidebar, { type StudentViewKey } from "@/components/student/StudentSidebar";
 import TextAvatar from "@/components/TextAvatar";
-import AssessmentResultCard from "@/components/student/AssessmentResultCard";
+import AssessmentResultsSection from "@/components/student/AssessmentResultsSection";
 import ProfileSectionHeader from "@/components/student/ProfileSectionHeader";
 import ConfirmDialog from "@/components/admin/ConfirmDialog";
 import TagSelector, { type TagCategory, TAG_CHIP_COLORS } from "@/components/TagSelector";
@@ -664,8 +664,8 @@ export default function StudentDashboardPage() {
               </div>
             </section>
 
-            {/* 职业兴趣测评结果（#224）：独立于档案提交流程——不受截止门控、不进档案版本快照 */}
-            <AssessmentResultCard />
+            {/* 测评结果区（#224 + #292）：按量表清单渲染每套结果卡，独立于档案提交流程——不受截止门控、不进档案版本快照 */}
+            <AssessmentResultsSection />
 
             {activeView === "group" ? (
               <GroupPanel

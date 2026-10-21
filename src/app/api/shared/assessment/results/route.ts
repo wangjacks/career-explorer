@@ -1,6 +1,6 @@
 import { withDemoScope } from "@/lib/demo-scope";
 import { NextRequest, NextResponse } from "next/server";
-import { getAssessmentByCode, getUserById, normalizeAssessmentCode, type AssessmentResultRow } from "@/lib/db";
+import { getAssessmentByCode, getEnabledAssessments, getUserById, normalizeAssessmentCode, type AssessmentResultRow } from "@/lib/db";
 import { RIASEC_CODE } from "@/lib/assessment-data";
 import {
   MAX_RESULT_VERSIONS,
@@ -42,6 +42,26 @@ async function GET_impl(request: NextRequest) {
     const code = normalizeAssessmentCode(request.nextUrl.searchParams.get("code") ?? RIASEC_CODE);
     const assessment = await getAssessmentByCode(code);
     if (!assessment) return NextResponse.json({ error: "测评不存在" }, { status: 404 });
+
+    // 量表清单（#292）：档案页据此循环渲染每套量表的结果卡。只列启用中的量表——
+    // 停用后不再出现在档案页（历史结果仍可按 ?code= 直接读取，教师端量表管理落地时再定只读卡口径）。
+    const enabledAssessments = await getEnabledAssessments();
+    const assessments = enabledAssessments.map((row) => ({
+      code: row.code,
+      name: row.name,
+      // 清单里的题量按量表定义算（与 start / 测评中心同一口径）：抽题时是每次题数，否则是题库总量
+      questionCount:
+        row.items_per_attempt > 0 ? Math.min(row.items_per_attempt, row.question_count) : row.question_count,
+      poolSize: row.question_count,
+      itemsPerAttempt: row.items_per_attempt,
+      enabled: row.enabled === 1,
+      scoringMode: row.scoring_mode,
+      scaleVersion: row.scale_version,
+      dimensions: parseDimensions(row.dimensions_json),
+      attribution: row.attribution,
+      licenseText: row.license_text,
+      disclaimer: row.disclaimer,
+    }));
 
     // 一次读取即得本轮口径 + 草稿 + 全部完成记录（current 也从这里挑，不再单独查一次）
     const context = await loadAttemptContext(assessment, user.id);
@@ -90,6 +110,8 @@ async function GET_impl(request: NextRequest) {
         itemsPerAttempt: assessment.items_per_attempt,
         /** 是否开放（#222 测评中心据此决定给不给「开始 / 继续作答」入口；停用后历史结果仍可读） */
         enabled: assessment.enabled === 1,
+        /** 计分模式（#292 档案页在入口据此分流霍兰德卡 / 大五卡） */
+        scoringMode: assessment.scoring_mode,
         scaleVersion: assessment.scale_version,
         dimensions: parseDimensions(assessment.dimensions_json),
         attribution: assessment.attribution,
@@ -98,6 +120,8 @@ async function GET_impl(request: NextRequest) {
       },
       current: current ? toView(current) : null,
       history,
+      // 已启用量表清单（#292）：档案页按它循环渲染每套量表的结果卡
+      assessments,
       // 进行中的作答进度（未完成过或正在重测时给「继续作答」用）；没有草稿时为 null
       inProgress:
         context.draft && draftProgress.answered > 0

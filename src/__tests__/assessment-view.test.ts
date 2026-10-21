@@ -2,13 +2,20 @@ import { describe, it, expect } from "vitest";
 import type { DimensionScore } from "../lib/assessment-scoring";
 import { RIASEC_KEYS, RIASEC_LABELS } from "../lib/assessment-match";
 import {
+  BIG_FIVE_INTERPRETATIONS,
+  CROSS_SCALE_LINKS,
   RIASEC_INTERPRETATIONS,
+  buildBigFiveBars,
+  buildBigFiveHeadline,
+  buildBigFiveInterpretations,
   buildCareerCards,
   buildRadarPoints,
+  buildResultTrailing,
   buildRiasecBars,
   buildRiasecInterpretations,
   describeTypeCode,
   parseTypeCodeParts,
+  resultCardMode,
 } from "../lib/assessment-view";
 
 function score(key: string, standard: number, label?: string): DimensionScore {
@@ -93,15 +100,17 @@ describe("条状排名", () => {
 });
 
 describe("雷达图顶点", () => {
-  it("固定 R I A S E C 顺序（不随得分排序），缺失维度补 0", () => {
-    const points = buildRadarPoints([score("S", 88), score("C", 42)]);
+  const riasecRadar = RIASEC_KEYS.map((key) => ({ key, label: RIASEC_LABELS[key] }));
+
+  it("按传入的维度顺序（RIASEC 为 R I A S E C），不随得分排序，缺失维度补 0", () => {
+    const points = buildRadarPoints([score("S", 88), score("C", 42)], riasecRadar);
     expect(points.map((p) => p.key)).toEqual([...RIASEC_KEYS]);
     expect(points.map((p) => p.standard)).toEqual([0, 0, 0, 88, 0, 42]);
     expect(points.find((p) => p.key === "S")?.label).toBe("社会型");
   });
 
   it("越界分数钳到 0–100（雷达图量程固定）", () => {
-    const points = buildRadarPoints([score("R", 130), score("I", -8)]);
+    const points = buildRadarPoints([score("R", 130), score("I", -8)], riasecRadar);
     expect(points[0].standard).toBe(100);
     expect(points[1].standard).toBe(0);
   });
@@ -125,6 +134,96 @@ describe("六型逐条解读", () => {
     expect(items.map((i) => i.key)).toEqual(["A", "S", "I", "R", "E", "C"]);
     expect(items.filter((i) => i.isTop).map((i) => i.key).sort()).toEqual(["A", "I", "S"]);
     expect(items[0].text).toBe(RIASEC_INTERPRETATIONS.A);
+  });
+});
+
+describe("五大人格结果（#292）", () => {
+  const BIG_FIVE_DIMENSIONS = [
+    { key: "N", label: "神经质" },
+    { key: "E", label: "外向性" },
+    { key: "O", label: "开放性" },
+    { key: "A", label: "宜人性" },
+    { key: "C", label: "尽责性" },
+  ];
+
+  function five(partial: Partial<Record<string, number>>): DimensionScore[] {
+    return BIG_FIVE_DIMENSIONS.map(({ key, label }) => score(key, partial[key] ?? 0, label));
+  }
+
+  it("条形按标准分降序、同分按量表维度顺序，前两维标「主要特质」", () => {
+    const bars = buildBigFiveBars(five({ N: 52, E: 80, O: 30, A: 80, C: 90 }), BIG_FIVE_DIMENSIONS);
+    expect(bars.map((b) => b.key)).toEqual(["C", "E", "A", "N", "O"]);
+    expect(bars.map((b) => b.isPrimary)).toEqual([true, true, false, false, false]);
+    expect(bars[0]).toMatchObject({ label: "尽责性", standard: 90, percent: 90 });
+    expect(bars.find((b) => b.key === "N")?.label).toBe("神经质");
+  });
+
+  it("画像标签取最高两维：高尽责性 · 高外向性", () => {
+    expect(buildBigFiveHeadline(five({ C: 90, E: 70 }), BIG_FIVE_DIMENSIONS)).toBe("高尽责性 · 高外向性");
+  });
+
+  it("逐维解读以 50 分为中线取高分 / 低分文案（3 分折算恒为 50，算高分）", () => {
+    const items = buildBigFiveInterpretations(five({ N: 50, E: 49, O: 100, A: 0, C: 75 }), BIG_FIVE_DIMENSIONS);
+    const byKey = new Map(items.map((item) => [item.key, item]));
+    expect(byKey.get("N")).toMatchObject({ level: "high", text: BIG_FIVE_INTERPRETATIONS.N.high });
+    expect(byKey.get("E")).toMatchObject({ level: "low", text: BIG_FIVE_INTERPRETATIONS.E.low });
+    expect(byKey.get("A")).toMatchObject({ level: "low", text: BIG_FIVE_INTERPRETATIONS.A.low });
+    expect(byKey.get("O")).toMatchObject({ level: "high", text: BIG_FIVE_INTERPRETATIONS.O.high });
+    // 顺序与条状排名一致，前两维标主要特质
+    expect(items.map((item) => item.key)).toEqual(["O", "C", "N", "E", "A"]);
+    expect(items.slice(0, 2).every((item) => item.isPrimary)).toBe(true);
+  });
+
+  it("十段解读齐全、不出现统计/工程术语", () => {
+    expect(Object.keys(BIG_FIVE_INTERPRETATIONS).sort()).toEqual(["A", "C", "E", "N", "O"]);
+    for (const key of Object.keys(BIG_FIVE_INTERPRETATIONS)) {
+      for (const level of ["high", "low"] as const) {
+        const text = BIG_FIVE_INTERPRETATIONS[key][level];
+        expect(text.length, `${key}.${level} 太短`).toBeGreaterThan(10);
+        for (const jargon of ["标准分", "维度", "口径"]) {
+          expect(text, `${key}.${level} 的解读出现术语「${jargon}」`).not.toContain(jargon);
+        }
+      }
+    }
+  });
+
+  it("雷达按量表自己的维度顺序排布，大五的 E/A/C 不会被当成霍兰德字母", () => {
+    const points = buildRadarPoints(five({ E: 80, A: 60 }), BIG_FIVE_DIMENSIONS);
+    expect(points.map((p) => p.key)).toEqual(["N", "E", "O", "A", "C"]);
+    expect(points.map((p) => p.standard)).toEqual([0, 80, 0, 60, 0]);
+    expect(points.find((p) => p.key === "E")?.label).toBe("外向性");
+    expect(points.find((p) => p.key === "A")?.label).toBe("宜人性");
+    expect(points.find((p) => p.key === "C")?.label).toBe("尽责性");
+  });
+
+  it("提示卡的三组对应关系：S↔宜人性、E↔外向性、C↔尽责性，文案面向学生", () => {
+    expect(CROSS_SCALE_LINKS.map((link) => `${link.riasec}-${link.bigFive}`)).toEqual(["S-A", "E-E", "C-C"]);
+    for (const link of CROSS_SCALE_LINKS) {
+      expect(link.riasecLabel.length).toBeGreaterThan(0);
+      expect(link.bigFiveLabel.length).toBeGreaterThan(0);
+      expect(link.text).toContain(link.riasecLabel);
+      expect(link.text).toContain(link.bigFiveLabel);
+      expect(link.text).not.toContain("维度");
+    }
+  });
+});
+
+describe("结果卡分流与口径行（#292）", () => {
+  it("按计分模式在入口分流：dimensional → 大五卡，其余 → 霍兰德卡", () => {
+    expect(resultCardMode({ scoringMode: "dimensional" })).toBe("big-five");
+    expect(resultCardMode({ scoringMode: "typological" })).toBe("holland");
+    // 老接口没下发 scoringMode 时沿用霍兰德卡，不靠 typeCode 是否为 null 反推
+    expect(resultCardMode({})).toBe("holland");
+    expect(resultCardMode(null)).toBe("holland");
+    expect(resultCardMode({ scoringMode: "unknown-mode" })).toBe("holland");
+  });
+
+  it("口径行：题量 · 完成时间 · 第几次；版本数撞上限显示 10+", () => {
+    expect(buildResultTrailing({ questionCount: 30, completedAt: "2026-10-21 14:30", historyCount: 2 })).toBe(
+      "本次 30 题 · 完成于 2026-10-21 14:30 · 第 2 次"
+    );
+    expect(buildResultTrailing({ completedAt: "", historyCount: 10 })).toBe("第 10+ 次");
+    expect(buildResultTrailing({ questionCount: 0, historyCount: 0 })).toBe("已完成");
   });
 });
 

@@ -324,8 +324,24 @@ describe("提交与结果落库", () => {
     expect(body.history[0].id).toBe(body.current.id);
     expect(body.inProgress).toBeNull(); // 提交后草稿已转成完成记录
     expect(body.assessment.enabled).toBe(true); // #222 测评中心据此给「开始 / 继续作答」入口
+    expect(body.assessment.scoringMode).toBe("typological"); // #292 档案页据此分流结果卡
     expect(body.assessment.questionCount).toBe(ROUND_SIZE);
     expect(body.assessment.poolSize).toBe(BANK_SIZE);
+
+    // 量表清单（#292）：一次响应带全部已启用量表，档案页按它循环渲染结果卡
+    expect(body.assessments.map((a: { code: string }) => a.code)).toEqual([RIASEC_CODE, IPIP_NEO_FFI_CODE]);
+    expect(body.assessments[0]).toMatchObject({
+      questionCount: ROUND_SIZE,
+      poolSize: BANK_SIZE,
+      enabled: true,
+      scoringMode: "typological",
+    });
+    expect(body.assessments[1]).toMatchObject({
+      name: IPIP_ASSESSMENT.name,
+      questionCount: IPIP_QUESTIONS.length,
+      poolSize: IPIP_QUESTIONS.length,
+      scoringMode: "dimensional",
+    });
 
     const audit = await queryAuditLogs({ page: 1, pageSize: 20, action: "assessment:results" });
     expect(audit.total).toBeGreaterThan(0);
@@ -561,5 +577,19 @@ describe("多量表作答链路（#289）", () => {
       expect(score.standard).toBeGreaterThanOrEqual(0);
       expect(score.standard).toBeLessThanOrEqual(100);
     }
+
+    // 结果查询按 code 返回该量表的结果（#292 档案页据此渲染大五卡）
+    const results = await resultsGet(
+      getRequest(`/api/shared/assessment/results?code=${IPIP_NEO_FFI_CODE}`, users.D.token)
+    );
+    expect(results.status).toBe(200);
+    const resultsBody = await results.json();
+    expect(resultsBody.assessment.scoringMode).toBe("dimensional");
+    expect(resultsBody.current.typeCode).toBeNull();
+    expect(resultsBody.current.questionCount).toBe(IPIP_QUESTIONS.length);
+    expect(resultsBody.current.scores.map((s: { key: string }) => s.key)).toEqual(
+      IPIP_DIMENSIONS.map((dimension) => dimension.key)
+    );
+    expect(resultsBody.history).toHaveLength(1);
   });
 });
