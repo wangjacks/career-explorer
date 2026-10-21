@@ -22,7 +22,6 @@ const APP_PAGES = new Set([
   "/dashboard/admin",
   "/dashboard/student",
   "/dashboard/teacher",
-  "/form",
 ]);
 
 function shouldShowMenu(pathname: string | null): boolean {

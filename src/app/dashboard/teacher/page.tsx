@@ -18,6 +18,7 @@ import {
   UsersRound,
 } from "lucide-react";
 import NavigationBar from "@/components/NavigationBar";
+import DemoBanner from "@/components/DemoBanner";
 import PanelSidebar, { type PanelSidebarGroup } from "@/components/dashboard/PanelSidebar";
 import ClassesTab from "@/components/admin/ClassesTab";
 import StudentsTab from "@/components/admin/StudentsTab";
@@ -162,6 +163,7 @@ export default function TeacherDashboardPage() {
     <div className="min-h-screen bg-background">
       <Toaster position="top-center" />
       <NavigationBar title="教师面板" showHome onToggleSidebar={() => setSidebarOpen((v) => !v)} />
+      <DemoBanner />
 
       {/* 注意：此 flex 容器不设任何 overflow，避免破坏侧边栏 sticky */}
       <div className="flex">

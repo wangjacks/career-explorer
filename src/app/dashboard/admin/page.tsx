@@ -29,6 +29,7 @@ import StudentsTab from "@/components/admin/StudentsTab";
 import ExportTab from "@/components/admin/ExportTab";
 import AdminDashboardTab from "@/components/admin/AdminDashboardTab";
 import NavigationBar from "@/components/NavigationBar";
+import DemoBanner from "@/components/DemoBanner";
 import PanelSidebar, { type PanelSidebarGroup } from "@/components/dashboard/PanelSidebar";
 import TagsTab from "@/components/admin/TagsTab";
 import ClassesTab from "@/components/admin/ClassesTab";
@@ -172,6 +173,7 @@ export default function AdminPage() {
       <Toaster position="top-center" />
 
       <NavigationBar title="后台管理" showHome onToggleSidebar={() => setSidebarOpen((v) => !v)} />
+      <DemoBanner />
 
       {/* 注意：此 flex 容器不设任何 overflow，避免破坏侧边栏 sticky */}
       <div className="flex">
