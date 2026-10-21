@@ -5,7 +5,9 @@
  * 快照让「哪 30 题」可复原，因此逐题统计不再要求同一套题在所有被试间可比：
  * - 单题样本 = 所有抽到该题并作答的完成记录；
  * - `r_it` = 该题与**同一张卷子同维度其余题为总分**的相关（不是整库固定 5 题）；
- * - α 按「同一维度的 5 题组合」分组（同一张卷子的题集才可比），而不是按人算。
+ * - α 按「同一维度的 5 题组合」分组（同一张卷子的题集才可比），而不是按人算；
+ * - 含反向计分题的量表（IPIP 25 道反向题）先按 `6 − 原始值` 转成计分方向，再做全部统计；
+ *   CSV 的 `reverse_scored` 列保留原始方向，避免把反向题误判成低区分度题。
  *
  * 阈值与处置（见 docs/assessment-validation.md §7，改这里要同步改文档）：
  * - 单题 n < 50：样本不足，不给结论；
@@ -16,6 +18,7 @@
  *
  * 本层只处理聚合数字，不接触 user_id、姓名、学号；历史结果即使题目已退役也照常统计
  * （退役只影响后续抽题，不影响快照解释，见 `assessment-data.ts` 的 `RETIRED_QUESTIONS`）。
+ * `mean` / `sd` / `r_it` / α 都是**计分方向**上的值；反向题的原始作答在进入统计前已转换。
  */
 
 /**
@@ -68,6 +71,11 @@ export interface ItemQuestion {
   origin: ItemOrigin;
   version: number;
   prompt: string;
+  /**
+   * 反向计分题：统计前按 `6 − 原始值` 转换（与 `assessment-scoring.ts` 的 `REVERSE_FACTOR` 一致）。
+   * IPIP 五大量表含 25 道反向题；不转换会把它们误判成低区分度题。
+   */
+  reverseScored?: boolean;
 }
 
 /** 一次完成记录的快照投影：本轮题号 + 有效作答（1–5） */
@@ -82,6 +90,8 @@ export interface ItemStat {
   index: number;
   dimension: string;
   origin: ItemOrigin;
+  /** 原始题库的方向标记；CSV 用它区分反向题 */
+  reverseScored: boolean;
   version: number;
   prompt: string;
   /** 该题累计作答次数 */
@@ -208,6 +218,14 @@ function cronbachAlpha(rows: readonly (readonly number[])[]): number | null {
   }
   const alpha = (columns / (columns - 1)) * (1 - itemVarianceSum / totalVariance);
   return Math.min(1, alpha);
+}
+
+/**
+ * 计分方向转换：反向题按 `6 − 值` 取反（`LIKERT_MIN + LIKERT_MAX`，与 `assessment-scoring.ts`
+ * 的 `REVERSE_FACTOR` 同口径）；本文件保持零 import，故本地实现。
+ */
+function scoredValue(question: ItemQuestion, raw: number): number {
+  return question.reverseScored === true ? 6 - raw : raw;
 }
 
 /** 仅保留 1–5 的整数作答；完成记录理论上只有合法值，这里对脏数据再兜一层 */
@@ -341,17 +359,21 @@ export function analyzeItemQuality(options: AnalyzeOptions): ItemQualityReport {
       forms.add(key);
 
       const answered = sorted.filter((question) => answers.has(question.index));
-      // 单题均值 / 标准差按所有有效作答算；r_it 才需要「同卷同维其余题」，至少两题才有配对
+      // 单题均值 / 标准差按所有有效作答算；r_it 才需要「同卷同维其余题」，至少两题才有配对。
+      // 反向题先转换成计分方向（6 − 原始值），否则 IPIP 的 25 道反向题会被误判为负区分度。
       for (const question of answered) {
-        const value = answers.get(question.index)!;
+        const value = scoredValue(question, answers.get(question.index)!);
         const values = itemValues.get(question.index);
         if (values) values.push(value);
         else itemValues.set(question.index, [value]);
       }
       if (answered.length >= 2) {
-        const total = answered.reduce((sum, question) => sum + (answers.get(question.index) ?? 0), 0);
+        const total = answered.reduce(
+          (sum, question) => sum + scoredValue(question, answers.get(question.index)!),
+          0
+        );
         for (const question of answered) {
-          const value = answers.get(question.index)!;
+          const value = scoredValue(question, answers.get(question.index)!);
           const ritValues = itemRitValues.get(question.index);
           if (ritValues) ritValues.push(value);
           else itemRitValues.set(question.index, [value]);
@@ -364,7 +386,7 @@ export function analyzeItemQuality(options: AnalyzeOptions): ItemQualityReport {
 
       // α 只用于「完整作答」的行：缺答的行放进 α 会让列均值和协方差不可比
       if (sorted.length >= 2 && answered.length === sorted.length) {
-        const row = sorted.map((question) => answers.get(question.index)!);
+        const row = sorted.map((question) => scoredValue(question, answers.get(question.index)!));
         const rows = formRows.get(key);
         if (rows) rows.push(row);
         else formRows.set(key, [row]);
@@ -386,6 +408,7 @@ export function analyzeItemQuality(options: AnalyzeOptions): ItemQualityReport {
         index: question.index,
         dimension: question.dimension,
         origin: question.origin,
+        reverseScored: question.reverseScored === true,
         version: question.version,
         prompt: question.prompt,
         n: values.length,
@@ -490,6 +513,7 @@ const CSV_HEADERS = [
   "dimension",
   "dimension_label",
   "origin",
+  "reverse_scored",
   "item_index",
   "version",
   "prompt",
@@ -540,6 +564,7 @@ export function toItemCsv(report: ItemQualityReport): string {
         item.dimension,
         csvCell(dimension?.label ?? item.dimension),
         item.origin,
+        item.reverseScored ? 1 : 0,
         item.index,
         item.version,
         csvCell(item.prompt),

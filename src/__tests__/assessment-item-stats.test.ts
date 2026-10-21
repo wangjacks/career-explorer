@@ -383,7 +383,7 @@ describe("toItemCsv：逐题 CSV", () => {
 
   it("表头固定，行数 = 题目数，末尾换行", () => {
     expect(lines[0]).toBe(
-      "dimension,dimension_label,origin,item_index,version,prompt,n,mean,sd,r_it,item_verdict,flags,sampling_status," +
+      "dimension,dimension_label,origin,reverse_scored,item_index,version,prompt,n,mean,sd,r_it,item_verdict,flags,sampling_status," +
         "dimension_alpha,dimension_alpha_min,dimension_alpha_form_total,dimension_alpha_forms," +
         "dimension_alpha_forms_below,dimension_verdict,official_mean,original_mean,source_gap," +
         "source_verdict,note"
@@ -399,11 +399,12 @@ describe("toItemCsv：逐题 CSV", () => {
 
   it("按「维度声明顺序 → 来源 → 题号」排序，状态与判定可筛选", () => {
     const rows = lines.slice(1, -1).map(parseCsvLine);
-    expect(rows.map((row) => [row[0], row[2], row[3]])).toEqual([
+    expect(rows.map((row) => [row[0], row[2], row[4]])).toEqual([
       ["R", "onet-mini", "1"],
       ["R", "cn-original", "2"],
       ["I", "ipip", "3"],
     ]);
+    expect(rows.map((row) => row[3])).toEqual(["0", "0", "0"]);
     expect(rows[1]).toContain("origin-gated");
     expect(rows[0]).toContain("sample-too-small");
   });
@@ -412,7 +413,7 @@ describe("toItemCsv：逐题 CSV", () => {
     expect(csv).not.toMatch(/NaN|null|undefined/);
     const third = parseCsvLine(lines[3]);
     // n = 0 → mean / sd / r_it 三列全空
-    expect(third.slice(6, 10)).toEqual(["0", "", "", ""]);
+    expect(third.slice(7, 11)).toEqual(["0", "", "", ""]);
   });
 });
 
@@ -438,6 +439,7 @@ function createStatsFixture(): { dir: string; dbPath: string } {
       question_index INTEGER NOT NULL,
       dimension TEXT NOT NULL,
       origin TEXT NOT NULL,
+      reverse_scored INTEGER NOT NULL DEFAULT 0,
       version INTEGER NOT NULL,
       prompt TEXT NOT NULL
     );
@@ -456,10 +458,11 @@ function createStatsFixture(): { dir: string; dbPath: string } {
     "INSERT INTO assessments (id, code, name, scale_version, items_per_attempt, dimensions_json) VALUES (1, 'riasec', '测试量表', 'test-1', 2, ?)"
   ).run(JSON.stringify([R_DIMENSION]));
   const insertQuestion = db.prepare(
-    "INSERT INTO assessment_questions (assessment_id, question_index, dimension, origin, version, prompt) VALUES (1, ?, 'R', ?, 1, ?)"
+    "INSERT INTO assessment_questions (assessment_id, question_index, dimension, origin, reverse_scored, version, prompt) VALUES (1, ?, 'R', ?, ?, 1, ?)"
   );
-  insertQuestion.run(1, "onet-mini", "官方题");
-  insertQuestion.run(2, "cn-original", "原创题");
+  insertQuestion.run(1, "onet-mini", 0, "官方题");
+  // 第 2 题是反向计分题：原始作答均值 2，计分方向均值 4；CSV 必须体现转换后的 4.000
+  insertQuestion.run(2, "cn-original", 1, "原创题");
   const insertResult = db.prepare(
     "INSERT INTO assessment_results (assessment_id, user_id, student_name, status, answers_json, items_json, updated_at) VALUES (1, ?, ?, ?, ?, ?, ?)"
   );
@@ -470,7 +473,7 @@ function createStatsFixture(): { dir: string; dbPath: string } {
       1000 + i,
       `secret-student-${i}`,
       "completed",
-      JSON.stringify({ 1: 5, 2: (i % 5) + 1 }),
+      JSON.stringify({ 1: 5, 2: (i % 3) + 1 }),
       snapshot,
       "2026-01-01T00:00:00Z"
     );
@@ -528,6 +531,14 @@ describe("scripts/assessment-item-stats.mjs：只读 CLI", () => {
       expect(csv).not.toContain("secret-student");
       expect(csv).not.toContain("user_id");
       expect(csv.split("\n").filter((line) => line.length > 0)).toHaveLength(3); // 表头 + 2 题
+      const rows = csv
+        .split("\n")
+        .slice(1, -1)
+        .map(parseCsvLine);
+      const original = rows.find((row) => row[4] === "2")!;
+      expect(original[3]).toBe("1");
+      // 原始作答 1/2/3 各 20 次 → 反向转换后 5/4/3，均值 4.000
+      expect(original[8]).toBe("4.000");
       expect(csv).toContain("ceiling|no-variation|rit-uncomputable");
       expect(csv).toContain("review-original");
     } finally {
@@ -594,5 +605,33 @@ describe("与 assessment-validation.ts 的统计口径一致", () => {
       );
     }
     expect(report.dimensions[0].alpha).toBeCloseTo(cronbachAlpha(rows)!, 10);
+  });
+
+  it("反向计分题先按 6 − 原始值转换，再做均值 / r_it / α", () => {
+    const questions = [
+      question(1, "R"),
+      question(2, "R"),
+      { ...question(3, "R"), reverseScored: true },
+    ];
+    const attempts: AttemptRecord[] = [];
+    const scoredRows: number[][] = [];
+    for (let i = 0; i < 60; i += 1) {
+      const raw = [((i * 3) % 5) + 1, ((i * 2) % 5) + 1, ((i * 4) % 5) + 1];
+      scoredRows.push([raw[0], raw[1], 6 - raw[2]]);
+      attempts.push({ indexes: [1, 2, 3], answers: { 1: raw[0], 2: raw[1], 3: raw[2] } });
+    }
+    const report = analyzeItemQuality({ questions, attempts, dimensions: [R_DIMENSION] });
+    const item3 = report.items.find((item) => item.index === 3)!;
+    const scored = scoredRows.map((row) => row[2]);
+    const rest = scoredRows.map((row) => row[0] + row[1]);
+
+    expect(item3.reverseScored).toBe(true);
+    expect(item3.mean).toBeCloseTo(
+      scored.reduce((sum, value) => sum + value, 0) / scored.length,
+      10
+    );
+    expect(item3.sd).toBeCloseTo(sampleSd(scored), 10);
+    expect(item3.rit).toBeCloseTo(pearsonCorrelation(scored, rest)!, 10);
+    expect(report.dimensions[0].alpha).toBeCloseTo(cronbachAlpha(scoredRows)!, 10);
   });
 });

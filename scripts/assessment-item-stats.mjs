@@ -117,6 +117,8 @@ function normalizeQuestion(row) {
     index,
     dimension,
     origin,
+    // SQLite 返回 0/1，匿名 JSON 用布尔值；两种都接受
+    reverseScored: Boolean(row?.reverseScored ?? row?.reverse_scored ?? false),
     version: Number.isInteger(row?.version) && row.version > 0 ? row.version : 1,
     prompt: typeof row?.prompt === "string" ? row.prompt : "",
   };
@@ -137,7 +139,7 @@ function loadFromDb(dbPath, code) {
     if (dimensions.length === 0) fail(`量表 ${code} 的 dimensions_json 为空，无法分组`);
     const questions = db
       .prepare(
-        `SELECT question_index, dimension, origin, version, prompt
+        `SELECT question_index, dimension, origin, reverse_scored, version, prompt
            FROM assessment_questions
           WHERE assessment_id = ?
           ORDER BY question_index`
@@ -204,10 +206,12 @@ function loadFromDb(dbPath, code) {
  * 匿名导出 JSON（MySQL 部署 / 研究者复核用）：
  * {
  *   "assessment": { "code", "name", "scaleVersion", "itemsPerAttempt", "dimensions": [{key,label}] },
- *   "questions": [{ "index", "dimension", "origin", "version", "prompt" }],
+ *   "questions": [{ "index", "dimension", "origin", "reverseScored", "version", "prompt" }],
  *   "attempts": [{ "indexes": [..], "answers": { "1": 4, ... } }]
  * }
  * `attempts` 不带 studentKey：逐题统计不需要被试配对，也就没有可识别信息。
+ * `answers` 保留**原始** 1–5 作答；`reverseScored` 必填（DB 侧取自 `reverse_scored`），
+ * 由 `src/lib/assessment-item-stats.ts` 统一按 6 − 值 转换后再统计。
  */
 function loadFromExport(filePath) {
   if (!existsSync(filePath)) fail(`找不到导出文件：${filePath}`);

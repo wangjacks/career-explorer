@@ -116,13 +116,14 @@ export const SAMPLING_EXCLUDED_ORIGINS: ReadonlySet<QuestionOrigin> = new Set(["
 
 | 指标 | 本仓库口径 | 判定线 | 处置 |
 |---|---|---|---|
-| 单题均值 | 该题所有有效 1–5 作答的均值 | `< 1.6` 或 `> 4.4` | 淘汰（地板 / 天花板题） |
+| 单题均值 | 该题所有有效 1–5 作答按**计分方向**转换后的均值（反向题按 `6 − 原始值`） | `< 1.6` 或 `> 4.4` | 淘汰（地板 / 天花板题） |
 | 单题标准差 | 样本标准差（`ddof = 1`） | `= 0` | 淘汰（无变异，无法提供信息） |
 | 校正题目-总分相关 `r_it` | 该题 vs **同一张卷子同维度其余题之和**的 Pearson 相关 | `< 0.30` 或无法计算 | 淘汰（区分度不足） |
 | 维度内部一致性 α | 按「同一维度的同一组 5 题」分组，只用完整作答的行；维度 α 为各组合按人数加权的均值 | 任一组合 `< 0.55` | 复查该维度题池（不自动淘汰） |
 | 来源差异 | 官方题（`onet-*`）与原创题（`cn-original`）的**同维、单题 n ≥ 50** 的题均值之差 | 官方 − 原创的绝对值 `> 0.5` | 整批原创题复评 |
 
 - **样本门槛**：单题累计有效作答 `< 50` 时只标注「样本不足」，不给淘汰结论；均值、标准差、`r_it` 可以照常显示，但不得据此换题。
+- **反向计分**：IPIP 五大量表每维 5 正 5 反（共 25 道反向题）。统计层在算均值 / 标准差 / `r_it` / α 之前统一按 `6 − 原始值` 转成计分方向，CSV 的 `reverse_scored` 列保留原始方向；不转换会把反向题判成负区分度，这是错误的淘汰依据。
 - **为什么 α 按卷面组合算**：#282 之后每人只答 30 题，不同人拿到的 5 题组合不同，按人算 α 会把不同卷子混在一起；
   同一组合不足 `ALPHA_FORM_MIN_SAMPLE = 2` 人时 α 不可计算，报告同时输出「组合总数 / 可计算组合数 / 低于阈值组合数」，提醒样本可信度。`r_it` 是主要淘汰依据。
 - **来源差异在 #284 回退期的限制**：原创题不进抽题池，新数据只会覆盖官方题；脚本会明确提示「原创题复评前须先恢复放行」，不会把「无原创题数据」当成来源达标。
@@ -144,7 +145,7 @@ node scripts/assessment-item-stats.mjs --db ./data/career.db --strict
 - 脚本**只 SELECT** `assessments` / `assessment_questions` / `assessment_results` 的题目与作答聚合字段，不取 `user_id`、姓名、学号或班级；
   CSV 只有题目级聚合，没有单条作答明细，可直接交给指导教师复核。
 - stdout 是 CSV（`--out` 时写文件并加 UTF-8 BOM，方便 Excel）；运行摘要与告警走 stderr。
-- CSV 字段：`dimension` / `dimension_label` / `origin` / `item_index` / `version` / `prompt` / `n` / `mean` / `sd` / `r_it` /
+- CSV 字段：`dimension` / `dimension_label` / `origin` / `reverse_scored` / `item_index` / `version` / `prompt` / `n` / `mean` / `sd` / `r_it` /
   `item_verdict` / `flags` / `sampling_status` / `dimension_alpha` / `dimension_alpha_min` / `dimension_alpha_form_total` /
   `dimension_alpha_forms` / `dimension_alpha_forms_below` / `dimension_verdict` / `official_mean` / `original_mean` /
   `source_gap` / `source_verdict` / `note`。
@@ -158,7 +159,7 @@ node scripts/assessment-item-stats.mjs --db ./data/career.db --strict
    题面通过汉字数 / 禁词 / 归一化唯一性 / 锚定职业校验；**不 UPDATE 旧题行、不改旧题面、不改旧题 `version`**；
 3. 把旧题号与候补题号放进**同一个** `NEAR_DUPLICATE_GROUPS` 组（同卷至多一题的第二道保险）；
 4. 在 `RETIRED_QUESTIONS` 追加 `{ index: 旧题号, replacementIndex: 候补题号, reason, decidedAt }`；
-   `reason` 必须带指标与数据导出日期（如 `r_it = 0.12（n = 63，2026-11-30 导出）`），`decidedAt` 为 `YYYY-MM-DD`；
+   `reason` 必须带指标与数据导出日期（如 `r_it = 0.12（n = 63，2026-10-21 导出）`），`decidedAt` 为 `YYYY-MM-DD`；
 5. 跑种子校验与抽题测试：`validateRetirementLedger` 会拦「题号不存在 / 不同维 / 候补题不是原创 / 候补题号不更大 /
    旧题重复登记 / 候补题重复使用 / 缺依据或日期 / 不在同一近重复组」；`validateAssessmentSeed` 按**在用题目**校验每维题数与来源分布；
 6. `SAMPLING_RETIRED_INDEXES` 由台账派生，`planAttempt` / `drawItems` 自动排除旧题；`poolFingerprint` 在退役集非空时把它计入哈希，
@@ -181,14 +182,15 @@ node scripts/assessment-item-stats.mjs --db ./data/career.db --strict
     "dimensions": [{ "key": "R", "label": "现实型" }]
   },
   "questions": [
-    { "index": 1, "dimension": "R", "origin": "onet-mini", "version": 1, "prompt": "……" }
+    { "index": 1, "dimension": "R", "origin": "onet-mini", "reverseScored": false, "version": 1, "prompt": "……" }
   ],
   "attempts": [{ "indexes": [1, 7, 13], "answers": { "1": 4, "7": 3, "13": 5 } }]
 }
 ```
 
 - `attempts` 不带 `studentKey`：逐题统计不需要配对，也就没有可识别信息；导出前删除姓名、完整学号与班级归属。
-- `answers` 只保留 1–5 整数；`indexes` 取完成记录的 `items_json.indexes`（缺快照的抽样记录脚本会跳过并计数，不猜题集）。
+- `answers` 保留**原始** 1–5 整数；反向转换在统计层完成。`questions[].reverseScored` 必填（数据库侧来自 `reverse_scored`，SQLite 的 0/1 与 JSON 布尔值都接受），遗漏会被当作正向题。
+- `indexes` 取完成记录的 `items_json.indexes`（缺快照的抽样记录脚本会跳过并计数，不猜题集）。
 - 全量作答的量表（`itemsPerAttempt = 0`）允许 `indexes` 缺失，脚本按整个题库作为本轮。
 
 ### 7.5 「近 N 轮」排除的评估结论
@@ -206,7 +208,7 @@ node scripts/assessment-item-stats.mjs --db ./data/career.db --strict
 
 ### 7.7 验收测试
 
-- `src/__tests__/assessment-item-stats.test.ts`：阈值边界、手算 `n / mean / sd / r_it`、样本不足、卷面组合 α、来源差异、CSV 转义与空值、
-  CLI 只读（执行前后数据库 SHA-256 与 `updated_at` 不变）、CSV 不含学生身份信息、`--strict` 退出码；
+- `src/__tests__/assessment-item-stats.test.ts`：阈值边界、手算 `n / mean / sd / r_it`、样本不足、卷面组合 α、来源差异、反向计分转换、
+  CSV 转义与空值、CLI 只读（执行前后数据库 SHA-256 与 `updated_at` 不变）、CSV 不含学生身份信息、`--strict` 退出码；
 - `src/__tests__/assessment-items.test.ts`：台账正反例、候补题让在用题数重新均衡、全维退役报错、在用官方题下限、当前台账为空；
 - `src/__tests__/assessment-sampling.test.ts`：退役集改变题库指纹、三种抽题路径都排除退役题、含退役题的历史快照作废重派。
