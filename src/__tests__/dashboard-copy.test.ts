@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { ASSESSMENT_DASHBOARD_COPY, ADMIN_DASHBOARD_COPY, TEACHER_DASHBOARD_COPY, type DashboardCopy } from "../lib/dashboard-copy";
+import { ASSESSMENT_DASHBOARD_COPY, ADMIN_DASHBOARD_COPY, TEACHER_BOARD_COPY, TEACHER_DASHBOARD_COPY, type DashboardCopy } from "../lib/dashboard-copy";
 import {
   isReservedClassName,
   UNASSIGNED_CLASS_KEY,
@@ -130,7 +130,7 @@ describe("TEACHER_DASHBOARD_COPY", () => {
     expect(TEACHER_DASHBOARD_COPY.trendEyebrow(30, false)).toBe("最近 30 天");
     expect(TEACHER_DASHBOARD_COPY.trendEyebrow(7, true)).toBe("最近 7 天 · 分班级");
     expect(TEACHER_DASHBOARD_COPY.trendDaysAriaLabel).toBe("看几天");
-    expect(TEACHER_DASHBOARD_COPY.trendGroupAriaLabel).toBe("怎么看（全校 · 分班级）");
+    expect(TEACHER_DASHBOARD_COPY.trendGroupAriaLabel).toBe("怎么看（所有班级 · 分班级）");
     expect(TEACHER_DASHBOARD_COPY.trendScopeNote).toBe("上面两个按钮只改这张图");
     expect(TEACHER_DASHBOARD_COPY.trendLoadingByClass).toBe("正在分班统计…");
     expect(TEACHER_DASHBOARD_COPY.trendEmptyTitle).toBe("这几天还没有学生提交");
@@ -146,7 +146,7 @@ describe("TEACHER_DASHBOARD_COPY", () => {
 
   it("分组按钮的文字与 aria-label 用同一个词，不出现按钮说一套、读屏说一套", () => {
     const aria = TEACHER_DASHBOARD_COPY.trendGroupAriaLabel;
-    expect(TEACHER_DASHBOARD_COPY.trendGroupTotalLabel).toBe("全校");
+    expect(TEACHER_DASHBOARD_COPY.trendGroupTotalLabel).toBe("所有班级");
     expect(TEACHER_DASHBOARD_COPY.trendGroupClassLabel).toBe("分班级");
     expect(aria).toContain(TEACHER_DASHBOARD_COPY.trendGroupTotalLabel);
     expect(aria).toContain(TEACHER_DASHBOARD_COPY.trendGroupClassLabel);
@@ -288,27 +288,31 @@ describe("DashboardKit 的取数与文案解耦", () => {
 
     expect(adminSource).toContain("ADMIN_DASHBOARD_COPY");
     expect(adminSource).not.toContain("TEACHER_DASHBOARD_COPY");
+    expect(adminSource).not.toContain("TEACHER_BOARD_COPY");
+    // 教师端：新看板用自己的文案表，仅共用的 DistributionCard 需要 DashboardCopy
+    expect(teacherSource).toContain("TEACHER_BOARD_COPY");
     expect(teacherSource).toContain("TEACHER_DASHBOARD_COPY");
     expect(teacherSource).not.toContain("ADMIN_DASHBOARD_COPY");
-    for (const component of ["SubmissionHero", "DistributionCard"]) {
-      expect(adminSource.split(component).length - 1).toBeGreaterThanOrEqual(1);
-      expect(teacherSource.split(component).length - 1).toBeGreaterThanOrEqual(1);
-    }
-    // 教师端已用提交列表与测评看板替换趋势 / 对比卡（#217 / #232）；管理端保留原图表组合
+
+    // 管理端 hero 零改动：SubmissionHero 只留在管理端；教师端换成新看板的 hero
+    expect(adminSource).toContain("SubmissionHero");
+    expect(teacherSource).not.toContain("SubmissionHero");
+    expect(teacherSource).toContain("DistributionCard");
     for (const component of ["TrendCard", "CompareCard"]) {
       expect(adminSource.split(component).length - 1).toBeGreaterThanOrEqual(1);
       expect(teacherSource.split(component).length - 1).toBe(0);
     }
-    expect(teacherSource).toContain("ClassSubmissionCard");
-    expect(teacherSource).toContain("TeacherAssessmentCard");
 
-    const teacherCardsSource = stripComments(
-      readFileSync(join(process.cwd(), "src/components/admin/TeacherDashboardCards.tsx"), "utf8")
-    );
-    expect(teacherCardsSource).toContain("TEACHER_DASHBOARD_COPY");
-    expect(teacherCardsSource).not.toContain("ADMIN_DASHBOARD_COPY");
-    // 占位卡已被真实看板替换（#232），不能再留着并行的占位实现
-    expect(teacherCardsSource).not.toContain("AssessmentPlaceholderCard");
+    // 新看板三块（#314）：页头 → hero → 矩阵 → 行动条
+    for (const component of ["TeacherBoardHero", "CompletionMatrix", "ActionStrip"]) {
+      expect(teacherSource, `教师端缺少 ${component}`).toContain(component);
+    }
+    // 旧的重复展示已删除（提交进度 hero / 班级提交列表 / 测评卡）
+    for (const component of ["ClassSubmissionCard", "TeacherAssessmentCard"]) {
+      expect(teacherSource.split(component).length - 1).toBe(0);
+    }
+    expect(existsSync(join(process.cwd(), "src/components/admin/TeacherDashboardCards.tsx"))).toBe(false);
+    expect(existsSync(join(process.cwd(), "src/components/admin/TeacherAssessmentCard.tsx"))).toBe(false);
   });
 });
 
@@ -366,7 +370,7 @@ describe("ASSESSMENT_DASHBOARD_COPY（#232 大屏测评栏）", () => {
   it("三视图 / 两范围 / 下钻文案逐条落地", () => {
     expect(ASSESSMENT_DASHBOARD_COPY.eyebrow).toBe("测评看板");
     expect(ASSESSMENT_DASHBOARD_COPY.title).toBe("职业兴趣测评");
-    expect(ASSESSMENT_DASHBOARD_COPY.scopeAllLabel).toBe("全校");
+    expect(ASSESSMENT_DASHBOARD_COPY.scopeAllLabel).toBe("所有班级");
     expect(ASSESSMENT_DASHBOARD_COPY.scopeMineLabel).toBe("只看我的班");
     expect(ASSESSMENT_DASHBOARD_COPY.viewProgressLabel).toBe("完成进度");
     expect(ASSESSMENT_DASHBOARD_COPY.viewTypesLabel).toBe("类型分布");
@@ -389,9 +393,11 @@ describe("ASSESSMENT_DASHBOARD_COPY（#232 大屏测评栏）", () => {
     for (const text of collectAssessmentStrings()) expect(text.trim()).not.toBe("");
   });
 
-  it("两块新组件的源码里没有任何面向用户的中文字面量（全部走文案表）", () => {
+  it("名册弹窗与看板三块的源码里没有任何面向用户的中文字面量（全部走文案表）", () => {
     for (const file of [
-      "src/components/admin/TeacherAssessmentCard.tsx",
+      "src/components/admin/TeacherBoardHero.tsx",
+      "src/components/admin/CompletionMatrix.tsx",
+      "src/components/admin/ActionStrip.tsx",
       "src/components/admin/AssessmentRosterDialog.tsx",
     ]) {
       expect(cjkLiterals(readFileSync(join(process.cwd(), file), "utf8")), `${file} 里有硬编码中文`).toEqual([]);
@@ -405,13 +411,107 @@ describe("ASSESSMENT_DASHBOARD_COPY（#232 大屏测评栏）", () => {
     const occurrences = dialogSource.split("copy.drilldownHint").length - 1;
     expect(occurrences).toBeGreaterThanOrEqual(2);
   });
+});
 
-  it("测评栏替换了占位卡，且只有教师侧使用文案表", () => {
-    const cardSource = stripComments(
-      readFileSync(join(process.cwd(), "src/components/admin/TeacherAssessmentCard.tsx"), "utf8")
+/** #314 看板文案表的函数字段样例：形状与真实调用一致，漏补会直接抛错 */
+const BOARD_FUNCTION_SAMPLES: Record<string, unknown[][]> = {
+  heroMissing: [[45]],
+  heroGridAria: [[68, 113]],
+  heroGridGroup: [["1班", 29, 53]],
+  matrixEnrolledSub: [[53]],
+  matrixCellRate: [["55.0%"]],
+  matrixProfileCellLabel: [["2025级1班", 29, 53]],
+  matrixScaleCellAria: [["2025级1班", "兴趣测评", 1, 34]],
+  matrixMissingAria: [["2025级1班", "兴趣测评", 45]],
+  matrixCompositionSummary: [[2, "社会型 1 · 研究型 1"]],
+  matrixCompositionSegmentAria: [["社会型", 1]],
+  actionNotStarted: [["1班、2班"]],
+  actionMissing: [["兴趣测评", 111]],
+  rosterTitleDone: [["2025级1班", "兴趣测评"]],
+  rosterTitleAllDone: [["兴趣测评"]],
+  rosterTitleAllMissing: [["兴趣测评"]],
+  rosterTitleMissing: [["2025级1班", "兴趣测评"]],
+  rosterBandLabel: [["high"], ["medium"], ["low"]],
+  rosterCountLabel: [[12]],
+};
+
+function collectBoardStrings(): string[] {
+  const out: string[] = [];
+  for (const [key, value] of Object.entries(TEACHER_BOARD_COPY)) {
+    if (typeof value === "string") {
+      out.push(value);
+      continue;
+    }
+    if (typeof value !== "function") continue;
+    const samples = BOARD_FUNCTION_SAMPLES[key];
+    if (!samples) throw new Error(`函数字段 ${key} 缺少样例入参（BOARD_FUNCTION_SAMPLES）`);
+    const fn = value as unknown as (...args: unknown[]) => string;
+    for (const args of samples) out.push(fn(...args));
+  }
+  return out;
+}
+
+describe("TEACHER_BOARD_COPY（#314 测评看板）", () => {
+  it("沿用教师侧禁用词表，且不说「全校 / 全班 / 本班」", () => {
+    const strings = collectBoardStrings();
+    expect(strings.length).toBeGreaterThan(40);
+    for (const text of strings) {
+      for (const word of JARGON) {
+        expect(text, `看板文案残留「${word}」：${text}`).not.toContain(word);
+      }
+      expect(text, `看板文案暗示了范围：${text}`).not.toMatch(/全校|全班|本班/);
+    }
+  });
+
+  it("空态是「行动邀请」，不写「暂无数据」这类孤句", () => {
+    const strings = collectBoardStrings();
+    for (const text of strings) {
+      expect(text).not.toMatch(/暂无数据|没有数据|暂无内容/);
+    }
+    expect(TEACHER_BOARD_COPY.heroNoStudents).toContain("还没有");
+    expect(TEACHER_BOARD_COPY.matrixEmptyTitle).toContain("还没有");
+    expect(TEACHER_BOARD_COPY.matrixEmptyHint).toContain("导入名单");
+  });
+
+  it("页头 / hero / 矩阵 / 行动条 / 名册文案逐条落地", () => {
+    expect(TEACHER_BOARD_COPY.eyebrow).toBe("数据中心 / 数据大屏");
+    expect(TEACHER_BOARD_COPY.title).toBe("测评看板");
+    expect(TEACHER_BOARD_COPY.scopeMineLabel).toBe("我带的班");
+    expect(TEACHER_BOARD_COPY.scopeAllLabel).toBe("所有班级");
+    expect(TEACHER_BOARD_COPY.heroGridCaption).toBe("每格 1 人 · 按班排列");
+    expect(TEACHER_BOARD_COPY.heroGridAria(68, 113)).toBe("已交 68 人，学生共 113 人，按班分组示意");
+    expect(TEACHER_BOARD_COPY.heroMissing(45)).toBe("还有 45 人没交");
+    expect(TEACHER_BOARD_COPY.heroScaleNote).toBe("与档案提交分开计算");
+    expect(TEACHER_BOARD_COPY.matrixCellEmpty).toBe("还没开始");
+    expect(TEACHER_BOARD_COPY.matrixScaleCellAria("2025级1班", "兴趣测评", 1, 34)).toBe(
+      "2025级1班 · 兴趣测评 · 已测 1 / 34 人 · 查看名单"
     );
-    expect(cardSource).toContain("ASSESSMENT_DASHBOARD_COPY");
-    expect(cardSource).not.toContain("TEACHER_DASHBOARD_COPY");
+    expect(TEACHER_BOARD_COPY.matrixProfileCellLabel("2025级1班", 29, 53)).toBe(
+      "2025级1班 · 档案提交 · 已交 29 / 53 人"
+    );
+    expect(TEACHER_BOARD_COPY.matrixCompositionTooltip).toContain("一人只按三字码首位计一次");
+    expect(TEACHER_BOARD_COPY.actionMissing("兴趣测评", 111)).toBe("兴趣测评还有 111 人没交");
+    expect(TEACHER_BOARD_COPY.actionNotStarted("1班、2班")).toBe("1班、2班还没开始");
+    expect(TEACHER_BOARD_COPY.actionCopySuccess).toBe("已复制提醒话术");
+    expect(TEACHER_BOARD_COPY.rosterTitleMissing("2025级1班", "兴趣测评")).toBe(
+      "2025级1班 · 兴趣测评 · 没交名单"
+    );
+    expect(TEACHER_BOARD_COPY.rosterBandLabel("high")).toBe("偏高");
+    expect(TEACHER_BOARD_COPY.rosterBandLabel("low")).toBe("偏低");
+    expect(TEACHER_BOARD_COPY.rosterBandLabel("medium")).toBe("中等");
+  });
+
+  it("量表口语短名在文案表里定义（接口只给 code 与正式名）", () => {
+    expect(TEACHER_BOARD_COPY.scaleLabels.riasec).toBe("兴趣测评");
+    expect(TEACHER_BOARD_COPY.scaleLabels["ipip-neo-ffi"]).toBe("人格测评");
+  });
+
+  it("每个字段都有内容；函数字段对样例入参返回非空", () => {
+    for (const [key, value] of Object.entries(TEACHER_BOARD_COPY)) {
+      if (typeof value !== "string") continue;
+      expect(value, `${key} 为空`).toBeTruthy();
+    }
+    for (const text of collectBoardStrings()) expect(text.trim()).not.toBe("");
   });
 });
 

@@ -356,17 +356,19 @@
 - **范围与下钻**：`scope=all` 默认看所有班级；教师 `scope=mine` 收窄到 `teacher_classes`，管理员 `scope=mine` 等同所有班级。教师看「所有班级」时响应行 `canDrilldown=false`（只读聚合），教师「我带的班」与管理员为 true；未分班不提供下钻。
 - **降级与审计**：量表读取失败退化为只有档案列；未安装返回空矩阵，均不 500。响应无个人信息，与 `/stats/assessment` 同口径**不记审计**；个人明细仍走 `/assessment/roster`（单独记审计）。
 
-## 数据大屏测评栏（#232）
+## 数据大屏 · 测评看板（#314）
 
-<!-- 对账：视图口径纯函数 `src/lib/assessment-dashboard.ts`（测试 `assessment-dashboard.test.ts`）；组件 `TeacherAssessmentCard` + `AssessmentRosterDialog`；文案 `ASSESSMENT_DASHBOARD_COPY`（`dashboard-copy.test.ts` 锁词表与对比度） -->
+<!-- 对账：纯函数 `src/lib/teacher-board.ts`（测试 `teacher-board.test.ts`）；组件 `TeacherDashboardTab` → `TeacherBoardHero` / `CompletionMatrix` / `ActionStrip` + `AssessmentRosterDialog`；文案 `TEACHER_BOARD_COPY`（`dashboard-copy.test.ts` 锁禁词、函数字段样例、零中文字面量）；数据 `/api/manage/stats/completion`（#310）+ `/api/manage/stats/assessment?code=` 的 `byClass`（#311）。#232 的卡内切三视图已被本页取代 -->
 
-- **一栏三视图 + 点击下钻**：教师端大屏全宽栏（`lg:col-span-12`）替换原占位卡。三个视图（完成进度 / 类型分布 / 热门三字码）共用**一次**聚合请求——切换视图不重取、不影响同屏其他图表；只有切换「全校 / 只看我的班」才重取聚合。点班级行 / 类型条 / 三字码胶囊才去取名册（个人明细，服务端记审计）
-- **完成进度**：按交齐比例**升序**（最该催的在前），同比例按班名排序，「还没分班」恒置末（它不是一个可催的班，且不是可下钻对象）；每行是 `班名 · 已交/共 N 人 · 内联进度条`
-- **类型分布**：六型**横向条**（不用雷达图——投屏读不出绝对量），宽度按最大值归一、右侧标人数；悬停/聚焦时读数固定显示在栏中心（不给每段挂 tooltip，同标签分布卡的理由）；点条按 `lead` 下钻
-- **热门三字码**：Top-10 胶囊，底色取首位类型色；点胶囊按**完整 `code`** 下钻（为此名册接口新增 `code` 过滤，与 `lead` 是「且」关系）
-- **配色与对比度**：六型色由数据决定（不走语义 token），每型给浅色/深色两档类型条、一档胶囊底色 + 文字色；单测按 WCAG 校验类型条与轨道 ≥ 3:1、胶囊文字 ≥ 4.5:1。issue 写的 E 型 `#f59e0b` 对浅色底只有 2.15:1，改用同色相深一档 `#b45309`（理由写进配色表注释）
-- **下钻弹窗**：复用班级名册弹窗的范式（`dialog` 语义 + Escape + Tab 焦点捕获 + 关闭后焦点还原；窄屏全屏抽屉、桌面 `max-h-[85vh] max-w-2xl`），标题下与页脚**常驻**「投屏提醒」；列只展示姓名 / 学号（首 4 末 4 脱敏）/ 三字码 / 完成时间，支持关键字搜索与「只看某一型」二级筛选，弹窗内还会按 `lead` 再向服务端收窄一次
-- **降级**：本栏自管加载 / 失败 / 未开放 / 无人完成四种状态——失败态只坏这一栏且带重试；量表停用（`assessment.enabled=false`）或量表未配置（404）显示「还没开放」的行动邀请，**不写「暂无数据」**；无人完成时提示去哪儿做测评
+- **信息架构**：页头（eyebrow／标题／副标题 + 范围切换 + 刷新）→ 唯一深绿 hero（档案完成度 + 班级点阵 + 各量表进度行）→ 班级完成矩阵（真 `<table>`：班级 | 档案提交 | 各启用量表 | 兴趣构成 | 操作）→ 行动条 → 词云分布卡保持现状。**全页只有一张深绿面，hero 内无控件**；范围是页面级单一 state，默认 `mine`（我带的班），切「所有班级」时后端把行 `canDrilldown` 置 `false`、个人下钻按钮全部禁用（服务端仍独立判 403）
+- **hero 点阵（#314 §3.2 验收口径）**：每格 1 人、`1px solid rgb(79,119,66)` 描边、已交薄荷绿填充、两行竖条，按班级分组，组内只填充该班前 `assessed` 格（纯聚合示意）。列数 `clamp(12, 60, ceil(total / 2))`，`total > 200` 整体退化为比例轨（同 `ROSTER_MARK_CAP` 取舍）。**禁止逐格个体身份**：格子只有布尔位，整块只给一条 `aria-label`（已交 N 人／学生共 M 人／按班分组示意），每班 n/m 写在组下文字里；深色主题描边降到 `rgba(167,243,208,.55)`，单测锁对比度 ≥ 3:1。管理端 `SubmissionHero` 与 `computeRosterBits` 零改动
+- **完成矩阵**：列由 `/stats/completion` 的 `columns` 驱动（档案 + 启用量表，停用量表不入列），`enrolled = 0` 的空班不渲染，未分班单独一行置末且不可下钻；量表单元格是 button（打开该班该量表的已完成名册），「兴趣构成」列用 `byClass` 画六色堆叠条（一人只按三字码首位计一次，tooltip 写明），操作列「看未完成」按该行完成率最低的量表打开 `status=missing` 名册。单元格 `aria-label` 读全口径（班名 · 量表 · 已测 n / m 人 · 查看名单）
+- **行动条**：只从 `canDrilldown` 的行推导，优先级 = 合计完成率最低的启用量表；文案分「哪些班还没开始」+「还有 N 人没交」（不用「还差」），两个按钮：「看未完成名单」（可跨班，`classId` 留空）与「复制提醒话术」（`buildReminderText` 纯函数，**不含任何学生姓名**；clipboard 失败 → sonner toast）
+- **数据只拉一轮**：先取 `completion`（hero／矩阵／行动条共用），返回后只对兴趣型量表取一次 `stats/assessment?code=` 的 `byClass`（人格结构数据留给后续结构卡，本页不取）；请求一律 `cache: "no-store"` + `AbortController`（切范围／卸载即中断），客户端 `normalizeCompletionStats` 防御式解析，界面与 `aria-label` 不出现 `NaN`
+- **失败隔离与文案**：hero／矩阵各自 `loading / failed / empty / ready`，失败只坏自己并给「重试」，顶部另给一条横幅（词云分布失败同样提示）；空态是行动邀请（「还没有可看的班」+ 去建班导入名单），不写「暂无数据」。教师侧文案全部进 `TEACHER_BOARD_COPY`，量表口语短名（`riasec → 兴趣测评`、`ipip-neo-ffi → 人格测评`）按 `code` 映射、找不到回退接口正式名；禁词沿用教师侧词表（不出现「在册／口径／提交率／已提交／未提交／还差／维度／学生名单／全校／全班／本班」），新增组件源码零中文字面量由 `dashboard-copy.test.ts` 的 cjk 扫描钉住
+- **名册弹窗（#313 / #314）**：`AssessmentRosterDialog` 改为「班 × 量表 × 状态」三要素驱动——多量表 Tab 切换、`status=done|missing`、`classId` 留空表示当前范围所有班（行动条入口，多一列班级）；兴趣型量表显示三字码胶囊，人格型量表显示五项档位（不出现分数），学号首 4 末 4 脱敏；投屏提醒常驻标题下与页脚；服务端每次读取（含被拒）记审计 `assessment:roster`
+- **旧实现清理**：删除 `TeacherAssessmentCard`（卡内三视图）与 `ClassSubmissionCard`（各班提交列表），教师端不再调用管理端 `SubmissionHero`；#232 的 `assessment-dashboard.ts` 视图函数保留（结构卡后续复用），当前页面不再消费
+- **降级**：`/stats/completion` 未安装／量表缺失时后端退化为只有档案列，矩阵不 500；响应无个人信息、不记审计（与 `/stats/assessment` 同口径），个人明细只从 `assessment/roster` 出
 
 ## 教师端数据列表测评列（#234）
 
