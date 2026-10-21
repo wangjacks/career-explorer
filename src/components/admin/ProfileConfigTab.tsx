@@ -176,7 +176,7 @@ export default function ProfileConfigTab({ readOnly = false }: { readOnly?: bool
 
           <div className="flex flex-wrap items-center gap-3">
             <label className="text-sm text-gray-600 dark:text-gray-300" htmlFor="max-evaluation-size">
-              评价词云上传大小上限
+              评价词云图片上传上限（历史兼容）
             </label>
             <input
               id="max-evaluation-size"

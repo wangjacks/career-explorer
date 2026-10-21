@@ -155,7 +155,7 @@ describe("演示访客账户服务（#278）", () => {
       const key = "avatar_900000001001_20260101000000_abcd.jpg";
       await storage.upload(key, Buffer.from("img"), "image/jpeg");
       await storage.upload(getThumbnailKey(key), Buffer.from("thumb"), "image/jpeg");
-      await submitProfileWithVersion(codes.student, JSON.stringify(["阅读"]), `/api/uploads/${key}`, "", backend!.id);
+      await submitProfileWithVersion(codes.student, JSON.stringify(["阅读"]), `/api/uploads/${key}`, "", null, backend!.id);
     });
 
     const before = await runInDemoScope(() => getUserByCode(codes.student));

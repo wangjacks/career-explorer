@@ -5,7 +5,10 @@ import { toast } from "sonner";
 import { ChevronDown, History, TriangleAlert, Trash2, Users, X } from "lucide-react";
 import ConfirmDialog from "./ConfirmDialog";
 import StorageImage from "@/components/StorageImage";
+import EvaluationWordCloud from "@/components/EvaluationWordCloud";
+import EvaluationTexts from "@/components/EvaluationTexts";
 import { useTagColorMap } from "@/hooks/useTagColorMap";
+import type { WordCloudItem } from "@/types";
 
 interface ProfileSummary {
   userId?: number;
@@ -19,6 +22,8 @@ interface SubmissionItem {
   tags: string[];
   avatar_url: string;
   evaluation_url: string;
+  evaluation_texts?: string[];
+  evaluation_words?: WordCloudItem[];
   storage_id: number;
   submitted_at: string;
   is_current: number;
@@ -325,16 +330,29 @@ export default function ProfileSubmissionsTab() {
                         ))
                       )}
                     </div>
-                    {(s.avatar_url || s.evaluation_url) && (
-                      <div className="flex gap-2">
-                        {s.avatar_url && (
-                          <StorageImage url={s.avatar_url} storageId={s.storage_id} alt={`版本 ${s.version} 头像`} thumbnail className="w-12 h-12 rounded-lg object-cover border border-border-soft" />
-                        )}
+                    {s.avatar_url && (
+                      <StorageImage url={s.avatar_url} storageId={s.storage_id} alt={`版本 ${s.version} 头像`} thumbnail className="w-12 h-12 rounded-lg object-cover border border-border-soft" />
+                    )}
+                    {(s.evaluation_texts ?? []).filter((text) => text.trim()).length === 3 ? (
+                      <div className="space-y-2">
+                        <EvaluationWordCloud
+                          words={s.evaluation_words ?? []}
+                          height={120}
+                          emptyText="暂无可提取的关键词"
+                        />
+                        <EvaluationTexts texts={s.evaluation_texts ?? []} />
                         {s.evaluation_url && (
-                          <StorageImage url={s.evaluation_url} storageId={s.storage_id} alt={`版本 ${s.version} 评价词云`} thumbnail className="h-12 w-20 rounded-lg object-cover border border-border-soft" />
+                          <details>
+                            <summary className="cursor-pointer select-none text-xs text-muted hover:text-foreground">
+                              查看此版本历史图片
+                            </summary>
+                            <StorageImage url={s.evaluation_url} storageId={s.storage_id} alt={`版本 ${s.version} 历史评价词云图片`} thumbnail className="mt-2 h-12 w-20 rounded-lg object-cover border border-border-soft" />
+                          </details>
                         )}
                       </div>
-                    )}
+                    ) : s.evaluation_url ? (
+                      <StorageImage url={s.evaluation_url} storageId={s.storage_id} alt={`版本 ${s.version} 历史评价词云图片`} thumbnail className="h-12 w-20 rounded-lg object-cover border border-border-soft" />
+                    ) : null}
                   </li>
                 ))}
               </ul>

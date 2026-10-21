@@ -143,7 +143,7 @@
 | `/api/manage/tags/batch` | POST | 前缀随 tags | 标签批量导入 / 批量删除：教师被 proxy 前缀挡下，路由内亦二次拒绝 |
 | `/api/manage/tags/restore` | POST | 前缀随 tags | 恢复默认预设（#94，清空后重插，前端二次确认）：仅管理员 |
 | `/api/manage/profile-config` | GET / PUT | 仅 GET | 档案功能配置：自定义标签上限（#94）、提交截止时间（#96）、上传大小上限（#111）、历史版本上限（#95）；这些项全站生效，写入只归管理员（#171） |
-| `/api/manage/export` | GET / POST | 全方法 | Excel/CSV 导出（XLSX 支持原生单元格图片与浮动图片双模式，默认单元格图片）；列按「基础信息 / 职业兴趣测评」两组可选（#233，含班级与六型分/推荐职业），默认列不变；`?capabilities=1` 只探测职业库是否就绪（不下数据） |
+| `/api/manage/export` | GET / POST | 全方法 | Excel/CSV 导出（XLSX 支持原生单元格图片与浮动图片双模式，默认单元格图片）；列按「基础信息 / 职业兴趣测评」两组可选（#233，含班级与六型分/推荐职业；#162 追加他人评价1/2/3 三列，历史词云图片列保留）；`?capabilities=1` 只探测职业库是否就绪（不下数据） |
 | `/api/manage/export-images` | GET | 全方法 | 图片打包导出（ZIP） |
 | `/api/manage/stats` | GET | 仅 GET | 统计汇总 |
 | `/api/manage/stats/compare` | GET | 仅 GET | 班级对比：每班在册 / 已提交 / 提交率（#165）；每行 `{ key, label, total, submitted }`，`key` 是身份、`label` 是展示名（#260） |
@@ -201,11 +201,11 @@
 
 | 路由 | 方法 | 说明 |
 |---|---|---|
-| `/api/shared/profile` | GET / POST | GET 会话查询本人档案（含提交截止状态，#96）；POST 仅学生本人会话保存（拒绝显式指定学号；超过提交时限强制 403），每次保存生成一个历史版本 |
+| `/api/shared/profile` | GET / POST | GET 会话查询本人档案（含提交截止状态，#96、三条评价与词表 #162）；POST 仅学生本人会话保存（拒绝显式指定学号；超过提交时限强制 403；新档案须标签 + 三条评价齐全，存量仅历史图片账户三条留空可保留旧图），每次保存生成一个历史版本 |
 | `/api/shared/profile/submissions` | GET | 学生本人历史提交列表（#95，按版本倒序返回完整快照元数据） |
 | `/api/shared/profile/submissions/restore` | POST | 学生恢复历史版本（#95）：截止后 403 → 校验版本归属 → 生成新版本（不回写旧记录）→ 审计 `profile:restore` |
 | `/api/shared/group` | GET | 学生读本组名单（#101）：只返回**本人所在组**的成员（姓名/学号/头像引用/标签），不提供遍历班级的接口；未分组返回 `grouped:false` |
-| `/api/shared/storage-sign` | GET | 文件访问地址签发（#111）：本地后端回显代理路径；云后端按归属记录的 `storage_id` 签发 30 分钟签名 URL；权限校验：学生仅本人与**同组同学的头像**（#101，词云不放行、非同组 403）、教师仅管辖班级、管理员全量 |
+| `/api/shared/storage-sign` | GET | 文件访问地址签发（#111）：本地后端回显代理路径；云后端按归属记录的 `storage_id` 签发 30 分钟签名 URL；权限校验：学生仅本人与**同组同学的头像**（#101，存量词云图片不放行、非同组 403）、教师仅管辖班级、管理员全量 |
 | `/api/shared/assessment/start` | GET | 进入答题页（#223）：按 `?code=` 取量表（缺省 `riasec`）并**派生本轮抽题**（#282，`draw = f(uid, assessmentId, 题库指纹, attemptNo)`）后下发题面（不含维度，避免暗示答案）+ 量表元信息（`scoringMode`、`anchors`、署名/授权/免责）+ 草稿进度与续答落点；响应 `questionCount` = 本轮题数、`poolSize` = 题库总量；**只读，不建草稿行** |
 | `/api/shared/assessment/answer` | POST | 保存一次作答（#223）：题号必须属于**本轮卷子**（在题库里但不在本轮 → 400 + 失败审计），服务端**合并**进 `status=in_progress` 草稿并回进度 + 下一个未答题；首次作答把抽题快照一起写进草稿 `items_json`（#282）；非法题号/取值 400，停用量表 403 |
 | `/api/shared/assessment/submit` | POST | 提交作答（#223）：未答完 400（回带本轮 `missingIndexes`）→ 复用 #220 引擎按量表 `scoring_mode` 计分（只传本轮抽中题，标准分按各维实际已答数折算）→ 结果快照落库（含 `items_json`；`is_current` 唯一，重复提交生成新版本；**沿用草稿行**不新增记录）→ 响应 `result` 带 `scoringMode`（dimensional 的 `typeCode` 为 null，不能靠 null 反推模式）→ 审计 `assessment:submit`（带 `attemptNo` 与题库指纹，不带作答内容） |
@@ -218,7 +218,7 @@
 | 路由 | 方法 | 说明 |
 |---|---|---|
 | `/api/tags` | GET | 预设标签 + 自定义标签上限（#94）+ 提交截止状态（#96）加载（学生面板与标签着色复用） |
-| `/api/upload` | POST | 文件上传（头像 / 评价词云图；#111 起按默认后端路由 + 服务端压缩 + 大小上限 + SVG 拒绝） |
+| `/api/upload` | POST | 文件上传（头像 / **历史评价词云图片**；#111 起按默认后端路由 + 服务端压缩 + 大小上限 + SVG 拒绝；#162 起评价改为文字，evaluation 前缀仅兼容存量客户端） |
 | `/api/uploads/[...path]` | GET | 静态文件服务（本地后端的代理路径，含路径穿越防护） |
 
 ## 数据库
@@ -229,14 +229,14 @@
 
 | 表 | 用途 | 引入 | 纳入备份 |
 |---|---|---|---|
-| `users` | 统一用户表（三角色）：`user_code`（学生 12 位 / 教师 8 位 / 管理员 5 位，兼登录标识）、`password_hash`（NULL = 未设置）、`role`、`name`、`class_id`（仅学生）、`tags`（#94 起为标签名称文本数组）、`avatar_url`、`evaluation_url`、`submitted_at`、`storage_id`（#111 文件级路由） | v2.0.0 | ✅（含 `password_hash`） |
+| `users` | 统一用户表（三角色）：`user_code`（学生 12 位 / 教师 8 位 / 管理员 5 位，兼登录标识）、`password_hash`（NULL = 未设置）、`role`、`name`、`class_id`（仅学生）、`tags`（#94 起为标签名称文本数组）、`avatar_url`、`evaluation_url`（**#162 起仅存量历史图片**）、`evaluation_text`（#162：三条他人评价的 JSON 数组，如 `["评价一","评价二","评价三"]`）、`submitted_at`、`storage_id`（#111 文件级路由） | v2.0.0 / #162 | ✅（含 `password_hash`） |
 | `classes` | 班级：`name`、`invitation_code`（唯一） | v2.0.0 | ✅ |
 | `teacher_classes` | 教师-班级多对多关联 | v2.0.0 | ✅ |
 | `tags` | 预设二级标签：`type`（category/tag）、`parent_id` 层级、`class_id=0` 为全局；#94 起降级为表单预设项，物理删除（分类级联删子标签），`active` 列保留但不再操作 | v2.0.0 | ✅ |
-| `configs_profile` | 档案功能配置键值表：`max_custom_tags`(#94)、`submission_deadline`(#96)、`max_avatar_size_mb` / `max_evaluation_size_mb`(#111)、`max_profile_submissions`(#95)、`media_orphan_retention_days`(#117)、`tags_seeded` / `onet_seeded_version`（种子与快照版本标记，见 #226） | #94 | ✅ |
+| `configs_profile` | 档案功能配置键值表：`max_custom_tags`(#94)、`submission_deadline`(#96)、`max_avatar_size_mb` / `max_evaluation_size_mb`(#111；后者 #162 起仅历史兼容)、`max_profile_submissions`(#95)、`media_orphan_retention_days`(#117)、`tags_seeded` / `onet_seeded_version`（种子与快照版本标记，见 #226） | #94 | ✅ |
 | `audit_logs` | 操作审计（#110）：只追加 + 查询，操作者字段快照冗余，敏感键脱敏剔除、metadata 截断 2000 字符；索引 `created_at` / `actor_id` / `(resource_type, resource_id)` | #110 | ✅ |
 | `storage_backends` | 存储后端注册表（#111）：内置本地后端（不可删）+ 多个 S3 兼容实例；凭据不入库（走 `.env.local`）；`name` 唯一 | #111 | ✅（不含凭据） |
-| `profile_submissions` | 档案提交历史版本（#95）：`user_id` + `version` + 快照字段（`tags`/`avatar_url`/`evaluation_url`/`storage_id`/`submitted_at`）+ `is_current`；索引 `(user_id, version)`、`(user_id, is_current)` | #95 | ✅ |
+| `profile_submissions` | 档案提交历史版本（#95）：`user_id` + `version` + 快照字段（`tags`/`avatar_url`/`evaluation_url`/`evaluation_text`/`storage_id`/`submitted_at`）+ `is_current`；`evaluation_url` 仅存量历史图片，`evaluation_text` 为三条评价 JSON（#162）；索引 `(user_id, version)`、`(user_id, is_current)` | #95 / #162 | ✅ |
 | `assessments` | 测评定义（#221）：`code`（唯一，如 `riasec`）、`name`、`question_count`（语义=**题库总量**，#281 起 120）、`items_per_attempt`（#282：每次作答题数，`INTEGER NOT NULL DEFAULT 0`，`0` = 全量作答即「题库即本轮」，`riasec` 为 30 走分层抽题）、`dimensions_json`（`[{key,label}]`，顺序即计分与展示顺序）、`scoring_mode`（`typological` 取类型码 / `dimensional` 多维高低分档）、`scale_version`、`attribution`（署名）/ `license_text`（授权与修改声明）/ `disclaimer`（免责声明）、`enabled` | #221 / #282 | ✅ |
 | `assessment_questions` | 题库（#221）：`assessment_id` + `question_index`（量表内从 1 开始，`UNIQUE`）+ `prompt` + `dimension`（须是 `dimensions_json` 的 key）+ `origin`（#281：`onet-mini` / `onet-sf` / `cn-original`，`NOT NULL DEFAULT 'cn-original'`；分层抽样与分来源分析用）+ `reverse_scored` + `version`（题面版本，改动时自增） | #221 | ✅ |
 | `assessment_results` | 作答与结果**快照**（#221）：`user_id` + `assessment_id` + `status`（`in_progress` 草稿 / `completed` 完成）+ `answers_json` + `items_json`（#282 抽题快照 `{"v":1,"pool":"<题库指纹>","indexes":[…呈现顺序]}`，默认 `'[]'` 读作「整库即本轮」的旧数据；随草稿写入、提交时沿用同一行带到完成记录）+ `scores_json` + `type_code`（三字码，dimensional 量表为 NULL）+ `is_current` + `draft_slot`（草稿位：草稿为 1、完成为 NULL，`UNIQUE(user_id, assessment_id, draft_slot)`）+ `started_at` / `updated_at` / `completed_at` | #221 / #282 | ✅（学生个人数据） |
@@ -256,7 +256,7 @@
 
 > **统计分组身份（#260）**：趋势 / 对比 / 名册统一按 `classes.id` 分组，`class_id IS NULL`（含悬空引用）映射为内部哨兵键 `__unassigned__`、展示标签「未分班」；真实班级的 `key` 仍是班名、`label` 为班名。`key` 用于取数 / 排序 / 下钻，`label` 只用于展示。禁止再写 `COALESCE(c.name, '未分班')` 当分组键。班级新建 / 改名拒绝 `未分班`、`还没分班`、`__unassigned__` 三个保留名（只拦未来写入，不迁移存量、不自动改名）。
 
-备份格式 `BackupData`（**version 6**，定义在 `src/lib/db.ts`）：十六表全量（`onet_occupations` 是唯一不纳入备份的表），其中 `audit_logs` / `configs_profile` / `storage_backends` / `profile_submissions` / 分组五表 / 测评三表为可选字段（旧备份缺失时读取方容忍 `undefined`）；含 `password_hash`，不含上传文件。
+备份格式 `BackupData`（**version 7**，定义在 `src/lib/db.ts`；#162 增加评价文字列）：十六表全量（`onet_occupations` 是唯一不纳入备份的表），其中 `audit_logs` / `configs_profile` / `storage_backends` / `profile_submissions` / 分组五表 / 测评三表为可选字段（旧备份缺失时读取方容忍 `undefined`；v6 及更早备份的 `evaluation_text` 按 `null` 恢复）；含 `password_hash`，不含上传文件。
 
 > `onet_occupations`（#226）**不纳入备份**：它是离线快照导出的只读参考数据，重新部署/清表后由 `init()` 按快照重灌即可，没必要让每份备份多背 923 行；它不引用 `users` / `classes`，与下面 #211 的「按 id 引用就整表清空」口径无关。
 
@@ -388,7 +388,7 @@
 - **多后端注册表**：`storage_backends` 表 + `users.storage_id` 文件级路由；切换默认后端只影响新上传，存量文件按归属后端照常读写；迁移端点幂等（已存在对象跳过）
 - **私有读写**：云对象访问一律经 `/api/shared/storage-sign` 签发 30 分钟签名 URL（按角色 + 班级权限校验）；本地后端保持代理路径行为不变；前端经 `useFileUrl` / `StorageImage` 统一解析并缓存签名结果（28 分钟）
 - **双端点**：服务端读写（上传/迁移/导出读图）优先内网端点，签名 URL 强制公网端点；对象路径 = `{bucket}/{path_prefix}/{key}`
-- **上传约束**：服务端压缩（头像 ≤512×512、词云长边 ≤1024，JPEG 质量 85）、可配置大小上限（默认头像 5MB / 词云 10MB）、唯一命名不覆盖、SVG 显式拒绝（防存储型 XSS）
+- **上传约束**：服务端压缩（头像 ≤512×512、历史评价词云图片长边 ≤1024，JPEG 质量 85）、可配置大小上限（默认头像 5MB / 历史词云图片 10MB）、唯一命名不覆盖、SVG 显式拒绝（防存储型 XSS）；#162 起新评价只存文字，评价上传仅兼容存量客户端
 
 ## 媒体资源治理（#117 孤儿检测 / #118 缩略图）
 
@@ -423,18 +423,27 @@
 
 <!-- 对账：列定义与格式化纯函数在 `src/lib/export-columns.ts`（测试 `export-columns.test.ts`）；路由 `src/app/api/manage/export/route.ts`；界面 `src/components/admin/ExportTab.tsx` -->
 
-- **列分两组**：基础信息（班级 / 学号 / 姓名 / 标签 / 学生头像 / 评价词云 / 头像 URL / 评价词云 URL / 提交时间）与职业兴趣测评（测评状态 / 测评完成时间 / 霍兰德三字码 / 六型得分 / 推荐职业 Top3）。**默认列集合与 #233 之前一致**（学号、姓名、标签、学生头像、评价词云、提交时间），新增列是增量勾选
-- **列顺序以 `EXPORT_COLUMNS` 为准**（与前端勾选顺序无关）：xlsx 的图片锚点由**最终列下标**算出（`columnLetter` / `imageColumnIndex`），因此插入班级/测评列后头像与词云仍落在各自列上
+- **列分两组**：基础信息（班级 / 学号 / 姓名 / 标签 / 学生头像 / 历史评价词云图片 / 他人评价1–3 / 头像 URL / 历史评价词云图片 URL / 提交时间）与职业兴趣测评（测评状态 / 测评完成时间 / 霍兰德三字码 / 六型得分 / 推荐职业 Top3）。**默认列集合在 #233 基线上追加他人评价1–3**（#162；历史图片列保留以兼容存量），新增列仍是增量勾选
+- **列顺序以 `EXPORT_COLUMNS` 为准**（与前端勾选顺序无关）：xlsx 的图片锚点由**最终列下标**算出（`columnLetter` / `imageColumnIndex`），因此插入班级/测评/评价文字列后头像与历史词云图片仍落在各自列上；评价文字列在 CSV 中单行化并对 `= + - @` 开头做公式注入防护，在 XLSX 中自动换行
 - **六型得分两种形态**：合成一列 `R42 I38 A20 S74 E31 C25`，或拆成 R/I/A/S/E/C 六列；取结果快照的 0–100 标准分并取整，两种形态共用同一口径
 - **班级名**：学生行自带 `class_id`，内存关联班级表得到班名（不新增 SQL 联表）；未分班为空串
 - **测评列取值**：只认 `assessment_results` 的当前有效完成结果（`status=completed` + `is_current=1`），按学号集合**一次批查**（`getCurrentAssessmentResultsByUserCodes`，适配器内 500 分片）；未测评学生整格留空（不填 0 / undefined），状态列为「未测」
 - **推荐职业 Top3**：复用 #226 的匹配纯函数（画像取结果快照六维分、候选由 `toCareerCandidates` 从 `onet_occupations` 转），输出中文名（无译名回退英文名）分号分隔；职业库为空时该列不输出内容，界面按钮置灰并悬停说明（`?capabilities=1` 探测），**不隐藏**
 - **审计沿用**：导出动作仍记 `export:excel`（只记范围/列数/格式，明细不入库）；本 Issue 不做脱敏（教师本地留存）
 
+## 他人评价与词云（#162）
+
+- **采集**：学生代三位不同的人提交三条匿名自由评价，每条 1–300 字，固定三条且必填；系统无法验证评价人身份，只校验三条非空。存量仅历史图片账户在编辑时三条留空可保留旧图，部分填写仍 400。
+- **落库**：`users.evaluation_text` / `profile_submissions.evaluation_text` 存 JSON 数组；`evaluation_url` 仅历史图片。保存三条文字时清空当前 `evaluation_url`，旧图仍由历史快照引用；历史被裁剪后进入 #117 孤儿清单，不自动删除。
+- **词表**：服务端用 `Intl.Segmenter` 分词，过滤停用词、单字、纯数字与泛称；同一条评价内去重，权重 = 提及人数（1–3），同权重按总频次、再按文本排序，取前 30 词。词表不落库，按当前算法实时推导。
+- **渲染**：前端 `EvaluationWordCloud` 用确定性螺旋布局（无随机数、无旋转、明暗配色），学生/教师/管理员/历史版本共用；数据列表主行只显示评价摘要，不塞微型词云，详情与版本历史可渲染紧凑词云。
+- **媒体**：新评价不产生图片；`/api/upload` 的 evaluation 前缀、评价缩略图、媒体扫描/孤儿清理、存储签名与迁移保留为存量兼容。
+- **#164 例外**：新增 `evaluation_text` 是替换既有评价维度（不是新增采集维度）；未来全新维度仍走自定义字段表。
+
 ## 数据流
 
 ```
-学生端（档案提交，#168 / #208）：登录 → 学生面板「我的档案」→ 未提交学生直接就地填写（标签为必填项、虚拟形象与评价词云可选填，空标签由服务端 400 拦截）→ 二次确认后提交；已提交学生走「修改数据」就地修改；每次保存生成新版本（#95）
+学生端（档案提交，#168 / #208 / #162）：登录 → 学生面板「我的档案」→ 未提交学生直接就地填写（标签与三条他人评价为必填项、虚拟形象可选填；空标签或未填满三条评价由服务端 400 拦截）→ 二次确认后提交；已提交学生走「修改数据」就地修改；每次保存生成新版本（#95）。仅历史图片账户在编辑时三条留空可保留旧图，填写三条后替换为自动生成的词云
 学生端（登录态）：学生面板「我的档案」通览本人档案；「历史提交」Tab 查看/恢复旧版本（#95）；档案内容上方的测评结果区（#224 + #292）按量表清单独立读取本人结果快照，每套量表一张卡——霍兰德卡含三字码、六型雷达图/排名/解读与推荐职业，大五卡含画像标签、五维雷达/排名/高低分解读（推荐为渐进增强），两套都完成时附「人格与兴趣一起看」提示卡；「我的小组」看本组成员的姓名、学号与标签（#101，未分组给空态）
 学生端（激活）：/activate 第一步 verify 三要素核验（#93）→ 第二步设置密码并自动登录
 学生端（职业测评，#222/#223/#225）：侧边栏「职业测评」→ 测评中心（三态状态卡：未开始 / 进行中 / 已完成 + 测验清单 / 六型科普 / 学职平台外链 / 授权与免责四张内容卡）→「开始 / 继续作答」进答题页单题单屏（每题自动存草稿，可退出续答）→ 全部答完后二次确认提交 → 服务端计分并按快照落库 → 答题页展示三字码与六维分；完整解读在「我的档案」测评区（#224）
