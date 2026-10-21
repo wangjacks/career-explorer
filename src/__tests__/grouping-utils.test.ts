@@ -29,6 +29,7 @@ function student(id: number, tags: string[], score?: number): UserRow {
     tags: tags.length ? JSON.stringify(tags) : null,
     avatar_url: null,
     evaluation_url: null,
+    evaluation_text: null,
     submitted_at: null,
     created_at: "2026-09-30 00:00:00",
     storage_id: 1,

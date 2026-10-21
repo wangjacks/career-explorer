@@ -30,6 +30,9 @@ describe("列定义与分组（#233）", () => {
       "tags",
       "avatar_url",
       "evaluation_url",
+      "evaluation_text_1",
+      "evaluation_text_2",
+      "evaluation_text_3",
       "avatar_link",
       "evaluation_link",
       "created_at",
@@ -51,13 +54,16 @@ describe("列定义与分组（#233）", () => {
     ]);
   });
 
-  it("默认列集合保持 #233 之前的 6 项（新增列不改变默认导出）", () => {
+  it("默认列集合在 #233 基线上增加三条他人评价（#162）", () => {
     expect(DEFAULT_EXPORT_COLUMN_KEYS).toEqual([
       "student_id",
       "name",
       "tags",
       "avatar_url",
       "evaluation_url",
+      "evaluation_text_1",
+      "evaluation_text_2",
+      "evaluation_text_3",
       "created_at",
     ]);
   });
@@ -83,6 +89,7 @@ describe("列定义与分组（#233）", () => {
     expect(isAssessmentColumn("class_name")).toBe(false);
     expect(isImageColumn("avatar_url")).toBe(true);
     expect(isImageColumn("evaluation_url")).toBe(true);
+    expect(isImageColumn("evaluation_text_1")).toBe(false);
     expect(isImageColumn("avatar_link")).toBe(false);
   });
 });
@@ -104,9 +111,18 @@ describe("列选择解析（parseColumnKeys / resolveExportColumns）", () => {
 
   it("表头按导出格式切换：图片列在 CSV 是 URL、在 Excel 是图片", () => {
     const csv = resolveExportColumns(["avatar_url", "evaluation_url"], "csv");
-    expect(csv.map((column) => column.header)).toEqual(["学生头像URL", "评价词云URL"]);
+    expect(csv.map((column) => column.header)).toEqual(["学生头像URL", "评价词云图片URL（历史）"]);
     const xlsx = resolveExportColumns(["avatar_url", "evaluation_url"], "xlsx");
-    expect(xlsx.map((column) => column.header)).toEqual(["学生头像", "评价词云"]);
+    expect(xlsx.map((column) => column.header)).toEqual(["学生头像", "评价词云图片（历史）"]);
+  });
+
+  it("三条他人评价列为普通文本列，CSV/Excel 表头一致", () => {
+    const columns = resolveExportColumns(
+      ["evaluation_text_1", "evaluation_text_2", "evaluation_text_3"],
+      "csv"
+    );
+    expect(columns.map((column) => column.header)).toEqual(["他人评价1", "他人评价2", "他人评价3"]);
+    expect(columns.every((column) => column.width > 0)).toBe(true);
   });
 
   it("普通列两种格式表头一致，且保留宽度", () => {

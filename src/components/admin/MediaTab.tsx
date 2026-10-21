@@ -34,7 +34,7 @@ interface MediaFileItem {
 
 const TYPE_LABEL: Record<MediaFileItem["type"], string> = {
   avatar: "头像",
-  evaluation: "词云",
+  evaluation: "词云（历史）",
   thumbnail: "缩略图",
   other: "其他",
 };
@@ -435,7 +435,7 @@ export default function MediaTab() {
                 options={[
                   { value: "all", label: "全部类型" },
                   { value: "avatar", label: "头像" },
-                  { value: "evaluation", label: "词云" },
+                  { value: "evaluation", label: "词云（历史）" },
                   { value: "thumbnail", label: "缩略图" },
                   { value: "other", label: "其他" },
                 ]}

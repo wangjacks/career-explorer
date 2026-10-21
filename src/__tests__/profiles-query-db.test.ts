@@ -68,7 +68,7 @@ function seed(): Seeded {
     ids.set(userCode, userId);
     const tags =
       i <= 3 ? JSON.stringify(["运动", "游戏"]) : i <= 6 ? JSON.stringify(["阅读"]) : JSON.stringify([]);
-    adapter.upsertSubmission(userCode, tags, "", "", 1);
+    adapter.upsertSubmission(userCode, tags, "", "", null, 1);
     // 25 号最早提交（第 2 页），1 号最晚提交（第 1 页）；直接改时间，保证排序确定
     submittedAt.set(userCode, `2026-10-${String(1 + (25 - i)).padStart(2, "0")} 10:00:00`);
   }

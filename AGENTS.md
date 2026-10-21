@@ -96,7 +96,7 @@ find src/app -name page.tsx && find src/app/api -name route.ts
 - 激活（#93 两步单页）：`POST /api/auth/activate/verify` 核验学号 + 姓名 + 本班邀请码三要素并取回名单姓名 → `POST /api/auth/activate` 设置密码并自动登录；账户须先由教师导入名单预建（无密码）
 - 错误信息不泄露账号存在性：用户不存在与密码错误共用「编号或密码错误」；无 `password_hash` 账户提示「该账户尚未设置密码，请联系管理员」
 - 已登录访问 `/login`、`/activate` 自动重定向到对应角色面板
-- URL 安全：`sanitize.ts` 防 `javascript:` 协议 XSS；`/api/uploads/[...path]` 已加固路径穿越；上传显式拒绝 SVG（防存储型 XSS）；云对象一律经 `/api/shared/storage-sign` 签发 30 分钟限时 URL（签名前按角色 + 班级归属校验；#101 起学生额外可签**同组同学的头像**，词云与其他文件不放行，同组判定为单条查询）
+- URL 安全：`sanitize.ts` 防 `javascript:` 协议 XSS；`/api/uploads/[...path]` 已加固路径穿越；上传显式拒绝 SVG（防存储型 XSS）；云对象一律经 `/api/shared/storage-sign` 签发 30 分钟限时 URL（签名前按角色 + 班级归属校验；#101 起学生额外可签**同组同学的头像**，存量词云图片与其他文件不放行，同组判定为单条查询）
 - 环境变量：清单以 `docs/standards.md` §11 为唯一权威（模板 `.env.example`，两处须同步）；`JWT_SECRET` 未配置会回退到代码内置的不安全默认值
 - 管理员密码：安装引导中配置，bcrypt 哈希存于 `users`（`user_code=10001`）；无自助改密端点，重置方式见 `DEPLOY.md`
 
@@ -118,13 +118,14 @@ find src/app -name page.tsx && find src/app/api -name route.ts
 - 全局用户菜单：`UserMenu` 在根布局单点挂载（`fixed top-0 right-0 z-[45]`），认证页与安装页不渲染；z-index 层级见 `docs/ui-conventions.md`
 - 主题系统：`useTheme` 三态（浅色/深色/跟随系统）持久化 localStorage `theme`；`layout.tsx` 内联脚本在 hydration 前预设 `.dark` 防闪烁，`<html>` 加 `suppressHydrationWarning`；class-based dark
 - 品牌色系统：`globals.css` 语义 token（`--color-brand` 深绿 / `--color-accent` 琥珀等），`.dark` 下自动提亮；标签三色（兴趣绿/技能蓝/性格琥珀）；**新代码用语义 token，不用硬编码色值**，详见 `docs/ui-conventions.md`
-- 档案提交入口（#168 / #208）：分步向导与本地草稿已删除，提交与修改统一在学生面板内联完成；**标签必填、图片选填**（标签 / 虚拟形象 / 评价词云三项中标签为必填，两张图片可空；客户端与服务端同口径，空标签 400）；未提交学生在引导卡点「开始填写」直接进入编辑态；旧的 `/form` 占位页已删除（#318），旧链接由 `next.config.ts` 的 `redirects()` 永久重定向回首页（`permanent: true` → 308），**不要再新增任何站内入口指向 `/form`**
+- 档案提交入口（#168 / #208 / #162）：分步向导与本地草稿已删除，提交与修改统一在学生面板内联完成；**标签与三条他人评价必填、头像选填**（评价为三条匿名自由文字，每条 1–300 字；客户端与服务端同口径，空标签或未填满三条 400）；仅历史图片账户在编辑时三条留空可保留旧图，部分填写仍拒绝；未提交学生在引导卡点「开始填写」直接进入编辑态；旧的 `/form` 占位页已删除（#318），旧链接由 `next.config.ts` 的 `redirects()` 永久重定向回首页（`permanent: true` → 308），**不要再新增任何站内入口指向 `/form`**
 - 标签体系（#94）：标签名称文本直存；预设标签支持物理删除、批量导入/删除、恢复默认（均二次确认）；自定义上限存 `configs_profile`，学生面板经开放端点 `/api/tags` 读取
 - 提交时限（#96）：`submission_deadline` 超时后 `POST /api/shared/profile` 强制 403，学生面板入口禁用；截止状态由服务端按 Asia/Shanghai 计算后下发
 - 提交历史（#95）：每次保存生成新版本，学生可查看/恢复（恢复生成新版本，**不回写旧记录**）；超上限时删最旧版本，管理端可查超限学生并手动清理
 - 操作审计（#110）：`audit.ts` 提供 `recordAudit`（**失败静默降级，绝不阻断业务**）/ `getAuditActor`（操作者快照）/ `sanitizeMetadata`（敏感键剔除 + 截断 2000 字符）；管理域写操作、认证事件（含登录失败）、档案提交、导出/备份等触点成败均记；查询端点只读，教师强制限本人记录且查询自身也被审计
-- 对象存储（#111）：一切文件读写走 `StorageAdapter`（本地 / S3 兼容双实现），归属后端由记录的 `storage_id` 决定，**切换默认后端不影响存量文件**；前端取访问地址一律经 `useFileUrl` / `StorageImage`，不要自己拼 URL（细节见 `docs/architecture.md`「文件存储」）
-- 媒体治理（#117/#118）：孤儿**不做自动删除**（保留期可配 + 人工确认清理，服务端重扫自证不信任前端）；缩略图生成仅服务端（依赖 sharp），key 派生 `{base}.jpg` → `{base}_thumb.jpg`
+- 对象存储（#111）：一切文件读写走 `StorageAdapter`（本地 / S3 兼容双实现），归属后端由记录的 `storage_id` 决定，**切换默认后端不影响存量文件**；前端取访问地址一律经 `useFileUrl` / `StorageImage`，不要自己拼 URL（细节见 `docs/architecture.md`「文件存储」）；#162 起评价不产生文件，评价上传前缀与历史词云图片仅存量兼容
+- 媒体治理（#117/#118）：孤儿**不做自动删除**（保留期可配 + 人工确认清理，服务端重扫自证不信任前端）；缩略图生成仅服务端（依赖 sharp），key 派生 `{base}.jpg` → `{base}_thumb.jpg`；#162 起评价缩略图只服务历史图片
+- 他人评价与词云（#162）：三条匿名他人评价存 `evaluation_text`（JSON 数组）与版本快照，`evaluation_url` 仅历史图片；服务端用 `Intl.Segmenter` 提词、按提及人数（1–3）计权，前端 `EvaluationWordCloud` 确定性布局实时绘制，**不生成新图片、不占上传带宽**；文字优先、旧图兜底，列表只显示摘要
 - 课堂分组（#101）：算法是纯函数（`grouping-utils.ts` / `grouping-features.ts`），只认「特征源注册表」，不直接读 `users.tags`——新增数据源只加一条注册项；结果确定性（无随机，按学号升序）；**当前分组与历史批次两套表物理分离**，触发自动分组=覆盖当前 + 追加归档同一事务（口径见 `docs/architecture.md`「课堂分组」）
 - 职业测评（#221）：三表 = 量表定义 / 题库 / 作答结果快照；**量表进库不写死代码**，种子在「`code` 缺失或题库为空」时补种、非空题库不覆盖；题库为 **120 题 RIASEC**（#281：Mini-IP 30 一字不改 + SF 30 中译 + 原创 60，`origin` 列区分来源），已有旧库由 `upgradeAssessmentBank()` **只增不改**升级（缺题 INSERT、已存在题号只回填 `origin`、定义字段仅随 `scale_version` 整体更新、同版本库的 `license_text` 与种子不一致时单独刷新（#284），单事务幂等）；`validateAssessmentSeed` 还拦每维题数/`origin` 分布/题干唯一与长度/禁词/原创题 anchor（须命中 O*NET 快照且维度在兴趣高码前两位）/近重复组覆盖；草稿与完成记录同表，可空 `draft_slot` + 唯一约束保证「一人一量表至多一条草稿」，完成时释放草稿位并保证 `is_current` 唯一（MySQL 用 `FOR UPDATE` 锁学生行串行化）；两库一致性另有三条硬约束：列名逐列相同、外键成对存在、`code` 用 `utf8mb4_bin` 保证大小写敏感的唯一语义；计分由计分引擎（#220）在落库前算好，数据层不重复实现算法（口径见 `docs/architecture.md`「职业测评数据层」）
 - 题库放行门（#284）：`SAMPLING_EXCLUDED_ORIGINS`（`assessment-data.ts`）把未通过专家评审与班级试测的来源整批排除在抽题池外，当前排 `cn-original`——**题库不删题**（仍 120 题，历史快照与种子校验不受影响），线上只抽 60 道 O*NET 官方题（每维 10 道、每轮 5 道），`items_per_attempt = 0` 也只含官方题。排除来源计入 `poolFingerprint`（放行门一变旧快照自动重派）；在途草稿保留官方题作答、丢弃原创题作答并由官方题补齐。重测换卷时 C / E 两维因近重复组挤占会放宽排除集出现个别重题（其余四维完全换新），属预期行为。恢复放行 = 补齐评审与试测记录、更新 `license_text`、从常量移除来源；记录与复核日期见 `docs/assessment-validation.md`
@@ -137,8 +138,8 @@ find src/app -name page.tsx && find src/app/api -name route.ts
 - 数据大屏测评栏（#232）：教师端全宽栏一栏三视图（完成进度 / 类型分布 / 热门三字码）+ 点击下钻，三视图**共用一次聚合请求**（切视图不重取，只有切「全校 / 只看我的班」才重取），点班级行 / 类型条 / 三字码胶囊才去取名册（含个人信息，服务端每次读取记审计）；视图口径与六型配色在 `assessment-dashboard.ts` 纯函数里——类型条宽度按最大值归一、完成进度按交齐比例升序且「还没分班」置末、三字码胶囊用完整 `code` 下钻（名册接口为此新增 `code` 过滤）；数据分类色不走语义 token，但必须给浅/深两档并单测对比度（类型条 vs 轨道 ≥ 3:1、胶囊文字 ≥ 4.5:1）；本栏自管加载/失败/未开放/无人完成四态，失败只坏这一栏，空态是行动邀请（口径见 `docs/architecture.md`「数据大屏测评栏」）
 - 教师端数据列表测评列（#234 / #330）：数据列表自 #330 起是**双列**「兴趣测评 + 人格特质」（9→10 列，空态 `colSpan` 同步）：兴趣列三字码徽章、人格列五大人格 Top2 画像（`IPIP` 小标、hover 完成时间），未测都是灰胶囊、两列都不排序；`/api/manage/profiles` 下发 `assessmentScales`（启用中的量表清单，列定义/维度标签唯一来源）+ 每行 `assessmentResults[code]`（只带 `{key, standard}` 轻量分），按当页学号**逐量表各批查一次**（与 #233 导出共用 `getCurrentAssessmentResultsByUserCodes`），只认 `completed + is_current`；某套量表失败只让该列降级为未测、旧字段 `assessmentCode/Status/At/Scores` 过渡期保留。**测评筛选互斥**：前端 `AssessmentFilter` 联合类型（none/interest/personality）+ 服务端同时收到两组参数 400，兴趣 = 六型字母多选 AND（≤3，`interest=S,A,I`）或未测，人格 = 已测/未测/单维度偏高偏低（`personality=C:high`，阈值 50），维度下标由路由按 `dimensions_json` 解析（客户端不传下标）；筛选与搜索、标签、排序全部下推服务端（#295 口径：分页在过滤后、`total` 为命中数、跨页可筛；SQL 由 `profile-query.ts` 的 `buildSubmittedProfilesSql` 两适配器共用，人格取分用 `json_extract`/`JSON_EXTRACT` 且**同时校验 key**，阈值必须是数值参数）；全选按「当页可见行是否全选」判定；**六型配色单一来源** `assessment-colors.ts`（`C` 用深色文字，单测锁对比度）；详情弹窗只加六型横条（复用 `buildRiasecBars`）与重测指引，未测整块不渲染、快照缺失不画六条 0，人格详情留给后续 issue（口径见 `docs/architecture.md`「教师端数据列表测评列」）
 - 上传与导出：上传走服务端压缩 + 可配置大小上限 + 唯一命名不覆盖；导出用 ExcelJS（XLSX 默认原生单元格图片，可切浮动图片）+ JSZip 打包图片
-- 数据导出自定义列（#233）：列定义与格式化是纯函数（`export-columns.ts`，含列顺序、CSV/Excel 表头差异、六型分合成/拆列、图片锚点列字母），路由与界面只消费它；**默认列集合永不因加列而变**，新列一律增量勾选；列顺序以定义为准（与勾选顺序无关），xlsx 图片锚点按最终列下标算；测评列来自结果快照的当前有效版本（按学号一次批查，未测评整格留空），推荐职业列依赖职业库、未就绪时按钮置灰不隐藏（`?capabilities=1` 探测）（口径见 `docs/architecture.md`「数据导出」）
-- 面板结构：Tab 式布局，管理/教师面板的 Tab 页命名 `*Tab.tsx`（同目录共用 UI 组件不套用该后缀）；词云为客户端 canvas 组件
+- 数据导出自定义列（#233 / #162）：列定义与格式化是纯函数（`export-columns.ts`，含列顺序、CSV/Excel 表头差异、六型分合成/拆列、图片锚点列字母），路由与界面只消费它；默认列集合以 #233 为基线，#162 因替换评价维度追加他人评价1–3（历史图片列保留）；其余新列一律增量勾选；列顺序以定义为准（与勾选顺序无关），xlsx 图片锚点按最终列下标算；评价文字在 CSV 单行化并防公式注入、在 XLSX 自动换行；测评列来自结果快照的当前有效版本（按学号一次批查，未测评整格留空），推荐职业列依赖职业库、未就绪时按钮置灰不隐藏（`?capabilities=1` 探测）（口径见 `docs/architecture.md`「数据导出」）
+- 面板结构：Tab 式布局，管理/教师面板的 Tab 页命名 `*Tab.tsx`（同目录共用 UI 组件不套用该后缀）；词云为客户端确定性布局组件 `EvaluationWordCloud`
 
 ## 8. Development Environment Notes
 

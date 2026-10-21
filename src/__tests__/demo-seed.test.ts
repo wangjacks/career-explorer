@@ -161,7 +161,7 @@ describe("物化器：tempId→真实 id 重映射 + 调用序列（#253，fake 
   function makeRecordingDeps() {
     let nextId = 1000;
     const created: { user_code: string; role: string; class_id: number | null }[] = [];
-    const submissions: { userCode: string; submittedAt: string | undefined }[] = [];
+    const submissions: { userCode: string; evaluationText: string | null; submittedAt: string | undefined }[] = [];
     const assessments: number[] = [];
     const draftIds: number[] = [];
     const uploads: string[] = [];
@@ -186,8 +186,8 @@ describe("物化器：tempId→真实 id 重映射 + 调用序列（#253，fake 
           },
           getSignedUrl: async (key: string) => `/api/uploads/${key}`,
         }) as unknown as StorageAdapter,
-      submitProfileWithVersion: async (userCode, _t, _a, _e, _s, submittedAt) => {
-        submissions.push({ userCode, submittedAt });
+      submitProfileWithVersion: async (userCode, _t, _a, _e, evaluationText, _s, submittedAt) => {
+        submissions.push({ userCode, evaluationText, submittedAt });
         return { version: 1 };
       },
       completeAssessmentResult: async (input) => {
@@ -234,8 +234,11 @@ describe("物化器：tempId→真实 id 重映射 + 调用序列（#253，fake 
     // 一人只产其一（完成与草稿互斥）
     expect(r.assessments.length + r.draftIds.length).toBe(p.students.filter((s) => s.assessment).length);
 
-    // 提交时间已回填为 YYYY-MM-DD HH:mm:ss（与 getNow 同格式）
-    for (const s of r.submissions) expect(s.submittedAt).toMatch(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/);
+    // 提交时间已回填为 YYYY-MM-DD HH:mm:ss（与 getNow 同格式）；#162 起每条档案带三条评价文字
+    for (const s of r.submissions) {
+      expect(s.submittedAt).toMatch(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/);
+      expect(JSON.parse(s.evaluationText ?? "[]")).toHaveLength(3);
+    }
 
     // 每张图上传原图 + 缩略图
     expect(r.uploads).toHaveLength(report.images * 2);

@@ -13,9 +13,11 @@ import {
   isUnassignedClass,
   relativeLuminance,
   resolveSectionState,
+  rosterBands,
   showsTypeFilter,
   sortClassesByNeed,
   typeColorOf,
+  type AssessmentMissingRosterItem,
   type AssessmentRosterItem,
 } from "../lib/assessment-dashboard";
 import type { AssessmentClassCompletion, AssessmentCodeCount, AssessmentStats, AssessmentTypeCount } from "../lib/assessment-stats";
@@ -226,5 +228,55 @@ describe("resolveSectionState：空态 / 失败态优先级", () => {
     expect(resolveSectionState({ loading: false, failed: false, enabled: false, assessed: 5 })).toBe("disabled");
     expect(resolveSectionState({ loading: false, failed: false, enabled: true, assessed: 0 })).toBe("empty");
     expect(resolveSectionState({ loading: false, failed: false, enabled: true, assessed: 3 })).toBe("ready");
+  });
+});
+
+describe("rosterBands：大五档位（#313）", () => {
+  it("只出 key / label / band：缺 band 时按标准分兜底，raw / standard 不外泄", () => {
+    const bands = rosterBands(
+      JSON.stringify([
+        { key: "N", label: "神经质", raw: 42, standard: 82.5, band: "high" },
+        { key: "E", label: "外向性", raw: 25, standard: 50 },
+        { key: "A", label: "宜人性", raw: 3, standard: 20, band: "low" },
+      ])
+    );
+
+    // 旧快照缺 band → bandOf(standard) 兜底，与学生端解读同口径
+    expect(bands).toEqual([
+      { key: "N", label: "神经质", band: "high" },
+      { key: "E", label: "外向性", band: "medium" },
+      { key: "A", label: "宜人性", band: "low" },
+    ]);
+    for (const row of bands) {
+      expect(Object.keys(row).sort()).toEqual(["band", "key", "label"]);
+    }
+    expect(JSON.stringify(bands)).not.toContain("standard");
+    expect(JSON.stringify(bands)).not.toContain("82.5");
+  });
+
+  it("空值 / 脏数据返回空数组，不抛错也不阻断整张名册", () => {
+    expect(rosterBands(null)).toEqual([]);
+    expect(rosterBands(undefined)).toEqual([]);
+    expect(rosterBands("")).toEqual([]);
+    expect(rosterBands("not-json")).toEqual([]);
+    expect(rosterBands("{}")).toEqual([]);
+    expect(rosterBands(JSON.stringify([{ key: "", standard: 50 }]))).toEqual([]);
+  });
+});
+
+describe("filterRosterItems：未完成名单行（#313）", () => {
+  const missing: AssessmentMissingRosterItem[] = [
+    { classId: 1, className: "2025级1班", name: "丙", userCode: "202505050103" },
+    { classId: null, className: null, name: "Alice", userCode: "202505050301" },
+  ];
+
+  it("没有 code 的行带 lead 时不会被误判为命中（接口层也已拒绝这种组合）", () => {
+    expect(filterRosterItems(missing, { lead: "S" })).toEqual([]);
+  });
+
+  it("关键字筛选照常生效", () => {
+    expect(filterRosterItems(missing, { query: "丙" })).toHaveLength(1);
+    expect(filterRosterItems(missing, { query: "alice" })).toHaveLength(1);
+    expect(filterRosterItems(missing, {})).toHaveLength(2);
   });
 });

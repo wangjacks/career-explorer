@@ -22,6 +22,7 @@ import {
   type ProfileListQuery,
   type ResolvedProfileListQuery,
 } from "@/lib/profile-query";
+import { extractEvaluationWords, parseStoredEvaluationTexts } from "@/lib/evaluation-text";
 import { WriteGuard } from "../write-guard";
 
 const PATH = "/api/manage/profiles";
@@ -137,10 +138,12 @@ async function GET_impl(request: NextRequest) {
           assessmentResults[scale.code] = toScaleResult(byCode?.get(r.user_code), scale);
         }
         // 兼容字段（#234）：取自霍兰德量表的结果，旧前端/导出继续可用
+        // 状态与徽章同源：三字码合法才算「已测」，避免接口说 completed、界面显示未测
         const holland =
           assessmentResults[RIASEC_CODE] ??
           toScaleResult(undefined, { code: RIASEC_CODE, name: "", scoringMode: "typological", dimensions: [] });
         const legacyAssessed = assessmentLeadOf(holland.typeCode) !== null;
+        const evaluationTexts = parseStoredEvaluationTexts(r.evaluation_text);
         return {
           // #95：补充数字 userId，供版本历史等关联查询使用
           userId: r.id,
@@ -151,6 +154,8 @@ async function GET_impl(request: NextRequest) {
           tags,
           avatarUrl: r.avatar_url,
           evaluationUrl: r.evaluation_url,
+          evaluationTexts,
+          evaluationWords: extractEvaluationWords(evaluationTexts),
           storageId: r.storage_id,
           createdAt: r.submitted_at,
           // #234 兼容字段：未测统一为 none / null

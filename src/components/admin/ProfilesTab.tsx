@@ -6,8 +6,11 @@ import { Tag, ChevronDown } from "lucide-react";
 import ConfirmDialog from "./ConfirmDialog";
 import { useEscapeKey } from "@/hooks/useEscapeKey";
 import StorageImage from "@/components/StorageImage";
+import EvaluationWordCloud from "@/components/EvaluationWordCloud";
+import EvaluationTexts from "@/components/EvaluationTexts";
 import { useTagColorMap } from "@/hooks/useTagColorMap";
 import { buildRiasecBars } from "@/lib/assessment-view";
+import type { WordCloudItem } from "@/types";
 import { typeColorOf } from "@/lib/assessment-colors";
 import { formatResultTime } from "@/lib/assessment-flow";
 import {
@@ -53,6 +56,8 @@ interface SubmissionHistoryRow {
   tags: string[];
   avatar_url: string;
   evaluation_url: string;
+  evaluation_texts?: string[];
+  evaluation_words?: WordCloudItem[];
   storage_id: number;
   submitted_at: string;
   is_current: number;
@@ -578,7 +583,7 @@ export default function ProfilesTab({
                 <button type="button" onClick={() => handleSort("studentName")} className="cursor-pointer select-none">姓名<SortIcon active={sortKey === "studentName"} dir={sortDir} /></button>
               </th>
               <th className="px-5 py-3 font-medium">虚拟形象</th>
-              <th className="px-5 py-3 font-medium">评价词云</th>
+              <th className="px-5 py-3 font-medium">他人评价</th>
               <th className="px-5 py-3 font-medium">标签</th>
               <th className="px-5 py-3 font-medium">兴趣测评</th>
               <th className="px-5 py-3 font-medium">人格特质</th>
@@ -615,7 +620,14 @@ export default function ProfilesTab({
                   )}
                 </td>
                 <td className="px-5 py-3">
-                  {p.evaluationUrl ? (
+                  {(p.evaluationTexts ?? []).some((text) => text.trim()) ? (
+                    <span
+                      className="block max-w-[14rem] truncate text-xs text-gray-600 dark:text-gray-300"
+                      title={(p.evaluationTexts ?? []).filter(Boolean).join("\n")}
+                    >
+                      {(p.evaluationTexts ?? []).find((text) => text.trim())}
+                    </span>
+                  ) : p.evaluationUrl ? (
                     <StorageImage url={p.evaluationUrl} storageId={p.storageId} alt="" thumbnail className="w-8 h-8 rounded object-cover" />
                   ) : (
                     <span className="text-gray-400 text-xs">无</span>
@@ -730,12 +742,30 @@ export default function ProfilesTab({
               </div>
             </div>
 
-            {detail.evaluationUrl && (
+            {(detail.evaluationTexts ?? []).filter((text) => text.trim()).length === 3 ? (
+              <div className="space-y-3">
+                <p className="text-xs text-muted">他人评价与词云</p>
+                <EvaluationWordCloud
+                  words={detail.evaluationWords ?? []}
+                  height={260}
+                  emptyText="暂无可提取的关键词"
+                />
+                <EvaluationTexts texts={detail.evaluationTexts ?? []} collapsible={false} />
+                {detail.evaluationUrl && (
+                  <details>
+                    <summary className="cursor-pointer select-none text-xs text-muted hover:text-foreground">
+                      查看历史评价图片
+                    </summary>
+                    <StorageImage url={detail.evaluationUrl} storageId={detail.storageId} alt="" className="mt-2 w-full rounded-xl border border-gray-100" />
+                  </details>
+                )}
+              </div>
+            ) : detail.evaluationUrl ? (
               <div>
-                <p className="text-xs text-muted mb-2">评价词云</p>
+                <p className="text-xs text-muted mb-2">历史评价词云图片</p>
                 <StorageImage url={detail.evaluationUrl} storageId={detail.storageId} alt="" className="w-full rounded-xl border border-gray-100" />
               </div>
-            )}
+            ) : null}
 
             {/* 职业兴趣测评（#234）：未测时整块不渲染；条形口径与结果页一致（buildRiasecBars） */}
             {isAssessed(detail) && (
@@ -824,16 +854,29 @@ export default function ProfilesTab({
                             ))
                           )}
                         </div>
-                        {(h.avatar_url || h.evaluation_url) && (
-                          <div className="flex gap-1.5">
-                            {h.avatar_url && (
-                              <StorageImage url={h.avatar_url} storageId={h.storage_id} alt="" className="w-8 h-8 rounded object-cover border border-border-soft" />
-                            )}
+                        {h.avatar_url && (
+                          <StorageImage url={h.avatar_url} storageId={h.storage_id} alt="" className="w-8 h-8 rounded object-cover border border-border-soft" />
+                        )}
+                        {(h.evaluation_texts ?? []).filter((text) => text.trim()).length === 3 ? (
+                          <div className="space-y-1.5">
+                            <EvaluationWordCloud
+                              words={h.evaluation_words ?? []}
+                              height={90}
+                              emptyText="暂无可提取的关键词"
+                            />
+                            <EvaluationTexts texts={h.evaluation_texts ?? []} />
                             {h.evaluation_url && (
-                              <StorageImage url={h.evaluation_url} storageId={h.storage_id} alt="" className="h-8 w-14 rounded object-cover border border-border-soft" />
+                              <details>
+                                <summary className="cursor-pointer select-none text-[10px] text-muted hover:text-foreground">
+                                  查看此版本历史图片
+                                </summary>
+                                <StorageImage url={h.evaluation_url} storageId={h.storage_id} alt="" className="mt-1 h-8 w-14 rounded object-cover border border-border-soft" />
+                              </details>
                             )}
                           </div>
-                        )}
+                        ) : h.evaluation_url ? (
+                          <StorageImage url={h.evaluation_url} storageId={h.storage_id} alt="" className="h-8 w-14 rounded object-cover border border-border-soft" />
+                        ) : null}
                       </div>
                     ))
                   )}
