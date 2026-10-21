@@ -212,6 +212,16 @@ function latestBy<T>(items: readonly T[], keyOf: (item: T) => string): T {
 }
 
 /**
+ * 最近一次完成的量表（#322）：hero「最近测评」与「我的测评」共用这一条 completedAt 规则，
+ * 避免两个入口各写一遍、将来漂移。没有完成记录返回 null。
+ */
+export function latestCompletedOf(items: readonly AssessmentListItem[]): AssessmentListItem | null {
+  const completed = items.filter((item) => item.completedAt !== "");
+  if (completed.length === 0) return null;
+  return latestBy(completed, (item) => item.completedAt);
+}
+
+/**
  * 「我的测评」卡展示哪一套量表（#291）——最近活跃量表：
  * 1. 有草稿的优先，取 `updatedAt` 最新的一套（学生最该做的是把它答完）；
  * 2. 否则取最近完成的一套（`completedAt` 最新）；
@@ -225,8 +235,8 @@ export function deriveLatestActive(items: readonly AssessmentListItem[] | null |
   const withDraft = items.filter((item) => item.inProgress !== null);
   if (withDraft.length > 0) return latestBy(withDraft, (item) => item.inProgress?.updatedAt ?? "");
 
-  const completed = items.filter((item) => item.completedAt !== "");
-  if (completed.length > 0) return latestBy(completed, (item) => item.completedAt);
+  const latestCompleted = latestCompletedOf(items);
+  if (latestCompleted) return latestCompleted;
 
   return items.find((item) => item.code === RIASEC_CODE) ?? items[0];
 }

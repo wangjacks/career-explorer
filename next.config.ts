@@ -36,6 +36,11 @@ const nextConfig: NextConfig = {
       ...(process.env.NODE_ENV === "production" ? [staticAssetRule] : []),
     ];
   },
+  async redirects() {
+    // 老链接兜底（#318）：/form 占位页已删除，存过书签或从旧文档点进来的访客落回首页；
+    // 首页 CTA 已按登录态判定（#317），落地即可继续。`permanent` 在 Next 中产出 308。
+    return [{ source: "/form", destination: "/", permanent: true }];
+  },
 };
 
 export default nextConfig;

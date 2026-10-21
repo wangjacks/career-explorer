@@ -15,8 +15,8 @@ import {
 describe("computeDashboardTotals", () => {
   it("由 compare 求和在册 / 已提交 / 未提交与提交率", () => {
     const totals = computeDashboardTotals([
-      { key: "一班", total: 40, submitted: 30 },
-      { key: "二班", total: 20, submitted: 15 },
+      { key: "一班", label: "一班", total: 40, submitted: 30 },
+      { key: "二班", label: "二班", total: 20, submitted: 15 },
     ]);
     expect(totals.enrolled).toBe(60);
     expect(totals.submitted).toBe(45);
@@ -33,7 +33,7 @@ describe("computeDashboardTotals", () => {
   });
 
   it("全员已提交时未提交为 0、提交率 100%", () => {
-    const totals = computeDashboardTotals([{ key: "一班", total: 12, submitted: 12 }]);
+    const totals = computeDashboardTotals([{ key: "一班", label: "一班", total: 12, submitted: 12 }]);
     expect(totals.unsubmitted).toBe(0);
     expect(totals.rateText).toBe("100.0%");
   });
@@ -64,38 +64,55 @@ describe("computeRosterBits", () => {
 });
 
 describe("buildClassSeries", () => {
-  it("把 counts 摊平为顶层字段并保留 date", () => {
-    const series = buildClassSeries([
-      { date: "2026-10-17", counts: { 一班: 2, 二班: 3 } },
-    ]);
-    expect(series).toEqual([{ 一班: 2, 二班: 3, date: "2026-10-17" }]);
+  it("按 series 顺序生成位置字段并保留 date", () => {
+    const series = buildClassSeries(
+      [
+        { key: "一班", label: "一班" },
+        { key: "二班", label: "二班" },
+      ],
+      [{ date: "2026-10-17", counts: { 一班: 2, 二班: 3 } }]
+    );
+    expect(series).toEqual([{ date: "2026-10-17", s0: 2, s1: 3 }]);
   });
 
-  it("班名恰为 date 时也不覆盖 X 轴日期字段（date 写在展开之后）", () => {
-    const series = buildClassSeries([
-      { date: "2026-10-17", counts: { date: 5 } },
-    ]);
-    expect(series[0].date).toBe("2026-10-17");
+  it("班名恰为 date / __proto__ 时也不污染图表字段", () => {
+    const series = buildClassSeries(
+      [
+        { key: "date", label: "date" },
+        { key: "__proto__", label: "__proto__" },
+      ],
+      [{ date: "2026-10-17", counts: { date: 5, ["__proto__"]: 6 } }]
+    );
+    expect(series[0]).toEqual({ date: "2026-10-17", s0: 5, s1: 6 });
   });
 });
 
 describe("buildClassSubmissionRows", () => {
-  it("按提交率升序，未分班固定置末", () => {
+  it("按提交率升序，未分班哨兵固定置末", () => {
     const rows = buildClassSubmissionRows([
-      { key: "一班", total: 10, submitted: 8 },
-      { key: "未分班", total: 4, submitted: 0 },
-      { key: "二班", total: 10, submitted: 2 },
-      { key: "三班", total: 5, submitted: 1 },
+      { key: "一班", label: "一班", total: 10, submitted: 8 },
+      { key: "__unassigned__", label: "未分班", total: 4, submitted: 0 },
+      { key: "二班", label: "二班", total: 10, submitted: 2 },
+      { key: "三班", label: "三班", total: 5, submitted: 1 },
     ]);
-    expect(rows.map((row) => row.key)).toEqual(["二班", "三班", "一班", "未分班"]);
+    expect(rows.map((row) => row.key)).toEqual(["二班", "三班", "一班", "__unassigned__"]);
     expect(rows[0]).toMatchObject({ unsubmitted: 8, rate: 0.2, rateText: "20.0%" });
+  });
+
+  it("真实班名「未分班」按提交率排序，不因名称被置末", () => {
+    const rows = buildClassSubmissionRows([
+      { key: "未分班", label: "未分班", total: 10, submitted: 9 },
+      { key: "一班", label: "一班", total: 10, submitted: 1 },
+      { key: "__unassigned__", label: "未分班", total: 10, submitted: 0 },
+    ]);
+    expect(rows.map((row) => row.key)).toEqual(["一班", "未分班", "__unassigned__"]);
   });
 
   it("同率按班名稳定排序，零分母走零保护文案", () => {
     const rows = buildClassSubmissionRows([
-      { key: "B班", total: 10, submitted: 5 },
-      { key: "A班", total: 10, submitted: 5 },
-      { key: "空班", total: 0, submitted: 0 },
+      { key: "B班", label: "B班", total: 10, submitted: 5 },
+      { key: "A班", label: "A班", total: 10, submitted: 5 },
+      { key: "空班", label: "空班", total: 0, submitted: 0 },
     ]);
     expect(rows.map((row) => row.key)).toEqual(["空班", "A班", "B班"]);
     expect(rows[0].rateText).toBe("-");
