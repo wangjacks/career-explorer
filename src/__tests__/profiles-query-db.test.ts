@@ -9,7 +9,7 @@ import { RIASEC_CODE } from "../lib/assessment-data";
 /**
  * 数据列表的**服务端**筛选 / 排序 / 分页（#295）。
  *
- * 这是本 Issue 的核心验收：数据超过一页时，按主导型（含「未测」）、搜索、标签筛选都必须
+ * 这是本 Issue 的核心验收：数据超过一页时，按兴趣测评字母（含「未测」）、搜索、标签筛选都必须
  * 返回**跨页的全部命中行**，而不是只过滤当前页 20 行。SQL 由两适配器共用
  * `buildSubmittedProfilesSql` 生成，这里跑真实 SQLite 用例；MySQL 侧同构。
  */
@@ -33,8 +33,8 @@ interface Seeded {
 
 /**
  * 场景（共 25 名已提交学生，默认每页 20 条 → 第二页 5 人，跨页 bug 必现）：
- * - 25 号学生（提交时间最早，落在第 2 页）三字码 `IAR`（主导型 I）；
- * - 24 号学生三字码 `SIA`（主导型 S，用来验证「首位」语义：I 不该命中）；
+ * - 25 号学生（提交时间最早，落在第 2 页）三字码 `IAR`；
+ * - 24 号学生三字码 `SIA`（用来验证 I / A 也能命中非首字母）；
  * - 23 号学生未测；22 号学生只有草稿（也算未测）；21 号学生旧版本被替换（只认当前版本）；
  * - 标签：1–3 号有 ["运动","游戏"]，4–6 号有 ["阅读"]，其余无标签。
  */
@@ -72,14 +72,14 @@ function seed(): Seeded {
       assessmentId,
       answersJson: "{}",
       // `"[]"` = 整库即轮的旧口径（与 #282 之后 dev 上其余 DB 用例一致）：
-      // 这里只关心主导型筛选能否跨页命中，不需要真造一份抽题快照
+      // 这里只关心兴趣测评筛选能否跨页命中，不需要真造一份抽题快照
       itemsJson: "[]",
       scoresJson: null,
       typeCode,
     });
-  // 25 号 = IAR（第 2 页、主导型 I）
+  // 25 号 = IAR（第 2 页）
   complete("202505051025", "IAR");
-  // 24 号 = SIA（第 2 页、主导型 S；用它验证「I 不命中 SIA」的首位语义）
+  // 24 号 = SIA（第 2 页；I / A 位于非首位）
   complete("202505051024", "SIA");
   // 23 号未测（没有任何结果）
   // 22 号只有草稿
@@ -100,6 +100,8 @@ const CODE_23 = "202505051023";
 const CODE_22 = "202505051022";
 const CODE_21 = "202505051021";
 const CODE_20 = "202505051020";
+const CODE_19 = "202505051019";
+const CODE_18 = "202505051018";
 
 describe("getSubmittedProfiles 服务端筛选（#295）", () => {
   it("不传筛选参数时与改造前一致：提交时间倒序、默认分页、total=全体", () => {
@@ -116,25 +118,30 @@ describe("getSubmittedProfiles 服务端筛选（#295）", () => {
     cleanup(dbPath);
   });
 
-  it("主导型筛选跨页生效：第 2 页的 IAR 学生在第 1 页筛选就能拿到", () => {
+  it("兴趣测评筛选跨页生效：第 2 页的 IAR 学生在第 1 页筛选就能拿到", () => {
     const { dbPath, adapter } = seed();
     const result = adapter.getSubmittedProfiles(1, 20, { lead: "I" });
-    expect(result.total).toBe(1);
-    expect(result.rows.map((row) => row.user_code)).toEqual([CODE_25]);
-    expect(result.rows[0].user_code).toBe(CODE_25); // 默认排序下它在第 2 页，证明不再是「当页过滤」
+    expect(result.total).toBe(2);
+    expect(result.rows.map((row) => row.user_code)).toEqual([CODE_24, CODE_25]);
+    expect(result.rows[1].user_code).toBe(CODE_25); // 默认排序下它在第 2 页，证明不再是「当页过滤」
     adapter.close();
     cleanup(dbPath);
   });
 
-  it("主导型语义 = 三字码首位：SIA 只在 S 命中，I / A 都不命中", () => {
+  it("兴趣测评语义 = 三字码任意位置包含：SIA 在 S / I / A 都命中", () => {
     const { dbPath, adapter } = seed();
     expect(adapter.getSubmittedProfiles(1, 20, { lead: "S" }).rows.map((row) => row.user_code)).toEqual([
+      CODE_21,
       CODE_24,
     ]);
     expect(adapter.getSubmittedProfiles(1, 20, { lead: "I" }).rows.map((row) => row.user_code)).toEqual([
+      CODE_24,
       CODE_25,
     ]);
-    expect(adapter.getSubmittedProfiles(1, 20, { lead: "A" }).rows).toEqual([]);
+    expect(adapter.getSubmittedProfiles(1, 20, { lead: "A" }).rows.map((row) => row.user_code)).toEqual([
+      CODE_24,
+      CODE_25,
+    ]);
     adapter.close();
     cleanup(dbPath);
   });
@@ -149,6 +156,40 @@ describe("getSubmittedProfiles 服务端筛选（#295）", () => {
     // 21 号的旧版本 RIA 已被当前版本 ECS 取代：算已测（E 型），不在未测里
     expect(codes.has(CODE_21)).toBe(false);
     expect(adapter.getSubmittedProfiles(1, 25, { lead: "E" }).rows.map((row) => row.user_code)).toEqual([CODE_21]);
+    adapter.close();
+    cleanup(dbPath);
+  });
+
+  it("字母筛选只接受合法三字码：非法值只进未测，合法值的前后空白不影响匹配", () => {
+    const { dbPath, adapter, assessmentId, ids } = seed();
+    const complete = (userCode: string, typeCode: string) =>
+      adapter.completeAssessmentResult({
+        userId: ids.get(userCode)!,
+        assessmentId,
+        answersJson: "{}",
+        itemsJson: "[]",
+        scoresJson: null,
+        typeCode,
+      });
+    complete(CODE_19, "XRA");
+    complete(CODE_18, " RIA ");
+
+    for (const lead of ["R", "I", "A", "S", "E", "C"] as const) {
+      const codes = adapter.getSubmittedProfiles(1, 25, { lead }).rows.map((row) => row.user_code);
+      expect(codes).not.toContain(CODE_19);
+    }
+    expect(adapter.getSubmittedProfiles(1, 25, { lead: "none" }).rows.map((row) => row.user_code)).toContain(
+      CODE_19
+    );
+
+    for (const lead of ["R", "I", "A"] as const) {
+      const codes = adapter.getSubmittedProfiles(1, 25, { lead }).rows.map((row) => row.user_code);
+      expect(codes).toContain(CODE_18);
+    }
+    expect(adapter.getSubmittedProfiles(1, 25, { lead: "none" }).rows.map((row) => row.user_code)).not.toContain(
+      CODE_18
+    );
+
     adapter.close();
     cleanup(dbPath);
   });

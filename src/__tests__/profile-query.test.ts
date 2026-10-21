@@ -15,7 +15,7 @@ function parse(query: string) {
 }
 
 describe("parseProfilesQuery（#295 服务端筛选入参）", () => {
-  it("不传参数时给默认值：第 1 页 / 每页 20 / 不限主导型 / 提交时间倒序", () => {
+  it("不传参数时给默认值：第 1 页 / 每页 20 / 不限兴趣测评 / 提交时间倒序", () => {
     const parsed = parse("");
     expect(parsed).toEqual({
       ok: true,
@@ -27,7 +27,7 @@ describe("parseProfilesQuery（#295 服务端筛选入参）", () => {
     });
   });
 
-  it("q / 标签 / 主导型 / 排序全部归一化（标签去重、去空白；逗号属于标签名，不切分）", () => {
+  it("q / 标签 / 兴趣测评 / 排序全部归一化（标签去重、去空白；逗号属于标签名，不切分）", () => {
     const parsed = parse(
       "?page=2&pageSize=10&q=%20%E5%BC%A0%E4%B8%89%20&tag=%E7%AF%AE%E7%90%83%2C%E8%B6%B3%E7%90%83&tag=%20%E8%BF%90%E5%8A%A8%20&tag=%E8%BF%90%E5%8A%A8&lead=I&sortKey=studentId&sortDir=asc"
     );
@@ -129,15 +129,20 @@ describe("buildSubmittedProfilesSql（两适配器共用的 SQL 口径）", () =
     expect(mysqlSql.whereSql).toContain("INSTR(u.tags COLLATE utf8mb4_bin, ?) > 0");
   });
 
-  it("主导型：六型按首位字母匹配；none 用 NOT EXISTS（含三字码非法/无结果）", () => {
+  it("兴趣测评：六型按三字码任意位置包含；none 用 NOT EXISTS（含三字码非法/无结果）", () => {
     const leadSql = buildSubmittedProfilesSql("sqlite", { lead: "I" }, "riasec");
-    expect(leadSql.whereSql).toContain("UPPER(SUBSTR(r.type_code, 1, 1)) = ?");
+    expect(leadSql.whereSql).toContain(
+      "SUBSTR(UPPER(TRIM(r.type_code)), 1, 1) IN ('R','I','A','S','E','C')"
+    );
+    expect(leadSql.whereSql).toContain("INSTR(UPPER(TRIM(r.type_code)), ?) > 0");
     expect(leadSql.whereSql).toContain("a.code = ?");
     expect(leadSql.params).toEqual(["riasec", "I"]);
 
     const noneSql = buildSubmittedProfilesSql("sqlite", { lead: "none" }, "riasec");
     expect(noneSql.whereSql).toContain("NOT EXISTS");
-    expect(noneSql.whereSql).toContain("IN ('R','I','A','S','E','C')");
+    expect(noneSql.whereSql).toContain(
+      "SUBSTR(UPPER(TRIM(r.type_code)), 1, 1) IN ('R','I','A','S','E','C')"
+    );
     expect(noneSql.params).toEqual(["riasec"]);
   });
 
@@ -161,7 +166,7 @@ describe("小工具", () => {
     expect(escapeLikePattern("a\\b")).toBe("a\\\\b");
   });
 
-  it("hasActiveProfileFilters：只有主导型/关键字/标签算筛选，排序不算", () => {
+  it("hasActiveProfileFilters：只有兴趣测评/关键字/标签算筛选，排序不算", () => {
     expect(hasActiveProfileFilters(undefined)).toBe(false);
     expect(hasActiveProfileFilters({ lead: "all" })).toBe(false);
     expect(hasActiveProfileFilters({ sortKey: "studentId" })).toBe(false);
