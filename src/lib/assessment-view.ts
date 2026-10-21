@@ -339,7 +339,7 @@ const BIG_FIVE_MIDPOINT = 50;
 
 /** 大五排名：按标准分降序，同分按量表维度顺序（稳定）；前两维标 `isPrimary` */
 function rankBigFive(
-  scores: readonly DimensionScore[],
+  scores: readonly RiasecScoreSnapshot[],
   dimensions: readonly { key: string; label: string }[]
 ): { key: string; label: string; standard: number; order: number }[] {
   return dimensions
@@ -373,9 +373,12 @@ export function buildBigFiveBars(
  *
  * 前缀与逐维解读同口径：≥50 用「高X」，低于中线用「偏低X」——否则五个维度都低于 50 时，
  * 头部会写「高X」而下方同一维又标「偏低」，同一张卡自相矛盾。
+ *
+ * 入参放宽到轻量快照（`{ key, standard }`，label 可选）：数据列表只下发维度 + 标准分（#234/#330），
+ * 这一层不需要 raw / 作答计数，避免为了算一个画像标签而搬运整份得分结构。
  */
 export function buildBigFiveHeadline(
-  scores: readonly DimensionScore[],
+  scores: readonly RiasecScoreSnapshot[],
   dimensions: readonly { key: string; label: string }[]
 ): string {
   return rankBigFive(scores, dimensions)
