@@ -8,7 +8,7 @@ import {
 } from "@/lib/db";
 import { RIASEC_CODE } from "@/lib/assessment-data";
 import { HOLLAND_TIE_BREAK_ORDER } from "@/lib/assessment-scoring";
-import { rosterBands } from "@/lib/assessment-dashboard";
+import { rosterBands, type AssessmentRosterBand } from "@/lib/assessment-dashboard";
 import { getAuditActor, getRequestContext, recordAudit } from "@/lib/audit";
 import { getSession, writableClassIds } from "../../classes/helpers";
 
@@ -19,6 +19,10 @@ type Scope = (typeof SCOPES)[number];
 /** 名册状态（#313）：`done` 已完测（默认）/ `missing` 只列还没测的人 */
 const STATUSES = ["done", "missing"] as const;
 type RosterStatus = (typeof STATUSES)[number];
+
+/** 量表 code 与 classId 都是短标识：超长值是畸形请求，限长后再落审计（不让审计表被垃圾串撑大） */
+const MAX_SCALE_LENGTH = 64;
+const MAX_CLASS_ID_LENGTH = 18;
 
 /** 名册返回的个人字段白名单：已完测只给下钻弹窗需要的四项 + 测评结论，多一个都不给 */
 interface RosterItem {
@@ -36,7 +40,8 @@ interface RosterBandItem {
   className: string | null;
   name: string;
   userCode: string;
-  bands: { key: string; label: string; band: string }[];
+  /** 逐维档位（与 `rosterBands` 同一类型，避免手写副本慢慢漂移） */
+  bands: AssessmentRosterBand[];
   assessedAt: string;
 }
 
@@ -110,14 +115,23 @@ async function GET_impl(request: NextRequest) {
     const scaleParam = params.get("scale");
     let scale = RIASEC_CODE;
     if (scaleParam !== null && scaleParam.trim() !== "") {
-      const normalized = scaleParam.trim().toLowerCase();
-      const enabled = await getEnabledAssessments();
+      const rawScale = scaleParam.trim();
+      const normalized = rawScale.toLowerCase();
+      const enabled =
+        rawScale.length > MAX_SCALE_LENGTH ? [] : await getEnabledAssessments();
       if (!enabled.some((row) => row.code === normalized)) {
         return await deny(
           "scale 只支持已启用的量表",
           400,
-          { scope, classId: null, lead: null, code: null, scale: scaleParam.trim(), status: null },
-          normalized
+          {
+            scope,
+            classId: null,
+            lead: null,
+            code: null,
+            scale: rawScale.slice(0, MAX_SCALE_LENGTH),
+            status: null,
+          },
+          normalized.slice(0, MAX_SCALE_LENGTH)
         );
       }
       scale = normalized;
@@ -138,12 +152,20 @@ async function GET_impl(request: NextRequest) {
     const classIdParam = params.get("classId");
     let classId: number | null = null;
     if (classIdParam !== null && classIdParam.trim() !== "") {
-      classId = Number(classIdParam);
+      const rawClassId = classIdParam.trim();
+      classId = rawClassId.length > MAX_CLASS_ID_LENGTH ? NaN : Number(rawClassId);
       if (!Number.isInteger(classId) || classId <= 0) {
         return await deny(
           "classId 必须是正整数",
           400,
-          { scope, classId: classIdParam, lead: null, code: null, scale, status },
+          {
+            scope,
+            classId: rawClassId.slice(0, MAX_CLASS_ID_LENGTH),
+            lead: null,
+            code: null,
+            scale,
+            status,
+          },
           scale
         );
       }

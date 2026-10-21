@@ -257,6 +257,17 @@ describe("GET /api/manage/stats/class-roster — classId（#313）", () => {
     );
   });
 
+  it("超长 classId 是畸形请求：400 且审计里不落原始长串", async () => {
+    const longId = "9".repeat(40);
+    const res = await GET(createSearchRequest(`?classId=${longId}`));
+    expect(res.status).toBe(400);
+
+    const calls = vi.mocked(insertAuditLog).mock.calls;
+    const audit = calls[calls.length - 1]?.[0];
+    expect(String(audit?.resource_id ?? "")).not.toContain(longId);
+    expect(String(audit?.metadata ?? "")).not.toContain(longId);
+  });
+
   it("班级不存在 → 404（与参数非法区分）并记失败审计", async () => {
     vi.mocked(getClassById).mockResolvedValue(undefined);
 

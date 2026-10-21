@@ -591,5 +591,27 @@ describe("GET /api/manage/assessment/roster（#313 多量表与未完成名单�
     expect(lastAudit()?.metadata).toContain('"scale":"riasec"');
     expect(lastAudit()?.metadata).toContain('"status":"missing"');
   });
+
+  it("超长 scale / classId 属于畸形请求：400 且审计里不落原始长串", async () => {
+    const admin = await token("admin", 1);
+
+    const longScale = "x".repeat(200);
+    const scaleRes = await rosterGet(
+      request(`/api/manage/assessment/roster?scale=${longScale}`, admin)
+    );
+    expect(scaleRes.status).toBe(400);
+    // 超长值直接判非法，不拿它去查启用量表
+    expect(getEnabledAssessments).not.toHaveBeenCalled();
+    const scaleAudit = String(lastAudit()?.metadata ?? "");
+    expect(scaleAudit).not.toContain(longScale);
+
+    const longClassId = "9".repeat(40);
+    const classRes = await rosterGet(
+      request(`/api/manage/assessment/roster?classId=${longClassId}`, admin)
+    );
+    expect(classRes.status).toBe(400);
+    const classAudit = String(lastAudit()?.metadata ?? "");
+    expect(classAudit).not.toContain(longClassId);
+  });
 });
 

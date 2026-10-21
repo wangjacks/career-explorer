@@ -7,6 +7,8 @@ import { isUnassignedClassKey, UNASSIGNED_CLASS_LABEL } from "@/lib/class-identi
 import { normalizeClassName } from "@/lib/class-utils";
 
 const MAX_CLASS_KEY_LENGTH = 80;
+/** 正整数 id 的上限长度（同 roster 接口）：超长即畸形请求，限长后再落审计 */
+const MAX_CLASS_ID_LENGTH = 18;
 
 /** tags 存的是名称数组 JSON；脏数据/空值一律按 0 计，不阻断名册返回 */
 function countTags(tags: string | null): number {
@@ -36,20 +38,23 @@ async function GET_impl(request: NextRequest) {
   const classIdParam = params.get("classId");
   let requestedClassId: number | null = null;
   if (classIdParam !== null && classIdParam.trim() !== "") {
-    requestedClassId = Number(classIdParam);
+    const rawClassId = classIdParam.trim();
+    // 正整数 id 远短于这个上限；超长值直接判非法，避免畸形串被原样写进审计
+    requestedClassId = rawClassId.length > MAX_CLASS_ID_LENGTH ? NaN : Number(rawClassId);
     if (!Number.isInteger(requestedClassId) || requestedClassId <= 0) {
+      const clipped = rawClassId.slice(0, MAX_CLASS_ID_LENGTH);
       void recordAudit({
         ...actor,
         action: "class:roster",
         method: "GET",
         path: "/api/manage/stats/class-roster",
         resource_type: "class",
-        resource_id: classIdParam,
+        resource_id: clipped,
         status: "failed",
         error_message: "classId 必须是正整数",
         ip,
         user_agent,
-        metadata: { classId: classIdParam },
+        metadata: { classId: clipped },
       });
       return NextResponse.json({ error: "classId 必须是正整数" }, { status: 400 });
     }
