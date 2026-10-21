@@ -51,8 +51,12 @@ export default function AssessmentAttributionCard({
     scales && scales.length > 0
       ? [...scales]
       : [{ code: "legacy", name: "", attribution, licenseText, disclaimer }];
-  // 兼容测评中心「接口失败也常驻来源说明」的旧行为：仅单量表占位时给 O*NET 兜底文案
-  const useOnetFallback = groups.length === 1 && !(groups[0].attribution ?? "").trim();
+  // 兼容测评中心「接口失败也常驻来源说明」的旧行为：仅单量表占位（legacy）时给 O*NET 兜底文案；
+  // 真正启用的单套量表即使缺 attribution 也不能套 O*NET 文案（可能是 IPIP）
+  const useOnetFallback =
+    groups.length === 1 &&
+    groups[0].code === "legacy" &&
+    !(groups[0].attribution ?? "").trim();
   // 两套量表的免责声明通常逐字相同：去重后只展示一次，避免同一句话出现两遍
   const disclaimerTexts = Array.from(
     new Set(groups.map((group) => (group.disclaimer ?? "").trim()).filter(Boolean))

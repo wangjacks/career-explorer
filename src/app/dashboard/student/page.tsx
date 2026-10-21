@@ -403,7 +403,17 @@ function ProfileOverviewCard({
             className="w-full max-w-xs cursor-zoom-in rounded-lg border border-border-soft"
           />
         ) : (
-          <p className="text-sm text-muted">还没有评价词云，点「修改数据」补充。</p>
+          <div className="flex flex-wrap items-center gap-3">
+            <p className="text-sm text-muted">还没有评价词云。</p>
+            <button
+              type="button"
+              onClick={onEdit}
+              disabled={submissionClosed}
+              className="text-sm font-medium text-primary-strong underline underline-offset-2 hover:no-underline disabled:opacity-50"
+            >
+              补充评价词云
+            </button>
+          </div>
         )}
       </div>
 

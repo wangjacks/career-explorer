@@ -74,12 +74,11 @@ export default function ScoreRadarChart({
     return () => observer.disconnect();
   }, []);
 
-  // 没有顶点时不画空框；条形排名已经在卡片里承担读数
-  if (points.length === 0) return null;
-
+  // 没有顶点时不画空框；条形排名已经在卡片里承担读数。
+  // 注意容器始终挂载（只是高度为 0），这样 points 从空变为非空时宽度已经被量到
   return (
     <div ref={containerRef} className="min-w-0">
-      {width > 0 && (
+      {points.length > 0 && width > 0 && (
         <div
           role="img"
           aria-label={ariaLabel}
