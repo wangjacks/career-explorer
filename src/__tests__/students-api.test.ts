@@ -29,6 +29,7 @@ const STUDENT = {
   tags: null,
   avatar_url: null,
   evaluation_url: null,
+  evaluation_text: null,
   submitted_at: null,
   created_at: "",
   storage_id: 1,

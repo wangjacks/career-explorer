@@ -43,7 +43,10 @@ export interface UserRow {
   class_id: number | null;
   tags: string | null; // JSON 数组（标签名称），如 '["阅读","编程"]'
   avatar_url: string | null;
+  /** 历史上传的评价词云图片；#162 起仅用于存量兼容，新数据写 evaluation_text */
   evaluation_url: string | null;
+  /** 三条他人评价的 JSON 数组（#162），如 '["评价一","评价二","评价三"]' */
+  evaluation_text: string | null;
   submitted_at: string | null;
   created_at: string;
   /** 文件所在存储后端（#111；旧备份可能缺失，恢复时回填本地后端） */
@@ -69,6 +72,7 @@ export interface ProfileSubmissionRow {
   tags: string | null;
   avatar_url: string | null;
   evaluation_url: string | null;
+  evaluation_text: string | null;
   storage_id: number;
   submitted_at: string;
   is_current: number;
@@ -79,6 +83,7 @@ export interface ProfileSubmissionData {
   tags: string | null;
   avatar_url: string | null;
   evaluation_url: string | null;
+  evaluation_text: string | null;
   storage_id: number;
   submitted_at: string;
   is_current: number;
@@ -438,6 +443,25 @@ export interface AssessmentStatsRaw {
 }
 
 /**
+ * 班级完成矩阵的**原始计数**（#310）：档案提交与各量表已完成人数都按 `class_id` 分组，
+ * `class_id = null` 表示未分班；`name` 只用于展示，**绝不作为分组键**（改名/重名会串数据）。
+ * 完成率、列顺序、排序、空班剔除与总计统一由 `src/lib/completion-stats.ts` 的纯函数算。
+ */
+export interface CompletionStatsRaw {
+  profile: {
+    class_id: number | null;
+    name: string | null;
+    enrolled: number;
+    submitted: number;
+  }[];
+  assessments: {
+    assessment_id: number;
+    class_id: number | null;
+    assessed: number;
+  }[];
+}
+
+/**
  * 测评名册行（#229）：**含个人信息**，只给教师端下钻用，读取必须记审计。
  *
  * #313 起支持多量表：`riasec` 看 `code`（三字码），`dimensional` 量表（如 `ipip-neo-ffi`）没有三字码，
@@ -648,7 +672,7 @@ export interface DbAdapter {
   getStudentByCode(userCode: string): Promise<UserRow | undefined> | UserRow | undefined;
 
   // submissions
-  upsertSubmission(userCode: string, tagsJson: string, avatarUrl: string, evaluationUrl: string, storageId: number): Promise<void> | void;
+  upsertSubmission(userCode: string, tagsJson: string, avatarUrl: string, evaluationUrl: string, evaluationText: string | null, storageId: number): Promise<void> | void;
   /**
    * 已提交档案的学生分页列表（#295）：筛选 / 排序 / 分页**全部在数据库里完成**，
    * 因此跨页数据也能被搜到；`filters` 缺省时行为与改造前一致（按提交时间倒序、无过滤）。
@@ -683,6 +707,7 @@ export interface DbAdapter {
     tagsJson: string,
     avatarUrl: string,
     evaluationUrl: string,
+    evaluationText: string | null,
     storageId: number,
     /** 演示播种用：显式提交时间（与 getNow 同格式 `YYYY-MM-DD HH:mm:ss`）；生产提交省略→取当前 */
     submittedAt?: string
@@ -869,6 +894,15 @@ export interface DbAdapter {
     classId?: number
   ): Promise<AssessmentStatsRaw> | AssessmentStatsRaw;
   /**
+   * 班级完成矩阵原始计数（#310）：档案提交 + 各量表完成人数，按 `class_id` 分组。
+   * `assessmentIds` 为空时只返回档案列；`classIds = null` 为全校口径（含未分班），
+   * 传集合则只统计这些班级（教师「只看我的班」）。不含任何姓名/学号。
+   */
+  getCompletionStats(
+    assessmentIds: number[],
+    classIds: number[] | null
+  ): Promise<CompletionStatsRaw> | CompletionStatsRaw;
+  /**
    * 测评名册（**含姓名/学号，读取须记审计**）：只返回已完成且当前有效的结果。
    * `classIds` 收窄班级范围（教师归属班级），`filters.classId` 再收窄到单班，
    * `filters.lead` 按三字码首位过滤，`filters.code` 按完整三字码精确过滤（#232 三字码胶囊下钻）。
@@ -1043,9 +1077,9 @@ export async function getStudentByCode(userCode: string): Promise<UserRow | unde
   return Promise.resolve(adapter.getStudentByCode(userCode));
 }
 
-export async function upsertSubmission(userCode: string, tagsJson: string, avatarUrl: string, evaluationUrl: string, storageId: number): Promise<void> {
+export async function upsertSubmission(userCode: string, tagsJson: string, avatarUrl: string, evaluationUrl: string, evaluationText: string | null, storageId: number): Promise<void> {
   const adapter = await ensureInit();
-  return Promise.resolve(adapter.upsertSubmission(userCode, tagsJson, avatarUrl, evaluationUrl, storageId));
+  return Promise.resolve(adapter.upsertSubmission(userCode, tagsJson, avatarUrl, evaluationUrl, evaluationText, storageId));
 }
 
 export async function getSubmittedProfiles(
@@ -1121,11 +1155,12 @@ export async function submitProfileWithVersion(
   tagsJson: string,
   avatarUrl: string,
   evaluationUrl: string,
+  evaluationText: string | null,
   storageId: number,
   submittedAt?: string
 ): Promise<{ version: number }> {
   const adapter = await ensureInit();
-  return Promise.resolve(adapter.submitProfileWithVersion(userCode, tagsJson, avatarUrl, evaluationUrl, storageId, submittedAt));
+  return Promise.resolve(adapter.submitProfileWithVersion(userCode, tagsJson, avatarUrl, evaluationUrl, evaluationText, storageId, submittedAt));
 }
 
 export async function getStats(): Promise<Stats> {
@@ -1562,6 +1597,15 @@ export async function getAssessmentStats(
 ): Promise<AssessmentStatsRaw> {
   const adapter = await ensureInit();
   return Promise.resolve(adapter.getAssessmentStats(assessmentId, classIds, classId));
+}
+
+/** #310：班级完成矩阵原始计数（档案提交 + 多量表完成人数，不含个人信息） */
+export async function getCompletionStats(
+  assessmentIds: number[],
+  classIds: number[] | null
+): Promise<CompletionStatsRaw> {
+  const adapter = await ensureInit();
+  return Promise.resolve(adapter.getCompletionStats(assessmentIds, classIds));
 }
 
 /** #229：教师端测评名册（含个人信息，调用方必须记审计并先收窄班级范围） */

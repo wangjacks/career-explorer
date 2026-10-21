@@ -1,6 +1,7 @@
 import { withDemoScope } from "@/lib/demo-scope";
 import { NextRequest, NextResponse } from "next/server";
 import { getProfileSubmissions, getUserById, getTeacherClassPairs } from "@/lib/db";
+import { extractEvaluationWords, parseStoredEvaluationTexts } from "@/lib/evaluation-text";
 import { verifyToken } from "@/lib/token";
 
 /** 解析快照标签 JSON（容忍非法值返回空数组） */
@@ -51,16 +52,21 @@ async function GET_impl(request: NextRequest) {
     const rows = await getProfileSubmissions(userId);
     return NextResponse.json({
       student: { id: student.id, user_code: student.user_code, name: student.name },
-      submissions: rows.map((r) => ({
-        id: r.id,
-        version: r.version,
-        tags: parseTags(r.tags),
-        avatar_url: r.avatar_url,
-        evaluation_url: r.evaluation_url,
-        storage_id: r.storage_id,
-        submitted_at: r.submitted_at,
-        is_current: r.is_current,
-      })),
+      submissions: rows.map((r) => {
+        const evaluationTexts = parseStoredEvaluationTexts(r.evaluation_text);
+        return {
+          id: r.id,
+          version: r.version,
+          tags: parseTags(r.tags),
+          avatar_url: r.avatar_url,
+          evaluation_url: r.evaluation_url,
+          evaluation_texts: evaluationTexts,
+          evaluation_words: extractEvaluationWords(evaluationTexts),
+          storage_id: r.storage_id,
+          submitted_at: r.submitted_at,
+          is_current: r.is_current,
+        };
+      }),
     });
   } catch (err) {
     console.error("Admin submissions GET error:", err);

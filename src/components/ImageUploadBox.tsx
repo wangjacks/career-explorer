@@ -9,7 +9,7 @@ import { validateImageFile } from "@/lib/upload-utils";
 interface ImageUploadBoxProps {
   /** 已有图片 URL（经 safeImageUrl 校验后展示） */
   initialUrl?: string;
-  /** 预览框宽高比：square 头像 / wide 评价词云 */
+  /** 预览框宽高比：square 头像 / wide 宽幅图片 */
   aspect?: "square" | "wide";
   emptyHint?: string;
   /** 该资源的体积上限（MB，随 /api/tags 下发）；缺省时跳过预检 */

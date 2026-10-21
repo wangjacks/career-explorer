@@ -48,6 +48,7 @@ import type {
   CompleteAssessmentInput,
   OnetOccupationRow,
   AssessmentStatsRaw,
+  CompletionStatsRaw,
   AssessmentRosterRow,
   AssessmentMissingRosterRow,
   AssessmentBankUpgradeResult,
@@ -61,6 +62,11 @@ import {
   type RawClassTrendRow,
   type RawCompareRow,
 } from "./stats-utils";
+import {
+  buildCompletionStatsSql,
+  mapCompletionStatsRows,
+  type CompletionStatsRow,
+} from "./completion-query";
 
 function getNow(): string {
   return new Date().toLocaleString("sv-SE", { timeZone: "Asia/Shanghai" });
@@ -140,6 +146,7 @@ export class MysqlAdapter implements DbAdapter {
         tags TEXT,
         avatar_url VARCHAR(500),
         evaluation_url VARCHAR(500),
+        evaluation_text TEXT,
         submitted_at TEXT,
         created_at TEXT,
         INDEX idx_users_role (role)
@@ -734,6 +741,9 @@ export class MysqlAdapter implements DbAdapter {
     if (!(await this.columnExists("users", "storage_id"))) {
       await this.pool.execute("ALTER TABLE users ADD COLUMN storage_id INT NOT NULL DEFAULT 1");
     }
+    if (!(await this.columnExists("users", "evaluation_text"))) {
+      await this.pool.execute("ALTER TABLE users ADD COLUMN evaluation_text TEXT NULL");
+    }
     if (!(await this.indexExists("users", "idx_users_storage_id"))) {
       await this.pool.execute("CREATE INDEX idx_users_storage_id ON users (storage_id)");
     }
@@ -877,6 +887,7 @@ export class MysqlAdapter implements DbAdapter {
         tags TEXT,
         avatar_url VARCHAR(500),
         evaluation_url VARCHAR(500),
+        evaluation_text TEXT,
         storage_id INT NOT NULL DEFAULT 1,
         submitted_at TEXT NOT NULL,
         is_current TINYINT NOT NULL DEFAULT 0,
@@ -884,9 +895,12 @@ export class MysqlAdapter implements DbAdapter {
         INDEX idx_ps_user_current (user_id, is_current)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
     `);
+    if (!(await this.columnExists("profile_submissions", "evaluation_text"))) {
+      await this.pool.execute("ALTER TABLE profile_submissions ADD COLUMN evaluation_text TEXT NULL");
+    }
     await this.pool.execute(`
-      INSERT IGNORE INTO profile_submissions (user_id, version, tags, avatar_url, evaluation_url, storage_id, submitted_at, is_current)
-      SELECT u.id, 1, u.tags, u.avatar_url, u.evaluation_url, u.storage_id, u.submitted_at, 1
+      INSERT IGNORE INTO profile_submissions (user_id, version, tags, avatar_url, evaluation_url, evaluation_text, storage_id, submitted_at, is_current)
+      SELECT u.id, 1, u.tags, u.avatar_url, u.evaluation_url, u.evaluation_text, u.storage_id, u.submitted_at, 1
       FROM users u
       WHERE u.role = 'student' AND u.submitted_at IS NOT NULL
         AND u.id NOT IN (SELECT user_id FROM profile_submissions)
@@ -1123,11 +1137,11 @@ export class MysqlAdapter implements DbAdapter {
   }
 
   // submissions
-  async upsertSubmission(userCode: string, tagsJson: string, avatarUrl: string, evaluationUrl: string, storageId: number): Promise<void> {
+  async upsertSubmission(userCode: string, tagsJson: string, avatarUrl: string, evaluationUrl: string, evaluationText: string | null, storageId: number): Promise<void> {
     await this.pool.execute(
-      `UPDATE users SET tags = ?, avatar_url = ?, evaluation_url = ?, submitted_at = ?, storage_id = ?
+      `UPDATE users SET tags = ?, avatar_url = ?, evaluation_url = ?, evaluation_text = ?, submitted_at = ?, storage_id = ?
        WHERE role = 'student' AND user_code = ?`,
-      [tagsJson, avatarUrl, evaluationUrl, getNow(), storageId, userCode]
+      [tagsJson, avatarUrl, evaluationUrl, evaluationText, getNow(), storageId, userCode]
     );
   }
 
@@ -1163,7 +1177,7 @@ export class MysqlAdapter implements DbAdapter {
     try {
       await conn.beginTransaction();
       const [result] = await conn.execute(
-        `UPDATE users SET tags = NULL, avatar_url = NULL, evaluation_url = NULL, submitted_at = NULL
+        `UPDATE users SET tags = NULL, avatar_url = NULL, evaluation_url = NULL, evaluation_text = NULL, submitted_at = NULL
          WHERE role = 'student' AND user_code IN (${placeholders})`,
         userCodes
       );
@@ -1187,14 +1201,15 @@ export class MysqlAdapter implements DbAdapter {
   // profile_submissions（档案提交历史版本，#95）
   async insertProfileSubmission(userId: number, version: number, data: ProfileSubmissionData): Promise<number> {
     const [result] = await this.pool.execute(
-      `INSERT INTO profile_submissions (user_id, version, tags, avatar_url, evaluation_url, storage_id, submitted_at, is_current)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO profile_submissions (user_id, version, tags, avatar_url, evaluation_url, evaluation_text, storage_id, submitted_at, is_current)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         userId,
         version,
         data.tags,
         data.avatar_url,
         data.evaluation_url,
+        data.evaluation_text,
         data.storage_id,
         data.submitted_at,
         data.is_current,
@@ -1310,6 +1325,7 @@ export class MysqlAdapter implements DbAdapter {
     tagsJson: string,
     avatarUrl: string,
     evaluationUrl: string,
+    evaluationText: string | null,
     storageId: number,
     submittedAt?: string
   ): Promise<{ version: number }> {
@@ -1325,8 +1341,8 @@ export class MysqlAdapter implements DbAdapter {
       if (!user) throw new Error("学生不存在：" + userCode);
       // 1) UPDATE users（不变）
       await conn.execute(
-        "UPDATE users SET tags = ?, avatar_url = ?, evaluation_url = ?, submitted_at = ?, storage_id = ? WHERE id = ?",
-        [tagsJson, avatarUrl, evaluationUrl, submittedAt ?? getNow(), storageId, user.id]
+        "UPDATE users SET tags = ?, avatar_url = ?, evaluation_url = ?, evaluation_text = ?, submitted_at = ?, storage_id = ? WHERE id = ?",
+        [tagsJson, avatarUrl, evaluationUrl, evaluationText, submittedAt ?? getNow(), storageId, user.id]
       );
       // 2) 旧 is_current → 0
       await conn.execute("UPDATE profile_submissions SET is_current = 0 WHERE user_id = ?", [user.id]);
@@ -1339,9 +1355,9 @@ export class MysqlAdapter implements DbAdapter {
       const nextVersion = (maxRow?.m ? Number(maxRow.m) : 0) + 1;
       // 4) INSERT 新版本（is_current=1）
       await conn.execute(
-        `INSERT INTO profile_submissions (user_id, version, tags, avatar_url, evaluation_url, storage_id, submitted_at, is_current)
-         VALUES (?, ?, ?, ?, ?, ?, ?, 1)`,
-        [user.id, nextVersion, tagsJson, avatarUrl, evaluationUrl, storageId, submittedAt ?? getNow()]
+        `INSERT INTO profile_submissions (user_id, version, tags, avatar_url, evaluation_url, evaluation_text, storage_id, submitted_at, is_current)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)`,
+        [user.id, nextVersion, tagsJson, avatarUrl, evaluationUrl, evaluationText, storageId, submittedAt ?? getNow()]
       );
       // 5) 超限检查 → 删除最旧版本（仅删 DB 记录，文件保留，#111 旧文件不自动删除）
       const [configRows] = await conn.execute(
@@ -2422,6 +2438,17 @@ export class MysqlAdapter implements DbAdapter {
     };
   }
 
+  // 班级完成矩阵（#310）：SQL 与行映射由 `completion-query.ts` 与 SQLite 共用，避免两适配器分叉
+  async getCompletionStats(
+    assessmentIds: number[],
+    classIds: number[] | null
+  ): Promise<CompletionStatsRaw> {
+    const { sql, params } = buildCompletionStatsSql(assessmentIds, classIds);
+    if (!sql) return { profile: [], assessments: [] };
+    const [rows] = await this.pool.execute(sql, params);
+    return mapCompletionStatsRows(rows as CompletionStatsRow[]);
+  }
+
   async getAssessmentRoster(
     assessmentId: number,
     classIds: number[] | null,
@@ -2540,7 +2567,7 @@ export class MysqlAdapter implements DbAdapter {
       const [assessmentResults] = await conn.execute("SELECT * FROM assessment_results ORDER BY id");
       await conn.commit();
       return {
-        version: 6,
+        version: 7,
         sourceType: "mysql",
         createdAt: new Date().toISOString(),
         users: users as UserRow[],
@@ -2661,12 +2688,13 @@ export class MysqlAdapter implements DbAdapter {
           u.tags,
           u.avatar_url,
           u.evaluation_url,
+          u.evaluation_text ?? null,
           u.submitted_at,
           u.created_at,
           nullableInt(u.storage_id) ?? localId,
         ]);
         await conn.query(
-          `INSERT INTO users (id, user_code, password_hash, role, name, class_id, tags, avatar_url, evaluation_url, submitted_at, created_at, storage_id)
+          `INSERT INTO users (id, user_code, password_hash, role, name, class_id, tags, avatar_url, evaluation_url, evaluation_text, submitted_at, created_at, storage_id)
            VALUES ?`,
           [values]
         );
@@ -2731,12 +2759,13 @@ export class MysqlAdapter implements DbAdapter {
             p.tags,
             p.avatar_url,
             p.evaluation_url,
+            p.evaluation_text ?? null,
             p.storage_id ?? 1,
             p.submitted_at,
             p.is_current ?? 0,
           ]);
           await conn.query(
-            `INSERT INTO profile_submissions (id, user_id, version, tags, avatar_url, evaluation_url, storage_id, submitted_at, is_current)
+            `INSERT INTO profile_submissions (id, user_id, version, tags, avatar_url, evaluation_url, evaluation_text, storage_id, submitted_at, is_current)
              VALUES ?`,
             [values]
           );

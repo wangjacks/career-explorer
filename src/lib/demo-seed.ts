@@ -56,6 +56,19 @@ import {
 /** 与生产邀请码同字母表（去易混字符），但由注入 rng 驱动以保持纯函数 */
 const INVITE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 
+/** 演示用三条他人评价的候选池（#162）：由 rng 抽三条不重复的短语，确定性生成 */
+const DEMO_EVALUATION_TEXTS = [
+  "你做事很认真，遇到问题会主动沟通，也愿意帮助同学。",
+  "认真负责，沟通清楚，团队合作很可靠。",
+  "很有耐心，愿意帮助别人，沟通时很真诚。",
+  "学习上很专注，遇到难题会坚持，也愿意听取建议。",
+  "性格开朗，乐于分享，和同学相处很融洽。",
+  "做事有条理，答应的事情会按时完成。",
+  "观察力很强，能照顾到别人的感受。",
+  "有好奇心，愿意尝试新事物，也愿意帮助同伴。",
+  "表达清楚，讨论问题时能认真听别人说完。",
+];
+
 export interface DemoSeedOptions {
   /** 名册学生数（默认 20） */
   studentCount?: number;
@@ -91,7 +104,8 @@ export interface DemoSeedStudent {
   tags: string[] | null;
   submit: boolean;
   avatar: boolean;
-  evaluation: boolean;
+  /** 三条他人评价（#162）；未提交为 null */
+  evaluationTexts: string[] | null;
   assessment: DemoSeedAssessment | null;
   /** submitted_at 往前回拨的天数（未提交为 0） */
   submittedOffsetDays: number;
@@ -130,6 +144,10 @@ function shuffled<T>(arr: readonly T[], rng: Rng): T[] {
 
 function sampleDistinct(pool: readonly string[], k: number, rng: Rng): string[] {
   return shuffled(pool, rng).slice(0, Math.min(k, pool.length));
+}
+
+function buildDemoEvaluationTexts(rng: Rng): string[] {
+  return sampleDistinct(DEMO_EVALUATION_TEXTS, 3, rng);
 }
 
 function demoInviteCode(rng: Rng, len = 8): string {
@@ -213,6 +231,7 @@ function toGroupingRows(students: DemoSeedStudent[]): UserRow[] {
     tags: s.tags ? JSON.stringify(s.tags) : null,
     avatar_url: null,
     evaluation_url: null,
+    evaluation_text: null,
     submitted_at: null,
     created_at: "",
     storage_id: 1,
@@ -250,7 +269,7 @@ export function planDemoSeed(seed: number, opts: DemoSeedOptions): DemoSeedPlan 
     const tempId = i + 1;
     const submit = submitterCodes.has(r.user_code);
     if (!submit) {
-      return { tempId, user_code: r.user_code, name: r.name, tags: null, submit: false, avatar: false, evaluation: false, assessment: null, submittedOffsetDays: 0 };
+      return { tempId, user_code: r.user_code, name: r.name, tags: null, submit: false, avatar: false, evaluationTexts: null, assessment: null, submittedOffsetDays: 0 };
     }
 
     // 亲和集 + 抖动（换 1 个标签）→ 组内相似、跨组有别
@@ -270,7 +289,7 @@ export function planDemoSeed(seed: number, opts: DemoSeedOptions): DemoSeedPlan 
       tags,
       submit: true,
       avatar: rng() < 0.8,
-      evaluation: rng() < 0.5,
+      evaluationTexts: buildDemoEvaluationTexts(rng),
       assessment: rng() < assessmentRate ? buildAssessment(rng, rng() < draftShare ? "draft" : "completed") : null,
       submittedOffsetDays: randInt(rng, 0, recentDays),
     };
@@ -325,6 +344,7 @@ export interface DemoSeedDeps {
     tagsJson: string,
     avatarUrl: string,
     evaluationUrl: string,
+    evaluationText: string | null,
     storageId: number,
     submittedAt?: string
   ): Promise<{ version: number }>;
@@ -412,22 +432,15 @@ export async function materializeDemoSeed(
       avatarUrl = await storage.getSignedUrl(key);
       images++;
     }
-    let evaluationUrl = "";
-    if (s.evaluation) {
-      const key = generateObjectKey("evaluation", s.user_code);
-      const buf = await deps.renderImage("evaluation", s.user_code);
-      await storage.upload(key, buf, "image/jpeg");
-      const thumb = await deps.makeThumbnail(buf, "evaluation").catch(() => null);
-      if (thumb) await storage.upload(getThumbnailKey(key), thumb, "image/jpeg");
-      evaluationUrl = await storage.getSignedUrl(key);
-      images++;
-    }
+    // #162：评价改为三条文字，不再生成评价占位图；历史图片仅存量数据需要
+    const evaluationText = s.evaluationTexts ? JSON.stringify(s.evaluationTexts) : null;
 
     await deps.submitProfileWithVersion(
       s.user_code,
       JSON.stringify(s.tags ?? []),
       avatarUrl,
-      evaluationUrl,
+      "",
+      evaluationText,
       backend.id,
       formatDemoTimestamp(s.submittedOffsetDays)
     );
