@@ -13,9 +13,11 @@ export type { ClassTrendSeries, CompareItem, DistributionItem, TrendItem };
 export interface DashboardDataOptions {
   /** 教师端已移除趋势图：跳过趋势取数；默认 true，管理员端行为不变 */
   includeTrends?: boolean;
+  /** 教师端新看板用完成矩阵取代班级对比：跳过 compare 取数；默认 true */
+  includeCompare?: boolean;
 }
 
-export function useDashboardData({ includeTrends = true }: DashboardDataOptions = {}) {
+export function useDashboardData({ includeTrends = true, includeCompare = true }: DashboardDataOptions = {}) {
   const [trends, setTrends] = useState<TrendItem[]>([]);
   const [distribution, setDistribution] = useState<DistributionItem[]>([]);
   const [compare, setCompare] = useState<CompareItem[]>([]);
@@ -82,7 +84,8 @@ export function useDashboardData({ includeTrends = true }: DashboardDataOptions 
   /* eslint-disable react-hooks/set-state-in-effect -- 首屏数据拉取与依赖变更时重取 */
   // 首屏一次拉齐三份，也只有这一次整屏加载态
   useEffect(() => {
-    const tasks = [fetchDistribution(), fetchCompare()];
+    const tasks = [fetchDistribution()];
+    if (includeCompare) tasks.push(fetchCompare());
     if (includeTrends) tasks.push(fetchTrendData(trendDays, trendGroup));
     Promise.all(tasks).then(() => setFirstLoading(false));
     // eslint-disable-next-line react-hooks/exhaustive-deps -- 仅首屏，用默认天数与默认分组
@@ -104,7 +107,7 @@ export function useDashboardData({ includeTrends = true }: DashboardDataOptions 
   const reload = () => {
     if (includeTrends) fetchTrendData(trendDays, trendGroup);
     fetchDistribution();
-    fetchCompare();
+    if (includeCompare) fetchCompare();
   };
 
   return {

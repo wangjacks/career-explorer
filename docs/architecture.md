@@ -374,17 +374,19 @@
 - **已知边界**：`enrolled / assessed / rate` 来自完成矩阵聚合，三档分布来自另一条只读查询，两者不在同一事务；稳定数据下守恒，极端并发（学生恰好在两次查询之间提交）可能相差 1 人。
 - **隐私边界**：响应只有聚合计数与维度标签，没有 `raw` / `standard` / 逐人明细 / 平均分 / 排名；与 `/stats/assessment`、`/stats/completion` 同口径**不记审计**，个人明细仍走 `/assessment/roster`（那里单独记审计）。
 
-## 数据大屏测评栏（#232）
+## 数据大屏 · 测评看板（#314）
 
-<!-- 对账：视图口径纯函数 `src/lib/assessment-dashboard.ts`（测试 `assessment-dashboard.test.ts`）；组件 `TeacherAssessmentCard` + `AssessmentRosterDialog`；文案 `ASSESSMENT_DASHBOARD_COPY`（`dashboard-copy.test.ts` 锁词表与对比度） -->
+<!-- 对账：纯函数 `src/lib/teacher-board.ts`（测试 `teacher-board.test.ts`）；组件 `TeacherDashboardTab` → `TeacherBoardHero` / `CompletionMatrix` / `ActionStrip` + `AssessmentRosterDialog`；文案 `TEACHER_BOARD_COPY`（`dashboard-copy.test.ts` 锁禁词、函数字段样例、零中文字面量）；数据 `/api/manage/stats/completion`（#310）+ `/api/manage/stats/assessment?code=` 的 `byClass`（#311）。#232 的卡内切三视图已被本页取代 -->
 
-- **一栏三视图 + 点击下钻**：教师端大屏全宽栏（`lg:col-span-12`）替换原占位卡。三个视图（完成进度 / 类型分布 / 热门三字码）共用**一次**聚合请求——切换视图不重取、不影响同屏其他图表；只有切换「全校 / 只看我的班」才重取聚合。点班级行 / 类型条 / 三字码胶囊才去取名册（个人明细，服务端记审计）
-- **完成进度**：按交齐比例**升序**（最该催的在前），同比例按班名排序，「还没分班」恒置末（它不是一个可催的班，且不是可下钻对象）；每行是 `班名 · 已交/共 N 人 · 内联进度条`
-- **类型分布**：六型**横向条**（不用雷达图——投屏读不出绝对量），宽度按最大值归一、右侧标人数；悬停/聚焦时读数固定显示在栏中心（不给每段挂 tooltip，同标签分布卡的理由）；点条按 `lead` 下钻
-- **热门三字码**：Top-10 胶囊，底色取首位类型色；点胶囊按**完整 `code`** 下钻（为此名册接口新增 `code` 过滤，与 `lead` 是「且」关系）
-- **配色与对比度**：六型色由数据决定（不走语义 token），每型给浅色/深色两档类型条、一档胶囊底色 + 文字色；单测按 WCAG 校验类型条与轨道 ≥ 3:1、胶囊文字 ≥ 4.5:1。issue 写的 E 型 `#f59e0b` 对浅色底只有 2.15:1，改用同色相深一档 `#b45309`（理由写进配色表注释）
-- **下钻弹窗**：复用班级名册弹窗的范式（`dialog` 语义 + Escape + Tab 焦点捕获 + 关闭后焦点还原；窄屏全屏抽屉、桌面 `max-h-[85vh] max-w-2xl`），标题下与页脚**常驻**「投屏提醒」；列只展示姓名 / 学号（首 4 末 4 脱敏）/ 三字码 / 完成时间，支持关键字搜索与「只看某一型」二级筛选，弹窗内还会按 `lead` 再向服务端收窄一次
-- **降级**：本栏自管加载 / 失败 / 未开放 / 无人完成四种状态——失败态只坏这一栏且带重试；量表停用（`assessment.enabled=false`）或量表未配置（404）显示「还没开放」的行动邀请，**不写「暂无数据」**；无人完成时提示去哪儿做测评
+- **信息架构**：页头（eyebrow／标题／副标题 + 范围切换 + 刷新）→ 唯一深绿 hero（档案完成度 + 班级点阵 + 各量表进度行）→ 班级完成矩阵（真 `<table>`：班级 | 档案提交 | 各启用量表 | 兴趣构成 | 操作）→ 行动条 → 词云分布卡保持现状。**全页只有一张深绿面，hero 内无控件**；范围是页面级单一 state，默认 `mine`（我带的班），切「所有班级」时后端把行 `canDrilldown` 置 `false`、个人下钻按钮全部禁用（服务端仍独立判 403）
+- **hero 点阵（#314 §3.2 验收口径）**：每格 1 人、`1px solid rgb(79,119,66)` 描边、已交薄荷绿填充、两行竖条，按班级分组，组内只填充该班前 `assessed` 格（纯聚合示意）。列数 `clamp(12, 60, ceil(total / 2))`，`total > 200` 整体退化为比例轨（同 `ROSTER_MARK_CAP` 取舍）。**禁止逐格个体身份**：格子只有布尔位，整块只给一条 `aria-label`（已交 N 人／学生共 M 人／按班分组示意），每班 n/m 写在组下文字里；深色主题描边降到 `rgba(167,243,208,.55)`，单测锁对比度 ≥ 3:1。管理端 `SubmissionHero` 与 `computeRosterBits` 零改动
+- **完成矩阵**：列由 `/stats/completion` 的 `columns` 驱动（档案 + 启用量表，停用量表不入列），`enrolled = 0` 的空班不渲染，未分班单独一行置末且不可下钻；量表单元格是 button（打开该班该量表的已完成名册），「兴趣构成」列用 `byClass` 画六色堆叠条（一人只按三字码首位计一次，tooltip 写明），操作列「看未完成」按该行完成率最低的量表打开 `status=missing` 名册。单元格 `aria-label` 读全口径（班名 · 量表 · 已测 n / m 人 · 查看名单）
+- **行动条**：只从 `canDrilldown` 的行推导，优先级 = 合计完成率最低的启用量表；文案分「哪些班还没开始」+「还有 N 人没交」（不用「还差」），两个按钮：「看未完成名单」（可跨班，`classId` 留空）与「复制提醒话术」（`buildReminderText` 纯函数，**不含任何学生姓名**；班名最多列 3 个、超出标「等 N 个班」，人数始终按全部缺交班合计；clipboard 失败 → sonner toast）
+- **数据只拉一轮**：先取 `completion`（hero／矩阵／行动条共用），返回后只对兴趣型量表取一次 `stats/assessment?code=` 的 `byClass`（人格结构数据留给后续结构卡，本页不取）；请求一律 `cache: "no-store"` + `AbortController`（切范围／卸载即中断），客户端 `normalizeCompletionStats` 防御式解析，界面与 `aria-label` 不出现 `NaN`
+- **失败隔离与文案**：hero／矩阵各自 `loading / failed / empty / ready`，失败只坏自己并给「重试」，顶部另给一条横幅（词云分布失败同样提示）；空态是行动邀请（「还没有可看的班」+ 去建班导入名单），不写「暂无数据」。教师侧文案全部进 `TEACHER_BOARD_COPY`，量表口语短名（`riasec → 兴趣测评`、`ipip-neo-ffi → 人格测评`）按 `code` 映射、找不到回退接口正式名；禁词沿用教师侧词表（不出现「在册／口径／提交率／已提交／未提交／还差／维度／学生名单／全校／全班／本班」），新增组件源码零中文字面量由 `dashboard-copy.test.ts` 的 cjk 扫描钉住
+- **名册弹窗（#313 / #314）**：`AssessmentRosterDialog` 改为「班 × 量表 × 状态」三要素驱动——多量表 Tab 切换、`status=done|missing`、`classId` 留空表示当前范围所有班（行动条入口，多一列班级）；兴趣型量表显示三字码胶囊，人格型量表显示五项档位（不出现分数），学号首 4 末 4 脱敏；投屏提醒常驻标题下与页脚；服务端每次读取（含被拒）记审计 `assessment:roster`
+- **旧实现清理**：删除 `TeacherAssessmentCard`（卡内三视图）与 `ClassSubmissionCard`（各班提交列表），教师端不再调用管理端 `SubmissionHero`；#232 的 `assessment-dashboard.ts` 视图函数保留（结构卡后续复用），当前页面不再消费
+- **降级**：`/stats/completion` 未安装／量表缺失时后端退化为只有档案列，矩阵不 500；响应无个人信息、不记审计（与 `/stats/assessment` 同口径），个人明细只从 `assessment/roster` 出
 
 ## 教师端数据列表测评列（#234 / #330）
 
@@ -424,12 +426,15 @@
 - **缩略图**：key 派生规则 `{base}.jpg` → `{base}_thumb.jpg`（仅 `.jpg` 派生，常量在 `src/lib/thumbnail-utils.ts`，生成逻辑 `src/lib/thumbnail.ts` 仅服务端）；`generate-thumbnails/status` 只读检测缺失，`generate-thumbnails` 补生成（单文件失败不中断，返回统计）
 - **权限**：媒体治理不开放教师，路由内二次校验仅 admin
 
-## 职业测评结果展示（#224 + #292）
+## 职业测评结果展示（#224 + #292 + #323）
 
-<!-- 对账：视图模型纯函数在 `src/lib/assessment-view.ts`（测试 `assessment-view.test.ts`）；组件在 `src/components/student/`；数据来自 `/api/shared/assessment/list`（#291，量表清单）+ `/api/shared/assessment/results`（#223，逐套结果）与 `/careers`（#226） -->
+<!-- 对账：视图模型纯函数在 `src/lib/assessment-view.ts`（测试 `assessment-view.test.ts`）与 `src/lib/profile-summary.ts`（速览四卡，测试 `profile-summary.test.ts`）；数据拉取在 `src/lib/assessment-results-loader.ts`（测试 `assessment-results-loader.test.ts`）+ `src/hooks/useAssessmentResults.ts`；组件在 `src/components/student/`；数据来自 `/api/shared/assessment/list`（#291，量表清单）+ `/api/shared/assessment/results`（#223，逐套结果）与 `/careers`（#226） -->
 
-- **位置**：学生面板「我的档案」内容区（hero 之下、Tab/资料区之上）常驻**测评结果区**；#322 起每套量表默认折叠为速览卡，Tab（我的档案 / 历史提交）紧随其后、在 1 屏内可达，不区分「已提交 / 建档中 / 编辑态」——这样无论档案提交流程处于哪一步，结果都能看到
-- **与档案提交流程完全解耦**：结果区自己读 `/api/shared/assessment/list` + `/api/shared/assessment/results`，**不看 `submissionClosed` / 截止日期**（档案截止后仍可查看与重测）、不进档案版本快照、不显示「已归档 / 未提交」状态。测评的截止/停用规则只由测评自身（量表 `enabled`）决定
+- **位置**：学生面板「我的档案」内容区（hero 之下、Tab/资料区之上）常驻**速览四卡 + 测评结果区**；#322 起每套量表默认折叠为详情卡，Tab（我的档案 / 历史提交）紧随其后、在 1 屏内可达，不区分「已提交 / 建档中 / 编辑态」——这样无论档案提交流程处于哪一步，结果都能看到
+- **速览四卡（#323）**：hero 与折叠详情之间新增结论区（桌面 2×2、移动单列），四卡结构统一：图标 + 标题 + 右上「查看详情」+ 结论主体（每卡最多 2 行 / 3 个数字）。兴趣卡 = 三字码 + 主导三型中文 + Top3 分数条；人格卡 = 「高X · 高Y」headline + Top2 分数条；推荐职业卡 = Top3（中文名优先、职业群·学历副行、无译名时英文名不重复展示）；资料卡 = ≤6 个标签胶囊 + 标签/头像/**他人评价**三项完成度 + 按状态给 CTA。完成度与 hero 进度环、资料卡共用 `profile-completion.ts` 的 `buildProfileCompletion`（#162：三条文字评价填满或存量图片任一存在即算完成），避免同页出现两套口径；视图模型在 `profile-summary.ts`（纯函数）：**分数与排序一律复用 `assessment-view.ts` 的 builders**，摘要与详情不可能出现两套口径；三态各自独立（`ready` / `empty` 去测评或继续作答 / `degraded` 给指针不报错）
+- **摘要 ↔ 详情联动（#323）**：点卡片「查看详情」→ 页面把对应折叠卡置为**受控展开**（`CollapsibleCard` 支持 `open` / `onOpenChange`，展开态是 code 集合——两套结果可以同时展开，不退化成手风琴）+ `scrollIntoView({ block: "start" })` + 1800ms 高亮（`scroll-mt-24` 抵消顶栏）；按钮带 `aria-controls` 指向目标卡 id，键盘与读屏同样可触发，「去测评」渲染成原生链接。折叠卡 id 规则 = `assessment-card-<code>`（页面用 `assessmentCodeFromDetailId` 反解 code，不重拼前缀）、资料卡 = `profile-info`、结果区 = `assessment-results`（清单失败时摘要卡统一指向它重试）。编辑态点详情只提示「先保存或取消」、不打断编辑
+- **数据只拉一次（#323）**：拉取序列收编到 `assessment-results-loader.ts` 并由页面 `useAssessmentResults()` 挂一次：`list` 1 次 → 每套启用量表 `results?code=` 1 次（并行）→ 霍兰德有当前结果时 `careers` ≤1 次；**摘要卡与折叠详情消费同一份数据**，不再各自 fetch。单套失败只进 `failedCodes`（那一张卡与对应速览卡都显示「暂时读不到 + 重试」，**不说成没测过**）、清单失败 `listFailed`（整体降级）、推荐失败 `careersFailed`（静默为空），loader 有计数桩单测锁住「进入页面只发一轮请求」
+- **与档案提交流程完全解耦**：结果区与速览卡都**不看 `submissionClosed` / 截止日期**（档案截止后仍可查看与重测）、不进档案版本快照、不显示「已归档 / 未提交」状态。测评的截止/停用规则只由测评自身（量表 `enabled`）决定
 - **多量表清单（#292）**：**「有哪些启用的量表」只有一个家**——`AssessmentResultsSection` 先取 #291 的 `/api/shared/assessment/list`（只列 `enabled=1` 的量表），再逐套按 `?code=` 并行取本人结果；`/results` 本身不附带清单，避免同一信息两处维护。清单为空（全部量表停用）时整个结果区不占位，停用量表的历史结果仍可按 `?code=` 直读。每套量表一张卡（`AssessmentResultCard`），全部数据由结果区持有，卡片只负责渲染；单套补拉失败只让那一张卡显示重试，不拖垮整个结果区
 - **入口分流（红线）**：卡片在入口按 `assessment.scoringMode` 分流（`resultCardMode` 纯函数）——`dimensional` 走大五卡 `FiveFactorResultCard`，其余走霍兰德卡。大五的 E/A/C 与霍兰德同名不同义（外向性 ≠ 企业型、宜人性 ≠ 艺术型、尽责性 ≠ 常规型），所以大五分数**绝不进入** `buildRiasec*` / `parseTypeCodeParts` / 职业推荐；分流看模式而不是「三字码是不是 null」
 - **霍兰德卡（#224）**：三字码徽章（`bg-brand` 深绿块 + 每枚字母的中文型名）→ 六型雷达图（recharts `RadarChart`，量程固定 0–100、不画半径刻度）与条状排名并列（排名标出三字码里的「主要兴趣」）→ 六型逐条通俗解读（按排名顺序，不出现「维度 / 标准分 / 口径」等术语）→ 推荐职业（#226，渐进增强）→ 页尾合规指针（#322：署名与免责全文只在页尾出现一次）
@@ -437,13 +442,13 @@
 - **折叠层级（#322）**：每套启用中的量表一张折叠卡（`CollapsibleCard`：`button + aria-expanded + aria-controls`，默认收起、键盘可达、焦点可见）；折叠态只显示「量表名 + 已测 / 进行中 / 未测 + 本次题量 · 完成时间 · 第 N 次」，未测在标题右侧给「去测评」；展开态完整保留雷达、条形、逐条解读与全部推荐职业。内容用**条件挂载**而非 CSS 隐藏，避免雷达图在 0 宽容器里初始化
 - **「人格与兴趣一起看」提示卡（#292 / #322）**：霍兰德与大五**各有一份当前结果**时出现在卡片下方（按计分模式判定，不是「完成数 ≥ 2」），同样是默认收起的折叠卡；用学生语言解释三组常见对应（S↔宜人性、E↔外向性、C↔尽责性，`CROSS_SCALE_LINKS`），文案是条件句、不对具体结果下判断，并说明两边不一致也正常
 - **合规位置（#322）**：署名、授权与免责全文收编到页尾一张「关于这些测评 · 授权与免责」折叠卡（`AssessmentAttributionCard(collapsible)`），按量表分组展示 `attribution` / `licenseText`，免责声明按文本去重、不同文案各带量表归属，职业推荐的 **CC BY 4.0 署名**也在同一张卡；结果卡内只留一行「授权信息见页尾」指针。**合规卡默认展开**（结果卡才是需要折叠的主体）：声明正文无需展开即可见、可 Ctrl+F、可被屏幕阅读器读到，指针锚点也落在正文上；仍可手动收起，收起后由 `keepMounted` 保留 DOM 文本。分组 / 去重 / O*NET 兜底判定在 `assessment-view.ts#buildAttributionGroups`（纯函数，有单测）
-- **页尾数据来源（#322）**：`AssessmentResultsSection` 仍是唯一数据源（list + 逐套 results + 一次 `/careers`），通过 `onData` 把量表声明回传页面渲染页尾卡，**不重复请求**；结果卡只消费父级数据
+- **数据持有者在页面（#323 起）**：页面 `useAssessmentResults()` 是唯一数据源（list + 逐套 results + 一次 `/careers`），速览卡与折叠详情都消费它并回传页尾授权卡所需的 `scales` / `careersAttribution`，**不重复请求**；`AssessmentResultsSection` 退化为受控展示层（不再自己 fetch）
 - **卡片口径行（#283 + #292 + #322）**：折叠态标题下统一显示「本次 N 题 · 完成于 … · 第 N 次」，题量取自该条结果快照，版本数取自 `history`（撞上接口上限显示 `10+`，由 `buildResultTrailing` 统一拼装）；状态由 `resultCardStatus` 纯函数判定（有当前结果 > 有草稿 > 未开始）
 - **视图模型先行**：`assessment-view.ts` 是纯函数层（补齐缺失维度、排序破平、三字码规范化、大五画像 / 条形 / 高低分解读、雷达点泛化、职业卡清洗与命名兜底、结果卡状态、页尾授权分组与去重），组件只负责画。雷达图由 `ScoreRadarChart` 传维度点渲染，霍兰德卡复用
 - **雷达图兜底（#322）**：不再用 `ResponsiveContainer` 百分比宽度（grid/flex 下可能量到 0，只剩空边框）；改为先量容器宽度、再用显式宽高画图——无顶点 / 宽度 0 不渲染图表框，渲染异常由错误边界降级为一行说明，条形排名始终可用
-- **推荐职业渐进增强（#226 / #322）**：只在霍兰德有当前结果时由结果区补拉一次 `/careers`；接口失败 / 为空 / 无中文数据时**整块静默不渲染**（`console.error` 留痕，不打断学生）。命名兜底：有中文名 → 中文名为主 +「职业群 · 学历」meta；缺中文名 → 「职业群 · 学历」为主、英文原名只作 11px 小字，避免长英文名挤占卡片；两样都缺退回「职业方向」
+- **推荐职业渐进增强（#226 / #322 / #323）**：只在霍兰德有当前结果时由 loader 补拉一次 `/careers`；接口失败 / 为空 / 无中文数据时**整块静默不渲染**（`console.error` 留痕，不打断学生），摘要卡据 `careersFailed` 区分「失败」与「为空」两句话。命名兜底：有中文名 → 中文名为主 +「职业群 · 学历」meta；缺中文名 → 「职业群 · 学历」为主、英文原名只作 11px 小字，避免长英文名挤占卡片；两样都缺退回「职业方向」
 - **无结果空态**：每套量表自己的空态——折叠卡标题用该量表名，题量与预计耗时复用 `assessment-center.ts` 的统一口径（不写死数字），标题右侧 CTA 带 `?code=` 直达答题页；有未完成草稿时提示「上次答到 N/M」并把 CTA 改成「继续作答」
-- **容错**：首屏清单接口（`/list`）失败时整区显示「暂时读不到」+ 重试，不会把失败说成「没做过测评」；单套结果补拉失败只影响那一张卡；得分缺 `standard` 等脏数据在 `parseScores`（#223）与视图模型两层过滤，不用坏数据渲染
+- **容错**：首屏清单接口（`/list`）失败时整区显示「暂时读不到」+ 重试，不会把失败说成「没做过测评」（速览卡同步降级到结果区指针）；单套结果补拉失败只影响那一张卡与它的速览卡（`failedCodes`，两张都显示「暂时读不到 + 重试」，不给「去测评」这种催测 CTA）；得分缺 `standard` 等脏数据在 `parseScores`（#223）与视图模型两层过滤，不用坏数据渲染
 
 ## 数据导出（#233 / #331）
 
