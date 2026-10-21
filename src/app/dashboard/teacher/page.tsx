@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Toaster } from "sonner";
+import { Toaster, toast } from "sonner";
 import {
   BarChart3,
   Download,
@@ -81,6 +81,9 @@ export default function TeacherDashboardPage() {
     try {
       const res = await fetch(`/api/manage/profiles?${buildProfilesQueryString(p, query)}`);
       if (res.ok) return await res.json();
+      // #295：非 2xx 必须提示，否则表格停留在上一次结果，教师会以为筛选已生效
+      const data = (await res.json().catch(() => null)) as { error?: string } | null;
+      toast.error(data?.error ?? "档案列表加载失败，请调整筛选条件后重试");
     } catch (err) {
       console.error("Failed to load profiles:", err);
     }

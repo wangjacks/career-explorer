@@ -15,7 +15,7 @@ import { parseProfilesQuery } from "@/lib/profile-query";
 async function GET_impl(request: NextRequest) {
   try {
     // #295：筛选 / 排序 / 分页全部由服务端完成（此前在浏览器里只过滤当页 20 行，跨页学生筛不到）。
-    // 参数口径与校验统一在 \`profile-query.ts\`，非法参数显式 400，避免静默忽略筛选条件。
+    // 参数口径与校验统一在 profile-query.ts，非法参数显式 400，避免静默忽略筛选条件。
     const parsed = parseProfilesQuery(request.nextUrl.searchParams);
     if (!parsed.ok) {
       return NextResponse.json({ error: parsed.error }, { status: 400 });

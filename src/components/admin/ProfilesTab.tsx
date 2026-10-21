@@ -123,6 +123,10 @@ export default function ProfilesTab({ loadProfiles, loadStats }: Props) {
     try {
       const res = await fetch(`/api/manage/profiles?${buildProfilesQueryString(p, query)}`);
       if (res.ok) return await res.json();
+      // 非 2xx（服务端 400 拒参、500 故障）必须提示：静默返回 null 时表格保留上一次结果，
+      // 老师会以为筛选已生效。`maxLength` 只挡住了搜索框超长，其余入参仍需这一层。
+      const data = (await res.json().catch(() => null)) as { error?: string } | null;
+      toast.error(data?.error ?? "档案列表加载失败，请调整筛选条件后重试");
     } catch (err) {
       console.error("Failed to load profiles:", err);
       toast.error("加载档案列表失败");
@@ -744,7 +748,9 @@ export default function ProfilesTab({ loadProfiles, loadStats }: Props) {
       <ConfirmDialog
         open={!!confirmDelete}
         title="确认删除"
-        message={`确定删除 ${confirmDelete?.length} 条档案记录？此操作不可恢复。`}
+        message={`确定删除选中的 ${confirmDelete?.length} 条档案记录？勾选只覆盖当前页可见的行（不是${
+            hasFilter ? "筛选结果的全部" : "全部档案"
+          }），此操作不可恢复。`}
         variant="danger"
         confirmText="删除"
         onConfirm={() => { if (confirmDelete) { handleDeleteProfiles(confirmDelete); setConfirmDelete(null); } }}
