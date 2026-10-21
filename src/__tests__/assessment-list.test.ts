@@ -11,6 +11,7 @@ import {
   type AssessmentListItem,
 } from "../lib/assessment-list";
 import { deriveAssessmentCenter } from "../lib/assessment-center";
+import { MAX_RESULT_VERSIONS } from "../lib/assessment-flow";
 import { IPIP_NEO_FFI_CODE, RIASEC_CODE } from "../lib/assessment-data";
 
 /** 造一套列表项（未在用例里覆盖的字段给稳定默认值） */
@@ -140,6 +141,32 @@ describe("buildAssessmentListItem：服务端逐套归一（#291）", () => {
 
     expect(built.inProgress).toBeNull();
     expect(built.status).toBe("not-started");
+  });
+
+  it("完成记录超过版本上限时按上限计数（与 results 的「10+」同口径，不显示「12+」）", () => {
+    const built = buildAssessmentListItem({
+      assessment: {
+        code: RIASEC_CODE,
+        name: "霍兰德",
+        scoringMode: "typological",
+        scaleVersion: "RIASEC 1.0",
+        dimensions: [],
+        attribution: "",
+        licenseText: "",
+        disclaimer: "",
+      },
+      roundIndexes: [1, 2, 3],
+      bankIndexes: [1, 2, 3],
+      draft: null,
+      completed: Array.from({ length: MAX_RESULT_VERSIONS + 2 }, (_, index) => ({
+        typeCode: "RIA",
+        completedAt: `2026-10-${String(20 - index).padStart(2, "0")} 09:00:00`,
+        isCurrent: index === 0,
+      })),
+    });
+
+    expect(built.historyCount).toBe(MAX_RESULT_VERSIONS);
+    expect(deriveAssessmentCenter(assessmentCenterPayloadOf(built)).historyCapped).toBe(true);
   });
 });
 

@@ -97,7 +97,8 @@ function ProgressTrack({ view }: { view: AssessmentCenterView }) {
  * 「最近活跃」与逐行状态是纯函数（`src/lib/assessment-list.ts`），三态口径仍复用
  * `src/lib/assessment-center.ts`，本页不缓存作答内容，也不做任何计分。
  * 内容卡（清单 / 六型科普 / 大五科普 / 权威渠道 / 授权免责）的文案与结构在
- * `src/lib/assessment-center-content.ts` + `src/components/student/assessment/`，接口不可用时也常驻。
+ * `src/lib/assessment-center-content.ts` + `src/components/student/assessment/`；
+ * 六型科普、外链与授权卡在接口不可用时也常驻，清单与大五科普随列表结果渲染。
  */
 export default function AssessmentCenterPage() {
   const router = useRouter();
@@ -168,7 +169,8 @@ export default function AssessmentCenterPage() {
   const primary = items.find((item) => item.code === RIASEC_CODE) ?? items[0] ?? null;
   const canStart = view.enabled && view.questionCount > 0;
   const unavailable = !loading && !loadError && loaded && items.length === 0;
-  // 科普卡跟着「启用的量表」走：停用大五时不出现大五科普，单量表页面与 #225 时一致
+  // 科普卡跟着「启用的量表」走：停用大五时不出现大五科普，单量表页面与 #225 时一致；
+  // 列表还没加载成功时保留六型科普兜底（大五是否启用未知，先不渲染）
   const showRiasecGuide = !loaded || items.length === 0 || items.some((item) => item.code === RIASEC_CODE);
   const showBigFiveGuide = loaded && items.some((item) => item.code === IPIP_NEO_FFI_CODE);
 
@@ -347,8 +349,9 @@ export default function AssessmentCenterPage() {
               </section>
             )}
 
-            {/* 内容卡（#225 / #291）：清单、科普、权威渠道与授权说明——接口不可用 / 加载失败时也常驻，
-                学生至少能看到去哪儿做别的测评以及结果怎么读 */}
+            {/* 内容卡（#225 / #291）：六型科普、外链与授权卡在接口不可用 / 加载失败时也常驻，
+                学生至少能看到「六型是什么」和去哪儿做别的测评；清单与大五科普随 list 结果渲染
+                （列表读取失败时无法判断量表是否启用，不渲染以免误导） */}
             {listRows.length > 0 && <AssessmentListCard rows={listRows} />}
             {showRiasecGuide && <RiasecGuideCard />}
             {showBigFiveGuide && <BigFiveGuideCard />}

@@ -34,13 +34,14 @@ export default function BigFiveGuideCard() {
               </p>
             </div>
             <p className="mt-1 text-xs text-muted leading-relaxed">{dimension.summary}</p>
+            {/* 两端用同一套中性标签：大五没有好坏之分，不用品牌绿暗示「高分更好」 */}
             <div className="mt-1.5 space-y-1">
               <div className="flex flex-wrap items-center gap-1">
                 <span className="text-[10px] text-muted">得分偏高</span>
                 {dimension.high.map((keyword) => (
                   <span
                     key={keyword}
-                    className="px-1.5 py-0.5 rounded text-[10px] bg-primary-soft text-primary-strong dark:bg-green-900/30 dark:text-green-300"
+                    className="px-1.5 py-0.5 rounded text-[10px] bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-300"
                   >
                     {keyword}
                   </span>

@@ -7,7 +7,7 @@ import {
   type AssessmentCenterPayload,
   type AssessmentCenterStatus,
 } from "./assessment-center";
-import { answerProgress, type AssessmentAnswers } from "./assessment-flow";
+import { MAX_RESULT_VERSIONS, answerProgress, type AssessmentAnswers } from "./assessment-flow";
 import type { ScoringMode } from "./assessment-scoring";
 
 /**
@@ -38,7 +38,7 @@ export interface AssessmentListItem {
   typeCode: string | null;
   /** 最近一次完成时间（`YYYY-MM-DD HH:mm`；无完成为空串） */
   completedAt: string;
-  /** 已完成版本条数（含当前版本；接口至多回传 `MAX_RESULT_VERSIONS` 条） */
+  /** 已完成版本条数（含当前版本；与 results 同口径，至多 `MAX_RESULT_VERSIONS` 条） */
   historyCount: number;
   /** 进行中的草稿进度；没有草稿或还没答过题为 null */
   inProgress: { answered: number; total: number; updatedAt: string } | null;
@@ -83,6 +83,9 @@ export function buildAssessmentListItem(source: AssessmentListSource): Assessmen
       ? { answered: progress.answered, total: progress.total, updatedAt: source.draft.updatedAt }
       : null;
   const current = source.completed.find((row) => row.isCurrent) ?? null;
+  // results 接口的 history 数组至多 10 条，页面按「10+」展示；list 也按同一上限计数，
+  // 否则完成 12 次会显示成「12+」（列表其实知道确切条数，加号反而误导）。
+  const historyCount = Math.min(source.completed.length, MAX_RESULT_VERSIONS);
 
   const view = deriveAssessmentCenter({
     assessment: {
@@ -93,7 +96,7 @@ export function buildAssessmentListItem(source: AssessmentListSource): Assessmen
       name: source.assessment.name,
     },
     current: current ? { typeCode: current.typeCode, completedAt: current.completedAt } : null,
-    historyCount: source.completed.length,
+    historyCount,
     inProgress,
   });
 
