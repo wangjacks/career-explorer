@@ -1,52 +1,31 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
-import { Compass, Loader2 } from "lucide-react";
+import { Compass } from "lucide-react";
 import ProfileSectionHeader from "./ProfileSectionHeader";
 import HollandCodeBadge from "./HollandCodeBadge";
 import RiasecRadarChart from "./RiasecRadarChart";
+import FiveFactorResultCard from "./FiveFactorResultCard";
 import AssessmentDisclaimer from "./assessment/AssessmentDisclaimer";
 import { formatResultTime } from "@/lib/assessment-flow";
 import { deriveAssessmentCenter } from "@/lib/assessment-center";
 import {
   buildCareerCards,
+  buildResultTrailing,
   buildRiasecBars,
   buildRiasecInterpretations,
+  resultCardMode,
+  type AssessmentResultsPayload,
   type CareerApiItem,
   type CareerCardView,
 } from "@/lib/assessment-view";
-import type { DimensionScore } from "@/lib/assessment-scoring";
 
-/** 答题页入口：结果为空/重测都走这里（测评中心的独立入口见 #222，上线后由它承担导航） */
-const QUIZ_HREF = "/dashboard/student/assessment/quiz";
-
-interface AssessmentMeta {
-  code: string;
-  name: string;
-  questionCount: number;
-  scaleVersion: string;
-  dimensions: { key: string; label: string }[];
-  attribution: string;
-  licenseText: string;
-  disclaimer: string;
-}
-
-interface ResultView {
-  id: number;
-  typeCode: string | null;
-  scores: DimensionScore[];
-  completedAt: string;
-  isCurrent: boolean;
-  /** 该条结果实际作答量（旧记录回退为当时作答数；#283 起由结果接口逐条下发） */
-  questionCount?: number;
-}
-
-interface ResultsPayload {
-  assessment: AssessmentMeta;
-  current: ResultView | null;
-  history: ResultView[];
-  inProgress: { answered: number; total: number; updatedAt: string } | null;
+/**
+ * 答题页入口：空态 / 重测 / 继续作答都走这里，并带上本量表的 code（#289 起答题页按 `?code=` 取量表）
+ */
+function quizHref(code: string): string {
+  return `/dashboard/student/assessment/quiz?code=${encodeURIComponent(code)}`;
 }
 
 interface CareersPayload {
@@ -55,48 +34,33 @@ interface CareersPayload {
 }
 
 /**
- * 「我的档案」里的职业兴趣测评结果区（#224）。
+ * 单套量表的结果卡（#224 + #292）：**在入口按计分模式分流**。
  *
- * 与档案提交流程**完全解耦**：自己读 `/api/shared/assessment/results`，不看 `submissionClosed`、
- * 不参与档案版本快照、不出现「已归档 / 未提交」状态——档案截止了也照样能查看与重测。
+ * - `dimensional`（大五人格）→ `FiveFactorResultCard`：画像标签 + 五维雷达/排名/高低分解读，无三字码、无职业推荐；
+ * - `typological`（霍兰德）→ 沿用 #224 的卡：三字码 + 六型雷达/排名/解读 + 推荐职业。
  *
- * 推荐职业（#226）就绪后才出现：接口失败 / 无中文数据时**整块静默不渲染**，不影响结果区其余内容。
- * 数据都是结果快照（当时算好的六维分与三字码），页面不重算。
+ * 数据由 `AssessmentResultsSection` 按量表清单统一取好再传进来；本组件不再自己 fetch 结果，
+ * 只保留霍兰德卡的「推荐职业」渐进增强（大五分永不请求 `/careers`）。
+ * 空态与耗时口径复用 `deriveAssessmentCenter` 的统一算法，不写死题量 / 分钟数。
  */
-export default function AssessmentResultCard() {
-  const [data, setData] = useState<ResultsPayload | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [failed, setFailed] = useState(false);
+export default function AssessmentResultCard({
+  code,
+  data,
+}: {
+  code: string;
+  data: AssessmentResultsPayload;
+}) {
+  const current = data.current;
+  const mode = resultCardMode(data.assessment);
   const [careers, setCareers] = useState<CareerCardView[]>([]);
   const [careersAttribution, setCareersAttribution] = useState("");
 
-  const loadResults = useCallback(async () => {
-    setLoading(true);
-    setFailed(false);
-    try {
-      const res = await fetch("/api/shared/assessment/results");
-      const payload = await res.json();
-      if (!res.ok) throw new Error(payload?.error || "测评结果加载失败");
-      setData(payload as ResultsPayload);
-    } catch (err) {
-      console.error("Failed to load assessment results:", err);
-      setFailed(true);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+  // 推荐职业（#226）：只在霍兰德卡有当前结果时补拉；失败/为空都静默（渐进增强）
+  const currentId = current?.id ?? null;
+  const wantsCareers = mode === "holland" && currentId !== null;
 
-  /* eslint-disable react-hooks/set-state-in-effect -- 面板进入时读一次本人测评结果（与档案数据并列、互不依赖） */
   useEffect(() => {
-    void loadResults();
-  }, [loadResults]);
-  /* eslint-enable react-hooks/set-state-in-effect */
-
-  const currentId = data?.current?.id ?? null;
-
-  // 推荐职业（#226）：只在有当前结果时补拉；失败/为空都静默（渐进增强）
-  useEffect(() => {
-    if (currentId === null) return;
+    if (!wantsCareers) return;
     let cancelled = false;
     (async () => {
       try {
@@ -115,53 +79,26 @@ export default function AssessmentResultCard() {
     return () => {
       cancelled = true;
     };
-  }, [currentId]);
+    // 依赖当前结果的 id：结果区重试后可能拿到另一条结果，只依赖布尔开关会让推荐停留在上一份结果
+  }, [currentId, mode, wantsCareers]);
 
-  const current = data?.current ?? null;
-  const inProgress = data?.inProgress ?? null;
-  const assessmentView = deriveAssessmentCenter(data);
-
-  if (loading) {
-    return (
-      <section className="bg-card rounded-xl border border-border-soft p-5 space-y-3">
-        <ProfileSectionHeader label="职业兴趣测评" />
-        <p className="flex items-center gap-2 text-sm text-muted">
-          <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
-          正在读取测评结果…
-        </p>
-      </section>
-    );
-  }
-
-  if (failed) {
-    return (
-      <section className="bg-card rounded-xl border border-border-soft p-5 space-y-3">
-        <ProfileSectionHeader label="职业兴趣测评" />
-        <p className="text-sm text-muted">测评结果暂时读不到</p>
-        <button
-          type="button"
-          onClick={() => void loadResults()}
-          className="px-3 py-1.5 bg-gray-100 hover:bg-gray-200 dark:bg-gray-800 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-200 text-sm rounded-lg transition-colors"
-        >
-          重试
-        </button>
-      </section>
-    );
-  }
-
-  // 无结果：空态引导去测评；有未完成草稿时提示接着答
+  // 无结果：空态引导去该量表的答题页；有未完成草稿时提示接着答
   if (!current) {
+    const assessmentView = deriveAssessmentCenter(data);
+    const inProgress = data.inProgress;
     return (
       <section className="bg-card rounded-xl border border-border-soft p-5 space-y-4">
-        <ProfileSectionHeader label="职业兴趣测评" />
+        <ProfileSectionHeader label={data.assessment.name} />
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
           <div className="flex-1 min-w-0">
-            <p className="text-sm font-medium text-foreground">还没做过职业兴趣测评</p>
+            <p className="text-sm font-medium text-foreground">还没做过「{data.assessment.name}」</p>
             <p className="mt-1 text-xs text-muted leading-relaxed">
               {assessmentView.questionCount > 0 && assessmentView.estimatedMinutes > 0
                 ? `${assessmentView.questionCount} 道题、大约 ${assessmentView.estimatedMinutes} 分钟。`
                 : "题目准备中。"}
-              做完可以看到你的兴趣类型，以及可能适合你的职业方向。
+              {mode === "big-five"
+                ? "做完可以看到你的五大人格画像，了解自己在哪些方面更有优势。"
+                : "做完可以看到你的兴趣类型，以及可能适合你的职业方向。"}
             </p>
             {inProgress && (
               <p className="mt-1 text-xs text-muted">
@@ -170,7 +107,7 @@ export default function AssessmentResultCard() {
             )}
           </div>
           <Link
-            href={QUIZ_HREF}
+            href={quizHref(code)}
             className="inline-flex items-center justify-center gap-1.5 px-4 py-2 bg-primary hover:bg-primary-strong text-white text-sm font-medium rounded-lg transition-colors flex-shrink-0"
           >
             <Compass className="h-4 w-4" aria-hidden />
@@ -181,30 +118,34 @@ export default function AssessmentResultCard() {
     );
   }
 
+  if (mode === "big-five") {
+    return <FiveFactorResultCard data={data} code={code} />;
+  }
+
+  // 霍兰德卡（#224 原有内容）：按行排列的六型视图 + 推荐职业
   const bars = buildRiasecBars(current.scores, current.typeCode);
   const interpretations = buildRiasecInterpretations(current.scores, current.typeCode);
   const completedAt = formatResultTime(current.completedAt);
+  const trailing = buildResultTrailing({
+    questionCount: current.questionCount,
+    completedAt,
+    historyCount: data.history.length,
+  });
 
   return (
     <section className="bg-card rounded-xl border border-border-soft p-5 space-y-5">
       <ProfileSectionHeader
-        label="职业兴趣测评"
-        trailing={
-          <span className="text-xs text-muted text-right">
-            {current.questionCount ? `本次 ${current.questionCount} 题` : null}
-            {current.questionCount && completedAt ? " · " : null}
-            {completedAt ? `完成于 ${completedAt}` : "已完成"}
-          </span>
-        }
+        label={data.assessment.name}
+        trailing={<span className="text-xs text-muted text-right">{trailing}</span>}
       />
 
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <HollandCodeBadge typeCode={current.typeCode} />
         <Link
-          href={QUIZ_HREF}
+          href={quizHref(code)}
           className="inline-flex items-center justify-center px-3 py-1.5 bg-gray-100 hover:bg-gray-200 dark:bg-gray-800 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-200 text-sm rounded-lg transition-colors flex-shrink-0"
         >
-          {inProgress ? "继续作答" : "重新测评"}
+          {data.inProgress ? "继续作答" : "重新测评"}
         </Link>
       </div>
 
@@ -274,11 +215,11 @@ export default function AssessmentResultCard() {
 
       {/* 署名 / 授权 / 免责：O*NET Tools Developer License 要求随结果展示（#221）。
           免责声明用测评中心与结果区共用的组件（#225），保证两边文案口径一致。 */}
-      <AssessmentDisclaimer text={data?.assessment.disclaimer} variant="inline" />
-      {data?.assessment.attribution && (
+      <AssessmentDisclaimer text={data.assessment.disclaimer} variant="inline" />
+      {data.assessment.attribution && (
         <p className="text-[11px] text-muted/80 leading-relaxed">{data.assessment.attribution}</p>
       )}
-      {data?.assessment.licenseText && (
+      {data.assessment.licenseText && (
         <p className="text-[11px] text-muted/80 leading-relaxed">{data.assessment.licenseText}</p>
       )}
     </section>

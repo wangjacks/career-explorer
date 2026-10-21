@@ -10,6 +10,7 @@
  */
 
 import type { DimensionScore } from "./assessment-scoring";
+import { MAX_RESULT_VERSIONS } from "./assessment-flow";
 import { RIASEC_KEYS, RIASEC_LABELS, normalizeHollandCode, type RiasecKey } from "./assessment-match";
 
 /** 六型通俗解读：写给第一次看结果的学生，不出现「维度 / 标准分 / 口径」这类术语 */
@@ -21,6 +22,73 @@ export const RIASEC_INTERPRETATIONS: Readonly<Record<RiasecKey, string>> = {
   E: "喜欢推动事情发生：说服别人、组织活动、带着团队把想法做成，会让你兴奋。",
   C: "喜欢把事理清楚：整理数据、核对细节、让流程井井有条，会让你觉得踏实。",
 };
+
+/**
+ * 大五人格每维的高分 / 低分两段通俗解读（#292）：5 维 × 2 = 10 段。
+ *
+ * 键用 IPIP NEO-FFI 的维度键（N/E/O/A/C）；其中 E/A/C 与霍兰德字母**同名不同义**
+ * （外向性 ≠ 企业型、宜人性 ≠ 艺术型、尽责性 ≠ 常规型），所以这份表只允许
+ * `buildBigFive*` 使用，绝不能传进 RIASEC 的视图函数（分流在结果卡入口按 scoringMode 判定）。
+ */
+export const BIG_FIVE_INTERPRETATIONS: Readonly<Record<string, { high: string; low: string }>> = {
+  N: {
+    high: "你的情绪比较丰富，遇到压力或不确定的事容易先紧张、多想；这也意味着你对风险更敏感，提前做准备常常能帮你稳住。",
+    low: "你情绪比较稳，遇到烦心事不容易慌，压力下也能保持平常心，身边的人常觉得你可靠、沉得住气。",
+  },
+  E: {
+    high: "你从和人打交道里获得能量：聊天、讨论、一起做事会让你更有劲，热闹的场合通常让你舒服。",
+    low: "你更喜欢安静和独处：人多的场合容易消耗你，一个人专注做事、或和少数熟人相处时，你反而更放松。",
+  },
+  O: {
+    high: "你对新东西好奇，愿意尝试没做过的事，喜欢想问题、聊想法，也容易被艺术、创作和新鲜观点吸引。",
+    low: "你更看重实用和熟悉的方式：比起尝鲜，你更愿意把已经有效的做法做扎实，做事讲究稳妥、落地。",
+  },
+  A: {
+    high: "你待人友善，愿意体谅和配合别人，冲突里常先想对方的难处，团队里容易成为让人放心的人。",
+    low: "你比较直接，有自己的判断，不会为了迎合别人轻易让步；必要时你能坦率地说「不」，也更能坚持自己的立场。",
+  },
+  C: {
+    high: "你有计划、守承诺，事情交到你手上会想把它做完整；这种自律让你在长期目标上更容易走远。",
+    low: "你更随性灵活，不喜欢被计划框住，临时调整对你来说不算难事；比起按部就班，你更享受即兴和自由。",
+  },
+};
+
+/**
+ * 「人格与兴趣一起看」的对应关系（#292）：霍兰德某型与大五某维在研究上常一起出现，
+ * 用学生语言解释「两边对得上说明什么」。
+ *
+ * 文案是给学生看的科普，不是诊断；`riasec` 只用来对照霍兰德字母，不参与任何计分。
+ */
+export const CROSS_SCALE_LINKS: readonly {
+  riasec: RiasecKey;
+  bigFive: string;
+  riasecLabel: string;
+  bigFiveLabel: string;
+  text: string;
+}[] = [
+  {
+    riasec: "S",
+    bigFive: "A",
+    riasecLabel: "社会型",
+    bigFiveLabel: "宜人性",
+    // 文案是通用科普，不假设学生两边都高：写成条件句，避免对具体结果下错判断
+    text: "社会型和宜人性常常一起出现：两边都高的人，喜欢帮人不只是一时兴起，性格里本来就带着耐心和体谅。",
+  },
+  {
+    riasec: "E",
+    bigFive: "E",
+    riasecLabel: "企业型",
+    bigFiveLabel: "外向性",
+    text: "企业型和外向性常常一起出现：两边都高的人，组织活动、说服别人会更自然，也更容易从人群里获得能量。",
+  },
+  {
+    riasec: "C",
+    bigFive: "C",
+    riasecLabel: "常规型",
+    bigFiveLabel: "尽责性",
+    text: "常规型和尽责性常常一起出现：两边都高的人，既喜欢把事情理清楚，也有把它做到底的自律。",
+  },
+];
 
 /** 三字码徽章里的一枚字母 */
 export interface TypeCodePart {
@@ -40,11 +108,34 @@ export interface RiasecBar {
   isTop: boolean;
 }
 
-/** 雷达图的一个顶点（顺序固定，缺的维度补 0，保证多边形闭合） */
+/** 雷达图的一个顶点（顺序由传入的维度定义决定，缺的维度补 0，保证多边形闭合） */
 export interface RadarPoint {
-  key: RiasecKey;
+  /** #292 起泛化为任意维度键（霍兰德 R/I/A/S/E/C 与大五 N/E/O/A/C 都走同一套雷达） */
+  key: string;
   label: string;
   standard: number;
+}
+
+/** 大五条状排名的一项（#292） */
+export interface BigFiveBar {
+  key: string;
+  label: string;
+  /** 0–100 标准分 */
+  standard: number;
+  /** 进度条宽度（0–100，越界已钳制） */
+  percent: number;
+  /** 是否属于画像标签里的前两维（展示「主要特质」用） */
+  isPrimary: boolean;
+}
+
+/** 大五逐维解读（按排名顺序，便于和条形对照） */
+export interface BigFiveInterpretation {
+  key: string;
+  label: string;
+  /** 这一维按 50 分中线取高分 / 低分文案 */
+  level: "high" | "low";
+  text: string;
+  isPrimary: boolean;
 }
 
 /** 每一项解读（条状排名的顺序，便于和排名对照阅读） */
@@ -53,6 +144,79 @@ export interface RiasecInterpretation {
   label: string;
   text: string;
   isTop: boolean;
+}
+
+/**
+ * 结果卡分流（#292）：**在入口按计分模式判定**，不做「有没有三字码」这类内容推断。
+ *
+ * - `dimensional`（大五人格）→ `big-five` 卡：画像标签 + 五维雷达 + 条形 + 高低分解读，无三字码、无职业推荐；
+ * - 其余（含字段缺失的老接口）→ `holland` 卡：沿用 #224 的三字码 + 六型卡。
+ *
+ * 这里只决定「画哪张卡」；两张卡的数据线互不相通——大五的分永远不会进 `buildRiasec*`
+ * （大五的 E/A/C 与霍兰德同名不同义，混用会把「外向性」画成「企业型」）。
+ */
+export type ResultCardMode = "holland" | "big-five";
+
+export function resultCardMode(assessment: { scoringMode?: string } | null | undefined): ResultCardMode {
+  return assessment?.scoringMode === "dimensional" ? "big-five" : "holland";
+}
+
+/** 结果快照（`/api/shared/assessment/results` 的 `current` / `history` 项） */
+export interface AssessmentResultSnapshot {
+  id: number;
+  typeCode: string | null;
+  scores: DimensionScore[];
+  completedAt: string;
+  isCurrent: boolean;
+  /** 该条结果实际作答量（旧记录回退为当时作答数；#283 起由结果接口逐条下发） */
+  questionCount?: number;
+}
+
+/** 量表元信息（`/results` 的 `assessment`；`assessments` 清单项同形，#292） */
+export interface AssessmentScaleMeta {
+  code: string;
+  name: string;
+  /** 每次作答题数（启用抽题时是抽题数，不是题库总量） */
+  questionCount: number;
+  /** 题库总量（#282；旧接口没有该字段） */
+  poolSize?: number;
+  scaleVersion: string;
+  dimensions: { key: string; label: string }[];
+  attribution: string;
+  licenseText: string;
+  disclaimer: string;
+  /** `typological` / `dimensional`（#292 结果卡据此分流） */
+  scoringMode?: string;
+  /** 量表是否开放（停用时只读历史结果） */
+  enabled?: boolean;
+}
+
+/** `GET /api/shared/assessment/results` 的返回（**单套**量表；档案页结果区按 #291 的清单逐套取数） */
+export interface AssessmentResultsPayload {
+  assessment: AssessmentScaleMeta;
+  current: AssessmentResultSnapshot | null;
+  history: AssessmentResultSnapshot[];
+  inProgress: { answered: number; total: number; updatedAt: string } | null;
+}
+
+/**
+ * 结果卡右上角的口径行（#283/#292）：本次题量 · 完成时间 · 这是第几次测评。
+ * 版本数撞上接口上限时显示 `N+`，不谎报正好 N 次。
+ */
+export function buildResultTrailing(input: {
+  questionCount?: number;
+  completedAt?: string;
+  historyCount: number;
+}): string {
+  const parts: string[] = [];
+  if (input.questionCount && input.questionCount > 0) parts.push(`本次 ${input.questionCount} 题`);
+  if (input.completedAt) parts.push(`完成于 ${input.completedAt}`);
+  if (input.historyCount > 0) {
+    parts.push(
+      input.historyCount >= MAX_RESULT_VERSIONS ? `第 ${MAX_RESULT_VERSIONS}+ 次` : `第 ${input.historyCount} 次`
+    );
+  }
+  return parts.join(" · ") || "已完成";
 }
 
 /** 推荐职业卡的渲染数据（只保留渲染需要的字段） */
@@ -134,14 +298,95 @@ export function buildRiasecBars(
   }));
 }
 
-/** 雷达图顶点：**固定 RIASEC 顺序**（多边形按类型环排列，不随得分排序） */
-export function buildRadarPoints(scores: readonly DimensionScore[]): RadarPoint[] {
-  return RIASEC_KEYS.map((key) => {
+/**
+ * 雷达图顶点（#292 泛化）：按传入的**维度定义顺序**排布（多边形按量表自己的维度环排列，
+ * 不随得分排序），缺失维度补 0；标签优先取结果快照里的中文名，回退维度定义。
+ *
+ * 霍兰德卡传入 R-I-A-S-E-C 顺序，大五卡传入 N-E-O-A-C 顺序——顺序由调用方给，
+ * 本函数不认任何一套字母，避免两套量表的 E/A/C 在雷达层被混用。
+ */
+export function buildRadarPoints(
+  scores: readonly DimensionScore[],
+  dimensions: readonly { key: string; label: string }[]
+): RadarPoint[] {
+  return dimensions.map(({ key, label }) => {
     const score = scoreOf(scores, key);
     return {
       key,
-      label: score?.label || RIASEC_LABELS[key],
+      label: score?.label || label,
       standard: clampStandard(score?.standard ?? 0),
+    };
+  });
+}
+
+/** 大五画像标签取前两维（#292）：如「高开放性 · 高尽责性」；无维度时返回空串 */
+const PRIMARY_TRAIT_COUNT = 2;
+
+/** 大五 50 分中线：标准分 ≥ 50 记高分文案，否则低分（1–5 线性折算，3 分恒为 50） */
+const BIG_FIVE_MIDPOINT = 50;
+
+/** 大五排名：按标准分降序，同分按量表维度顺序（稳定）；前两维标 `isPrimary` */
+function rankBigFive(
+  scores: readonly DimensionScore[],
+  dimensions: readonly { key: string; label: string }[]
+): { key: string; label: string; standard: number; order: number }[] {
+  return dimensions
+    .map(({ key, label }, order) => {
+      const score = scoreOf(scores, key);
+      return {
+        key,
+        label: score?.label || label,
+        standard: clampStandard(score?.standard ?? 0),
+        order,
+      };
+    })
+    .sort((a, b) => b.standard - a.standard || a.order - b.order);
+}
+
+export function buildBigFiveBars(
+  scores: readonly DimensionScore[],
+  dimensions: readonly { key: string; label: string }[]
+): BigFiveBar[] {
+  return rankBigFive(scores, dimensions).map((row, index) => ({
+    key: row.key,
+    label: row.label,
+    standard: row.standard,
+    percent: row.standard,
+    isPrimary: index < PRIMARY_TRAIT_COUNT,
+  }));
+}
+
+/**
+ * 画像标签：排名前两维拼成「高开放性 · 高尽责性」。
+ *
+ * 前缀与逐维解读同口径：≥50 用「高X」，低于中线用「偏低X」——否则五个维度都低于 50 时，
+ * 头部会写「高X」而下方同一维又标「偏低」，同一张卡自相矛盾。
+ */
+export function buildBigFiveHeadline(
+  scores: readonly DimensionScore[],
+  dimensions: readonly { key: string; label: string }[]
+): string {
+  return rankBigFive(scores, dimensions)
+    .slice(0, PRIMARY_TRAIT_COUNT)
+    .map((row) => (row.standard >= BIG_FIVE_MIDPOINT ? `高${row.label}` : `偏低${row.label}`))
+    .join(" · ");
+}
+
+/** 逐维高 / 低分解读：按排名顺序输出，前两维与画像标签一致 */
+export function buildBigFiveInterpretations(
+  scores: readonly DimensionScore[],
+  dimensions: readonly { key: string; label: string }[]
+): BigFiveInterpretation[] {
+  return rankBigFive(scores, dimensions).map((row, index) => {
+    const level: "high" | "low" = row.standard >= BIG_FIVE_MIDPOINT ? "high" : "low";
+    const texts = BIG_FIVE_INTERPRETATIONS[row.key];
+    return {
+      key: row.key,
+      label: row.label,
+      level,
+      // 兜底只防「以后加了未登记的大五维度」；已发布量表由种子测试保证文案齐全
+      text: texts?.[level] ?? `「${row.label}」这一项${level === "high" ? "比较突出" : "相对安静"}，是一种自然的个人风格。`,
+      isPrimary: index < PRIMARY_TRAIT_COUNT,
     };
   });
 }

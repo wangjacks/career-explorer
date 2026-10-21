@@ -43,6 +43,9 @@ async function GET_impl(request: NextRequest) {
     const assessment = await getAssessmentByCode(code);
     if (!assessment) return NextResponse.json({ error: "测评不存在" }, { status: 404 });
 
+    // 启用量表清单只有一个家（#291 的 `/api/shared/assessment/list`）：本接口只回**一套**量表的结果，
+    // 档案页（#292）先按 list 拿 code 清单，再逐套按 `?code=` 取结果，避免同一信息两处维护。
+
     // 一次读取即得本轮口径 + 草稿 + 全部完成记录（current 也从这里挑，不再单独查一次）
     const context = await loadAttemptContext(assessment, user.id);
     const current = context.completed.find((row) => row.is_current === 1);
@@ -90,6 +93,8 @@ async function GET_impl(request: NextRequest) {
         itemsPerAttempt: assessment.items_per_attempt,
         /** 是否开放（#222 测评中心据此决定给不给「开始 / 继续作答」入口；停用后历史结果仍可读） */
         enabled: assessment.enabled === 1,
+        /** 计分模式（#292 档案页在入口据此分流霍兰德卡 / 大五卡） */
+        scoringMode: assessment.scoring_mode,
         scaleVersion: assessment.scale_version,
         dimensions: parseDimensions(assessment.dimensions_json),
         attribution: assessment.attribution,
