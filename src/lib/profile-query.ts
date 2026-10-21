@@ -21,6 +21,7 @@ import { RIASEC_KEYS, type RiasecKey } from "./assessment-match";
 import {
   ASSESSMENT_INTEREST_FILTERS,
   type AssessmentInterestFilter,
+  type ProfileAssessmentScaleView,
 } from "./profile-assessment";
 
 /** 兴趣测评筛选取值（#330）：未测 / 三字码同时包含所选字母（1–3 个，AND） */
@@ -169,6 +170,8 @@ export type ParseProfilesQueryResult =
   | { ok: true; value: NormalizedProfilesQuery }
   | { ok: false; error: string };
 
+export type ParseProfileFiltersResult = Parsed<ProfileListQuery>;
+
 function parsePositiveInt(value: string | null, fallback: number, max?: number): number | null {
   if (value === null || value.trim() === "") return fallback;
   const parsed = Number(value);
@@ -178,17 +181,12 @@ function parsePositiveInt(value: string | null, fallback: number, max?: number):
 }
 
 /**
- * 解析并校验 `GET /api/manage/profiles` 的查询参数。
+ * 解析并校验列表/导出共用的筛选参数（#295 / #330 / #331）：`q` / `tag` / `lead` / `interest` / `personality`。
  *
- * 不传筛选参数时返回「默认分页 + 默认排序」——与改造前行为完全一致，旧前端调用不受影响。
- * 参数非法一律 400（显式报错，避免静默忽略筛选条件让教师以为筛过了）。
+ * 导出接口不关心分页与排序，所以单独抽出这一层；列表接口再叠加分页/排序，保证「看到什么就导出什么」
+ * 的口径只有一份，避免导出侧复制一套校验后慢慢与列表分叉。
  */
-export function parseProfilesQuery(params: URLSearchParams): ParseProfilesQueryResult {
-  const page = parsePositiveInt(params.get("page"), 1);
-  if (page === null) return { ok: false, error: "page 必须是正整数" };
-  const pageSize = parsePositiveInt(params.get("pageSize"), DEFAULT_PROFILE_PAGE_SIZE, PROFILE_QUERY_MAX_PAGE_SIZE);
-  if (pageSize === null) return { ok: false, error: `pageSize 必须是 1–${PROFILE_QUERY_MAX_PAGE_SIZE} 的整数` };
-
+export function parseProfileFilters(params: URLSearchParams): ParseProfileFiltersResult {
   const rawQuery = params.get("q");
   const q = rawQuery === null ? "" : rawQuery.trim();
   if (q.length > PROFILE_QUERY_MAX_LENGTH) {
@@ -242,6 +240,33 @@ export function parseProfilesQuery(params: URLSearchParams): ParseProfilesQueryR
     return { ok: false, error: "同一时间只按一种测评筛选（用了 interest / personality 就不要再传 lead）" };
   }
 
+  return {
+    ok: true,
+    value: {
+      ...(q ? { q } : {}),
+      ...(tags.length > 0 ? { tags } : {}),
+      lead,
+      ...(interest ? { interest } : {}),
+      ...(personality ? { personality } : {}),
+    },
+  };
+}
+
+/**
+ * 解析并校验 `GET /api/manage/profiles` 的查询参数。
+ *
+ * 不传筛选参数时返回「默认分页 + 默认排序」——与改造前行为完全一致，旧前端调用不受影响。
+ * 参数非法一律 400（显式报错，避免静默忽略筛选条件让教师以为筛过了）。
+ */
+export function parseProfilesQuery(params: URLSearchParams): ParseProfilesQueryResult {
+  const page = parsePositiveInt(params.get("page"), 1);
+  if (page === null) return { ok: false, error: "page 必须是正整数" };
+  const pageSize = parsePositiveInt(params.get("pageSize"), DEFAULT_PROFILE_PAGE_SIZE, PROFILE_QUERY_MAX_PAGE_SIZE);
+  if (pageSize === null) return { ok: false, error: `pageSize 必须是 1–${PROFILE_QUERY_MAX_PAGE_SIZE} 的整数` };
+
+  const parsedFilters = parseProfileFilters(params);
+  if (!parsedFilters.ok) return parsedFilters;
+
   const rawSortKey = params.get("sortKey");
   const sortKey: ProfileSortKey =
     rawSortKey === null || rawSortKey.trim() === "" ? DEFAULT_PROFILE_SORT.sortKey : (rawSortKey.trim() as ProfileSortKey);
@@ -265,15 +290,7 @@ export function parseProfilesQuery(params: URLSearchParams): ParseProfilesQueryR
     value: {
       page,
       pageSize,
-      filters: {
-        ...(q ? { q } : {}),
-        ...(tags.length > 0 ? { tags } : {}),
-        lead,
-        ...(interest ? { interest } : {}),
-        ...(personality ? { personality } : {}),
-        sortKey,
-        sortDir,
-      },
+      filters: { ...parsedFilters.value, sortKey, sortDir },
     },
   };
 }
@@ -292,10 +309,14 @@ function personalityToParam(personality: ProfilePersonalityFilter): string {
   return `${personality.key}:${personality.dir}`;
 }
 
-/** 前端拼查询串：只带非默认值，保证「没筛选」时请求与改造前等价（便于缓存与排查） */
-export function buildProfilesQueryString(page: number, query?: ProfileListQuery): string {
-  const params = new URLSearchParams();
-  params.set("page", String(page));
+/**
+ * 把筛选条件（不含分页/排序）写进查询串：列表请求与导出请求共用（#331）。
+ * 只带非默认值，保证「没筛选」时请求与改造前等价（便于缓存与排查）。
+ */
+export function buildProfileFilterParams(
+  query: ProfileListQuery | undefined,
+  params: URLSearchParams = new URLSearchParams()
+): URLSearchParams {
   const q = query?.q?.trim();
   if (q) params.set("q", q);
   for (const tag of query?.tags ?? []) {
@@ -308,6 +329,14 @@ export function buildProfilesQueryString(page: number, query?: ProfileListQuery)
     const lead = query?.lead ?? "all";
     if (lead !== "all") params.set("lead", lead);
   }
+  return params;
+}
+
+/** 前端拼列表查询串：筛选 + 分页 + 排序（排序只带非默认值） */
+export function buildProfilesQueryString(page: number, query?: ProfileListQuery): string {
+  const params = new URLSearchParams();
+  params.set("page", String(page));
+  buildProfileFilterParams(query, params);
   const sortKey = query?.sortKey ?? DEFAULT_PROFILE_SORT.sortKey;
   const sortDir = query?.sortDir ?? (sortKey === "createdAt" ? "desc" : "asc");
   if (sortKey !== DEFAULT_PROFILE_SORT.sortKey || sortDir !== DEFAULT_PROFILE_SORT.sortDir) {
@@ -470,4 +499,37 @@ export function buildSubmittedProfilesSql(
     params,
     orderBySql: `${column} ${sortDir === "asc" ? "ASC" : "DESC"}, u.user_code ASC`,
   };
+}
+
+/**
+ * 解析人格筛选需要的信息（#330 / #331）：把维度 key 映射成「启用中的维度型量表」里的数组下标。
+ *
+ * 列表与导出共用同一份逻辑：`scores_json` 是数组顺序快照，SQL 按 `$[i]` 取分；下标只能由
+ * 量表的 `dimensions_json` 决定，因此客户端不传下标。维度不属于任何启用量表时显式报错。
+ */
+export function resolveProfilePersonalityFilter(
+  filters: ProfileListQuery,
+  scales: readonly ProfileAssessmentScaleView[]
+): { ok: true; filters: ResolvedProfileListQuery } | { ok: false; error: string } {
+  const personality = filters.personality;
+  if (!personality) return { ok: true, filters };
+  const dimensional = scales.filter((scale) => scale.scoringMode === "dimensional");
+
+  if (personality.mode === "dimension") {
+    for (const scale of dimensional) {
+      const index = scale.dimensions.findIndex((dimension) => dimension.key === personality.key);
+      if (index >= 0) {
+        return {
+          ok: true,
+          filters: { ...filters, personalitySql: { scaleCode: scale.code, dimensionIndex: index } },
+        };
+      }
+    }
+    return { ok: false, error: `人格量表没有维度 ${personality.key}（或人格量表未启用）` };
+  }
+
+  // 「已测 / 未测」只需要知道按哪套量表判：取启用中的第一套维度型量表。
+  const scale = dimensional[0];
+  if (!scale) return { ok: false, error: "人格量表还没有启用，暂时无法按人格测评筛选" };
+  return { ok: true, filters: { ...filters, personalitySql: { scaleCode: scale.code } } };
 }

@@ -1081,6 +1081,14 @@ export class SqliteAdapter implements DbAdapter {
     return { rows, total };
   }
 
+  getSubmittedProfilesForExport(filters?: SubmittedProfileFilters): UserRow[] {
+    // #331：与列表共用同一份 WHERE / ORDER BY，只是不套 LIMIT/OFFSET（导出「当前筛选结果」含所有页）
+    const { whereSql, params, orderBySql } = buildSubmittedProfilesSql("sqlite", filters, RIASEC_CODE);
+    return this.db
+      .prepare(`SELECT u.* FROM users u WHERE ${whereSql} ORDER BY ${orderBySql}`)
+      .all(...params) as UserRow[];
+  }
+
   getAllSubmitted(): UserRow[] {
     return this.db
       .prepare(

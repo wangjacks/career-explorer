@@ -7,6 +7,7 @@ import {
   BarChart3,
   Database,
   Download,
+  FlaskConical,
   GraduationCap,
   HardDrive,
   History,
@@ -40,14 +41,17 @@ import StorageTab from "@/components/admin/StorageTab";
 import ProfileSubmissionsTab from "@/components/admin/ProfileSubmissionsTab";
 import MediaTab from "@/components/admin/MediaTab";
 import GroupingTab from "@/components/admin/GroupingTab";
+import DemoTab from "@/components/admin/DemoTab";
+import { isDemoHiddenTab } from "@/lib/demo-admin";
 
-type Tab = "overview" | "dashboard" | "settings" | "students" | "classes" | "teachers" | "grouping" | "export" | "tags" | "profile-config" | "profile-submissions" | "audit-logs" | "storage" | "media";
+type Tab = "overview" | "dashboard" | "settings" | "students" | "classes" | "teachers" | "grouping" | "export" | "tags" | "profile-config" | "profile-submissions" | "audit-logs" | "storage" | "media" | "demo";
 
 /** 管理面板：分组侧边栏导航（数据中心 + 用户管理 + 系统设置） */
 export default function AdminPage() {
   const router = useRouter();
   const {
     loggedIn,
+    demo,
     installed,
     setInstalled,
     loadStats,
@@ -94,10 +98,11 @@ export default function AdminPage() {
   /* eslint-disable react-hooks/set-state-in-effect -- init after login */
   useEffect(() => {
     if (loggedIn) {
-      refreshSettings();
+      // demo-admin 无权读 settings（#274），也不必被未安装态导向已隐藏的数据源设置
+      if (!demo) refreshSettings();
       initAfterLogin().then((isInstalled) => {
         if (!isInstalled) {
-          setActiveTab("settings");
+          if (!demo) setActiveTab("settings");
         } else {
           refreshStudents();
         }
@@ -164,9 +169,18 @@ export default function AdminPage() {
         { key: "storage", label: "存储管理", icon: HardDrive },
         { key: "media", label: "媒体管理", icon: ImageIcon },
         { key: "audit-logs", label: "操作审计", icon: ScrollText },
+        { key: "demo", label: "演示环境", icon: FlaskConical },
       ],
     },
   ];
+
+  // demo-admin 只保留 DEMO_ALLOWED 内可读的 Tab；写操作仍由 proxy 403
+  const menuGroups = demo
+    ? MENU_GROUPS.map((group) => ({
+        ...group,
+        items: group.items.filter((item) => !isDemoHiddenTab(item.key)),
+      }))
+    : MENU_GROUPS;
 
   return (
     <div className="min-h-screen bg-background">
@@ -181,15 +195,15 @@ export default function AdminPage() {
           open={sidebarOpen}
           onClose={() => setSidebarOpen(false)}
           role={{ icon: ShieldCheck, label: "管理员" }}
-          groups={MENU_GROUPS}
+          groups={menuGroups}
           activeKey={activeTab}
           onSelect={(key) => setActiveTab(key as Tab)}
         />
 
         <main className="flex-1 min-w-0 px-4 sm:px-6 py-6 animate-[fade-in_0.2s_ease-out]">
           <div className="max-w-6xl mx-auto space-y-8">
-            {/* Not Installed Banner */}
-            {installed === false && (
+            {/* Not Installed Banner（demo 会话无权进数据源设置，不提示） */}
+            {installed === false && !demo && (
               <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-xl p-4 flex items-center gap-3">
                 <TriangleAlert className="w-5 h-5 text-amber-600 dark:text-amber-400 flex-shrink-0" />
                 <p className="text-sm text-amber-800 dark:text-amber-300">数据库未配置，请先在「数据源设置」中完成配置</p>
@@ -263,6 +277,10 @@ export default function AdminPage() {
 
             {activeTab === "media" && (
               <MediaTab />
+            )}
+
+            {activeTab === "demo" && (
+              <DemoTab />
             )}
           </div>
         </main>
