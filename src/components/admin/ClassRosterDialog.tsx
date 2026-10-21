@@ -21,9 +21,9 @@ const FILTER_OPTIONS: { value: RosterFilter; label: string }[] = [
 
 interface ClassRosterDialogProps {
   open: boolean;
-  /** 接口分组键（比较与取数仍认原值，如「未分班」） */
+  /** 统计分组键：班名或未分班哨兵 `__unassigned__`，服务端据此解析 class_id */
   classKey: string;
-  /** 展示名（教师侧可把「未分班」换成「还没分班」） */
+  /** 展示名（教师侧已把未分班哨兵换成「还没分班」） */
   displayName: string;
   onClose: () => void;
 }

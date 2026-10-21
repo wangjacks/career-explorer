@@ -10,6 +10,7 @@ import {
 } from "@/lib/db";
 import { getSession } from "./helpers";
 import { getRequestContext, recordAudit } from "@/lib/audit";
+import { validateNewClassName } from "@/lib/class-utils";
 
 /** 生成不重复的邀请码（碰撞重试） */
 async function uniqueInviteCode(): Promise<string> {
@@ -38,9 +39,9 @@ async function POST_impl(request: NextRequest) {
     if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
     const { name } = await request.json();
-    const className = String(name ?? "").trim();
-    if (!className) {
-      return NextResponse.json({ error: "请输入班级名称" }, { status: 400 });
+    const { name: className, error: nameError } = validateNewClassName(name);
+    if (nameError) {
+      return NextResponse.json({ error: nameError }, { status: 400 });
     }
 
     const existing = await getClassByName(className);

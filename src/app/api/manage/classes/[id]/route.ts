@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getClassByName, getClasses, updateClass, deleteClass } from "@/lib/db";
 import { getSession, canModifyClass } from "../helpers";
 import { getRequestContext, recordAudit } from "@/lib/audit";
+import { validateNewClassName } from "@/lib/class-utils";
 
 type Ctx = { params: Promise<{ id: string }> };
 
@@ -23,9 +24,9 @@ async function PATCH_impl(request: NextRequest, { params }: Ctx) {
     }
 
     const { name } = await request.json();
-    const className = String(name ?? "").trim();
-    if (!className) {
-      return NextResponse.json({ error: "请输入班级名称" }, { status: 400 });
+    const { name: className, error: nameError } = validateNewClassName(name);
+    if (nameError) {
+      return NextResponse.json({ error: nameError }, { status: 400 });
     }
 
     const existing = await getClassByName(className);

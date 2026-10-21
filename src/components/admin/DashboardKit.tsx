@@ -20,6 +20,7 @@ import {
 } from "recharts";
 import { Loader2, TrendingUp, PieChart as PieChartIcon, BarChart3, TriangleAlert } from "lucide-react";
 import { formatRateText } from "@/lib/stats-utils";
+import { isUnassignedClassKey } from "@/lib/class-identity";
 import type { DashboardCopy } from "@/lib/dashboard-copy";
 import {
   ROSTER_MARK_CAP,
@@ -308,15 +309,14 @@ export function TrendCard({
 }) {
   const trendTotal = trends.reduce((sum, t) => sum + t.count, 0);
 
-  // 分班多序列：recharts 要求每个分组是数据项的顶层数值字段，故把 counts 摊平。
-  // 班级名是用户输入，counts 里若真有名为 date 的键会覆盖 X 轴的日期字段，故 date 写在最后
+  // 分班多序列：按 series 顺序生成 s0... 位置字段，班名不直接当图表字段
+  const classGroups = classTrend?.series ?? [];
   const classSeries = useMemo(
-    () => buildClassSeries(classTrend?.points ?? []),
+    () => buildClassSeries(classTrend?.series ?? [], classTrend?.points ?? []),
     [classTrend]
   );
-  const classKeys = classTrend?.keys ?? [];
-  const classTrendHasData = classKeys.some((key) =>
-    (classTrend?.points ?? []).some((p) => (p.counts[key] ?? 0) > 0)
+  const classTrendHasData = classGroups.some((group) =>
+    (classTrend?.points ?? []).some((p) => (p.counts[group.key] ?? 0) > 0)
   );
   const classTrendTotal = (classTrend?.points ?? []).reduce(
     (sum, p) => sum + Object.values(p.counts).reduce((s, v) => s + v, 0),
@@ -343,13 +343,13 @@ export function TrendCard({
       return (
         <>
           <ul className="mb-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted">
-            {classKeys.map((key, i) => (
-              <li key={key} className="inline-flex items-center gap-1.5">
+            {classGroups.map((group, i) => (
+              <li key={group.key} className="inline-flex items-center gap-1.5">
                 <span
                   className="h-2 w-2 flex-shrink-0 rounded-full"
                   style={{ background: SERIES_COLORS[i % SERIES_COLORS.length] }}
                 />
-                {copy.classLabel(key)}
+                {copy.classLabel(group.key, group.label)}
               </li>
             ))}
           </ul>
@@ -378,12 +378,12 @@ export function TrendCard({
                   <ChartTooltip {...p} unit={copy.tooltipPeopleUnit} labelPrefix={copy.tooltipDatePrefix} />
                 )}
               />
-              {classKeys.map((key, i) => (
+              {classGroups.map((group, i) => (
                 <Line
-                  key={key}
+                  key={group.key}
                   type="monotone"
-                  dataKey={key}
-                  name={copy.classLabel(key)}
+                  dataKey={`s${i}`}
+                  name={copy.classLabel(group.key, group.label)}
                   stroke={SERIES_COLORS[i % SERIES_COLORS.length]}
                   strokeWidth={2}
                   dot={false}
@@ -641,15 +641,15 @@ export function CompareCard({
   compareFailed: boolean;
   copy: DashboardCopy;
 }) {
-  // 对比图：拆出未提交段以便堆叠，提交率作柱顶标签；「未分班」排末尾（与班级概览行序一致）
+  // 对比图：拆出未提交段以便堆叠，提交率作柱顶标签；未分班哨兵排末尾（与班级概览行序一致）
   // `label` 是展示名：X 轴与 tooltip 都用它，否则轴上是「还没分班」、悬停读数是「未分班」，
-  // 同一组两个名字（#242 评审 P2）。排序仍在映射前按接口原值进行。
+  // 同一组两个名字（#242 评审 P2）。排序仍按身份键进行。
   const compareChart = useMemo(
     () =>
       [...compare]
-        .sort((a, b) => Number(a.key === "未分班") - Number(b.key === "未分班"))
+        .sort((a, b) => Number(isUnassignedClassKey(a.key)) - Number(isUnassignedClassKey(b.key)))
         .map((item) => ({
-          label: copy.classLabel(item.key),
+          label: copy.classLabel(item.key, item.label),
           submitted: item.submitted,
           unsubmitted: Math.max(0, item.total - item.submitted),
           rateLabel: formatRateText(item.submitted, item.total, 1),
