@@ -100,6 +100,7 @@ async function POST_impl(request: NextRequest) {
       uid: target.id,
       name: target.name,
       user_code: target.user_code,
+      demo: true,
     });
     response.cookies.set("auth_token", token, AUTH_COOKIE_OPTIONS);
     return response;
