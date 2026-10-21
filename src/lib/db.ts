@@ -3,6 +3,10 @@ import { MysqlAdapter } from "./db-mysql";
 import { SqliteAdapter } from "./db-sqlite";
 import { isDemoScope, isDemoEnabled, getDemoDbPath } from "./demo-scope";
 import type { QuestionOrigin } from "./assessment-data";
+import type { ProfileListQuery } from "./profile-query";
+
+/** 数据列表筛选与排序入参（#295）：与前端 / API 共用同一形状，避免三处各定义一遍 */
+export type SubmittedProfileFilters = ProfileListQuery;
 
 /**
  * 批查分片大小（#193）：单条 SQL 的绑定参数数量有引擎上限——SQLite 旧构建为
@@ -633,9 +637,14 @@ export interface DbAdapter {
 
   // submissions
   upsertSubmission(userCode: string, tagsJson: string, avatarUrl: string, evaluationUrl: string, storageId: number): Promise<void> | void;
+  /**
+   * 已提交档案的学生分页列表（#295）：筛选 / 排序 / 分页**全部在数据库里完成**，
+   * 因此跨页数据也能被搜到；`filters` 缺省时行为与改造前一致（按提交时间倒序、无过滤）。
+   */
   getSubmittedProfiles(
     page: number,
-    pageSize: number
+    pageSize: number,
+    filters?: SubmittedProfileFilters
   ): Promise<{ rows: UserRow[]; total: number }> | { rows: UserRow[]; total: number };
   getAllSubmitted(): Promise<UserRow[]> | UserRow[];
   clearSubmissions(userCodes: string[]): Promise<number> | number;
@@ -1008,10 +1017,11 @@ export async function upsertSubmission(userCode: string, tagsJson: string, avata
 
 export async function getSubmittedProfiles(
   page: number = 1,
-  pageSize: number = 20
+  pageSize: number = 20,
+  filters?: SubmittedProfileFilters
 ): Promise<{ rows: UserRow[]; total: number }> {
   const adapter = await ensureInit();
-  return Promise.resolve(adapter.getSubmittedProfiles(page, pageSize));
+  return Promise.resolve(adapter.getSubmittedProfiles(page, pageSize, filters));
 }
 
 export async function getAllSubmitted(): Promise<UserRow[]> {

@@ -10,14 +10,19 @@ import {
 import { RIASEC_CODE } from "@/lib/assessment-data";
 import { parseScores } from "@/lib/assessment-flow";
 import { assessmentLeadOf } from "@/lib/profile-assessment";
+import { parseProfilesQuery } from "@/lib/profile-query";
 
 async function GET_impl(request: NextRequest) {
   try {
-    const { searchParams } = new URL(request.url);
-    const page = parseInt(searchParams.get("page") || "1", 10);
-    const pageSize = parseInt(searchParams.get("pageSize") || "20", 10);
+    // #295：筛选 / 排序 / 分页全部由服务端完成（此前在浏览器里只过滤当页 20 行，跨页学生筛不到）。
+    // 参数口径与校验统一在 profile-query.ts，非法参数显式 400，避免静默忽略筛选条件。
+    const parsed = parseProfilesQuery(request.nextUrl.searchParams);
+    if (!parsed.ok) {
+      return NextResponse.json({ error: parsed.error }, { status: 400 });
+    }
+    const { page, pageSize, filters } = parsed.value;
 
-    const { rows, total } = await getSubmittedProfiles(page, pageSize);
+    const { rows, total } = await getSubmittedProfiles(page, pageSize, filters);
 
     // #234：给本页每行补「兴趣测评」字段（列表列 + 详情弹窗条形）。
     // 只认 status=completed 且 is_current=1 的结果——草稿与历史版本都不算「测过」；

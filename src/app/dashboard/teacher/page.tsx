@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Toaster } from "sonner";
+import { Toaster, toast } from "sonner";
 import {
   BarChart3,
   Download,
@@ -23,6 +23,7 @@ import ClassesTab from "@/components/admin/ClassesTab";
 import StudentsTab from "@/components/admin/StudentsTab";
 import TeacherHomeTab from "@/components/admin/TeacherHomeTab";
 import OverviewTab from "@/components/admin/OverviewTab";
+import { buildProfilesQueryString, type ProfileListQuery } from "@/lib/profile-query";
 import ProfilesTab from "@/components/admin/ProfilesTab";
 import TeacherDashboardTab from "@/components/admin/TeacherDashboardTab";
 import ExportTab from "@/components/admin/ExportTab";
@@ -76,10 +77,13 @@ export default function TeacherDashboardPage() {
     return null;
   }, []);
 
-  const loadProfiles = useCallback(async (p: number): Promise<PagedData | null> => {
+  const loadProfiles = useCallback(async (p: number, query?: ProfileListQuery): Promise<PagedData | null> => {
     try {
-      const res = await fetch(`/api/manage/profiles?page=${p}`);
+      const res = await fetch(`/api/manage/profiles?${buildProfilesQueryString(p, query)}`);
       if (res.ok) return await res.json();
+      // #295：非 2xx 必须提示，否则表格停留在上一次结果，教师会以为筛选已生效
+      const data = (await res.json().catch(() => null)) as { error?: string } | null;
+      toast.error(data?.error ?? "档案列表加载失败，请调整筛选条件后重试");
     } catch (err) {
       console.error("Failed to load profiles:", err);
     }
