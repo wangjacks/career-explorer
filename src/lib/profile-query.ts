@@ -415,22 +415,28 @@ export function buildSubmittedProfilesSql(
   // ── 人格测评（#330）：与兴趣互斥，只会走这里的一个分支 ────────────────────────────────
   const personality = filters?.personality;
   if (personality) {
-    const personalitySql = filters?.personalitySql ?? null;
-    // 维度模式下量表信息由路由解析；缺失时退化为「已测」而不是拼出错误的 JSON 条件
-    const mode = personality.mode === "dimension" && !personalitySql ? "any" : personality.mode;
-    const scaleCode = personalitySql?.scaleCode ?? "";
+    const personalitySql = filters?.personalitySql;
+    // personalitySql 由路由按启用量表解析后传入。公共入口缺少它时直接抛错，避免静默退化成
+    // 「按 RIASEC 判已测」或拼出不带维度条件的查询——两者都会返回看似正常但错误的名单。
+    if (!personalitySql) {
+      throw new Error("personality 筛选缺少量表层信息（personalitySql），请先由路由解析启用量表");
+    }
+    const scaleCode = personalitySql.scaleCode;
     const existsSql = (extra: string | null) =>
       `EXISTS (SELECT 1 FROM assessment_results r JOIN assessments a ON a.id = r.assessment_id ` +
       `WHERE r.user_id = u.id AND a.code = ? AND r.status = 'completed' AND r.is_current = 1` +
       `${extra ? ` AND ${extra}` : ""})`;
 
-    if (mode === "none") {
+    if (personality.mode === "none") {
       where.push(`NOT ${existsSql(null)}`);
-      params.push(scaleCode || assessmentCode);
-    } else if (mode === "any") {
+      params.push(scaleCode);
+    } else if (personality.mode === "any") {
       where.push(existsSql(null));
-      params.push(scaleCode || assessmentCode);
-    } else if (personality.mode === "dimension" && personalitySql && typeof personalitySql.dimensionIndex === "number") {
+      params.push(scaleCode);
+    } else {
+      if (typeof personalitySql.dimensionIndex !== "number") {
+        throw new Error(`personality 维度筛选缺少维度下标（${personality.key}），请由路由按 dimensions_json 解析`);
+      }
       // scores_json 是维度分快照数组：按下标取 key 与 standard，**同时校验 key**——
       // 旧快照顺序与当前 dimensions_json 不一致时判为不命中，而不是按位置误筛。
       const path = `$[${personalitySql.dimensionIndex}]`;
@@ -444,7 +450,7 @@ export function buildSubmittedProfilesSql(
             ` AND json_extract(r.scores_json, '${path}.key') = ?` +
             ` AND json_extract(r.scores_json, '${path}.standard') ${op} ?`;
       where.push(existsSql(condition));
-      params.push(personalitySql.scaleCode, personality.key, PROFILE_PERSONALITY_MIDPOINT);
+      params.push(scaleCode, personality.key, PROFILE_PERSONALITY_MIDPOINT);
     }
   }
 

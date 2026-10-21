@@ -296,4 +296,20 @@ describe("buildSubmittedProfilesSql — #330 测评筛选 SQL", () => {
     );
     expect(low.whereSql).toContain("json_extract(r.scores_json, '$[0].standard') < ?");
   });
+
+  it("personality 缺少量表层信息时显式抛错：不静默退化成已测、也不按错误量表拼条件", () => {
+    expect(() => buildSubmittedProfilesSql("sqlite", { personality: { mode: "any" } }, "riasec")).toThrow(
+      /personalitySql/
+    );
+    expect(() => buildSubmittedProfilesSql("mysql", { personality: { mode: "none" } }, "riasec")).toThrow(
+      /personalitySql/
+    );
+    expect(() =>
+      buildSubmittedProfilesSql(
+        "sqlite",
+        { personality: { mode: "dimension", key: "C", dir: "high" }, personalitySql: { scaleCode: "ipip-neo-ffi" } },
+        "riasec"
+      )
+    ).toThrow(/维度下标/);
+  });
 });

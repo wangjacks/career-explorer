@@ -380,6 +380,8 @@
   - **兴趣**：状态「全部 / 未测」+ 六型字母多选（**AND 语义 = 三字码同时包含所选字母**，最多 3 个，`interest=S,A,I` / `interest=none`），如 `S+A+I` 即「三字码含 SAI 的同学」
   - **人格**：「全部 / 已测 / 未测」+ 单一维度 + 偏高/偏低（`personality=C:high` / `personality=any` / `personality=none`）；阈值 50 与结果页同一口径；不做多维叠加
   - **维度下标由路由解析**：`personality` 只传维度 key，路由按该量表 `dimensions_json` 的顺序算出 `scores_json` 数组下标（客户端传下标 = 把注入点交给客户端）；维度不属于任何启用量表 → 400，不返回空列表
+  - **量表清单读取失败时**：无测评筛选的列表照常降级（双列显示未测）；带 `personality` 筛选返回 **503**（服务端故障，不误报成 400 参数错误），由客户端稍后重试
+  - **量表来源边界**：筛选弹层的 `R I A S E C` 与兴趣列选表仍固定 RIASEC（当前唯一 `typological` 量表）；`assessmentScales` 是列定义与维度标签的唯一来源，将来启用第二套 typological 量表时需同步扩展筛选字母与兴趣列选表口径
   - **筛选下推服务端**：`interest` / `personality` 与搜索、标签一起进 `buildSubmittedProfilesSql`，**分页在过滤后执行**，`total` 为过滤后的命中数（跨页可筛，沿用 #295 口径）；不传新参数时行为与改造前完全一致，旧 `lead` 参数继续可用
   - **人格取分 SQL**：`scores_json` 是数组快照，按下标同时校验 `key` 与 `standard`（SQLite `json_valid` + `json_extract`，MySQL `JSON_VALID` + `JSON_UNQUOTE(JSON_EXTRACT)` / `CAST(... AS DECIMAL(10,2))`）——**旧快照顺序与当前维度定义不一致时不命中**，不按位置误筛；人格阈值必须是数值参数（SQLite 里 number < text，传字符串会恒不命中）
 - **排序（#295）**：学号 / 姓名 / 提交时间可排序，两列测评列不参与排序；SQL 由 `src/lib/profile-query.ts` 的 `buildSubmittedProfilesSql` 统一生成（两适配器共用，`q` 的通配符按字面量、标签按 JSON 元素精确匹配、MySQL 姓名排序显式 `COLLATE utf8mb4_bin`、同值按学号破平）

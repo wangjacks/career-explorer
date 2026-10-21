@@ -348,6 +348,16 @@ describe("GET /api/manage/profiles — 测评筛选参数（#330）", () => {
     expect(getSubmittedProfiles).not.toHaveBeenCalled();
   });
 
+  it("量表清单读取失败 + 人格筛选 → 503（服务端故障不误报 400），且不查列表", async () => {
+    vi.mocked(getEnabledAssessments).mockRejectedValue(new Error("assessments table missing"));
+    for (const query of ["?personality=any", "?personality=none", "?personality=C:high"]) {
+      const res = await GET(makeRequest(query));
+      expect(res.status).toBe(503);
+      expect((await res.json()).error).toContain("暂时读取失败");
+    }
+    expect(getSubmittedProfiles).not.toHaveBeenCalled();
+  });
+
   it("维度不存在 / 人格量表未启用 → 400（显式报错，不返回空列表）", async () => {
     const unknown = await GET(makeRequest("?personality=Z:high"));
     expect(unknown.status).toBe(400);

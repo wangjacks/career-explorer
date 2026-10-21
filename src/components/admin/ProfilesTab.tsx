@@ -127,9 +127,10 @@ function PersonalityCell({
     return (
       <span
         title={personalityTooltipOf(result)}
-        className="inline-block rounded-full bg-gray-100 px-2 py-0.5 text-xs text-gray-600 dark:bg-gray-800 dark:text-gray-400"
+        aria-label="人格测评已测，但分数快照缺失"
+        className="inline-block whitespace-nowrap rounded-full bg-gray-100 px-2 py-0.5 text-xs text-gray-600 dark:bg-gray-800 dark:text-gray-400"
       >
-        已测
+        已测<span className="text-gray-400 dark:text-gray-500"> · 快照缺失</span>
       </span>
     );
   }

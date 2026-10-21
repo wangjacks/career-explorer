@@ -91,16 +91,23 @@ async function GET_impl(request: NextRequest) {
     // #330：启用中的量表清单（列定义/维度标签唯一来源）。列表主体不依赖它，
     // 因此这里失败只让「双测评列」降级为未测，不让整页 500。
     const scaleEntries: { row: AssessmentRow; view: ProfileAssessmentScaleView }[] = [];
+    let scaleLoadFailed = false;
     try {
       const enabled = await getEnabledAssessments();
       for (const row of enabled) scaleEntries.push({ row, view: toScaleView(row) });
     } catch (err) {
+      scaleLoadFailed = true;
       console.error("Profiles assessment scale lookup degraded:", err);
     }
     const scaleViews = scaleEntries.map((entry) => entry.view);
 
     const resolvedFilters = resolvePersonalityFilter(filters, scaleViews);
     if (!resolvedFilters.ok) {
+      // 量表清单读取失败 ≠ 没有启用的维度型量表：前者是服务端故障，按 503 让客户端重试，
+      // 不能把 DB 故障误报成 400 参数错误（无筛选时列表仍照常降级返回）。
+      if (scaleLoadFailed) {
+        return NextResponse.json({ error: "测评量表暂时读取失败，请稍后重试" }, { status: 503 });
+      }
       return NextResponse.json({ error: resolvedFilters.error }, { status: 400 });
     }
 
