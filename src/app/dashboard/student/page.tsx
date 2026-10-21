@@ -8,7 +8,8 @@ import NavigationBar from "@/components/NavigationBar";
 import DemoBanner from "@/components/DemoBanner";
 import StudentSidebar, { type StudentViewKey } from "@/components/student/StudentSidebar";
 import TextAvatar from "@/components/TextAvatar";
-import AssessmentResultsSection from "@/components/student/AssessmentResultsSection";
+import AssessmentResultsSection, { type AssessmentFooterData } from "@/components/student/AssessmentResultsSection";
+import AssessmentAttributionCard from "@/components/student/assessment/AssessmentAttributionCard";
 import ProfileSectionHeader from "@/components/student/ProfileSectionHeader";
 import ConfirmDialog from "@/components/admin/ConfirmDialog";
 import TagSelector, { type TagCategory, TAG_CHIP_COLORS } from "@/components/TagSelector";
@@ -17,6 +18,8 @@ import { useSession } from "@/hooks/useSession";
 import { useFileUrl } from "@/hooks/useFileUrl";
 import { safeImageUrl } from "@/lib/sanitize";
 import { submitProfile } from "@/lib/profile-submit";
+import { MAX_RESULT_VERSIONS } from "@/lib/assessment-flow";
+import { latestCompletedOf } from "@/lib/assessment-list";
 import { toThumbnailUrl } from "@/lib/thumbnail-utils";
 
 interface MyProfile {
@@ -60,6 +63,15 @@ interface GroupRoster {
   memberCount: number;
   sources: { key: string; label: string; kind: string }[];
   members: GroupRosterMember[];
+}
+
+/** 资料完整度三项（#322）：hero 进度环与资料卡共用同一口径 */
+function completionItems(profile: MyProfile): { label: string; done: boolean }[] {
+  return [
+    { label: "标签", done: profile.tags.length > 0 },
+    { label: "头像", done: Boolean(profile.avatar_url) },
+    { label: "评价词云", done: Boolean(profile.evaluation_url) },
+  ];
 }
 
 /** 罗盘进度环（signature）：档案完成度 x/3，琥珀弧线随完成度填充 */
@@ -284,6 +296,152 @@ function GroupPanel({
   );
 }
 
+/**
+ * 「我的档案资料」卡（#322）：标签（按分类三色、全量展示）+ 评价词云缩略图（点击放大）
+ * + 三项完成度 + 提交时间合并为一张卡，卡尾放主操作「修改数据」。
+ */
+function ProfileOverviewCard({
+  profile,
+  categories,
+  evaluationUrl,
+  submissionClosed,
+  submissionDeadline,
+  onEdit,
+  onPreview,
+}: {
+  profile: MyProfile;
+  categories: TagCategory[];
+  /** 词云原图地址（放大预览用；缩略图加载失败时回退原图） */
+  evaluationUrl: string | null;
+  submissionClosed: boolean;
+  submissionDeadline: string | null;
+  onEdit: () => void;
+  onPreview: (url: string) => void;
+}) {
+  // 词云缩略图（#118）：小图优先降低首屏体积；存量未补生成缩略图时回退原图（review 修复同 HistoryItem）
+  const [thumbFailed, setThumbFailed] = useState(false);
+  const thumbnailResolved = useFileUrl(
+    profile.evaluation_url && !thumbFailed ? toThumbnailUrl(profile.evaluation_url) : profile.evaluation_url || undefined,
+    profile.storage_id
+  );
+  const thumbnailPreview = safeImageUrl(thumbnailResolved);
+
+  const groupedTags = categories.map((cat, catIdx) => ({
+    name: cat.name,
+    color: TAG_CHIP_COLORS[catIdx % TAG_CHIP_COLORS.length],
+    tags: cat.tags.filter((t) => profile.tags.includes(t.name)).map((t) => t.name),
+  }));
+  const groupedNames = new Set(groupedTags.flatMap((group) => group.tags));
+  const ungrouped = profile.tags.filter((tag) => !groupedNames.has(tag));
+  const completion = completionItems(profile);
+
+  return (
+    <section className="bg-card rounded-xl border border-border-soft p-5 space-y-4">
+      <div className="flex flex-wrap items-center gap-2">
+        <ProfileSectionHeader label="我的档案资料" />
+        <span className="ml-auto text-xs text-muted">
+          {profile.submitted_at ? `提交于 ${profile.submitted_at}` : "尚未提交"}
+        </span>
+      </div>
+
+      {/* 三项完成度（#322）：与 hero 进度环同一口径，逐项标出已完成 / 未完成 */}
+      <ul className="flex flex-wrap gap-2 text-xs" aria-label="资料完整度">
+        {completion.map((item) => (
+          <li
+            key={item.label}
+            className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 ${
+              item.done
+                ? "bg-green-50 text-green-600 dark:bg-green-900/30 dark:text-green-400"
+                : "bg-gray-100 text-muted dark:bg-gray-800"
+            }`}
+          >
+            {item.label}
+            <span aria-hidden>{item.done ? "✓" : "—"}</span>
+            <span className="sr-only">{item.done ? "已完成" : "未完成"}</span>
+          </li>
+        ))}
+      </ul>
+
+      {/* 我的标签（按 API 分类分组三色） */}
+      <div className="space-y-3">
+        {profile.tags.length === 0 ? (
+          <p className="text-sm text-muted">还没有标签，点「修改数据」补充。</p>
+        ) : (
+          groupedTags
+            .filter((group) => group.tags.length > 0)
+            .map((group) => (
+              <div key={group.name}>
+                <p className="mb-1.5 text-xs text-muted">{group.name}</p>
+                <div className="flex flex-wrap gap-1.5">
+                  {group.tags.map((tag) => (
+                    <span key={tag} className={`rounded-full px-2.5 py-1 text-xs ${group.color}`}>
+                      {tag}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            ))
+        )}
+        {ungrouped.length > 0 && (
+          <div className="flex flex-wrap gap-1.5">
+            {ungrouped.map((tag) => (
+              <span key={tag} className={`rounded-full px-2.5 py-1 text-xs ${TAG_CHIP_COLORS[0]}`}>
+                {tag}
+              </span>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* 评价词云缩略图（点击放大） */}
+      <div className="space-y-2">
+        <p className="text-xs font-medium text-foreground">评价词云</p>
+        {thumbnailPreview ? (
+          <button
+            type="button"
+            onClick={() => onPreview(evaluationUrl || thumbnailPreview)}
+            aria-label="放大评价词云"
+            className="block w-full max-w-xs cursor-zoom-in rounded-lg border border-border-soft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
+          >
+            <img
+              src={thumbnailPreview}
+              alt="评价词云"
+              onError={() => setThumbFailed(true)}
+              className="w-full rounded-lg"
+            />
+          </button>
+        ) : (
+          <div className="flex flex-wrap items-center gap-3">
+            <p className="text-sm text-muted">还没有评价词云。</p>
+            <button
+              type="button"
+              onClick={onEdit}
+              disabled={submissionClosed}
+              className="text-sm font-medium text-primary-strong underline underline-offset-2 hover:no-underline disabled:opacity-50"
+            >
+              补充评价词云
+            </button>
+          </div>
+        )}
+      </div>
+
+      <button
+        type="button"
+        onClick={onEdit}
+        disabled={submissionClosed}
+        className="w-full rounded-xl bg-primary py-3 font-medium text-white transition-colors hover:bg-primary-strong disabled:opacity-50 sm:w-auto sm:px-6"
+      >
+        修改数据
+      </button>
+      {submissionClosed && (
+        <p className="text-xs text-amber-600 dark:text-amber-400">
+          {submissionDeadline ? `档案提交已于 ${submissionDeadline} 截止，无法再修改` : "档案提交已截止，无法再修改"}
+        </p>
+      )}
+    </section>
+  );
+}
+
 /** 学生面板：探索档案 · 罗盘进度——信息通览 + 就地修改 + 预留侧边栏 */
 export default function StudentDashboardPage() {
   const router = useRouter();
@@ -321,6 +479,12 @@ export default function StudentDashboardPage() {
 
   // 通览态图片放大预览
   const [lightbox, setLightbox] = useState<string | null>(null);
+
+  // 测评结果区回传的页尾授权数据（#322）：结果区是唯一数据源，页尾卡不重复请求
+  const [assessmentFooter, setAssessmentFooter] = useState<AssessmentFooterData>({
+    scales: [],
+    careersAttribution: "",
+  });
 
   // 历史提交版本（#95）：独立 Tab，首次切入时懒加载；恢复生成新版本不回写旧记录
   const [activeView, setActiveView] = useState<StudentViewKey>("profile");
@@ -411,8 +575,16 @@ export default function StudentDashboardPage() {
 
   const hasSubmitted = !!profile?.submitted_at;
 
+  // hero「第 N 次测评与完成时间」（#322）：取最近一次完成的量表，与「我的测评」共用同一条规则
+  const latestAssessment = useMemo(
+    () => latestCompletedOf(assessmentFooter.scales),
+    [assessmentFooter.scales]
+  );
+
   const startEdit = async () => {
     if (!profile) return;
+    // 从「我的小组 / 历史提交」点 hero 的修改入口时，先切回档案视图，保存后才看得到结果
+    setActiveView("profile");
     setEditTags(profile.tags);
     setAvatarFile(null);
     setEvaluationFile(null);
@@ -593,19 +765,7 @@ export default function StudentDashboardPage() {
   const evaluationPreview = safeImageUrl(evaluationResolved);
 
   // 档案完成度：兴趣标签 / 头像 / 评价词云（进度环 x/3）
-  const completion =
-    (profile.tags.length > 0 ? 1 : 0) +
-    (profile.avatar_url ? 1 : 0) +
-    (profile.evaluation_url ? 1 : 0);
-
-  // 标签按 API 返回的 categories 动态分组（组标题 category.name，三色循环）；未匹配任何分类的兜底单列
-  const groupedTags = categories.map((cat, catIdx) => ({
-    name: cat.name,
-    color: TAG_CHIP_COLORS[catIdx % TAG_CHIP_COLORS.length],
-    tags: cat.tags.filter((t) => profile.tags.includes(t.name)).map((t) => t.name),
-  }));
-  const groupedNames = new Set(groupedTags.flatMap((g) => g.tags));
-  const ungrouped = profile.tags.filter((t) => !groupedNames.has(t));
+  const completion = completionItems(profile).filter((item) => item.done).length;
 
   return (
     <div className="min-h-screen bg-background">
@@ -624,9 +784,9 @@ export default function StudentDashboardPage() {
 
         <main className="flex-1 min-w-0 px-4 sm:px-6 py-6 animate-[fade-in_0.2s_ease-out]">
           <div className="max-w-3xl mx-auto space-y-5">
-            {/* Hero：深绿品牌区——头像 + 身份 + 状态印章 + 罗盘进度环 */}
+            {/* Hero：深绿品牌区——头像 + 身份 + 状态印章 + 完成度环 + 就地修改（#322 精简） */}
             <section className="bg-brand rounded-2xl p-5 sm:p-6 shadow-sm">
-              <div className="flex items-center gap-4 sm:gap-5">
+              <div className="flex items-start gap-4 sm:gap-5">
                 {avatarPreview ? (
                   <img
                     src={avatarPreview}
@@ -657,17 +817,89 @@ export default function StudentDashboardPage() {
                     <span className="px-2.5 py-0.5 bg-white/15 text-white/90 rounded-full text-xs">
                       {profile.class_name}
                     </span>
-                    {profile.submitted_at && (
-                      <span className="text-xs text-white/60">提交于 {profile.submitted_at}</span>
-                    )}
                   </div>
+                  {latestAssessment && (
+                    <p className="mt-1.5 text-[11px] sm:text-xs text-white/60 truncate">
+                      最近测评：{latestAssessment.name}
+                      {latestAssessment.historyCount > 0 && (
+                        <>
+                          {" · 第 "}
+                          {latestAssessment.historyCount >= MAX_RESULT_VERSIONS
+                            ? `${MAX_RESULT_VERSIONS}+`
+                            : latestAssessment.historyCount}{" "}
+                          次
+                        </>
+                      )}
+                      {" · "}
+                      {latestAssessment.completedAt}
+                    </p>
+                  )}
                 </div>
-                <ProgressRing completion={completion} />
+                <div className="flex flex-shrink-0 flex-col items-end gap-2">
+                  <div
+                    className="group relative rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
+                    tabIndex={0}
+                    aria-label={`资料完整度 ${completion}/3`}
+                    aria-describedby="completion-hint"
+                  >
+                    <ProgressRing completion={completion} />
+                    <div
+                      id="completion-hint"
+                      role="tooltip"
+                      className="pointer-events-none absolute right-0 top-full z-10 mt-2 w-44 rounded-lg border border-border-soft bg-card p-2 text-[11px] leading-relaxed text-foreground opacity-0 shadow-sm transition-opacity group-hover:opacity-100 group-focus-within:opacity-100"
+                    >
+                      资料完整度：标签 / 头像 / 评价词云（已完成 {completion}/3）
+                    </div>
+                  </div>
+                  {!editing && (
+                    <button
+                      type="button"
+                      onClick={startEdit}
+                      disabled={submissionClosed}
+                      title={submissionClosed ? "档案提交已截止" : undefined}
+                      className="inline-flex items-center gap-1 whitespace-nowrap rounded-lg border border-white/30 px-2.5 py-1 text-xs font-medium text-white transition-colors hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      <SquarePen className="h-3.5 w-3.5" aria-hidden />
+                      {hasSubmitted ? "修改" : "开始填写"}
+                    </button>
+                  )}
+                  {submissionClosed && (
+                    <p className="max-w-[9rem] text-right text-[11px] leading-snug text-white/70">
+                      {submissionDeadline ? `档案提交已于 ${submissionDeadline} 截止` : "档案提交已截止"}
+                    </p>
+                  )}
+                </div>
               </div>
             </section>
 
-            {/* 测评结果区（#224 + #292）：按量表清单渲染每套结果卡，独立于档案提交流程——不受截止门控、不进档案版本快照 */}
-            <AssessmentResultsSection />
+            {/* 测评结果区（#224 + #292 + #322）：按量表清单渲染折叠卡，独立于档案提交流程——不受截止门控、不进档案版本快照 */}
+            <AssessmentResultsSection onData={setAssessmentFooter} />
+
+            {/* Tab 导航（#322 上移）：速览区之后、资料区之前，保证「历史提交」在 1 屏内可达；历史提交仍懒加载 */}
+            {!editing && hasSubmitted && activeView !== "group" && (
+              <div className="flex gap-1 bg-gray-100 dark:bg-gray-800 rounded-xl p-1">
+                <button
+                  onClick={() => switchView("profile")}
+                  className={`flex-1 py-2 rounded-lg text-sm font-medium transition-colors ${
+                    activeView === "profile"
+                      ? "bg-card text-gray-900 dark:text-gray-100 shadow-sm"
+                      : "text-gray-500 hover:text-gray-700 dark:hover:text-gray-300"
+                  }`}
+                >
+                  我的档案
+                </button>
+                <button
+                  onClick={() => switchView("history")}
+                  className={`flex-1 py-2 rounded-lg text-sm font-medium transition-colors ${
+                    activeView === "history"
+                      ? "bg-card text-gray-900 dark:text-gray-100 shadow-sm"
+                      : "text-gray-500 hover:text-gray-700 dark:hover:text-gray-300"
+                  }`}
+                >
+                  历史提交
+                </button>
+              </div>
+            )}
 
             {activeView === "group" ? (
               <GroupPanel
@@ -679,120 +911,40 @@ export default function StudentDashboardPage() {
               />
             ) : !editing ? (
               hasSubmitted ? (
-                <>
-                  {/* Tab 导航：我的档案 / 历史提交（#95） */}
-                  <div className="flex gap-1 bg-gray-100 dark:bg-gray-800 rounded-xl p-1">
-                    <button
-                      onClick={() => switchView("profile")}
-                      className={`flex-1 py-2 rounded-lg text-sm font-medium transition-colors ${
-                        activeView === "profile"
-                          ? "bg-card text-gray-900 dark:text-gray-100 shadow-sm"
-                          : "text-gray-500 hover:text-gray-700 dark:hover:text-gray-300"
-                      }`}
-                    >
-                      我的档案
-                    </button>
-                    <button
-                      onClick={() => switchView("history")}
-                      className={`flex-1 py-2 rounded-lg text-sm font-medium transition-colors ${
-                        activeView === "history"
-                          ? "bg-card text-gray-900 dark:text-gray-100 shadow-sm"
-                          : "text-gray-500 hover:text-gray-700 dark:hover:text-gray-300"
-                      }`}
-                    >
-                      历史提交
-                    </button>
-                  </div>
-
-                  {activeView === "profile" ? (
-                    <>
-                      {/* 我的标签（按 API 分类分组三色） */}
-                      <section className="bg-card rounded-xl border border-border-soft p-5 space-y-4">
-                        <ProfileSectionHeader label="我的标签" done={profile.tags.length > 0} />
-                        {profile.tags.length === 0 ? (
-                          <p className="text-sm text-muted">暂无标签</p>
-                        ) : (
-                          <div className="space-y-3">
-                            {groupedTags
-                              .filter((g) => g.tags.length > 0)
-                              .map((g) => (
-                                <div key={g.name}>
-                                  <p className="text-xs text-muted mb-1.5">{g.name}</p>
-                                  <div className="flex flex-wrap gap-1.5">
-                                    {g.tags.map((tag) => (
-                                      <span key={tag} className={`px-2.5 py-1 rounded-full text-xs ${g.color}`}>
-                                        {tag}
-                                      </span>
-                                    ))}
-                                  </div>
-                                </div>
-                              ))}
-                            {ungrouped.length > 0 && (
-                              <div className="flex flex-wrap gap-1.5">
-                                {ungrouped.map((tag) => (
-                                  <span key={tag} className={`px-2.5 py-1 rounded-full text-xs ${TAG_CHIP_COLORS[0]}`}>
-                                    {tag}
-                                  </span>
-                                ))}
-                              </div>
-                            )}
-                          </div>
-                        )}
-                      </section>
-
-                      {/* 评价词云（预览可放大） */}
-                      <section className="bg-card rounded-xl border border-border-soft p-5 space-y-4">
-                        <ProfileSectionHeader label="评价词云" done={!!profile.evaluation_url} />
-                        {evaluationPreview ? (
-                          <img
-                            src={evaluationPreview}
-                            alt="评价词云"
-                            onClick={() => setLightbox(evaluationPreview)}
-                            className="w-full max-w-sm rounded-lg border border-border-soft cursor-zoom-in"
+                activeView === "profile" ? (
+                  <ProfileOverviewCard
+                    profile={profile}
+                    categories={categories}
+                    evaluationUrl={evaluationPreview}
+                    submissionClosed={submissionClosed}
+                    submissionDeadline={submissionDeadline}
+                    onEdit={startEdit}
+                    onPreview={setLightbox}
+                  />
+                ) : (
+                  /* 历史提交（#95）：独立 Tab，恢复按钮截止后隐藏 */
+                  <section className="bg-card rounded-xl border border-border-soft p-5 space-y-4">
+                    <ProfileSectionHeader label="历史提交" />
+                    {historyLoading ? (
+                      <p className="text-sm text-muted">加载中...</p>
+                    ) : historySubmissions.length === 0 ? (
+                      <p className="text-sm text-muted">暂无历史提交</p>
+                    ) : (
+                      <ul className="space-y-2">
+                        {historySubmissions.map((s) => (
+                          <HistoryItem
+                            key={s.id}
+                            submission={s}
+                            restoring={restoringId === s.id}
+                            closed={submissionClosed}
+                            tagColorMap={tagColorMap}
+                            onRestore={restoreVersion}
                           />
-                        ) : (
-                          <p className="text-sm text-muted">暂无评价词云</p>
-                        )}
-                      </section>
-
-                      <button
-                        onClick={startEdit}
-                        disabled={submissionClosed}
-                        className="w-full py-3 bg-primary hover:bg-primary-strong disabled:opacity-50 text-white font-medium rounded-xl transition-colors"
-                      >
-                        修改数据
-                      </button>
-                      {submissionClosed && (
-                        <p className="text-xs text-amber-600 dark:text-amber-400 text-center">
-                          档案提交已于 {submissionDeadline} 截止，无法再修改
-                        </p>
-                      )}
-                    </>
-                  ) : (
-                    /* 历史提交（#95）：独立 Tab，恢复按钮截止后隐藏 */
-                    <section className="bg-card rounded-xl border border-border-soft p-5 space-y-4">
-                      <ProfileSectionHeader label="历史提交" />
-                      {historyLoading ? (
-                        <p className="text-sm text-muted">加载中...</p>
-                      ) : historySubmissions.length === 0 ? (
-                        <p className="text-sm text-muted">暂无历史提交</p>
-                      ) : (
-                        <ul className="space-y-2">
-                          {historySubmissions.map((s) => (
-                            <HistoryItem
-                              key={s.id}
-                              submission={s}
-                              restoring={restoringId === s.id}
-                              closed={submissionClosed}
-                              tagColorMap={tagColorMap}
-                              onRestore={restoreVersion}
-                            />
-                          ))}
-                        </ul>
-                      )}
-                    </section>
-                  )}
-                </>
+                        ))}
+                      </ul>
+                    )}
+                  </section>
+                )
               ) : (
                 /* 从未提交：引导卡，点「开始填写」就地进入编辑态（#168 起不再跳转表单页） */
                 <div className="bg-card rounded-xl border border-border-soft p-8 text-center space-y-4">
@@ -891,6 +1043,15 @@ export default function StudentDashboardPage() {
                   </p>
                 )}
               </div>
+            )}
+
+            {/* 页尾授权与免责（#322）：全页只出现一次，结果卡内只留指针；折叠但保留 DOM 文本 */}
+            {assessmentFooter.scales.length > 0 && (
+              <AssessmentAttributionCard
+                collapsible
+                scales={assessmentFooter.scales}
+                careersAttribution={assessmentFooter.careersAttribution}
+              />
             )}
           </div>
         </main>
