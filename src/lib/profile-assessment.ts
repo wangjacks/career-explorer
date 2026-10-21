@@ -148,14 +148,6 @@ export function matchesAssessmentInterest(
   );
 }
 
-/**
- * 详情条形是否有可画的数据：快照缺失/损坏（解析后为空）时整块条形不渲染——
- * 否则会画出六条 0，比不显示更误导。徽章与完成时间仍照常显示。
- */
-export function hasAssessmentScores(row: ProfileAssessmentFields): boolean {
-  return Array.isArray(row.assessmentScores) && row.assessmentScores.length > 0;
-}
-
 // ─────────────────────────────────────────────────────────────────────────────
 // #330 双测评列 + 互斥筛选的视图模型
 // ─────────────────────────────────────────────────────────────────────────────

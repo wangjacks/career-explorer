@@ -6,11 +6,12 @@ import StorageImage from "@/components/StorageImage";
 import TextAvatar from "@/components/TextAvatar";
 import EvaluationTexts from "@/components/EvaluationTexts";
 import EvaluationWordCloud from "@/components/EvaluationWordCloud";
-import ProfileSummaryBoard from "@/components/assessment/ProfileSummaryBoard";
+import ProfileSummaryBoard, { FALLBACK_TAG_CLASS } from "@/components/assessment/ProfileSummaryBoard";
 import ProfileSectionHeader from "@/components/assessment/ProfileSectionHeader";
 import AssessmentResultsSection from "@/components/assessment/AssessmentResultsSection";
 import AssessmentAttributionCard from "@/components/assessment/AssessmentAttributionCard";
 import { useEscapeKey } from "@/hooks/useEscapeKey";
+import { useTagColorMap } from "@/hooks/useTagColorMap";
 import type { Profile } from "@/hooks/useAdminAuth";
 import type { ProfileAssessmentScaleView } from "@/lib/profile-assessment";
 import { PROFILE_INFO_ID, type SummaryCard } from "@/lib/profile-summary";
@@ -91,7 +92,11 @@ export default function ProfileDetailDialog({
   // 版本历史（教师端独有）：打开弹窗时预取，计入「档案资料」卡的版本数
   const [historyRows, setHistoryRows] = useState<SubmissionHistoryRow[]>([]);
   const [historyLoading, setHistoryLoading] = useState(profile.userId != null);
+  const [historyFailed, setHistoryFailed] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
+
+  // 标签分类三色（与学生端速览卡、版本历史同一份映射）
+  const tagColors = useTagColorMap();
 
   const [expandedCodes, setExpandedCodes] = useState<string[]>([]);
   const [pendingScrollId, setPendingScrollId] = useState<string | null>(null);
@@ -179,9 +184,11 @@ export default function ProfileDetailDialog({
         const payload = (await res.json().catch(() => null)) as { submissions?: SubmissionHistoryRow[] } | null;
         if (cancelled) return;
         if (res.ok) setHistoryRows(Array.isArray(payload?.submissions) ? payload.submissions : []);
+        else setHistoryFailed(true);
       } catch (err) {
         if (cancelled) return;
         console.error("版本历史加载失败:", err);
+        setHistoryFailed(true);
       } finally {
         if (!cancelled) setHistoryLoading(false);
       }
@@ -281,7 +288,7 @@ export default function ProfileDetailDialog({
                 {profile.tags.map((tag) => (
                   <span
                     key={tag}
-                    className="rounded-full bg-green-50 px-2 py-0.5 text-[11px] text-green-700 dark:bg-green-900/30 dark:text-green-300"
+                    className={`rounded-full px-2 py-0.5 text-[11px] ${tagColors.get(tag) ?? FALLBACK_TAG_CLASS}`}
                   >
                     {tag}
                   </span>
@@ -301,7 +308,12 @@ export default function ProfileDetailDialog({
 
         {/* 内容滚动区：速览 → 测评详情 → 档案资料 → 版本历史 → 授权与免责 */}
         <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-5 py-4">
-          <ProfileSummaryBoard summary={summary} loading={summaryLoading} onAction={handleSummaryAction} />
+          <ProfileSummaryBoard
+            summary={summary}
+            loading={summaryLoading}
+            tagColors={tagColors}
+            onAction={handleSummaryAction}
+          />
 
           <section className="space-y-3" aria-labelledby="profile-detail-assessment-heading">
             <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1" id="profile-detail-assessment-heading">
@@ -374,7 +386,7 @@ export default function ProfileDetailDialog({
               aria-controls="profile-version-history"
               className="flex w-full items-center justify-between text-sm font-semibold text-foreground"
             >
-              <span>版本历史（{historyLoading ? "…" : historyRows.length}）</span>
+              <span>版本历史（{historyLoading ? "…" : historyFailed ? "暂时没取到" : historyRows.length}）</span>
               <span className="text-xs font-normal text-muted">{historyOpen ? "收起" : "展开"}</span>
             </button>
             {historyOpen && (
@@ -382,6 +394,10 @@ export default function ProfileDetailDialog({
                 {historyLoading ? (
                   <p className="text-sm text-muted" role="status">
                     加载中...
+                  </p>
+                ) : historyFailed ? (
+                  <p className="text-sm text-muted" role="status">
+                    暂时没取到版本记录，稍后可以重新打开弹窗再看。
                   </p>
                 ) : historyRows.length === 0 ? (
                   <p className="text-sm text-muted">暂无版本记录</p>
@@ -408,7 +424,7 @@ export default function ProfileDetailDialog({
                           row.tags.map((tag) => (
                             <span
                               key={tag}
-                              className="rounded bg-green-50 px-1.5 py-0.5 text-[10px] text-green-700 dark:bg-green-900/30 dark:text-green-300"
+                              className={`rounded px-1.5 py-0.5 text-[10px] ${tagColors.get(tag) ?? FALLBACK_TAG_CLASS}`}
                             >
                               {tag}
                             </span>

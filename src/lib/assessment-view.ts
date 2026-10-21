@@ -212,6 +212,24 @@ export function resultCardStatus(
 }
 
 /**
+ * 维度分快照能不能画（#234 / #332）：`completed` 但快照缺失或损坏（解析后为空）时返回 false，
+ * 结果卡与速览卡据此降级——按 0 分画六条 / 雷达 / 画像等于凭空造结论。
+ */
+export function hasScoreSnapshot(scores: readonly RiasecScoreSnapshot[] | null | undefined): boolean {
+  return Array.isArray(scores) && scores.length > 0;
+}
+
+/** 速览卡在快照缺失时的主文案 */
+export const SNAPSHOT_MISSING_HEADLINE = "已测 · 分数快照缺失";
+
+/** 详情卡在快照缺失时的说明（人称按受众切换） */
+export function scoreSnapshotNotice(viewer: "student" | "teacher"): string {
+  return viewer === "teacher"
+    ? "这份报告只取到了结论：该生的维度分快照缺失，因此不画分数条与雷达图；需要完整画像请让学生重新作答。"
+    : "这份报告只取到了结论：维度分快照缺失，因此暂时不画分数条与雷达图；重新作答可以生成完整画像。";
+}
+
+/**
  * 结果卡右上角的口径行（#283/#292）：本次题量 · 完成时间 · 这是第几次测评。
  * 版本数撞上接口上限时显示 `N+`，不谎报正好 N 次。
  */

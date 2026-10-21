@@ -20,7 +20,9 @@ import {
   buildBigFiveHeadline,
   buildRiasecBars,
   describeTypeCode,
+  hasScoreSnapshot,
   resultCardMode,
+  SNAPSHOT_MISSING_HEADLINE,
   type AssessmentResultsPayload,
   type CareerCardView,
 } from "./assessment-view";
@@ -238,7 +240,12 @@ function buildInterestCard(input: {
     return {
       ...base,
       state: "empty",
-      headline: inProgress ? "兴趣测评还没答完" : "该生还没测兴趣类型",
+      headline:
+        inProgress
+          ? "兴趣测评还没答完"
+          : audience === "teacher"
+            ? "该生还没测兴趣类型"
+            : "还没测兴趣类型",
       caption:
         audience === "teacher"
           ? inProgress
@@ -259,13 +266,23 @@ function buildInterestCard(input: {
   }
 
   const code = hollandPayload.current.typeCode ?? "";
+  // 三字码本身是结论，快照缺失时照样展示；六型条形没有分数就不能画（#234 口径）
+  const snapshot = hasScoreSnapshot(hollandPayload.current.scores);
   return {
     ...base,
     state: "ready",
     code: code || undefined,
-    headline: code ? describeTypeCode(code) : "兴趣结果已生成",
-    caption: "兴趣最强的三种类型，按先后顺序",
-    bars: toBars(buildRiasecBars(hollandPayload.current.scores, hollandPayload.current.typeCode), 3),
+    headline: code
+      ? describeTypeCode(code)
+      : snapshot
+        ? "兴趣结果已生成"
+        : SNAPSHOT_MISSING_HEADLINE,
+    caption: snapshot
+      ? "兴趣最强的三种类型，按先后顺序"
+      : audience === "teacher"
+        ? "该生的三字码在，但维度分快照缺失，暂不展示六型分布"
+        : "三字码在，但维度分快照缺失，暂不展示六型分布",
+    bars: snapshot ? toBars(buildRiasecBars(hollandPayload.current.scores, hollandPayload.current.typeCode), 3) : [],
     cta: { label: "查看详情", action: "detail", targetId: assessmentDetailId(hollandScale.code) },
   };
 }
@@ -306,7 +323,12 @@ function buildPersonalityCard(input: {
     return {
       ...base,
       state: "empty",
-      headline: inProgress ? "人格测评还没答完" : "该生还没测人格特质",
+      headline:
+        inProgress
+          ? "人格测评还没答完"
+          : audience === "teacher"
+            ? "该生还没测人格特质"
+            : "还没测人格特质",
       caption:
         audience === "teacher"
           ? inProgress
@@ -327,13 +349,19 @@ function buildPersonalityCard(input: {
   }
 
   const dimensions = bigFivePayload.assessment.dimensions;
-  const headline = buildBigFiveHeadline(bigFivePayload.current.scores, dimensions);
+  // 快照缺失时不排名：`buildBigFiveHeadline([])` 会把五维都按 0 分算出「偏低X · 偏低Y」
+  const snapshot = hasScoreSnapshot(bigFivePayload.current.scores);
+  const headline = snapshot ? buildBigFiveHeadline(bigFivePayload.current.scores, dimensions) : "";
   return {
     ...base,
     state: "ready",
-    headline: headline || "人格结果已生成",
-    caption: "最高的两项特质",
-    bars: toBars(buildBigFiveBars(bigFivePayload.current.scores, dimensions), 2),
+    headline: headline || (snapshot ? "人格结果已生成" : SNAPSHOT_MISSING_HEADLINE),
+    caption: snapshot
+      ? "最高的两项特质"
+      : audience === "teacher"
+        ? "该生这次报告的维度分快照缺失，暂时给不出特质排名"
+        : "这次报告的维度分快照缺失，暂时给不出特质排名",
+    bars: snapshot ? toBars(buildBigFiveBars(bigFivePayload.current.scores, dimensions), 2) : [],
     cta: { label: "查看详情", action: "detail", targetId: assessmentDetailId(bigFiveScale.code) },
   };
 }

@@ -11,11 +11,7 @@
  */
 
 import {
-  buildBigFiveBars,
-  buildBigFiveHeadline,
   buildCareerCards,
-  buildRiasecBars,
-  describeTypeCode,
   resultCardMode,
   type AssessmentResultsPayload,
   type AssessmentScaleMeta,
@@ -88,8 +84,8 @@ export function toAssessmentListItem(
     status: completed ? "completed" : "not-started",
     typeCode: isHolland && completed ? (result?.typeCode ?? null) : null,
     completedAt: completed ? (result?.completedAt ?? "") : "",
-    // 教师列表不下发历史版本数：当前结果存在即算一条；旧的「次数」文案在这里没有意义
-    historyCount: completed ? 1 : 0,
+    // 教师列表不下发测评版本数：这里留 0，详情卡据此省略「第 N 次」，不谎报次数
+    historyCount: 0,
     inProgress: null,
     attribution: scale.attribution ?? "",
     licenseText: scale.licenseText ?? "",
@@ -233,44 +229,6 @@ export function buildTeacherCareers(payload: TeacherCareersPayload | null | unde
   };
 }
 
-/**
- * 纯展示辅助：速览卡顶部「兴趣三字码 + 主导三型」文案（弹窗身份区下方一行）。
- * 与摘要卡同源（`describeTypeCode` + `buildRiasecBars`），不重写口径。
- */
-export function buildInterestQuickView(
-  scales: readonly ProfileAssessmentScaleView[],
-  assessmentResults: Record<string, ProfileScaleResultView> | null | undefined
-): { typeCode: string; labels: string; topBars: { label: string; standard: number }[] } | null {
-  const holland = scales.find((scale) => resultCardMode(scale) === "holland");
-  if (!holland) return null;
-  const result = assessmentResults?.[holland.code];
-  if (!result || result.status !== "completed" || !result.typeCode) return null;
-  return {
-    typeCode: result.typeCode,
-    labels: describeTypeCode(result.typeCode),
-    topBars: buildRiasecBars(result.scores ?? [], result.typeCode)
-      .slice(0, 3)
-      .map((bar) => ({ label: bar.label, standard: bar.standard })),
-  };
-}
-
-/** 纯展示辅助：人格 headline（弹窗身份区下方一行；未测返回 null） */
-export function buildPersonalityQuickView(
-  scales: readonly ProfileAssessmentScaleView[],
-  assessmentResults: Record<string, ProfileScaleResultView> | null | undefined
-): { headline: string; bars: { label: string; standard: number }[] } | null {
-  const bigFive = scales.find((scale) => resultCardMode(scale) === "big-five");
-  if (!bigFive) return null;
-  const result = assessmentResults?.[bigFive.code];
-  if (!result || result.status !== "completed" || !result.scores || result.scores.length === 0) return null;
-  const scores = toDimensionScores(result.scores);
-  return {
-    headline: buildBigFiveHeadline(scores, bigFive.dimensions),
-    bars: buildBigFiveBars(scores, bigFive.dimensions)
-      .slice(0, 2)
-      .map((bar) => ({ label: bar.label, standard: bar.standard })),
-  };
-}
 /**
  * 速览卡「查看详情」的落点判定（#332）：教师弹窗不跳转页面，只做「展开对应折叠卡 + 滚动」。
  * 与学生端 #323 同一锚点口径（`assessmentDetailId` / `PROFILE_INFO_ID` / `ASSESSMENT_RESULTS_ID`）。

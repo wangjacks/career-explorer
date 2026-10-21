@@ -12,8 +12,10 @@ import {
   buildResultTrailing,
   buildRiasecBars,
   buildRiasecInterpretations,
+  hasScoreSnapshot,
   resultCardMode,
   resultCardStatus,
+  scoreSnapshotNotice,
   type AssessmentResultsPayload,
   type CareerCardView,
 } from "@/lib/assessment-view";
@@ -129,6 +131,7 @@ export default function AssessmentResultCard({
       <FiveFactorResultCard
         data={data}
         code={code}
+        viewer={viewer}
         id={id}
         open={open}
         onOpenChange={onOpenChange}
@@ -138,8 +141,10 @@ export default function AssessmentResultCard({
   }
 
   // 霍兰德卡（#224 原有内容）：按行排列的六型视图 + 推荐职业
-  const bars = buildRiasecBars(current.scores, current.typeCode);
-  const interpretations = buildRiasecInterpretations(current.scores, current.typeCode);
+  // 快照缺失 / 损坏时不画六条与雷达：空数组进 builder 会得到六条 0 分和全零多边形（#234/#332）
+  const hasSnapshot = hasScoreSnapshot(current.scores);
+  const bars = hasSnapshot ? buildRiasecBars(current.scores, current.typeCode) : [];
+  const interpretations = hasSnapshot ? buildRiasecInterpretations(current.scores, current.typeCode) : [];
   const completedAt = formatResultTime(current.completedAt);
   const trailing = buildResultTrailing({
     questionCount: current.questionCount,
@@ -158,7 +163,7 @@ export default function AssessmentResultCard({
       highlight={highlight}
     >
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <HollandCodeBadge typeCode={current.typeCode} />
+        <HollandCodeBadge typeCode={current.typeCode} viewer={viewer} />
         {viewer === "student" && (
           <Link
             href={quizHref(code)}
@@ -169,50 +174,58 @@ export default function AssessmentResultCard({
         )}
       </div>
 
-      {/* 两种视图并列：雷达看整体形状，条状排名看具体高低；窄屏上下堆叠 */}
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-        <div className="min-w-0">
-          <RiasecRadarChart scores={current.scores} />
-        </div>
-        <ul className="min-w-0 space-y-2.5" aria-label="六型兴趣得分排名">
-          {bars.map((bar) => (
-            <li key={bar.key} className="space-y-1">
-              <div className="flex items-center justify-between gap-2 text-sm">
-                <span className="text-foreground">
-                  {bar.label}
-                  {bar.isTop && (
-                    <span className="ml-1.5 px-1.5 py-0.5 rounded text-[10px] bg-green-50 text-green-600 dark:bg-green-900/30 dark:text-green-400">
-                      主要兴趣
+      {hasSnapshot ? (
+        <>
+          {/* 两种视图并列：雷达看整体形状，条状排名看具体高低；窄屏上下堆叠 */}
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+            <div className="min-w-0">
+              <RiasecRadarChart scores={current.scores} />
+            </div>
+            <ul className="min-w-0 space-y-2.5" aria-label="六型兴趣得分排名">
+              {bars.map((bar) => (
+                <li key={bar.key} className="space-y-1">
+                  <div className="flex items-center justify-between gap-2 text-sm">
+                    <span className="text-foreground">
+                      {bar.label}
+                      {bar.isTop && (
+                        <span className="ml-1.5 px-1.5 py-0.5 rounded text-[10px] bg-green-50 text-green-600 dark:bg-green-900/30 dark:text-green-400">
+                          主要兴趣
+                        </span>
+                      )}
                     </span>
-                  )}
-                </span>
-                <span className="text-muted font-mono text-xs">{bar.standard.toFixed(1)}</span>
-              </div>
-              <div className="h-2 rounded-full bg-gray-100 dark:bg-gray-800 overflow-hidden">
-                <div
-                  className="h-full rounded-full bg-primary transition-all duration-500"
-                  style={{ width: `${bar.percent}%` }}
-                />
-              </div>
-            </li>
-          ))}
-        </ul>
-      </div>
+                    <span className="text-muted font-mono text-xs">{bar.standard.toFixed(1)}</span>
+                  </div>
+                  <div className="h-2 rounded-full bg-gray-100 dark:bg-gray-800 overflow-hidden">
+                    <div
+                      className="h-full rounded-full bg-primary transition-all duration-500"
+                      style={{ width: `${bar.percent}%` }}
+                    />
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </div>
 
-      <div className="space-y-2">
-        <h3 className="text-sm font-medium text-foreground">六型逐条解读</h3>
-        <ul className="space-y-2">
-          {interpretations.map((item) => (
-            <li key={item.key} className="rounded-lg bg-background px-3 py-2">
-              <p className="text-sm font-medium text-foreground">
-                {item.label}
-                {item.isTop && <span className="ml-1.5 text-xs text-muted">主要兴趣</span>}
-              </p>
-              <p className="mt-0.5 text-xs text-muted leading-relaxed">{item.text}</p>
-            </li>
-          ))}
-        </ul>
-      </div>
+          <div className="space-y-2">
+            <h3 className="text-sm font-medium text-foreground">六型逐条解读</h3>
+            <ul className="space-y-2">
+              {interpretations.map((item) => (
+                <li key={item.key} className="rounded-lg bg-background px-3 py-2">
+                  <p className="text-sm font-medium text-foreground">
+                    {item.label}
+                    {item.isTop && <span className="ml-1.5 text-xs text-muted">主要兴趣</span>}
+                  </p>
+                  <p className="mt-0.5 text-xs text-muted leading-relaxed">{item.text}</p>
+                </li>
+              ))}
+            </ul>
+          </div>
+        </>
+      ) : (
+        <p className="rounded-lg bg-background px-3 py-2 text-xs leading-relaxed text-muted">
+          {scoreSnapshotNotice(viewer)}
+        </p>
+      )}
 
       {/* 推荐职业（#226）：无数据/接口失败时整块不渲染；CC BY 署名收编到页尾授权卡 */}
       {careers.length > 0 && (
