@@ -744,7 +744,7 @@ export default function StudentDashboardPage() {
     } else {
       void loadCategories();
     }
-  }, [profile, categories.length, loadCategories]);
+  }, [profile, categoriesState, loadCategories]);
 
   const toggleTag = (tag: string) => {
     setEditTags((prev) => (prev.includes(tag) ? prev.filter((t) => t !== tag) : [...prev, tag]));
