@@ -39,4 +39,12 @@ describe("SQLite / MySQL 分班统计同构（#260）", () => {
     expect(text).toContain("AND c.id IS NULL");
     expect(text).toContain("AND c.id = ?");
   });
+
+  it.each(ADAPTERS)("%s 完成矩阵用 UNION ALL 按 class_id 分组，与班名解耦", (path) => {
+    const text = source(path);
+    expect(text).toContain("getCompletionStats(");
+    expect(text).toContain("UNION ALL");
+    expect(text).toContain("GROUP BY u.class_id, c.name");
+    expect(text).toContain("GROUP BY r.assessment_id, u.class_id");
+  });
 });

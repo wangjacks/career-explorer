@@ -152,6 +152,7 @@
 | `/api/manage/stats/trends` | GET | 仅 GET | 提交趋势（全校合计，缺日补 0） |
 | `/api/manage/stats/class-trends` | GET | 仅 GET | 按班级分层的提交趋势（#165，时间 × 班级交叉维度）；响应 `{ series: [{ key, label }], points: [{ date, counts }] }`，`counts` 以 `key` 索引、未分班固定最后（#260） |
 | `/api/manage/stats/assessment` | GET | 仅 GET | 测评聚合统计（#229/#311）：班级完成度 / 六型计数 / 三字码排行 / 总数小结 / 逐班六型构成，**不含任何个人标识**；`?scope=all`（默认，全校）或 `scope=mine`（仅本人归属班级）；`?code` 默认 `riasec` 且只接受 `typological` 量表；`?classId` 收窄到单班；`assessment.enabled` 供大屏区分「还没开放」与「还没人做」（#232） |
+| `/api/manage/stats/completion` | GET | 仅 GET | 班级 × 事项完成矩阵（#310）：档案提交 + 各启用量表各一列，**不含姓名/学号**；`?scope=all`（默认，所有班级）或 `scope=mine`（教师仅本人归属班级）；`unassigned` 与 `total` 含未分班学生；教师看所有班级时行 `canDrilldown=false`；纯聚合不记审计 |
 | `/api/manage/assessment/roster` | GET | 仅 GET | 测评名册（#229）：已完测学生的姓名 / 学号 / 三字码 / 完成时间，供下钻；过滤参数 `classId` / `lead`（三字码首位，与 #305 后 `/profiles` 的任意位置包含筛选口径不同）/ `code`（完整三字码，#232）+ `scope`；教师恒收窄到本人归属班级（越权 403），每次读取记审计 `assessment:roster` |
 | `/api/manage/profiles` | GET / DELETE | GET + DELETE | 档案列表 / 清除档案字段。GET 支持**服务端筛选与排序**（#295：`q` / `tag`（可重复，**一个参数就是一个标签、不按逗号切分**——标签名允许含逗号，切分会把下拉里选中的那一项筛成别的条件）/ `lead`（兴趣测评三字码任意位置包含所选六型字母（#305）或 `none`）/ `sortKey` / `sortDir`，分页在过滤后执行、`total` 为过滤后命中数）。GET 每行另带兴趣测评字段（#234：`assessmentCode` / `assessmentStatus` / `assessmentAt` + 详情条形用的六型快照 `assessmentScores`），取「`completed` 且 `is_current=1`」的当前有效结果，未测行为 `none` / `null`；分页、总数与既有排序口径不变 |
 | `/api/manage/profiles/submissions` | GET | GET | 管理端查看学生提交历史（#95）：admin 全量、teacher 仅管辖班级 |
@@ -322,6 +323,17 @@
 - **审计**：名册接口每次读取都记 `assessment:roster`（成功/失败都记：被拒的越权请求、非法参数、量表未配置各记一条 failed，含 `classId` / `lead` / `code` / 教师可查班级集合），便于回答「谁查过谁」；聚合接口不记（无个人信息，与既有 stats 同口径）
 - **双适配器一致性**：适配器只做 SQL 计数（同一套 SQL 语义，表 `idx_assessment_results_assessment` 支撑），完成率、排序破平、Top-N 截断与中文标签统一在 `assessment-stats.ts` 的纯函数里算——口径不落在两个适配器上，避免 SQLite / MySQL 慢慢分叉；班级排序也在纯函数里做，不依赖两库的排序规则
 - **性能**：按全表聚合（一所学校几百到几千行结果），走 `assessment_id` 索引即可，不额外建索引；逐班六型构成用一次 `GROUP BY class_id, key` 查询，不逐班循环查询；高频轮询投屏时才需要考虑缓存，当前不做
+
+## 班级完成矩阵（#310）
+
+<!-- 对账：纯函数 `src/lib/completion-stats.ts`（测试 `completion-stats.test.ts`）；SQL 在两适配器的 getCompletionStats；行为测试 `completion-stats-api.test.ts` / `assessment-stats-db.test.ts` -->
+
+- **端点与列**：`GET /api/manage/stats/completion` 是「一个班 × 一件事」的唯一数据源；`columns[0]` 恒为档案提交，其后按启用量表顺序追加 `assessment:<完整 code>`，停用量表不出列；列携带 `scaleName` / `scoringMode`，短名（兴趣测评 / 人格测评）按 `scoringMode` 派生，前端仍可按 code 覆盖。
+- **分组口径**：两适配器只按 `class_id` 分组数数（`null` = 未分班），班名只用于展示；**不得复用 `getCompareByClass` 的班名 COALESCE 当键**（改名/重名会串数据）。档案 `submitted` 与 `isSubmitted()` 同口径（空串/空白不算提交）。
+- **完成口径**：只认 `assessment_results.status='completed' AND is_current=1 AND users.role='student'`；未分班学生进 `unassigned` 与 `total`，不进任何班级行；`enrolled=0` 的空班不出行。
+- **展示口径**：行按档案提交率升序（最该催的在前），同率按班名 `zh-CN`、再按 `classId` 破平；完成率复用 #229 的 `completionRate`（一位小数、钳到 100%）；`total` 用同一分母重算，不平均行完成率。
+- **范围与下钻**：`scope=all` 默认看所有班级；教师 `scope=mine` 收窄到 `teacher_classes`，管理员 `scope=mine` 等同所有班级。教师看「所有班级」时响应行 `canDrilldown=false`（只读聚合），教师「我带的班」与管理员为 true；未分班不提供下钻。
+- **降级与审计**：量表读取失败退化为只有档案列；未安装返回空矩阵，均不 500。响应无个人信息，与 `/stats/assessment` 同口径**不记审计**；个人明细仍走 `/assessment/roster`（单独记审计）。
 
 ## 数据大屏测评栏（#232）
 
