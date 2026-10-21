@@ -71,6 +71,9 @@ function seed(): Seeded {
       userId: ids.get(userCode)!,
       assessmentId,
       answersJson: "{}",
+      // `"[]"` = 整库即轮的旧口径（与 #282 之后 dev 上其余 DB 用例一致）：
+      // 这里只关心主导型筛选能否跨页命中，不需要真造一份抽题快照
+      itemsJson: "[]",
       scoresJson: null,
       typeCode,
     });
@@ -80,7 +83,7 @@ function seed(): Seeded {
   complete("202505051024", "SIA");
   // 23 号未测（没有任何结果）
   // 22 号只有草稿
-  adapter.upsertAssessmentDraft(ids.get("202505051022")!, assessmentId, JSON.stringify({ 1: 4 }));
+  adapter.upsertAssessmentDraft(ids.get("202505051022")!, assessmentId, JSON.stringify({ 1: 4 }), "[]");
   // 21 号：先完成 RIA 再完成 ECS，旧版本 is_current=0，只应算 ECS
   complete("202505051021", "RIA");
   complete("202505051021", "ECS");
