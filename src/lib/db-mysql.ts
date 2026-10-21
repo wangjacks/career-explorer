@@ -2,7 +2,8 @@ import mysql from "mysql2/promise";
 import { readFileSync, existsSync } from "fs";
 import path from "path";
 import { tagCategories } from "./tagData";
-import { ASSESSMENT_SEEDS, getQuestionSeeds, validateAssessmentSeed } from "./assessment-data";
+import { ASSESSMENT_SEEDS, RIASEC_CODE, getQuestionSeeds, validateAssessmentSeed } from "./assessment-data";
+import { buildSubmittedProfilesSql } from "./profile-query";
 import { ONET_DATASET_VERSION } from "./onet-data";
 import { getOnetOccupationSeeds, needsOnetReseed, ONET_SEED_MARKER_KEY, onetInterestCodeOf } from "./onet";
 import { normalizeBackupTags, normalizeAssessmentCode, DEFAULT_MAX_CUSTOM_TAGS, DEFAULT_MAX_PROFILE_SUBMISSIONS, MAX_PROFILE_SUBMISSIONS_KEY, DEFAULT_MEDIA_ORPHAN_RETENTION_DAYS, MEDIA_ORPHAN_RETENTION_KEY, chunkArray } from "./db";
@@ -49,6 +50,7 @@ import type {
   AssessmentStatsRaw,
   AssessmentRosterRow,
   AssessmentBankUpgradeResult,
+  SubmittedProfileFilters,
 } from "./db";
 import { fillGroupedTrend, fillTrendSeries, shiftDate } from "./stats-utils";
 
@@ -1114,17 +1116,17 @@ export class MysqlAdapter implements DbAdapter {
 
   async getSubmittedProfiles(
     page: number = 1,
-    pageSize: number = 20
+    pageSize: number = 20,
+    filters?: SubmittedProfileFilters
   ): Promise<{ rows: UserRow[]; total: number }> {
-    const [countResult] = await this.pool.execute(
-      "SELECT COUNT(*) as c FROM users WHERE role = 'student' AND submitted_at IS NOT NULL"
-    );
-    const total = Number((countResult as { c: number }[])[0].c);
+    // #295：与 sqlite 适配器共用同一份 WHERE / ORDER BY 生成逻辑，差异只在方言
+    const { whereSql, params, orderBySql } = buildSubmittedProfilesSql("mysql", filters, RIASEC_CODE);
     const offset = (page - 1) * pageSize;
+    const [countResult] = await this.pool.execute(`SELECT COUNT(*) as c FROM users u WHERE ${whereSql}`, params);
+    const total = Number((countResult as { c: number }[])[0].c);
     const [rows] = await this.pool.query(
-      `SELECT * FROM users WHERE role = 'student' AND submitted_at IS NOT NULL
-       ORDER BY submitted_at DESC LIMIT ? OFFSET ?`,
-      [pageSize, offset]
+      `SELECT u.* FROM users u WHERE ${whereSql} ORDER BY ${orderBySql} LIMIT ? OFFSET ?`,
+      [...params, pageSize, offset]
     );
     return { rows: rows as UserRow[], total };
   }

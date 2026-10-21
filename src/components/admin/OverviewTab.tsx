@@ -5,6 +5,7 @@ import { BarChart3, ClipboardList, ClipboardCheck, Tag, Flame } from "lucide-rea
 import { StatCard } from "./AdminUI";
 import ClassOverviewTable from "./ClassOverviewTable";
 import ProfilesTab from "./ProfilesTab";
+import type { ProfileListQuery } from "@/lib/profile-query";
 import {
   assessmentCompletionCard,
   normalizeAssessmentOverview,
@@ -15,7 +16,7 @@ import type { Stats, PagedData, Student } from "@/hooks/useAdminAuth";
 interface Props {
   installed: boolean | null;
   loadStats: () => Promise<Stats | null>;
-  loadProfiles: (p: number) => Promise<PagedData | null>;
+  loadProfiles: (p: number, query?: ProfileListQuery) => Promise<PagedData | null>;
   students: Student[];
   /** 是否展示数据列表（admin 数据概览内嵌；教师端数据概览传 false，数据列表独立成页） */
   showProfiles?: boolean;
