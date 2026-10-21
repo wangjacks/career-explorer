@@ -11,11 +11,21 @@ import { buildRiasecBars } from "@/lib/assessment-view";
 import { typeColorOf } from "@/lib/assessment-colors";
 import { formatResultTime } from "@/lib/assessment-flow";
 import {
-  ASSESSMENT_INTEREST_FILTERS,
+  ASSESSMENT_FILTER_NONE,
+  assessmentFilterToQuery,
+  assessmentLeadOf,
+  findDimensionalScale,
+  findTypologicalScale,
+  hasAssessmentFilter,
   hasAssessmentScores,
   isAssessed,
-  type AssessmentInterestFilter,
+  personalityHeadlineOf,
+  personalityTooltipOf,
+  scaleResultOf,
+  type AssessmentFilter,
+  type ProfileAssessmentScaleView,
 } from "@/lib/profile-assessment";
+import ProfilesAssessmentFilter from "./ProfilesAssessmentFilter";
 import {
   DEFAULT_PROFILE_SORT,
   PROFILE_QUERY_MAX_LENGTH,
@@ -76,6 +86,48 @@ function NotAssessedPill() {
   );
 }
 
+/**
+ * 人格特质列（#330）：五大人格 Top2 画像（与结果页同一口径 `buildBigFiveHeadline`）。
+ *
+ * - 已测且有快照 → 「高尽责 · 高外向」+ `IPIP` 小标，悬停显示完成时间；
+ * - 已测但快照缺失 → 灰态「已测」并注明分数缺失（不画假的 0 分画像）；
+ * - 未测 → 灰胶囊。
+ */
+function PersonalityCell({
+  row,
+  scale,
+}: {
+  row: Profile;
+  scale: ProfileAssessmentScaleView | null;
+}) {
+  const result = scaleResultOf(row, scale?.code);
+  const headline = personalityHeadlineOf(result, scale);
+  if (headline) {
+    return (
+      <div className="flex items-center gap-1.5" title={personalityTooltipOf(result)}>
+        <span className="whitespace-nowrap text-xs font-medium text-gray-700 dark:text-gray-200">{headline}</span>
+        <span
+          className="rounded bg-blue-50 px-1 py-0.5 text-[10px] font-medium text-blue-600 dark:bg-blue-900/30 dark:text-blue-300"
+          aria-label="五大人格（IPIP）"
+        >
+          IPIP
+        </span>
+      </div>
+    );
+  }
+  if (result?.status === "completed") {
+    return (
+      <span
+        title={personalityTooltipOf(result)}
+        className="inline-block rounded-full bg-gray-100 px-2 py-0.5 text-xs text-gray-600 dark:bg-gray-800 dark:text-gray-400"
+      >
+        已测
+      </span>
+    );
+  }
+  return <NotAssessedPill />;
+}
+
 /** 已提交档案数据列表：分页、搜索、标签筛选、详情查看、单个/批量删除 */
 export default function ProfilesTab({ loadProfiles, loadStats }: Props) {
   // 标签三色映射（#95）：详情弹窗版本历史标签按分类着色
@@ -93,8 +145,9 @@ export default function ProfilesTab({ loadProfiles, loadStats }: Props) {
   const [confirmDelete, setConfirmDelete] = useState<string[] | null>(null);
   const [sortKey, setSortKey] = useState<ProfileSortKey>(DEFAULT_PROFILE_SORT.sortKey);
   const [sortDir, setSortDir] = useState<SortDir>(DEFAULT_PROFILE_SORT.sortDir);
-  // 兴趣字母筛选（#234 / #295 / #305）：三字码任意位置包含即命中；与搜索、标签一起下推服务端
-  const [interestFilter, setInterestFilter] = useState<AssessmentInterestFilter>("all");
+  // 测评筛选（#330）：兴趣（多选 AND / 未测）与人格（已测 / 未测 / 单维度偏高偏低）互斥，
+  // 联合类型保证不会并存；状态整体替换，与搜索、标签一起下推服务端（跨页生效）。
+  const [assessmentFilter, setAssessmentFilter] = useState<AssessmentFilter>(ASSESSMENT_FILTER_NONE);
   const [tagDropdownOpen, setTagDropdownOpen] = useState(false);
   const [tagSearch, setTagSearch] = useState("");
   const tagDropdownRef = useRef<HTMLDivElement>(null);
@@ -172,16 +225,16 @@ export default function ProfilesTab({ loadProfiles, loadStats }: Props) {
     [defaultLoadProfiles]
   );
 
-  // 查询条件（#295）：搜索 / 标签 / 兴趣测评 / 排序；条件变化时回到第 1 页，避免停留在空页
+  // 查询条件（#295 / #330）：搜索 / 标签 / 测评筛选（互斥）/ 排序；条件变化时回到第 1 页，避免停留在空页
   const query = useMemo<ProfileListQuery>(
     () => ({
       ...(appliedSearch.trim() ? { q: appliedSearch.trim() } : {}),
       ...(selectedTags.size > 0 ? { tags: Array.from(selectedTags).sort() } : {}),
-      lead: interestFilter,
+      ...assessmentFilterToQuery(assessmentFilter),
       sortKey,
       sortDir,
     }),
-    [appliedSearch, selectedTags, interestFilter, sortKey, sortDir]
+    [appliedSearch, selectedTags, assessmentFilter, sortKey, sortDir]
   );
   const queryKey = useMemo(() => JSON.stringify(query), [query]);
   const lastQueryKeyRef = useRef(queryKey);
@@ -216,6 +269,10 @@ export default function ProfilesTab({ loadProfiles, loadStats }: Props) {
   // 筛选 / 排序 / 分页都由服务端完成（#295）：当页数据即最终结果，total 是**过滤后**的全校命中数
   const rows = paged?.data ?? [];
   const hasFilter = hasActiveProfileFilters(query);
+  // 量表清单随列表下发（#330）：两列的取值与维度标签都来自这里，前端不写死量表
+  const scales: readonly ProfileAssessmentScaleView[] = paged?.assessmentScales ?? [];
+  const typologicalScale = findTypologicalScale(scales);
+  const dimensionalScale = findDimensionalScale(scales);
 
   // 页码越界自愈（#295）：筛选后结果变少、或删掉最后一页的最后一行时，别把老师留在空页上
   /* eslint-disable react-hooks/set-state-in-effect -- 越界页码只能在拿到服务端 totalPages 后修正 */
@@ -414,46 +471,16 @@ export default function ProfilesTab({ loadProfiles, loadStats }: Props) {
               <button onClick={() => toggleTag(tag)} className="hover:text-green-900 leading-none">×</button>
             </span>
           ))}
-          {/* 兴趣测评筛选（#234 / #295 / #305）：三字码任意位置包含所选字母即命中，与搜索、标签一起跨页生效 */}
-          <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label="兴趣测评筛选">
-            {ASSESSMENT_INTEREST_FILTERS.map(({ value, label }) => {
-              const active = interestFilter === value;
-              return (
-                <button
-                  key={value}
-                  type="button"
-                  aria-pressed={active}
-                  // 可见文本只有单字母，读屏需要更完整的名字
-                  aria-label={value === "all" ? "全部测评状态" : value === "none" ? "未测" : `兴趣测评包含 ${label}`}
-                  title={
-                    value === "all"
-                      ? "不按兴趣类型筛选"
-                      : value === "none"
-                        ? "未完成测评（或三字码无效）"
-                        : `兴趣测评三字码包含 ${label}（任意位置），如 SIA 会命中 S、I、A`
-                  }
-                  onClick={() => setInterestFilter(value)}
-                  className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-medium transition-colors ${
-                    active
-                      ? "bg-green-50 dark:bg-green-900/30 text-green-700 dark:text-green-300 border-green-200 dark:border-green-800"
-                      : "bg-card text-gray-600 dark:text-gray-300 border-gray-200 dark:border-gray-700 hover:border-gray-300"
-                  }`}
-                >
-                  {value !== "all" && value !== "none" && (
-                    <span
-                      aria-hidden="true"
-                      className="inline-block h-2 w-2 rounded-full"
-                      style={{ backgroundColor: typeColorOf(value).bar }}
-                    />
-                  )}
-                  {label}
-                </button>
-              );
-            })}
-          </div>
-          {(selectedTags.size > 0 || search || interestFilter !== "all" || hasFilter) && (
+          {/* 测评筛选（#330）：单个按钮 + 弹层，兴趣（多选 AND）与人格（单维度）互斥 */}
+          <ProfilesAssessmentFilter filter={assessmentFilter} scales={scales} onChange={setAssessmentFilter} />
+          {(selectedTags.size > 0 || search || hasAssessmentFilter(assessmentFilter) || hasFilter) && (
             <button
-              onClick={() => { setSelectedTags(new Set()); setSearch(""); setAppliedSearch(""); setInterestFilter("all"); }}
+              onClick={() => {
+                setSelectedTags(new Set());
+                setSearch("");
+                setAppliedSearch("");
+                setAssessmentFilter(ASSESSMENT_FILTER_NONE);
+              }}
               className="text-xs text-gray-400 hover:text-gray-600 ml-1 transition-colors"
             >
               清除筛选
@@ -484,6 +511,7 @@ export default function ProfilesTab({ loadProfiles, loadStats }: Props) {
               <th className="px-5 py-3 font-medium">评价词云</th>
               <th className="px-5 py-3 font-medium">标签</th>
               <th className="px-5 py-3 font-medium">兴趣测评</th>
+              <th className="px-5 py-3 font-medium">人格特质</th>
               <th aria-sort={sortKey === "createdAt" ? (sortDir === "asc" ? "ascending" : "descending") : "none"} className="px-5 py-3 font-medium">
                 <button type="button" onClick={() => handleSort("createdAt")} className="cursor-pointer select-none">提交时间<SortIcon active={sortKey === "createdAt"} dir={sortDir} /></button>
               </th>
@@ -534,11 +562,19 @@ export default function ProfilesTab({ loadProfiles, loadStats }: Props) {
                   </div>
                 </td>
                 <td className="px-5 py-3">
-                  {isAssessed(p) ? (
-                    <AssessmentCodeBadge code={p.assessmentCode as string} />
-                  ) : (
-                    <NotAssessedPill />
-                  )}
+                  {/* 兴趣列优先取「当前启用量表」的当前有效结果，旧接口缺字段时回退兼容字段 */}
+                  {(() => {
+                    const interestCode =
+                      scaleResultOf(p, typologicalScale?.code)?.typeCode ?? p.assessmentCode ?? null;
+                    return assessmentLeadOf(interestCode) ? (
+                      <AssessmentCodeBadge code={interestCode as string} />
+                    ) : (
+                      <NotAssessedPill />
+                    );
+                  })()}
+                </td>
+                <td className="px-5 py-3">
+                  <PersonalityCell row={p} scale={dimensionalScale} />
                 </td>
                 <td className="px-5 py-3 text-gray-500 text-xs">{p.createdAt}</td>
                 <td className="px-5 py-3">
@@ -554,7 +590,7 @@ export default function ProfilesTab({ loadProfiles, loadStats }: Props) {
             {/* 首屏加载中 / 加载失败（paged 仍为 null）不渲染空态提示，避免把「还没取到」说成「没有数据」 */}
             {paged && rows.length === 0 && (
               <tr>
-                <td colSpan={9} className="px-5 py-12 text-center text-gray-400">
+                <td colSpan={10} className="px-5 py-12 text-center text-gray-400">
                   {hasFilter ? "没有匹配的档案（筛选已跨页生效）" : "暂无数据"}
                 </td>
               </tr>

@@ -3,6 +3,7 @@
 import { useState, useCallback, useEffect } from "react";
 import { toast } from "sonner";
 import type { RiasecScoreSnapshot } from "@/lib/assessment-view";
+import type { ProfileAssessmentScaleView, ProfileScaleResultView } from "@/lib/profile-assessment";
 import { buildProfilesQueryString, type ProfileListQuery } from "@/lib/profile-query";
 
 export interface Profile {
@@ -24,6 +25,8 @@ export interface Profile {
   assessmentAt?: string | null;
   /** 六型标准分快照（#234 详情弹窗条形用，与结果页同一份）；未测为 null */
   assessmentScores?: RiasecScoreSnapshot[] | null;
+  /** #330：按量表 code 的当前有效结果（兴趣列 / 人格列都从这里取） */
+  assessmentResults?: Record<string, ProfileScaleResultView> | null;
 }
 
 export interface Student {
@@ -44,6 +47,8 @@ export interface Stats {
 
 export interface PagedData {
   data: Profile[];
+  /** #330：启用中的量表清单（列定义与维度标签唯一来源；旧接口可能缺失） */
+  assessmentScales?: ProfileAssessmentScaleView[];
   total: number;
   page: number;
   pageSize: number;
