@@ -66,7 +66,8 @@ export default function EvaluationWordCloud({
     const observer = new ResizeObserver(update);
     observer.observe(el);
     return () => observer.disconnect();
-  }, []);
+    // 空词时挂载的是占位容器；words 从 0→N 时组件不会重新挂载，必须重新测量
+  }, [words.length]);
 
   const isDark = theme === "dark" || (theme === "system" && systemDark);
   const palette = isDark ? DARK_COLORS : LIGHT_COLORS;
@@ -78,6 +79,7 @@ export default function EvaluationWordCloud({
   if (words.length === 0) {
     return (
       <div
+        ref={containerRef}
         role="status"
         className={`flex items-center justify-center rounded-xl bg-gray-50 text-sm text-muted dark:bg-gray-800/50 ${className}`}
         style={{ height }}
