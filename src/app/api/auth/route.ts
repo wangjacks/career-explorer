@@ -170,6 +170,8 @@ async function GET_impl(request: NextRequest) {
     role,
     uid,
     name: name ?? null,
+    // 演示会话标志（来自 token claim）：前端据此渲染演示横幅/切换器；生产会话恒为 false
+    demo: result.demo === true,
   });
 }
 

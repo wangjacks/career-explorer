@@ -2,6 +2,12 @@ import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { ASSESSMENT_DASHBOARD_COPY, ADMIN_DASHBOARD_COPY, TEACHER_DASHBOARD_COPY, type DashboardCopy } from "../lib/dashboard-copy";
+import {
+  isReservedClassName,
+  UNASSIGNED_CLASS_KEY,
+  UNASSIGNED_CLASS_LABEL,
+  UNASSIGNED_CLASS_TEACHER_LABEL,
+} from "../lib/class-identity";
 
 /** 教师侧不许出现的统计口径词与控件名（#231 替换表的左列及其同族词） */
 const JARGON = [
@@ -45,7 +51,11 @@ const FUNCTION_SAMPLES: Record<string, unknown[][]> = {
   trendSummaryPrefix: [[30]],
   trendDaysOptionLabel: [[7], [30]],
   compareTooltipTotals: [[24, "75.0%"]],
-  classLabel: [["未分班"], ["一年二班"]],
+  classLabel: [
+    [UNASSIGNED_CLASS_KEY, UNASSIGNED_CLASS_LABEL],
+    ["未分班", "未分班"],
+    ["一年二班", "一年二班"],
+  ],
 };
 
 /** 收集一份文案表里所有会显示给用户的字符串 */
@@ -156,10 +166,19 @@ describe("TEACHER_DASHBOARD_COPY", () => {
     }
   });
 
-  it("「未分班」只在展示层改口，其余班级名原样透出", () => {
-    expect(TEACHER_DASHBOARD_COPY.classLabel("未分班")).toBe("还没分班");
-    expect(TEACHER_DASHBOARD_COPY.classLabel("一年二班")).toBe("一年二班");
-    expect(TEACHER_DASHBOARD_COPY.classLabel("")).toBe("");
+  it("只有未分班哨兵改口，真实班名「未分班」原样透出", () => {
+    expect(
+      TEACHER_DASHBOARD_COPY.classLabel(UNASSIGNED_CLASS_KEY, UNASSIGNED_CLASS_LABEL)
+    ).toBe(UNASSIGNED_CLASS_TEACHER_LABEL);
+    expect(TEACHER_DASHBOARD_COPY.classLabel("未分班", "未分班")).toBe("未分班");
+    expect(TEACHER_DASHBOARD_COPY.classLabel("一年二班", "一年二班")).toBe("一年二班");
+    expect(TEACHER_DASHBOARD_COPY.classLabel("", "")).toBe("");
+    // 教师口语若被改掉，保留名集合必须同步，否则又能建出同名班级
+    expect(
+      isReservedClassName(
+        TEACHER_DASHBOARD_COPY.classLabel(UNASSIGNED_CLASS_KEY, UNASSIGNED_CLASS_LABEL)
+      )
+    ).toBe(true);
   });
 
   it("卡底合计的左右两半拼出与旧版一致的句子", () => {
@@ -208,8 +227,9 @@ describe("ADMIN_DASHBOARD_COPY", () => {
   });
 
   it("班级名一律原样展示，管理端不做口语替换", () => {
-    expect(ADMIN_DASHBOARD_COPY.classLabel("未分班")).toBe("未分班");
-    expect(ADMIN_DASHBOARD_COPY.classLabel("一年二班")).toBe("一年二班");
+    expect(ADMIN_DASHBOARD_COPY.classLabel(UNASSIGNED_CLASS_KEY, "未分班")).toBe("未分班");
+    expect(ADMIN_DASHBOARD_COPY.classLabel("未分班", "未分班")).toBe("未分班");
+    expect(ADMIN_DASHBOARD_COPY.classLabel("一年二班", "一年二班")).toBe("一年二班");
   });
 });
 
@@ -248,12 +268,10 @@ describe("两份文案表的结构", () => {
 });
 
 describe("DashboardKit 的取数与文案解耦", () => {
-  it("组件源码里除数据值外没有任何面向用户的中文字面量", () => {
-    // 「未分班」是接口返回的数据值，比较与排序都认它，只有展示层经 classLabel 换词，故白名单里留着它。
+  it("组件源码里没有任何面向用户的中文字面量", () => {
+    // 未分班的展示文案已随 key/label 分离移到接口与文案表，组件内不再需要数据值白名单。
     // 比「黑名单扫口径词」更硬：以后新增图表时把任何中文文案写回组件，这里都会直接失败（#242 评审 P3）
-    expect(cjkLiterals(readFileSync(join(process.cwd(), "src/components/admin/DashboardKit.tsx"), "utf8"))).toEqual([
-      '"未分班"',
-    ]);
+    expect(cjkLiterals(readFileSync(join(process.cwd(), "src/components/admin/DashboardKit.tsx"), "utf8"))).toEqual([]);
   });
 
   it("四块卡片与失败态都从 copy 取文，缺 copy 会编译不过", () => {

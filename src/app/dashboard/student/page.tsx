@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { Toaster, toast } from "sonner";
 import { Compass, SquarePen, UsersRound, X } from "lucide-react";
 import NavigationBar from "@/components/NavigationBar";
+import DemoBanner from "@/components/DemoBanner";
 import StudentSidebar, { type StudentViewKey } from "@/components/student/StudentSidebar";
 import TextAvatar from "@/components/TextAvatar";
 import AssessmentResultsSection, { type AssessmentFooterData } from "@/components/student/AssessmentResultsSection";
@@ -770,6 +771,7 @@ export default function StudentDashboardPage() {
     <div className="min-h-screen bg-background">
       <Toaster position="top-center" />
       <NavigationBar title="学生面板" showHome onToggleSidebar={() => setSidebarOpen((v) => !v)} />
+      <DemoBanner />
 
       {/* 注意：此 flex 容器不设任何 overflow，避免破坏侧边栏 sticky */}
       <div className="flex">

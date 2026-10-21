@@ -120,13 +120,15 @@ describe("POST /api/auth/demo-switch（#255）", () => {
     const toTeacher = await switchPOST(req("/api/auth/demo-switch", `auth_token=${token}`, { role: "teacher" }));
     expect(toTeacher.status).toBe(200);
     const tj = await toTeacher.json();
-    expect(tj).toMatchObject({ ok: true, role: "teacher", uid: rows.teacher!.id, name: rows.student!.name });
+    expect(tj).toMatchObject({ ok: true, role: "teacher", uid: rows.teacher!.id, name: rows.student!.name, demo: true });
     token = cookieOf(toTeacher);
     expect(token).not.toBe("");
 
     const session = await sessionGET(req("/api/auth", `auth_token=${token}`, undefined, "GET"));
     expect(session.status).toBe(200);
-    expect((await session.json()).role).toBe("teacher");
+    const sj = await session.json();
+    expect(sj.role).toBe("teacher");
+    expect(sj.demo).toBe(true);
 
     const toAdmin = await switchPOST(req("/api/auth/demo-switch", `auth_token=${token}`, { role: "admin" }));
     expect(toAdmin.status).toBe(200);
@@ -164,6 +166,16 @@ describe("POST /api/auth/demo-switch（#255）", () => {
       (await switchPOST(req("/api/auth/demo-switch", `auth_token=${token}`, { role: "superadmin" }))).status
     ).toBe(400);
     expect((await switchPOST(req("/api/auth/demo-switch", `auth_token=${token}`, {}))).status).toBe(400);
+  });
+
+  it("生产会话的 GET /api/auth 返回 demo=false（前端据此不渲染横幅）", async () => {
+    const prod = await getUserByCode(PROD_STUDENT); // 非演示作用域 → 生产库
+    const token = await signToken({ role: "student", uid: prod!.id, name: prod!.name });
+    const session = await sessionGET(req("/api/auth", `auth_token=${token}`, undefined, "GET"));
+    expect(session.status).toBe(200);
+    const body = await session.json();
+    expect(body.role).toBe("student");
+    expect(body.demo).toBe(false);
   });
 
   it("禁用账户后切换 → 403 已禁用", async () => {
