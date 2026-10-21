@@ -57,12 +57,12 @@ export default function DemoBanner() {
   };
 
   return (
-    <div role="status" aria-live="polite" className="border-y border-warning/30 bg-warning/10 text-warning-strong">
+    <div className="border-y border-warning/30 bg-warning/10 text-warning-text">
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2 px-4 py-2 sm:px-6">
         <FlaskConical className="h-4 w-4 flex-shrink-0" aria-hidden />
         <p className="text-sm">演示模式 · 数据为隔离演示数据，可随时重置</p>
         <div className="ml-auto flex flex-wrap items-center gap-2">
-          <span className="text-xs opacity-80">当前：{currentLabel}</span>
+          <span className="text-xs">当前：{currentLabel}</span>
           {demoSwitchTargets(currentRole).map(({ role, label }) => (
             <button
               key={role}
