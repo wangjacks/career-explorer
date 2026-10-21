@@ -723,6 +723,8 @@ export interface DbAdapter {
   // teachers
   getTeachers(): Promise<UserRow[]> | UserRow[];
   deleteTeacher(id: number): Promise<void> | void;
+  /** 演示专用：按 id 删除单个用户行（无关联清理）。调用方须先校验角色与编号；生产删除仍用 deleteStudents / deleteTeacher */
+  deleteUserById(id: number): Promise<void> | void;
 
   // configs_profile（档案功能配置，键值式）
   getProfileConfigs(): Promise<ConfigRow[]> | ConfigRow[];
@@ -1214,6 +1216,12 @@ export async function getTeachers(): Promise<UserRow[]> {
 export async function deleteTeacher(id: number): Promise<void> {
   const adapter = await ensureInit();
   return Promise.resolve(adapter.deleteTeacher(id));
+}
+
+/** 演示专用：删除单个用户行（无关联清理）。调用方须先校验角色与编号 */
+export async function deleteUserById(id: number): Promise<void> {
+  const adapter = await ensureInit();
+  return Promise.resolve(adapter.deleteUserById(id));
 }
 
 export async function getProfileConfigs(): Promise<ConfigRow[]> {

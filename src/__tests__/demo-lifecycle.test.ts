@@ -76,6 +76,7 @@ describe("演示库生命周期：init / reset / status（#253，真临时演示
     expect(status.counts.submittedProfiles).toBe(report.submitted);
     expect(status.counts.classes).toBe(1);
     expect(status.counts.demoFiles).toBeGreaterThanOrEqual(report.images);
+    expect(status.counts.visitorAccounts).toBe(0); // 播种不含访客账户
 
     // 占位图物理落在 uploads/demo/
     expect(existsSync(DEMO_UPLOADS)).toBe(true);

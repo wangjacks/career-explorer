@@ -44,6 +44,46 @@ export function nextDemoAdminCode(seq: number): string {
   return DEMO_ADMIN_PREFIX + String(seq).padStart(4, "0");
 }
 
+/** 演示班级名（种与访客账户管理共用，避免字面量漂移） */
+export const DEMO_CLASS_NAME = "演示班级";
+
+// —— 访客账户号段（#278）：三个角色身份由同一 seq 派生，故 seq 必须避开名册（1..20）——
+export const VISITOR_SEQ_START = 1000;
+/** 上限由 admin 号 `9`+4 位决定 */
+export const VISITOR_SEQ_MAX = 9999;
+
+/** 同一访客账户的三角色编号（admin/teacher/student 身份共享一个 seq） */
+export function demoAccountCodes(seq: number): { admin: string; teacher: string; student: string } {
+  return {
+    admin: nextDemoAdminCode(seq),
+    teacher: nextDemoTeacherCode(seq),
+    student: nextDemoStudentCode(seq),
+  };
+}
+
+/** 从专用号段编号反解角色与 seq；非演示号段 / 非法输入返回 null */
+export function parseDemoSeq(userCode: string): { role: DemoRole; seq: number } | null {
+  if (typeof userCode !== "string") return null;
+  if (/^99\d{6}$/.test(userCode)) return { role: "teacher", seq: Number(userCode.slice(2)) };
+  if (/^9\d{11}$/.test(userCode)) return { role: "student", seq: Number(userCode.slice(1)) };
+  if (/^9\d{4}$/.test(userCode)) return { role: "admin", seq: Number(userCode.slice(1)) };
+  return null;
+}
+
+/** 若编号属于「访客账户」号段（seq ∈ [VISITOR_SEQ_START, VISITOR_SEQ_MAX]）返回 seq；名册 seq 较小故返回 null */
+export function visitorSeqOf(userCode: string): number | null {
+  const parsed = parseDemoSeq(userCode);
+  if (!parsed) return null;
+  return parsed.seq >= VISITOR_SEQ_START && parsed.seq <= VISITOR_SEQ_MAX ? parsed.seq : null;
+}
+
+/** 访客 seq 纯校验（路由把非法 seq 映射为 400） */
+export function assertVisitorSeq(seq: number): void {
+  if (!Number.isInteger(seq) || seq < VISITOR_SEQ_START || seq > VISITOR_SEQ_MAX) {
+    throw new Error(`访客演示序号非法（须为 ${VISITOR_SEQ_START}–${VISITOR_SEQ_MAX} 的整数）`);
+  }
+}
+
 /** 名册演示账号统一密码（一次性哈希复用）。访客套装的随机/自设密码属 #278，不在此列 */
 export const DEMO_PASSWORD = "demo1234";
 
