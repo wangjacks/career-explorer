@@ -11,6 +11,8 @@ export interface Profile {
   userId?: number;
   studentId: string;
   studentName: string;
+  /** 学生当前所在班级（#243）；未分班或旧接口响应可能为 null / undefined */
+  classId?: number | null;
   tags: string[];
   avatarUrl: string;
   /** 历史上传的评价词云图片；#162 起仅用于存量展示 */

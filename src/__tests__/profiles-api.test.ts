@@ -6,6 +6,11 @@ vi.mock("@/lib/db", () => ({
   clearSubmissions: vi.fn(),
   getAssessmentByCode: vi.fn(),
   getCurrentAssessmentResultsByUserCodes: vi.fn(),
+  // #243：DELETE 的 WriteGuard 依赖（GET 用例不会调用，但模块导入需要完整导出）
+  getStudents: vi.fn(async () => []),
+  getUserById: vi.fn(async () => undefined),
+  getTeacherClassPairs: vi.fn(async () => []),
+  insertAuditLog: vi.fn(async () => undefined),
 }));
 
 import { GET } from "@/app/api/manage/profiles/route";
@@ -85,6 +90,8 @@ describe("GET /api/manage/profiles — 兴趣测评字段（#234）", () => {
     expect(body.data[0]).toMatchObject({
       userId: 21,
       studentId: "202505050101",
+      // #243：教师端据此判断行是否在本人管辖班级内
+      classId: 7,
       assessmentCode: "SIA",
       assessmentStatus: "completed",
       assessmentAt: "2026-10-18 09:30:00",
