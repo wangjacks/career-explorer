@@ -49,6 +49,7 @@ import type {
   OnetOccupationRow,
   AssessmentStatsRaw,
   CompletionStatsRaw,
+  DimensionalResultScoreRow,
   AssessmentRosterRow,
   AssessmentMissingRosterRow,
   AssessmentBankUpgradeResult,
@@ -1160,6 +1161,16 @@ export class MysqlAdapter implements DbAdapter {
       [...params, pageSize, offset]
     );
     return { rows: rows as UserRow[], total };
+  }
+
+  async getSubmittedProfilesForExport(filters?: SubmittedProfileFilters): Promise<UserRow[]> {
+    // #331：与列表共用同一份 WHERE / ORDER BY，只是不套 LIMIT/OFFSET（导出「当前筛选结果」含所有页）
+    const { whereSql, params, orderBySql } = buildSubmittedProfilesSql("mysql", filters, RIASEC_CODE);
+    const [rows] = await this.pool.query(
+      `SELECT u.* FROM users u WHERE ${whereSql} ORDER BY ${orderBySql}`,
+      params
+    );
+    return rows as UserRow[];
   }
 
   async getAllSubmitted(): Promise<UserRow[]> {
@@ -2447,6 +2458,37 @@ export class MysqlAdapter implements DbAdapter {
     if (!sql) return { profile: [], assessments: [] };
     const [rows] = await this.pool.execute(sql, params);
     return mapCompletionStatsRows(rows as CompletionStatsRow[]);
+  }
+
+  // dimensional 量表的逐人结果快照（#312）：只取三列，解析与三档归并在纯函数里做
+  async getDimensionalResultScores(
+    assessmentId: number,
+    classIds: number[] | null
+  ): Promise<DimensionalResultScoreRow[]> {
+    if (classIds !== null && classIds.length === 0) return [];
+    const conditions = [
+      "r.assessment_id = ?",
+      "r.status = 'completed'",
+      "r.is_current = 1",
+      "u.role = 'student'",
+    ];
+    const params: number[] = [assessmentId];
+    if (classIds !== null) {
+      conditions.push(`u.class_id IN (${classIds.map(() => "?").join(",")})`);
+      params.push(...classIds);
+    }
+    const [rows] = await this.pool.execute(
+      `SELECT r.user_id AS user_id, r.scores_json AS scores_json, r.completed_at AS completed_at
+       FROM assessment_results r JOIN users u ON u.id = r.user_id
+       WHERE ${conditions.join(" AND ")}
+       ORDER BY r.user_id`,
+      params
+    );
+    return (rows as DimensionalResultScoreRow[]).map((row) => ({
+      user_id: Number(row.user_id),
+      scores_json: row.scores_json,
+      completed_at: row.completed_at,
+    }));
   }
 
   async getAssessmentRoster(

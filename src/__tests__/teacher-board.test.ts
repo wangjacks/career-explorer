@@ -180,7 +180,13 @@ describe("pickActionTarget（行动条优先级）", () => {
 
 describe("buildReminderText（提醒话术）", () => {
   it("包含班名与人数，不含学生姓名与「全校 / 还差」", () => {
-    const text = buildReminderText(["1班", "2班"], "兴趣测评", 17);
+    const text = buildReminderText(
+      [
+        { name: "1班", missing: 10 },
+        { name: "2班", missing: 7 },
+      ],
+      "兴趣测评"
+    );
     expect(text).toContain("1班");
     expect(text).toContain("2班");
     expect(text).toContain("17");
@@ -190,15 +196,31 @@ describe("buildReminderText（提醒话术）", () => {
     }
   });
 
+  it("超过 3 个班只列前三个并标出总班数，人数按全部缺交班合计", () => {
+    const text = buildReminderText(
+      [
+        { name: "1班", missing: 10 },
+        { name: "2班", missing: 5 },
+        { name: "3班", missing: 3 },
+        { name: "4班", missing: 2 },
+        { name: "5班", missing: 1 },
+      ],
+      "兴趣测评"
+    );
+    expect(text).toContain("1班、2班、3班 等 5 个班");
+    expect(text).toContain("21");
+    expect(text).not.toContain("4班");
+  });
+
   it("没人缺交或班名为空时不生成话术", () => {
-    expect(buildReminderText(["1班"], "兴趣测评", 0)).toBe("");
-    expect(buildReminderText([], "兴趣测评", 3)).toBe("");
-    expect(buildReminderText(["  "], "兴趣测评", 3)).toBe("");
+    expect(buildReminderText([{ name: "1班", missing: 0 }], "兴趣测评")).toBe("");
+    expect(buildReminderText([], "兴趣测评")).toBe("");
+    expect(buildReminderText([{ name: "  ", missing: 3 }], "兴趣测评")).toBe("");
   });
 
   it("负数与脏人数按 0 处理", () => {
-    expect(buildReminderText(["1班"], "兴趣测评", Number.NaN)).toBe("");
-    expect(buildReminderText(["1班"], "兴趣测评", -5)).toBe("");
+    expect(buildReminderText([{ name: "1班", missing: Number.NaN }], "兴趣测评")).toBe("");
+    expect(buildReminderText([{ name: "1班", missing: -5 }], "兴趣测评")).toBe("");
   });
 });
 

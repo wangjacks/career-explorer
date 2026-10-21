@@ -54,4 +54,21 @@ describe("SQLite / MySQL 分班统计同构（#260）", () => {
     expect(sql).toContain("GROUP BY r.assessment_id, u.class_id");
     expect(params).toEqual([7, 5, 9, 7]);
   });
+
+  it.each(ADAPTERS)("%s 人格分布查询只取三列且过滤口径一致（#312）", (path) => {
+    const text = source(path);
+    for (const fragment of [
+      "getDimensionalResultScores(",
+      "SELECT r.user_id AS user_id, r.scores_json AS scores_json, r.completed_at AS completed_at",
+      "r.assessment_id = ?",
+      "r.status = 'completed'",
+      "r.is_current = 1",
+      "u.role = 'student'",
+      "ORDER BY r.user_id",
+    ]) {
+      expect(text).toContain(fragment);
+    }
+    // 逐人快照不搬运作答内容 / 身份字段
+    expect(text).not.toContain("r.answers_json AS answers_json");
+  });
 });

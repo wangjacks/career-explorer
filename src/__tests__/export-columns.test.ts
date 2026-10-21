@@ -8,18 +8,21 @@ import {
   classNameOf,
   columnLetter,
   formatAssessmentStatus,
+  formatBigFiveScores,
   formatSixScores,
   formatTopCareers,
   imageColumnIndex,
   isAssessmentColumn,
+  isHollandAssessmentColumn,
   isImageColumn,
+  isPersonalityColumn,
   parseColumnKeys,
   resolveExportColumns,
 } from "../lib/export-columns";
 
 describe("列定义与分组（#233）", () => {
   it("分两组且班级是基础组首位、测评列都在测评组", () => {
-    expect(EXPORT_COLUMN_GROUPS.map((group) => group.label)).toEqual(["基础信息", "职业兴趣测评"]);
+    expect(EXPORT_COLUMN_GROUPS.map((group) => group.label)).toEqual(["基础信息", "职业测评"]);
 
     const base = EXPORT_COLUMNS.filter((column) => column.group === "base").map((column) => column.key);
     expect(base[0]).toBe("class_name");
@@ -51,7 +54,24 @@ describe("列定义与分组（#233）", () => {
       "score_E",
       "score_C",
       "careers",
+      "personality_traits",
+      "big_five_scores",
     ]);
+  });
+
+  it("人格列追加在末尾：既有列顺序不变，且不属于霍兰德测评列（#331）", () => {
+    expect(isAssessmentColumn("personality_traits")).toBe(true);
+    expect(isAssessmentColumn("big_five_scores")).toBe(true);
+    expect(isPersonalityColumn("personality_traits")).toBe(true);
+    expect(isPersonalityColumn("big_five_scores")).toBe(true);
+    expect(isPersonalityColumn("assessment_code")).toBe(false);
+    expect(isHollandAssessmentColumn("assessment_code")).toBe(true);
+    expect(isHollandAssessmentColumn("careers")).toBe(true);
+    expect(isHollandAssessmentColumn("personality_traits")).toBe(false);
+    expect(isHollandAssessmentColumn("big_five_scores")).toBe(false);
+    // 新列不进入默认列集合
+    expect(DEFAULT_EXPORT_COLUMN_KEYS).not.toContain("personality_traits");
+    expect(DEFAULT_EXPORT_COLUMN_KEYS).not.toContain("big_five_scores");
   });
 
   it("默认列集合在 #233 基线上增加三条他人评价（#162）", () => {
@@ -216,6 +236,60 @@ describe("六型得分格式化（formatSixScores）", () => {
     const values = formatSixScores(JSON.stringify([{ key: "S", standard: Number.NaN }, "x", null]));
     expect(values.hasScores).toBe(false);
     expect(values.composite).toBe("");
+  });
+});
+
+const IPIP_DIMENSIONS = [
+  { key: "N", label: "神经质" },
+  { key: "E", label: "外向性" },
+  { key: "O", label: "开放性" },
+  { key: "A", label: "宜人性" },
+  { key: "C", label: "尽责性" },
+];
+
+describe("大五得分与人格特质（formatBigFiveScores，#331）", () => {
+  it("按量表维度顺序合成一列 + Top2 画像（与结果页同一口径）", () => {
+    const scores = JSON.stringify([
+      { key: "C", standard: 70 },
+      { key: "A", standard: 55 },
+      { key: "O", standard: 80 },
+      { key: "E", standard: 60 },
+      { key: "N", standard: 40 },
+    ]);
+    expect(formatBigFiveScores(scores, IPIP_DIMENSIONS)).toEqual({
+      hasScores: true,
+      composite: "N40 E60 O80 A55 C70",
+      traits: "高开放性 · 高尽责性",
+    });
+  });
+
+  it("取整并钳制到 0–100；只输出快照里存在的维度（不补 0）", () => {
+    const scores = JSON.stringify([
+      { key: "N", standard: 150 },
+      { key: "E", standard: -20 },
+      { key: "O", standard: 61.6 },
+    ]);
+    const values = formatBigFiveScores(scores, IPIP_DIMENSIONS);
+    expect(values.composite).toBe("N100 E0 O62");
+    expect(values.traits).toBe("高神经质 · 高开放性");
+  });
+
+  it("缺失 / 空 / 非法 JSON / 无维度定义时整格留空，不抛错", () => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    for (const input of [null, undefined, "", "not-json", "{}", "[]"]) {
+      expect(formatBigFiveScores(input, IPIP_DIMENSIONS)).toEqual({
+        hasScores: false,
+        composite: "",
+        traits: "",
+      });
+    }
+    expect(formatBigFiveScores(JSON.stringify([{ key: "N", standard: 40 }]), [])).toEqual({
+      hasScores: false,
+      composite: "",
+      traits: "",
+    });
+    expect(consoleError).toHaveBeenCalledTimes(1);
+    consoleError.mockRestore();
   });
 });
 

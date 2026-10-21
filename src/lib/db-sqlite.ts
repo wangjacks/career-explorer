@@ -51,6 +51,7 @@ import type {
   OnetOccupationRow,
   AssessmentStatsRaw,
   CompletionStatsRaw,
+  DimensionalResultScoreRow,
   AssessmentRosterRow,
   AssessmentMissingRosterRow,
   AssessmentBankUpgradeResult,
@@ -1066,6 +1067,14 @@ export class SqliteAdapter implements DbAdapter {
       .prepare(`SELECT u.* FROM users u WHERE ${whereSql} ORDER BY ${orderBySql} LIMIT ? OFFSET ?`)
       .all(...params, pageSize, offset) as UserRow[];
     return { rows, total };
+  }
+
+  getSubmittedProfilesForExport(filters?: SubmittedProfileFilters): UserRow[] {
+    // #331：与列表共用同一份 WHERE / ORDER BY，只是不套 LIMIT/OFFSET（导出「当前筛选结果」含所有页）
+    const { whereSql, params, orderBySql } = buildSubmittedProfilesSql("sqlite", filters, RIASEC_CODE);
+    return this.db
+      .prepare(`SELECT u.* FROM users u WHERE ${whereSql} ORDER BY ${orderBySql}`)
+      .all(...params) as UserRow[];
   }
 
   getAllSubmitted(): UserRow[] {
@@ -2212,6 +2221,33 @@ export class SqliteAdapter implements DbAdapter {
     if (!sql) return { profile: [], assessments: [] };
     const rows = this.db.prepare(sql).all(...params) as CompletionStatsRow[];
     return mapCompletionStatsRows(rows);
+  }
+
+  // dimensional 量表的逐人结果快照（#312）：只取三列，解析与三档归并在纯函数里做
+  getDimensionalResultScores(
+    assessmentId: number,
+    classIds: number[] | null
+  ): DimensionalResultScoreRow[] {
+    if (classIds !== null && classIds.length === 0) return [];
+    const conditions = [
+      "r.assessment_id = ?",
+      "r.status = 'completed'",
+      "r.is_current = 1",
+      "u.role = 'student'",
+    ];
+    const params: number[] = [assessmentId];
+    if (classIds !== null) {
+      conditions.push(`u.class_id IN (${classIds.map(() => "?").join(",")})`);
+      params.push(...classIds);
+    }
+    return this.db
+      .prepare(
+        `SELECT r.user_id AS user_id, r.scores_json AS scores_json, r.completed_at AS completed_at
+         FROM assessment_results r JOIN users u ON u.id = r.user_id
+         WHERE ${conditions.join(" AND ")}
+         ORDER BY r.user_id`
+      )
+      .all(...params) as DimensionalResultScoreRow[];
   }
 
   getAssessmentRoster(

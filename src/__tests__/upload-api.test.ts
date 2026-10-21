@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, beforeAll } from "vitest";
 import { NextRequest } from "next/server";
 import sharp from "sharp";
 
@@ -24,14 +24,19 @@ import {
   getDefaultStorageBackend,
   getMaxAvatarSizeMb,
   getMaxEvaluationSizeMb,
+  getUserById,
   insertAuditLog,
 } from "@/lib/db";
 import { getStorage } from "@/lib/storage";
+import { signToken } from "@/lib/token";
 import { UPLOAD_UNSUPPORTED_FORMAT_MESSAGE } from "@/lib/upload-utils";
-import type { StorageBackendRow } from "@/lib/db";
+import type { StorageBackendRow, UserRow } from "@/lib/db";
 import type { StorageAdapter } from "@/lib/storage";
 
 const MB = 1024 * 1024;
+
+/** #259 起失败审计只对有身份的调用者落库：本文件所有用例都带学生会话 */
+let authToken = "";
 
 /** Node 的 Buffer 与 DOM 的 BlobPart 类型不完全对齐（Buffer 可是 SharedArrayBuffer 视图），运行期等价 */
 function toFile(bytes: Buffer, name: string, type: string): File {
@@ -51,11 +56,20 @@ function createUploadRequest(opts: {
   return new NextRequest(new URL("/api/upload", "http://localhost:3000"), {
     method: "POST",
     body: fd,
+    headers: { cookie: `auth_token=${authToken}` },
   });
 }
 
-/** 失败审计是 fire-and-forget（void + async IIFE），等一个宏任务让微任务链跑完 */
-const flushAudit = () => new Promise((resolve) => setTimeout(resolve, 0));
+/** 失败审计是 fire-and-forget；轮询到本次请求的审计动作落地（CI 上 token 验签可能慢于一个宏任务） */
+const waitForAudit = (action: "upload:rejected" | "upload:failed") =>
+  vi.waitFor(
+    () => {
+      const call = vi.mocked(insertAuditLog).mock.calls[0];
+      expect(call, "未写入任何审计记录").toBeDefined();
+      expect(call[0].action).toBe(action);
+    },
+    { timeout: 2000 }
+  );
 
 /** 取本次请求写入的第一条审计记录（metadata 已被 recordAudit 序列化成字符串） */
 function firstAudit() {
@@ -64,10 +78,28 @@ function firstAudit() {
   return { ...call[0], metadata: JSON.parse(String(call[0].metadata)) as Record<string, unknown> };
 }
 
+beforeAll(async () => {
+  authToken = await signToken({ role: "student", uid: 7, name: "测试学生" });
+});
+
 beforeEach(() => {
   vi.clearAllMocks();
   vi.mocked(getMaxAvatarSizeMb).mockResolvedValue(5);
   vi.mocked(getMaxEvaluationSizeMb).mockResolvedValue(10);
+  vi.mocked(getUserById).mockResolvedValue({
+    id: 7,
+    user_code: "202505050101",
+    password_hash: "hash",
+    role: "student",
+    name: "测试学生",
+    class_id: 1,
+    tags: null,
+    avatar_url: null,
+    evaluation_url: null,
+    submitted_at: null,
+    created_at: "",
+    storage_id: 1,
+  } as UserRow);
 });
 
 describe("POST /api/upload — 体积与格式（#206）", () => {
@@ -83,7 +115,7 @@ describe("POST /api/upload — 体积与格式（#206）", () => {
     expect(res.status).toBe(400);
     expect((await res.json()).error).toBe("图片大小不能超过 1MB");
 
-    await flushAudit();
+    await waitForAudit("upload:rejected");
     const log = firstAudit();
     expect(log.action).toBe("upload:rejected");
     expect(log.resource_type).toBe("upload");
@@ -113,7 +145,7 @@ describe("POST /api/upload — 体积与格式（#206）", () => {
     expect(res.status).toBe(500);
     expect((await res.json()).error).toBe(UPLOAD_UNSUPPORTED_FORMAT_MESSAGE);
 
-    await flushAudit();
+    await waitForAudit("upload:failed");
     const log = firstAudit();
     expect(log.action).toBe("upload:failed");
     expect(log.error_message).toBe(UPLOAD_UNSUPPORTED_FORMAT_MESSAGE);
@@ -129,7 +161,7 @@ describe("POST /api/upload — 体积与格式（#206）", () => {
     expect(res.status).toBe(400);
     expect((await res.json()).error).toBe("未选择文件");
 
-    await flushAudit();
+    await waitForAudit("upload:rejected");
     const log = firstAudit();
     expect(log.action).toBe("upload:rejected");
     expect(log.metadata).toMatchObject({ sizeBytes: null, mime: null, prefix: "avatar" });
@@ -146,7 +178,7 @@ describe("POST /api/upload — 体积与格式（#206）", () => {
     expect(res.status).toBe(400);
     expect((await res.json()).error).toBe("仅支持图片文件");
 
-    await flushAudit();
+    await waitForAudit("upload:rejected");
     const log = firstAudit();
     expect(log.resource_id).toBeNull();
     expect(JSON.stringify(log)).not.toContain("passwd");
@@ -170,7 +202,7 @@ describe("POST /api/upload — 体积与格式（#206）", () => {
     expect(res.status).toBe(500);
     expect((await res.json()).error).toBe("存储后端未初始化");
 
-    await flushAudit();
+    await waitForAudit("upload:failed");
     const log = firstAudit();
     expect(log.action).toBe("upload:failed");
     expect(log.error_message).toBe("存储后端未初始化");
@@ -202,7 +234,7 @@ describe("POST /api/upload — 体积与格式（#206）", () => {
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ url: "avatar_test.jpg", storageId: 2 });
 
-    await flushAudit();
+    // 成功路径不调用失败审计；各失败用例均已等到自己的审计落地，此处无跨用例残留
     expect(insertAuditLog).not.toHaveBeenCalled();
   });
 

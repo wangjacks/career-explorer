@@ -13,13 +13,14 @@
  */
 
 import { RIASEC_KEYS, type RiasecKey } from "./assessment-match";
+import { buildBigFiveHeadline, type RiasecScoreSnapshot } from "./assessment-view";
 
 /** 列所属的按钮分组（#233：自定义列按钮分两组） */
 export type ExportColumnGroup = "base" | "assessment";
 
 export const EXPORT_COLUMN_GROUPS: readonly { key: ExportColumnGroup; label: string }[] = [
   { key: "base", label: "基础信息" },
-  { key: "assessment", label: "职业兴趣测评" },
+  { key: "assessment", label: "职业测评" },
 ];
 
 export interface ExportColumnDef {
@@ -136,6 +137,24 @@ export const EXPORT_COLUMNS: readonly ExportColumnDef[] = [
     xlsxHeader: "推荐职业 Top3",
     width: 40,
   },
+  // #331：人格特质与大五得分**追加**在末尾，既有列顺序与图片列下标保持不变。
+  // 不加入默认列集合（DEFAULT_EXPORT_COLUMN_KEYS），只有显式勾选才出现。
+  {
+    key: "personality_traits",
+    group: "assessment",
+    label: "人格特质（Top2 画像）",
+    csvHeader: "人格特质",
+    xlsxHeader: "人格特质",
+    width: 24,
+  },
+  {
+    key: "big_five_scores",
+    group: "assessment",
+    label: "大五得分（合成一列）",
+    csvHeader: "大五得分",
+    xlsxHeader: "大五得分",
+    width: 40,
+  },
 ];
 
 /** 「六型得分 → 拆成六列」输出的列 key（顺序同 RIASEC） */
@@ -164,6 +183,18 @@ export function parseColumnKeys(raw: string | null | undefined): string[] {
 
 export function isAssessmentColumn(key: string): boolean {
   return COLUMN_BY_KEY.get(key)?.group === "assessment";
+}
+
+/** 人格测评列（#331）：大五结果，不参与霍兰德三字码/六型分的取数 */
+const PERSONALITY_COLUMN_KEYS = new Set(["personality_traits", "big_five_scores"]);
+
+export function isPersonalityColumn(key: string): boolean {
+  return PERSONALITY_COLUMN_KEYS.has(key);
+}
+
+/** 霍兰德测评列：除人格列外的所有 assessment 组列（含状态/时间/三字码/六型分/推荐职业） */
+export function isHollandAssessmentColumn(key: string): boolean {
+  return isAssessmentColumn(key) && !isPersonalityColumn(key);
 }
 
 export function isImageColumn(key: string): boolean {
@@ -288,4 +319,70 @@ export function formatTopCareers(careers: readonly ExportCareerItem[] | null | u
     if (display) names.push(display);
   }
   return names.join(";");
+}
+
+/** 大五得分 / 人格特质快照的值（#331）；未测或快照不可用时整格留空 */
+export interface BigFiveScoreValues {
+  hasScores: boolean;
+  /** 按量表维度顺序合成一列，如 `N42 E58 O71 A44 C66` */
+  composite: string;
+  /** Top2 画像，如 `高开放性 · 高尽责性`；与结果页 `buildBigFiveHeadline` 同一口径 */
+  traits: string;
+}
+
+const EMPTY_BIG_FIVE_SCORES: BigFiveScoreValues = {
+  hasScores: false,
+  composite: "",
+  traits: "",
+};
+
+/**
+ * `scores_json`（大五维度分快照）→ 导出用「大五得分 + 人格特质」。
+ *
+ * - 维度顺序以量表 `dimensions` 为准（IPIP 为 N/E/O/A/C），不按快照数组顺序拼；
+ * - 只输出快照里真实存在的维度，缺失维度不补 0（未测整格留空）；
+ * - 画像只取可用维度，避免用 0 分补出来的「偏低」误导教师。
+ */
+export function formatBigFiveScores(
+  scoresJson: string | null | undefined,
+  dimensions: readonly { key: string; label: string }[]
+): BigFiveScoreValues {
+  if (!scoresJson || dimensions.length === 0) return EMPTY_BIG_FIVE_SCORES;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(scoresJson);
+  } catch (err) {
+    console.error("Failed to parse big five scores for export:", err);
+    return EMPTY_BIG_FIVE_SCORES;
+  }
+  if (!Array.isArray(parsed)) return EMPTY_BIG_FIVE_SCORES;
+
+  const byKey = new Map<string, number>();
+  for (const entry of parsed) {
+    if (!entry || typeof entry !== "object") continue;
+    const { key, standard } = entry as { key?: unknown; standard?: unknown };
+    if (typeof key !== "string") continue;
+    const score = toStandardScore(standard);
+    if (score === null) continue;
+    byKey.set(key, score);
+  }
+
+  const compositeParts: string[] = [];
+  const snapshot: RiasecScoreSnapshot[] = [];
+  for (const dimension of dimensions) {
+    const score = byKey.get(dimension.key);
+    if (score === undefined) continue;
+    compositeParts.push(`${dimension.key}${score}`);
+    snapshot.push({ key: dimension.key, standard: score });
+  }
+  if (compositeParts.length === 0) return EMPTY_BIG_FIVE_SCORES;
+
+  return {
+    hasScores: true,
+    composite: compositeParts.join(" "),
+    traits: buildBigFiveHeadline(
+      snapshot,
+      dimensions.filter((dimension) => byKey.has(dimension.key))
+    ),
+  };
 }

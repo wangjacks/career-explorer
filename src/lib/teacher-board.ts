@@ -364,12 +364,26 @@ export function pickActionTarget(
 /**
  * 提醒话术（#314 §2.5）：纯字符串，**不含任何学生姓名**、不说「全校」，
  * 也不用「还差 / 在册 / 提交率」这类口径词。没人缺交时返回空串（调用方据此不渲染按钮）。
+ * 班名最多展示 `maxNames` 个，超出用「等 N 个班」；人数始终按**全部**缺交班合计，
+ * 避免话术里的班名与人数对不上。
  */
-export function buildReminderText(classNames: readonly string[], scaleLabel: string, missingCount: number): string {
-  const names = classNames.map((name) => name.trim()).filter((name) => name !== "");
-  const count = Number.isFinite(missingCount) ? Math.max(0, Math.trunc(missingCount)) : 0;
-  if (names.length === 0 || count === 0) return "";
-  return `${names.join("、")}还有 ${count} 人没交${scaleLabel}，麻烦提醒学生抽 10 分钟完成，谢谢。`;
+export function buildReminderText(
+  missingClasses: readonly { name: string; missing: number }[],
+  scaleLabel: string,
+  maxNames = 3
+): string {
+  const entries = missingClasses
+    .map((item) => ({
+      name: item.name.trim(),
+      missing: Number.isFinite(item.missing) ? Math.max(0, Math.trunc(item.missing)) : 0,
+    }))
+    .filter((item) => item.name !== "" && item.missing > 0);
+  if (entries.length === 0) return "";
+  const count = entries.reduce((sum, item) => sum + item.missing, 0);
+  const shown = entries.slice(0, Math.max(1, Math.trunc(maxNames)));
+  const names = shown.map((item) => item.name).join("、");
+  const label = entries.length > shown.length ? `${names} 等 ${entries.length} 个班` : names;
+  return `${label}还有 ${count} 人没交${scaleLabel}，麻烦提醒学生抽 10 分钟完成，谢谢。`;
 }
 
 /** 兴趣构成条的一段（六型之一） */

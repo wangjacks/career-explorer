@@ -25,11 +25,7 @@ export default function ActionStrip({
   const reminder = useMemo(
     () =>
       target
-        ? buildReminderText(
-            target.missingClasses.slice(0, 3).map((item) => item.name),
-            target.scaleLabel,
-            target.missingCount
-          )
+        ? buildReminderText(target.missingClasses, target.scaleLabel)
         : "",
     [target]
   );
