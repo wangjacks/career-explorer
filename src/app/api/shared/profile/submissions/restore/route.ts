@@ -56,6 +56,7 @@ async function POST_impl(request: NextRequest) {
       submission.tags ?? "[]",
       submission.avatar_url ?? "",
       submission.evaluation_url ?? "",
+      submission.evaluation_text ?? null,
       submission.storage_id
     );
     void recordAudit({
