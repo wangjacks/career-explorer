@@ -12,11 +12,19 @@ import ProfileSectionHeader from "@/components/student/ProfileSectionHeader";
 import ConfirmDialog from "@/components/admin/ConfirmDialog";
 import TagSelector, { type TagCategory, TAG_CHIP_COLORS } from "@/components/TagSelector";
 import ImageUploadBox from "@/components/ImageUploadBox";
+import EvaluationWordCloud from "@/components/EvaluationWordCloud";
+import EvaluationTexts from "@/components/EvaluationTexts";
 import { useSession } from "@/hooks/useSession";
 import { useFileUrl } from "@/hooks/useFileUrl";
 import { safeImageUrl } from "@/lib/sanitize";
 import { submitProfile } from "@/lib/profile-submit";
+import {
+  EVALUATION_COUNT,
+  MAX_EVALUATION_TEXT_LENGTH,
+  extractEvaluationWords,
+} from "@/lib/evaluation-text";
 import { toThumbnailUrl } from "@/lib/thumbnail-utils";
+import type { WordCloudItem } from "@/types";
 
 interface MyProfile {
   name: string;
@@ -24,7 +32,10 @@ interface MyProfile {
   class_name: string;
   tags: string[];
   avatar_url: string;
+  /** 历史上传的评价词云图片；#162 起仅存量展示 */
   evaluation_url: string;
+  evaluation_texts?: string[];
+  evaluation_words?: WordCloudItem[];
   /** 文件所在存储后端（#111） */
   storage_id?: number;
   submitted_at: string | null;
@@ -37,6 +48,8 @@ interface SubmissionHistoryItem {
   tags: string[];
   avatar_url: string;
   evaluation_url: string;
+  evaluation_texts?: string[];
+  evaluation_words?: WordCloudItem[];
   storage_id: number;
   submitted_at: string;
   is_current: number;
@@ -94,7 +107,7 @@ function ProgressRing({ completion }: { completion: number }) {
   );
 }
 
-/** 历史版本条目（#95）：版本号 + 时间 + 当前标记 + 快照详情（标签/头像/词云）+ 恢复按钮 */
+/** 历史版本条目（#95）：版本号 + 时间 + 当前标记 + 快照详情（标签/头像/评价/词云）+ 恢复按钮 */
 function HistoryItem({
   submission,
   restoring,
@@ -125,6 +138,10 @@ function HistoryItem({
   );
   const avatarPreview = safeImageUrl(avatarResolved);
   const evaluationPreview = safeImageUrl(evaluationResolved);
+  const evaluationTexts = submission.evaluation_texts ?? [];
+  const evaluationWords = submission.evaluation_words ?? [];
+  const hasEvaluationText =
+    evaluationTexts.filter((text) => text.trim()).length === EVALUATION_COUNT;
 
   return (
     <li className="border border-border-soft rounded-lg p-3 space-y-2">
@@ -152,7 +169,7 @@ function HistoryItem({
           ))
         )}
       </div>
-      {(avatarPreview || evaluationPreview) && (
+      {(avatarPreview || (!hasEvaluationText && evaluationPreview)) && (
         <div className="flex gap-2">
           {avatarPreview && (
             <img
@@ -162,13 +179,36 @@ function HistoryItem({
               className="w-12 h-12 rounded-lg object-cover border border-border-soft"
             />
           )}
-          {evaluationPreview && (
+          {!hasEvaluationText && evaluationPreview && (
             <img
               src={evaluationPreview}
-              alt={`版本 ${submission.version} 评价词云`}
+              alt={`版本 ${submission.version} 历史评价词云图片`}
               onError={() => setEvaluationThumbFailed(true)}
               className="h-12 w-20 rounded-lg object-cover border border-border-soft"
             />
+          )}
+        </div>
+      )}
+      {hasEvaluationText && (
+        <div className="space-y-2">
+          <EvaluationWordCloud
+            words={evaluationWords}
+            height={120}
+            emptyText="暂无可提取的关键词"
+          />
+          <EvaluationTexts texts={evaluationTexts} />
+          {evaluationPreview && (
+            <details>
+              <summary className="cursor-pointer select-none text-xs text-muted hover:text-foreground">
+                查看此版本的历史图片
+              </summary>
+              <img
+                src={evaluationPreview}
+                alt={`版本 ${submission.version} 历史评价词云图片`}
+                onError={() => setEvaluationThumbFailed(true)}
+                className="mt-2 h-16 w-28 rounded-lg object-cover border border-border-soft"
+              />
+            </details>
           )}
         </div>
       )}
@@ -305,14 +345,14 @@ export default function StudentDashboardPage() {
   const [maxCustomTags, setMaxCustomTags] = useState<number | undefined>(undefined);
   // 图片体积上限（#206）：选图前预检用，随 /api/tags 下发；服务端校验仍是最终防线
   const [avatarMaxMb, setAvatarMaxMb] = useState<number | undefined>(undefined);
-  const [evaluationMaxMb, setEvaluationMaxMb] = useState<number | undefined>(undefined);
   // 提交时限（#96）：截止后禁用修改/提交入口，服务端状态为准（经 /api/tags 下发）
   const [submissionClosed, setSubmissionClosed] = useState(false);
   const [submissionDeadline, setSubmissionDeadline] = useState<string | null>(null);
   const [editTags, setEditTags] = useState<string[]>([]);
-  // 延迟上传：选图只暂存 File，确认保存时才真正上传
+  // 三条他人评价（#162）：顺序固定，保存时服务端再次校验
+  const [editEvaluations, setEditEvaluations] = useState<string[]>(["", "", ""]);
+  // 延迟上传：选图只暂存 File，确认保存时才真正上传（#162 起仅头像）
   const [avatarFile, setAvatarFile] = useState<File | null>(null);
-  const [evaluationFile, setEvaluationFile] = useState<File | null>(null);
   const [confirming, setConfirming] = useState(false);
   const [saving, setSaving] = useState(false);
   // 保存前重取截止状态的进行中标记：其间禁用保存与取消，避免出现「已取消却弹出确认框」
@@ -340,6 +380,12 @@ export default function StudentDashboardPage() {
     });
     return map;
   }, [categories]);
+
+  // 编辑态词云预览：与最终保存使用同一套服务端规则；仅作实时反馈
+  const editEvaluationWords = useMemo(
+    () => extractEvaluationWords(editEvaluations),
+    [editEvaluations]
+  );
 
   // 文件展示地址解析（#111）：本地代理路径原样使用，云后端自动换签名 URL
   const avatarResolved = useFileUrl(profile?.avatar_url, profile?.storage_id);
@@ -386,7 +432,6 @@ export default function StudentDashboardPage() {
         setCategories(data.categories || []);
         setMaxCustomTags(typeof data.maxCustomTags === "number" ? data.maxCustomTags : undefined);
         setAvatarMaxMb(typeof data.maxAvatarSizeMb === "number" ? data.maxAvatarSizeMb : undefined);
-        setEvaluationMaxMb(typeof data.maxEvaluationSizeMb === "number" ? data.maxEvaluationSizeMb : undefined);
         const closed = data.submissionClosed === true;
         setSubmissionClosed(closed);
         setSubmissionDeadline(typeof data.submissionDeadline === "string" ? data.submissionDeadline : null);
@@ -414,7 +459,11 @@ export default function StudentDashboardPage() {
     if (!profile) return;
     setEditTags(profile.tags);
     setAvatarFile(null);
-    setEvaluationFile(null);
+    setEditEvaluations(
+      profile.evaluation_texts?.length === EVALUATION_COUNT
+        ? [...profile.evaluation_texts]
+        : ["", "", ""]
+    );
     setEditing(true);
     // 分类为空时等待加载（编辑态有「标签加载中...」占位）；已有分类则后台刷新，
     // 顺带同步提交截止状态（#96）——#168 起面板内提交是唯一入口，不能让截止态陈旧
@@ -434,14 +483,26 @@ export default function StudentDashboardPage() {
     setEditTags((prev) => prev.filter((t) => t !== tag));
   };
 
-  // #208：标签必填——标签是职业探索的核心数据，图片（虚拟形象 / 评价词云）可选填；与服务端同口径
+  // #208：标签必填；#162：三条他人评价必填（仅历史图片账户在三条留空时保留旧图）
   const hasEditTags = editTags.length > 0;
+  const filledEditEvaluations = editEvaluations.filter((text) => text.trim()).length;
 
   // 保存前重取截止状态（#96/#168）：编辑态可以停留很久，进编辑时同步过的状态会过期。
   // 过期时保存会先上传图片、再由服务端 403 拦下，留下一份无主上传，学生也要填满一屏才被拒
   const requestSave = async () => {
     if (!hasEditTags) {
       toast.warning("请至少选择一个标签");
+      return;
+    }
+    if (
+      filledEditEvaluations !== 0 &&
+      filledEditEvaluations !== EVALUATION_COUNT
+    ) {
+      toast.warning("请完整填写三条他人评价");
+      return;
+    }
+    if (filledEditEvaluations === 0 && !profile?.evaluation_url) {
+      toast.warning("请完整填写三条他人评价");
       return;
     }
     setCheckingDeadline(true);
@@ -550,14 +611,13 @@ export default function StudentDashboardPage() {
         studentId: profile!.user_code,
         tags: editTags,
         avatarFile,
-        evaluationFile,
         existingAvatarUrl: profile!.avatar_url,
-        existingEvaluationUrl: profile!.evaluation_url,
+        evaluationTexts: editEvaluations,
       });
       toast.success(hasSubmitted ? "修改已保存" : "档案已提交");
       setEditing(false);
       setAvatarFile(null);
-      setEvaluationFile(null);
+      setEditEvaluations(["", "", ""]);
       await loadProfile();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "保存失败");
@@ -590,12 +650,16 @@ export default function StudentDashboardPage() {
 
   const avatarPreview = safeImageUrl(avatarResolved);
   const evaluationPreview = safeImageUrl(evaluationResolved);
+  const evaluationTexts = profile.evaluation_texts ?? [];
+  const evaluationWords = profile.evaluation_words ?? [];
+  const hasEvaluationText =
+    evaluationTexts.filter((text) => text.trim()).length === EVALUATION_COUNT;
 
-  // 档案完成度：兴趣标签 / 头像 / 评价词云（进度环 x/3）
+  // 档案完成度：兴趣标签 / 头像 / 他人评价（文字三条或历史图片，进度环 x/3）
   const completion =
     (profile.tags.length > 0 ? 1 : 0) +
     (profile.avatar_url ? 1 : 0) +
-    (profile.evaluation_url ? 1 : 0);
+    (hasEvaluationText || profile.evaluation_url ? 1 : 0);
 
   // 标签按 API 返回的 categories 动态分组（组标题 category.name，三色循环）；未匹配任何分类的兜底单列
   const groupedTags = categories.map((cat, catIdx) => ({
@@ -738,18 +802,48 @@ export default function StudentDashboardPage() {
                         )}
                       </section>
 
-                      {/* 评价词云（预览可放大） */}
+                      {/* 他人评价与词云（#162）：文字优先，历史图片兜底 */}
                       <section className="bg-card rounded-xl border border-border-soft p-5 space-y-4">
-                        <ProfileSectionHeader label="评价词云" done={!!profile.evaluation_url} />
-                        {evaluationPreview ? (
-                          <img
-                            src={evaluationPreview}
-                            alt="评价词云"
-                            onClick={() => setLightbox(evaluationPreview)}
-                            className="w-full max-w-sm rounded-lg border border-border-soft cursor-zoom-in"
-                          />
+                        <ProfileSectionHeader
+                          label="他人评价与词云"
+                          done={hasEvaluationText || !!profile.evaluation_url}
+                        />
+                        {hasEvaluationText ? (
+                          <div className="space-y-3">
+                            <EvaluationWordCloud
+                              words={evaluationWords}
+                              height={280}
+                              emptyText="暂无可提取的关键词"
+                            />
+                            <EvaluationTexts texts={evaluationTexts} />
+                            {evaluationPreview && (
+                              <details>
+                                <summary className="cursor-pointer select-none text-xs text-muted hover:text-foreground">
+                                  查看历史评价图片
+                                </summary>
+                                <img
+                                  src={evaluationPreview}
+                                  alt="历史评价词云图片"
+                                  onClick={() => setLightbox(evaluationPreview)}
+                                  className="mt-2 w-full max-w-sm rounded-lg border border-border-soft cursor-zoom-in"
+                                />
+                              </details>
+                            )}
+                          </div>
+                        ) : evaluationPreview ? (
+                          <div className="space-y-2">
+                            <img
+                              src={evaluationPreview}
+                              alt="历史评价词云图片"
+                              onClick={() => setLightbox(evaluationPreview)}
+                              className="w-full max-w-sm rounded-lg border border-border-soft cursor-zoom-in"
+                            />
+                            <p className="text-xs text-muted">
+                              这是你此前上传的历史图片。修改档案并填写三条他人评价后，将改为自动生成的词云。
+                            </p>
+                          </div>
                         ) : (
-                          <p className="text-sm text-muted">暂无评价词云</p>
+                          <p className="text-sm text-muted">暂无他人评价</p>
                         )}
                       </section>
 
@@ -799,7 +893,7 @@ export default function StudentDashboardPage() {
                   </div>
                   <div>
                     <h2 className="text-base font-semibold text-foreground">你还没有提交职业探索档案</h2>
-                    <p className="text-sm text-muted mt-1">先选好兴趣标签（必填），头像与评价词云可选填，让老师了解你的职业兴趣方向</p>
+                    <p className="text-sm text-muted mt-1">先选好兴趣标签（必填），再填写三条他人评价；头像可选填，让老师了解别人眼中的你</p>
                   </div>
                   <button
                     onClick={startEdit}
@@ -834,28 +928,78 @@ export default function StudentDashboardPage() {
                 </section>
 
                 <section className="bg-card rounded-xl border border-border-soft p-5 space-y-4">
-                  <ProfileSectionHeader label="头像与评价词云" marker="optional" />
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
-                    <div className="space-y-2">
-                      <p className="text-xs text-muted">头像</p>
-                      <ImageUploadBox
-                        initialUrl={avatarPreview ?? undefined}
-                        aspect="square"
-                        emptyHint="点击上传头像"
-                        maxSizeMb={avatarMaxMb}
-                        onFileSelected={setAvatarFile}
-                      />
+                  <ProfileSectionHeader label="头像" marker="optional" />
+                  <div className="max-w-xs">
+                    <ImageUploadBox
+                      initialUrl={avatarPreview ?? undefined}
+                      aspect="square"
+                      emptyHint="点击上传头像"
+                      maxSizeMb={avatarMaxMb}
+                      onFileSelected={setAvatarFile}
+                    />
+                  </div>
+                </section>
+
+                <section className="bg-card rounded-xl border border-border-soft p-5 space-y-4">
+                  <ProfileSectionHeader label="他人评价" marker="required" />
+                  <p className="text-xs text-muted">
+                    请邀请三位不同的人分别写一段对你的评价（每条 1–{MAX_EVALUATION_TEXT_LENGTH} 字），由你统一提交。
+                    评价人姓名不会展示，请提醒对方不要在正文中写姓名。
+                  </p>
+
+                  {profile.evaluation_url && !editEvaluations.some((text) => text.trim()) && (
+                    <div className="space-y-2 rounded-lg border border-amber-200 bg-amber-50/60 p-3 dark:border-amber-900/50 dark:bg-amber-900/10">
+                      <p className="text-xs text-amber-700 dark:text-amber-300">
+                        当前显示的是历史图片。保存时三条留空将保留旧图；填写三条后替换为自动生成的词云。
+                      </p>
+                      {evaluationPreview && (
+                        <img
+                          src={evaluationPreview}
+                          alt="历史评价词云图片"
+                          className="h-20 w-32 rounded-lg border border-border-soft object-cover"
+                        />
+                      )}
                     </div>
-                    <div className="space-y-2">
-                      <p className="text-xs text-muted">评价词云</p>
-                      <ImageUploadBox
-                        initialUrl={evaluationPreview ?? undefined}
-                        aspect="wide"
-                        emptyHint="点击上传评价词云"
-                        maxSizeMb={evaluationMaxMb}
-                        onFileSelected={setEvaluationFile}
-                      />
-                    </div>
+                  )}
+
+                  <div className="space-y-3">
+                    {editEvaluations.map((text, index) => (
+                      <div key={index} className="space-y-1.5">
+                        <div className="flex items-center justify-between gap-3">
+                          <label
+                            htmlFor={`evaluation-text-${index}`}
+                            className="text-xs font-medium text-gray-700 dark:text-gray-200"
+                          >
+                            评价{index + 1}
+                          </label>
+                          <span className="text-[11px] text-muted">
+                            {Array.from(text).length}/{MAX_EVALUATION_TEXT_LENGTH}
+                          </span>
+                        </div>
+                        <textarea
+                          id={`evaluation-text-${index}`}
+                          value={text}
+                          maxLength={MAX_EVALUATION_TEXT_LENGTH}
+                          rows={3}
+                          onChange={(event) => {
+                            const next = [...editEvaluations];
+                            next[index] = event.target.value;
+                            setEditEvaluations(next);
+                          }}
+                          placeholder="写下这位评价人对你的评价..."
+                          className="w-full resize-y rounded-lg border border-gray-200 bg-card px-3 py-2 text-sm text-foreground placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-focus-ring dark:border-gray-700"
+                        />
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="space-y-2">
+                    <p className="text-xs text-muted">词云预览（根据三条评价自动生成）</p>
+                    <EvaluationWordCloud
+                      words={editEvaluationWords}
+                      height={240}
+                      emptyText="填写评价后这里会生成词云"
+                    />
                   </div>
                 </section>
 
@@ -923,7 +1067,7 @@ export default function StudentDashboardPage() {
         confirmText={hasSubmitted ? "确认保存" : "确认提交"}
         message={
           hasSubmitted
-            ? "保存后将覆盖你已提交的档案数据（标签、头像、评价词云），确定继续吗？"
+            ? "保存后将覆盖你已提交的档案数据（标签、头像、三条他人评价），确定继续吗？"
             : "提交后生成你的职业探索档案，之后仍可在面板内查看和修改，确定提交吗？"
         }
         onConfirm={confirmSave}

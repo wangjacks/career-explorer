@@ -4,6 +4,7 @@ import { useState, useCallback, useEffect } from "react";
 import { toast } from "sonner";
 import type { RiasecScoreSnapshot } from "@/lib/assessment-view";
 import { buildProfilesQueryString, type ProfileListQuery } from "@/lib/profile-query";
+import type { WordCloudItem } from "@/types";
 
 export interface Profile {
   /** 数字用户 id（#95）：版本历史等关联查询使用；旧接口响应可能缺失，容忍 undefined */
@@ -12,7 +13,12 @@ export interface Profile {
   studentName: string;
   tags: string[];
   avatarUrl: string;
+  /** 历史上传的评价词云图片；#162 起仅用于存量展示 */
   evaluationUrl: string;
+  /** 三条他人评价（#162）；旧接口响应可能缺失 */
+  evaluationTexts?: string[];
+  /** 服务端提取的词云词表（#162）；旧接口响应可能缺失 */
+  evaluationWords?: WordCloudItem[];
   /** 文件所在存储后端（#111）；旧接口响应可能缺失，容忍 undefined */
   storageId?: number;
   createdAt: string;

@@ -14,6 +14,7 @@ import { embedImagesInCells, type CellImageEntry } from "@/lib/xlsx-cell-images"
 import { getAuditActor, getRequestContext, recordAudit } from "@/lib/audit";
 import { getStorage } from "@/lib/storage";
 import { RIASEC_CODE } from "@/lib/assessment-data";
+import { parseStoredEvaluationTexts } from "@/lib/evaluation-text";
 import { profileFromDimensionScores, rankCareers, type RiasecKey } from "@/lib/assessment-match";
 import { toCareerCandidates } from "@/lib/onet";
 import {
@@ -39,7 +40,12 @@ interface ExportRow {
   class_name: string;
   tags: string; // 已转换的标签名称，分号分隔
   avatar_url: string | null;
+  /** 历史上传的评价词云图片；#162 起仅存量 */
   evaluation_url: string | null;
+  /** 三条他人评价（#162）；未填或旧数据为空串 */
+  evaluation_text_1: string;
+  evaluation_text_2: string;
+  evaluation_text_3: string;
   avatar_link: string | null;
   evaluation_link: string | null;
   /** 文件所在存储后端（#111）；本地代理路径与云对象 key 的解析依据 */
@@ -152,6 +158,9 @@ async function buildExportRows(filters: ExportFilters, selectedKeys: readonly st
         tags: "",
         avatar_url: null,
         evaluation_url: null,
+        evaluation_text_1: "",
+        evaluation_text_2: "",
+        evaluation_text_3: "",
         avatar_link: null,
         evaluation_link: null,
         storage_id: null,
@@ -159,20 +168,24 @@ async function buildExportRows(filters: ExportFilters, selectedKeys: readonly st
       })
     );
   } else {
-    rows = submitted.map((r) =>
-      emptyRow({
+    rows = submitted.map((r) => {
+      const evaluationTexts = parseStoredEvaluationTexts(r.evaluation_text);
+      return emptyRow({
         student_id: r.user_code,
         name: r.name,
         class_name: classNameOf(r.class_id, classNames),
         tags: tagsToDisplay(r.tags),
         avatar_url: r.avatar_url,
         evaluation_url: r.evaluation_url,
+        evaluation_text_1: evaluationTexts[0] ?? "",
+        evaluation_text_2: evaluationTexts[1] ?? "",
+        evaluation_text_3: evaluationTexts[2] ?? "",
         avatar_link: r.avatar_url,
         evaluation_link: r.evaluation_url,
         storage_id: r.storage_id ?? null,
         created_at: r.submitted_at || "",
-      })
-    );
+      });
+    });
 
     // Apply filters
     if (filters.scope === "byIds" && filters.ids) {
@@ -244,6 +257,15 @@ function formatCell(
   if (key.startsWith("score_")) {
     const dimension = key.slice("score_".length) as RiasecKey;
     return sixScores.perDimension[dimension] ?? "";
+  }
+  if (key.startsWith("evaluation_text_")) {
+    const value = String((row as unknown as Record<string, unknown>)[key] ?? "");
+    if (format === "csv") {
+      // CSV 单行化 + 防公式注入：学生评价是自由文本，不能直接以 = + - @ 开头落进表格
+      const flattened = value.replace(/\r?\n/g, " ");
+      return /^[=+\-@]/.test(flattened) ? `'${flattened}` : flattened;
+    }
+    return value;
   }
   switch (key) {
     case "class_name":
@@ -369,6 +391,16 @@ async function GET_impl(request: NextRequest) {
   // Apply configurable data row height (rows below header)
   for (let i = 0; i < rows.length; i++) {
     sheet.getRow(i + 2).height = rowHeight;
+  }
+
+  // #162：三条他人评价自动换行，避免长文本在当前行高下被截断
+  const evaluationTextColumnIndexes = columns
+    .map((column, index) => (column.key.startsWith("evaluation_text_") ? index + 1 : 0))
+    .filter((index) => index > 0);
+  for (let i = 0; i < rows.length; i += 1) {
+    for (const columnIndex of evaluationTextColumnIndexes) {
+      sheet.getCell(i + 2, columnIndex).alignment = { wrapText: true, vertical: "top" };
+    }
   }
 
   const cellImages: CellImageEntry[] = [];

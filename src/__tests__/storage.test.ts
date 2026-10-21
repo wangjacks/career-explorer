@@ -360,7 +360,7 @@ describe("storage_backends 数据层（SQLite）", () => {
     adapter.insertUser({ user_code: "202505050103", role: "student", name: "王五" });
     const userId = adapter.getUserByCode("202505050103")!.id;
     adapter.updateUserStorageId(userId, s3Id);
-    adapter.upsertSubmission("202505050103", "[]", "avatar_x.jpg", "eval_y.jpg", s3Id);
+    adapter.upsertSubmission("202505050103", "[]", "avatar_x.jpg", "eval_y.jpg", null, s3Id);
 
     const data = adapter.backup();
     expect(data.storage_backends).toHaveLength(2);

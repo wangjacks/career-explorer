@@ -36,6 +36,7 @@ function student(overrides: Partial<UserRow> = {}): UserRow {
     tags: '["兴趣","技能"]',
     avatar_url: "/uploads/a.jpg",
     evaluation_url: "/uploads/e.jpg",
+    evaluation_text: null,
     storage_id: 1,
     submitted_at: "2026-10-19 10:00:00",
     ...overrides,
@@ -105,6 +106,19 @@ describe("GET /api/manage/profiles — 兴趣测评字段（#234）", () => {
       assessmentAt: null,
       assessmentScores: null,
     });
+  });
+
+  it("下发三条他人评价与服务端词表（#162）", async () => {
+    const evaluationTexts = ["认真负责，沟通清楚", "很有耐心", "团队合作可靠"];
+    vi.mocked(getSubmittedProfiles).mockResolvedValue({
+      rows: [student({ evaluation_text: JSON.stringify(evaluationTexts) })],
+      total: 1,
+    });
+    const res = await GET(makeRequest());
+    const body = await res.json();
+    expect(body.data[0].evaluationTexts).toEqual(evaluationTexts);
+    expect(body.data[0].evaluationWords.length).toBeGreaterThan(0);
+    expect(body.data[0].evaluationWords[0]).toHaveProperty("weight");
   });
 
   it("按当前页学号批查（不是全校扫表），并把分页与默认筛选一起传给列表查询", async () => {

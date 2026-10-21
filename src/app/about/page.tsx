@@ -70,8 +70,8 @@ export default function AboutPage() {
           <h2 className="text-lg font-semibold text-foreground">学生探索流程</h2>
           <ol className="space-y-2 text-gray-600 dark:text-gray-300 text-sm leading-relaxed list-decimal list-inside">
             <li>登录后进入学生面板（未激活学生需先通过教师导入或激活流程）</li>
-            <li>在「我的档案」里选择兴趣 / 技能 / 性格标签，并可上传虚拟形象与评价词云</li>
-            <li>至少选择一个标签（必填，头像与评价词云选填），确认后提交生成职业探索档案</li>
+            <li>在「我的档案」里选择兴趣 / 技能 / 性格标签，填写三条他人评价，并可选上传虚拟形象</li>
+            <li>至少选择一个标签并完整填写三条他人评价（头像选填），确认后提交生成职业探索档案</li>
             <li>提交后仍可在面板内查看与修改，历史版本可回溯</li>
           </ol>
           <Link

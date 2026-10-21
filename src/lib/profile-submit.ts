@@ -1,6 +1,6 @@
 /**
- * 档案提交共享工具：图片上传 + 档案保存（确认后一次性执行）。
- * 仅新选图片才上传，未重选沿用原 URL；档案保存走会话身份，不显式传学号。
+ * 档案提交共享工具：头像上传 + 档案保存（确认后一次性执行）。
+ * 评价为三条文字，直接随档案提交；仅新选头像才上传，未重选沿用原 URL。
  */
 
 import { UPLOAD_NETWORK_ERROR_MESSAGE, mapUploadFailure } from "@/lib/upload-utils";
@@ -8,10 +8,10 @@ import { UPLOAD_NETWORK_ERROR_MESSAGE, mapUploadFailure } from "@/lib/upload-uti
 /** 上传成功但响应体不可用（代理返回 200 HTML、字段缺失等） */
 const UPLOAD_MALFORMED_RESPONSE_MESSAGE = "上传返回异常，请稍后重试";
 
-async function uploadImage(file: File, prefix: "avatar" | "evaluation", studentId: string): Promise<{ url: string; storageId: number | null }> {
+async function uploadAvatar(file: File, studentId: string): Promise<{ url: string; storageId: number | null }> {
   const formData = new FormData();
   formData.append("file", file);
-  formData.append("prefix", prefix);
+  formData.append("prefix", "avatar");
   formData.append("studentId", studentId);
 
   let res: Response;
@@ -47,35 +47,33 @@ export interface SubmitProfileInput {
   studentId: string;
   tags: string[];
   avatarFile?: File | null;
-  evaluationFile?: File | null;
   /** 未重选时沿用的原图 URL */
   existingAvatarUrl?: string;
-  existingEvaluationUrl?: string;
+  /** 三条他人评价（顺序固定） */
+  evaluationTexts: string[];
 }
 
 export interface SubmitProfileResult {
   avatarUrl: string;
-  evaluationUrl: string;
 }
 
 export async function submitProfile(input: SubmitProfileInput): Promise<SubmitProfileResult> {
-  // 仅新选图片才上传；文件所在后端以本次上传返回为准，未重选不传（服务端保留原值）
-  const uploadedEvaluation = input.evaluationFile
-    ? await uploadImage(input.evaluationFile, "evaluation", input.studentId)
-    : null;
+  // 仅新选头像才上传；文件所在后端以本次上传返回为准，未重选不传（服务端保留原值）
   const uploadedAvatar = input.avatarFile
-    ? await uploadImage(input.avatarFile, "avatar", input.studentId)
+    ? await uploadAvatar(input.avatarFile, input.studentId)
     : null;
-  const evaluationUrl = uploadedEvaluation
-    ? uploadedEvaluation.url
-    : input.existingEvaluationUrl || "";
   const avatarUrl = uploadedAvatar ? uploadedAvatar.url : input.existingAvatarUrl || "";
-  const storageId = uploadedEvaluation?.storageId ?? uploadedAvatar?.storageId ?? null;
+  const storageId = uploadedAvatar?.storageId ?? null;
 
   const res = await fetch("/api/shared/profile", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ tags: input.tags, avatarUrl, evaluationUrl, storageId }),
+    body: JSON.stringify({
+      tags: input.tags,
+      avatarUrl,
+      evaluationTexts: input.evaluationTexts,
+      storageId,
+    }),
   });
   if (!res.ok) {
     let message = "保存失败";
@@ -87,5 +85,5 @@ export async function submitProfile(input: SubmitProfileInput): Promise<SubmitPr
     }
     throw new Error(message);
   }
-  return { avatarUrl, evaluationUrl };
+  return { avatarUrl };
 }
