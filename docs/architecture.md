@@ -78,7 +78,7 @@
 
 ## API 路由
 
-<!-- 对账：`find src/app/api -name route.ts | wc -l`（当前 71 条 = manage 50 + auth 4 + setup 3 + shared 11 + tags/upload/uploads 各 1） -->
+<!-- 对账：`find src/app/api -name route.ts | wc -l`（当前 72 条 = manage 50 + auth 5 + setup 3 + shared 11 + tags/upload/uploads 各 1） -->
 
 ### 认证层（proxy 之外，公开）
 
@@ -88,6 +88,7 @@
 | `/api/auth/activate/verify` | POST | 激活前置核验（#93 两步激活第一步）：校验学号 + 姓名 + 邀请码三要素，不设置密码；通过时返回名单姓名供第二步问候语展示（#155 起需携带极验票据） |
 | `/api/auth/activate` | POST | 学生账户激活（#93 第二步）：三要素核验通过后设置密码并自动登录 |
 | `/api/auth/demo` | POST | 演示登录（#252）：在演示库作用域内校验演示账号、签发带 `demo` 的会话 cookie；同样 captcha 前置、错误口径与生产一致；`DEMO_ENABLED` 关闭时 404 |
+| `/api/auth/demo-switch` | POST | 演示角色切换（#255）：仅 demo 会话；按当前身份反解 `seq`，取同账户目标角色身份（admin/teacher/student），重签 `role+uid+name+demo` 并刷新 cookie；非 demo / 名册学生（seq<1000）/ 目标身份缺失 / 禁用账户拒绝，审计按作用域分流 |
 
 ### 安装层（proxy 之外）
 
@@ -150,8 +151,8 @@
 | `/api/manage/stats/trends` | GET | 仅 GET | 提交趋势（全校合计，缺日补 0） |
 | `/api/manage/stats/class-trends` | GET | 仅 GET | 按班级分层的提交趋势（#165，时间 × 班级交叉维度） |
 | `/api/manage/stats/assessment` | GET | 仅 GET | 测评聚合统计（#229/#311）：班级完成度 / 六型计数 / 三字码排行 / 总数小结 / 逐班六型构成，**不含任何个人标识**；`?scope=all`（默认，全校）或 `scope=mine`（仅本人归属班级）；`?code` 默认 `riasec` 且只接受 `typological` 量表；`?classId` 收窄到单班；`assessment.enabled` 供大屏区分「还没开放」与「还没人做」（#232） |
-| `/api/manage/assessment/roster` | GET | 仅 GET | 测评名册（#229）：已完测学生的姓名 / 学号 / 三字码 / 完成时间，供下钻；过滤参数 `classId` / `lead`（三字码首位）/ `code`（完整三字码，#232）+ `scope`；教师恒收窄到本人归属班级（越权 403），每次读取记审计 `assessment:roster` |
-| `/api/manage/profiles` | GET / DELETE | GET + DELETE | 档案列表 / 清除档案字段。GET 支持**服务端筛选与排序**（#295：`q` / `tag`（可重复，**一个参数就是一个标签、不按逗号切分**——标签名允许含逗号，切分会把下拉里选中的那一项筛成别的条件）/ `lead`（六型或 `none`）/ `sortKey` / `sortDir`，分页在过滤后执行、`total` 为过滤后命中数）。GET 每行另带兴趣测评字段（#234：`assessmentCode` / `assessmentStatus` / `assessmentAt` + 详情条形用的六型快照 `assessmentScores`），取「`completed` 且 `is_current=1`」的当前有效结果，未测行为 `none` / `null`；分页、总数与既有排序口径不变 |
+| `/api/manage/assessment/roster` | GET | 仅 GET | 测评名册（#229）：已完测学生的姓名 / 学号 / 三字码 / 完成时间，供下钻；过滤参数 `classId` / `lead`（三字码首位，与 #305 后 `/profiles` 的任意位置包含筛选口径不同）/ `code`（完整三字码，#232）+ `scope`；教师恒收窄到本人归属班级（越权 403），每次读取记审计 `assessment:roster` |
+| `/api/manage/profiles` | GET / DELETE | GET + DELETE | 档案列表 / 清除档案字段。GET 支持**服务端筛选与排序**（#295：`q` / `tag`（可重复，**一个参数就是一个标签、不按逗号切分**——标签名允许含逗号，切分会把下拉里选中的那一项筛成别的条件）/ `lead`（兴趣测评三字码任意位置包含所选六型字母（#305）或 `none`）/ `sortKey` / `sortDir`，分页在过滤后执行、`total` 为过滤后命中数）。GET 每行另带兴趣测评字段（#234：`assessmentCode` / `assessmentStatus` / `assessmentAt` + 详情条形用的六型快照 `assessmentScores`），取「`completed` 且 `is_current=1`」的当前有效结果，未测行为 `none` / `null`；分页、总数与既有排序口径不变 |
 | `/api/manage/profiles/submissions` | GET | GET | 管理端查看学生提交历史（#95）：admin 全量、teacher 仅管辖班级 |
 | `/api/manage/profiles/submissions/exceeding` | GET | GET | 超出版本上限的学生列表（#95） |
 | `/api/manage/groups` | GET / POST | 全方法 | 课堂分组（#101）：GET 读该班当前分组 + 指标 + 与最近一批的差异（读不限班级）；POST 触发自动分组，**完全覆盖**当前分组并追加一份历史批次归档 |
@@ -339,7 +340,7 @@
 - **数据来源**：`/api/manage/profiles` 每行补三个字段 + 六型快照；SQL 只认 `assessment_id = riasec`、`status='completed'`、`is_current=1`（草稿、旧版本都不算「测过」），按**当页学号集合**批查（`IN` 分片 500，与 #193 同一套 `chunkArray`），不做全校扫表。该批查方法与 #233 教师导出**共用同一份实现**（`getCurrentAssessmentResultsByUserCodes`，四列轻量快照），避免两个功能各写一条 SQL
 - **展示口径**：已测 = 三字码徽章（底色取首位字母的类型色、文字色按对比度选）；未测 = 灰态「未测」胶囊，不用红叉这类否定式样式；该列**不提供排序**（三字码非数值），学号/姓名/提交时间排序行为不变
 - **配色单一来源**：六型固定色值定义在 `assessment-colors.ts`，数据列表徽章、数据大屏测评栏（#232）、导出列（#233）都应 import 这里，避免三处各异；`C` 的底色偏亮，文字色用深色以保证 WCAG AA（白字只有 3.68:1），单测锁每对文本/底色对比度 ≥ 4.5:1
-- **筛选与排序口径（#295 起为服务端）**：主导型胶囊「全部 / R / I / A / S / E / C / 未测」、搜索（学号/姓名）、标签筛选与排序（学号 / 姓名 / 提交时间）全部通过 `GET /api/manage/profiles` 的查询参数下推到数据库，**分页在过滤后执行**，因此跨页学生也能被筛到、`total` 是过滤后的命中数（此前只过滤当前页 20 行，跨页学生筛不到；搜索/标签/排序同病，一并修复）。SQL 由 `src/lib/profile-query.ts` 的 `buildSubmittedProfilesSql` 统一生成（两适配器共用，`q` 的通配符按字面量、标签按 JSON 元素精确匹配、MySQL 姓名排序显式 `COLLATE utf8mb4_bin` 与 SQLite 字节序一致、同值按学号破平）。**主导型语义定稿 = 三字码首位**（与数据大屏按首位归型的统计口径一致，`SIA` 只在 S 下命中），界面用 tooltip 写明，避免被误读成「兴趣包含该字母」。`lead=none` = 没有当前有效结果（含三字码非法、只有草稿）
+- **筛选与排序口径（#295 起为服务端）**：兴趣测评胶囊「全部 / R / I / A / S / E / C / 未测」、搜索（学号/姓名）、标签筛选与排序（学号 / 姓名 / 提交时间）全部通过 `GET /api/manage/profiles` 的查询参数下推到数据库，**分页在过滤后执行**，因此跨页学生也能被筛到、`total` 是过滤后的命中数（此前只过滤当前页 20 行，跨页学生筛不到；搜索/标签/排序同病，一并修复）。SQL 由 `src/lib/profile-query.ts` 的 `buildSubmittedProfilesSql` 统一生成（两适配器共用，`q` 的通配符按字面量、标签按 JSON 元素精确匹配、MySQL 姓名排序显式 `COLLATE utf8mb4_bin` 与 SQLite 字节序一致、同值按学号破平）。**兴趣测评筛选语义（#305）= 三字码任意位置包含所选字母**（`SIA` 同时命中 S / I / A），与数据大屏「类型分布」按首位归型的统计口径相互独立；`lead=none` = 没有当前有效结果（含三字码非法、只有草稿）
 - **详情弹窗**：新增「职业兴趣测评」区块——三字码徽章 + 六型横向条（顺序/百分比/前三型标记复用结果页 `buildRiasecBars`，与学生端报告必然一致）+ 完成时间 + 「该生重测」指引文案；未测时整块不渲染，**快照缺失/损坏（解析为空）时只显示徽章与时间、不画六条 0**。下发的快照只含 `{ key, standard }`（不带 raw / band / 作答计数），`buildRiasecBars` 对缺 `label` 的轻量快照回退中文型名。弹窗宽度仍 `max-w-md`，不放雷达图
 - **数据敏感度与权限边界**：列表 GET 沿用档案列表既有权限（`proxy.ts` 放行教师 GET，路由内不做班级收窄——教师能看全校已提交档案的学生），本列只是把「测没测 / 什么型」补进同一行，因此**不新增审计**（与 `/stats/assessment` 等只读 GET 同口径）。它与 #229 的 `/assessment/roster` 不同：后者是**专用的**测评下钻端点、教师恒收窄本人归属班级且每次读取记审计。#229 段落里「全仓唯一」的旧表述已按本节对齐
 

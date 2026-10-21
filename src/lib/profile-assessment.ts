@@ -1,7 +1,7 @@
 /**
- * 数据列表「兴趣测评」列与主导型筛选的展示口径（#234）。
+ * 数据列表「兴趣测评」列与兴趣字母筛选的展示口径（#234 / #305）。
  *
- * 纯函数、无 IO：组件只负责渲染，判定（有没有测、首位型是什么、筛不筛掉这一行）
+ * 纯函数、无 IO：组件只负责渲染，判定（有没有测、三字码是否包含所选字母、筛不筛掉这一行）
  * 都在这里并被单测锁住——仓库没有 DOM 测试环境，界面逻辑先落纯函数再测。
  */
 
@@ -19,13 +19,13 @@ export interface ProfileAssessmentFields {
   assessmentScores?: unknown[] | null;
 }
 
-/** 主导型筛选胶囊的取值：全部 / 六型 / 未测 */
-export type AssessmentLeadFilter = "all" | RiasecKey | "none";
+/** 兴趣字母筛选胶囊的取值：全部 / 六型 / 未测 */
+export type AssessmentInterestFilter = "all" | RiasecKey | "none";
 
 /** 筛选胶囊顺序：全部、R、I、A、S、E、C、未测（固定顺序，不随数据变化） */
-export const ASSESSMENT_LEAD_FILTERS: ReadonlyArray<{ value: AssessmentLeadFilter; label: string }> = [
+export const ASSESSMENT_INTEREST_FILTERS: ReadonlyArray<{ value: AssessmentInterestFilter; label: string }> = [
   { value: "all", label: "全部" },
-  ...RIASEC_KEYS.map((key) => ({ value: key as AssessmentLeadFilter, label: key })),
+  ...RIASEC_KEYS.map((key) => ({ value: key as AssessmentInterestFilter, label: key })),
   { value: "none", label: "未测" },
 ];
 
@@ -42,16 +42,23 @@ export function isAssessed(row: ProfileAssessmentFields): boolean {
 }
 
 /**
- * 该行是否命中主导型筛选：
+ * 该行是否命中兴趣字母筛选：
  * - `all` 全部通过；
  * - `none` 只留未测（没有合法三字码的行）；
- * - 六型按三字码首位匹配。
+ * - 六型按三字码任意位置是否包含该字母匹配。
  */
-export function matchesAssessmentLead(row: ProfileAssessmentFields, filter: AssessmentLeadFilter): boolean {
+export function matchesAssessmentInterest(
+  row: ProfileAssessmentFields,
+  filter: AssessmentInterestFilter
+): boolean {
   if (filter === "all") return true;
   const lead = assessmentLeadOf(row.assessmentCode);
   if (filter === "none") return lead === null;
-  return lead === filter;
+  return (
+    lead !== null &&
+    typeof row.assessmentCode === "string" &&
+    row.assessmentCode.trim().toUpperCase().includes(filter.toUpperCase())
+  );
 }
 
 /**
