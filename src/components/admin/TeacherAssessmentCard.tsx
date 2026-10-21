@@ -77,6 +77,7 @@ export default function TeacherAssessmentCard() {
         setStats({
           classes: result.data.classes ?? [],
           types: result.data.types ?? [],
+          byClass: result.data.byClass ?? [],
           codes: result.data.codes ?? [],
           total: result.data.total ?? { enrolled: 0, assessed: 0, rate: 0, lastSubmittedAt: null },
         });

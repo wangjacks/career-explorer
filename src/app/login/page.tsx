@@ -8,13 +8,7 @@ import { useSession } from "@/hooks/useSession";
 import NavigationBar from "@/components/NavigationBar";
 import GeetestCaptcha, { type GeetestCaptchaHandle } from "@/components/GeetestCaptcha";
 import type { CaptchaTicket } from "@/lib/captcha";
-
-/** 登录成功后按角色跳转的落点 */
-const ROLE_HOME: Record<string, string> = {
-  admin: "/dashboard/admin",
-  student: "/dashboard/student",
-  teacher: "/dashboard/teacher",
-};
+import { roleHome } from "@/lib/role-home";
 
 /** 校验 next 回跳目标：仅接受站内相对路径，防开放重定向 */
 function safeNext(raw: string | null): string | null {
@@ -38,7 +32,7 @@ function LoginForm() {
   // 已登录访问本页：有 next 回跳目标则跳回，否则跳对应面板
   useEffect(() => {
     if (session) {
-      router.replace(next || ROLE_HOME[session.role] || "/");
+      router.replace(next || roleHome(session.role) || "/");
     }
   }, [session, router, next]);
 
@@ -53,7 +47,7 @@ function LoginForm() {
       });
       const data = await res.json();
       if (data.ok) {
-        router.push(next || ROLE_HOME[data.role] || "/");
+        router.push(next || roleHome(data.role) || "/");
         return;
       }
       setError(data.error || "登录失败");

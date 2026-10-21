@@ -8,6 +8,7 @@ vi.mock("@/lib/db", () => ({
   getAssessmentByCode: vi.fn(),
   getAssessmentStats: vi.fn(),
   getAssessmentRoster: vi.fn(),
+  normalizeAssessmentCode: vi.fn((code: string) => code.trim().toLowerCase()),
   getTeacherClassPairs: vi.fn(async () => [{ id: 1, teacher_id: 3, class_id: 7, created_at: "" }]),
   getUserById: vi.fn(async () => ({ user_code: "20001", name: "张老师", role: "teacher" })),
   insertAuditLog: vi.fn(async () => undefined),
@@ -49,6 +50,10 @@ const RAW_STATS: AssessmentStatsRaw = {
   types: [
     { key: "S", count: 1 },
     { key: "R", count: 1 },
+  ],
+  classTypes: [
+    { class_id: 7, key: "S", count: 1 },
+    { class_id: 7, key: "R", count: 1 },
   ],
   codes: [
     { code: "SIA", count: 2 },
@@ -114,6 +119,34 @@ describe("GET /api/manage/stats/assessment（#229 聚合）", () => {
     expect(body.types[0]).toEqual({ key: "R", label: "现实型", count: 1 });
     expect(body.types[3]).toEqual({ key: "S", label: "社会型", count: 1 });
     expect(body.types[1].count).toBe(0);
+    expect(body.byClass).toEqual([
+      {
+        classId: 7,
+        name: "2025级1班",
+        assessed: 2,
+        types: [
+          { key: "R", count: 1 },
+          { key: "I", count: 0 },
+          { key: "A", count: 0 },
+          { key: "S", count: 1 },
+          { key: "E", count: 0 },
+          { key: "C", count: 0 },
+        ],
+      },
+      {
+        classId: 9,
+        name: "2025级2班",
+        assessed: 0,
+        types: [
+          { key: "R", count: 0 },
+          { key: "I", count: 0 },
+          { key: "A", count: 0 },
+          { key: "S", count: 0 },
+          { key: "E", count: 0 },
+          { key: "C", count: 0 },
+        ],
+      },
+    ]);
     expect(body.codes).toEqual([
       { code: "SIA", count: 2, lead: "S", leadLabel: "社会型" },
       { code: "RIC", count: 1, lead: "R", leadLabel: "现实型" },
@@ -129,12 +162,100 @@ describe("GET /api/manage/stats/assessment（#229 聚合）", () => {
   it("聚合响应不含任何个人标识字段（投屏安全）", async () => {
     const res = await statsGet(request("/api/manage/stats/assessment", await token("teacher", 3)));
     const body = await res.json();
-    expect(Object.keys(body).sort()).toEqual(["assessment", "classes", "codes", "scope", "total", "types"]);
+    expect(Object.keys(body).sort()).toEqual([
+      "assessment",
+      "byClass",
+      "classes",
+      "codes",
+      "scope",
+      "total",
+      "types",
+    ]);
     const serialized = JSON.stringify(body);
     for (const pii of ["userCode", "user_code", "assessedAt", "studentName", "20250505"]) {
       expect(serialized).not.toContain(pii);
     }
     expect(Object.keys(body.classes[0]).sort()).toEqual(["assessed", "classId", "enrolled", "name", "rate"]);
+  });
+
+  it("code：默认 riasec，大小写归一化；不存在 404，维度型量表 400", async () => {
+    const teacher = await token("teacher", 3);
+    const defaultRes = await statsGet(request("/api/manage/stats/assessment", teacher));
+    expect(defaultRes.status).toBe(200);
+    expect(getAssessmentByCode).toHaveBeenLastCalledWith("riasec");
+
+    vi.mocked(getAssessmentByCode).mockClear();
+    const normalizedRes = await statsGet(request("/api/manage/stats/assessment?code=RiAsEc", teacher));
+    expect(normalizedRes.status).toBe(200);
+    expect(getAssessmentByCode).toHaveBeenCalledWith("riasec");
+
+    vi.mocked(getAssessmentByCode).mockResolvedValue(undefined);
+    const missingRes = await statsGet(request("/api/manage/stats/assessment?code=missing", teacher));
+    expect(missingRes.status).toBe(404);
+
+    vi.mocked(getAssessmentStats).mockClear();
+    vi.mocked(getAssessmentByCode).mockResolvedValue({
+      ...ASSESSMENT,
+      code: "ipip-neo-ffi",
+      scoring_mode: "dimensional",
+    });
+    const dimensionalRes = await statsGet(
+      request("/api/manage/stats/assessment?code=IPIP-NEO-FFI", teacher)
+    );
+    expect(dimensionalRes.status).toBe(400);
+    expect((await dimensionalRes.json()).error).toContain("人格分布");
+    expect(getAssessmentStats).not.toHaveBeenCalled();
+  });
+
+  it("classId：整段聚合收窄到单班，非法值 400 且不查库", async () => {
+    const teacher = await token("teacher", 3);
+    const res = await statsGet(
+      request("/api/manage/stats/assessment?classId=9", teacher)
+    );
+    expect(res.status).toBe(200);
+    expect(getAssessmentStats).toHaveBeenCalledWith(ASSESSMENT.id, null, 9);
+
+    vi.mocked(getAssessmentByCode).mockClear();
+    vi.mocked(getAssessmentStats).mockClear();
+    for (const bad of ["0", "-1", "1.5", "abc"]) {
+      const badRes = await statsGet(
+        request(`/api/manage/stats/assessment?classId=${encodeURIComponent(bad)}`, teacher)
+      );
+      expect(badRes.status, `classId=${bad} 应被拒`).toBe(400);
+    }
+    expect(getAssessmentByCode).not.toHaveBeenCalled();
+    expect(getAssessmentStats).not.toHaveBeenCalled();
+  });
+
+  it("classId 权限：scope=mine 仅本人班；scope=all 可看任意班聚合", async () => {
+    const teacher = await token("teacher", 3);
+    const denied = await statsGet(
+      request("/api/manage/stats/assessment?scope=mine&classId=9", teacher)
+    );
+    expect(denied.status).toBe(403);
+    expect(getAssessmentByCode).not.toHaveBeenCalled();
+    expect(getAssessmentStats).not.toHaveBeenCalled();
+
+    const own = await statsGet(
+      request("/api/manage/stats/assessment?scope=mine&classId=7", teacher)
+    );
+    expect(own.status).toBe(200);
+    expect(getAssessmentStats).toHaveBeenCalledWith(ASSESSMENT.id, [7], 7);
+
+    vi.mocked(getAssessmentStats).mockClear();
+    const allScope = await statsGet(
+      request("/api/manage/stats/assessment?scope=all&classId=9", teacher)
+    );
+    expect(allScope.status).toBe(200);
+    expect(getAssessmentStats).toHaveBeenCalledWith(ASSESSMENT.id, null, 9);
+
+    vi.mocked(getAssessmentStats).mockClear();
+    const admin = await token("admin", 1);
+    const adminRes = await statsGet(
+      request("/api/manage/stats/assessment?scope=mine&classId=99", admin)
+    );
+    expect(adminRes.status).toBe(200);
+    expect(getAssessmentStats).toHaveBeenCalledWith(ASSESSMENT.id, null, 99);
   });
 
   it("scope=mine：教师收窄到本人归属班级；管理员等同全校", async () => {

@@ -1,6 +1,6 @@
 import { withDemoScope } from "@/lib/demo-scope";
 import { NextRequest, NextResponse } from "next/server";
-import { getAssessmentByCode, getAssessmentStats } from "@/lib/db";
+import { getAssessmentByCode, getAssessmentStats, normalizeAssessmentCode } from "@/lib/db";
 import { RIASEC_CODE } from "@/lib/assessment-data";
 import { parseDimensions } from "@/lib/assessment-flow";
 import { finalizeAssessmentStats } from "@/lib/assessment-stats";
@@ -34,19 +34,42 @@ async function GET_impl(request: NextRequest) {
       return NextResponse.json({ error: "scope 只支持 all / mine" }, { status: 400 });
     }
     const scope = scopeParam as Scope;
+    const params = request.nextUrl.searchParams;
+    const code = normalizeAssessmentCode(params.get("code") ?? RIASEC_CODE);
+
+    const classIdParam = params.get("classId");
+    let classId: number | undefined;
+    if (classIdParam !== null && classIdParam.trim() !== "") {
+      classId = Number(classIdParam);
+      if (!Number.isInteger(classId) || classId <= 0) {
+        return NextResponse.json({ error: "classId 必须是正整数" }, { status: 400 });
+      }
+    }
 
     // 教师「只看我的班」：班级集合来自 teacher_classes（与写权限同一来源）；管理员恒为全校
     let classIds: number[] | null = null;
     if (scope === "mine" && session.role === "teacher") {
       classIds = [...((await writableClassIds(session)) ?? [])];
+      if (classId !== undefined && !classIds.includes(classId)) {
+        return NextResponse.json({ error: "无权查看该班级的测评统计" }, { status: 403 });
+      }
     }
 
-    const assessment = await getAssessmentByCode(RIASEC_CODE);
+    const assessment = await getAssessmentByCode(code);
     if (!assessment) {
       return NextResponse.json({ error: "测评量表未配置" }, { status: 404 });
     }
+    if (assessment.scoring_mode !== "typological") {
+      return NextResponse.json(
+        { error: "该量表为维度型量表，请使用人格分布接口" },
+        { status: 400 }
+      );
+    }
 
-    const raw = await getAssessmentStats(assessment.id, classIds);
+    const raw =
+      classId === undefined
+        ? await getAssessmentStats(assessment.id, classIds)
+        : await getAssessmentStats(assessment.id, classIds, classId);
     const dimensions = parseDimensions(assessment.dimensions_json);
     const stats = finalizeAssessmentStats(raw, dimensions);
 

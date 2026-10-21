@@ -79,7 +79,7 @@ describe("教师端测评聚合（#229，真实 SQLite）", () => {
   });
 
   it("六型计数按三字码首位归型，与逐人当前结果核对一致", () => {
-    const { dbPath, adapter, assessment, students } = setup();
+    const { dbPath, adapter, assessment, classA, classB, students } = setup();
     const stats = adapter.getAssessmentStats(assessment.id, null);
     const typeCount = new Map(stats.types.map((row) => [row.key, row.count]));
     expect(typeCount.get("S")).toBe(1); // 甲 SIA
@@ -99,6 +99,17 @@ describe("教师端测评聚合（#229，真实 SQLite）", () => {
     for (const [lead, count] of Object.entries(recount)) {
       expect(typeCount.get(lead)).toBe(count);
     }
+    expect(
+      stats.classTypes
+        .map((row) => `${row.class_id}:${row.key}:${row.count}`)
+        .sort()
+    ).toEqual(
+      [
+        `${classA}:R:1`,
+        `${classA}:S:1`,
+        `${classB}:A:1`,
+      ].sort()
+    );
 
     adapter.close();
     cleanup(dbPath);
@@ -168,12 +179,29 @@ describe("教师端测评聚合（#229，真实 SQLite）", () => {
     cleanup(dbPath);
   });
 
+  it("classId 单班过滤：总量、班级和班级六型构成都只含该班", () => {
+    const { dbPath, adapter, assessment, classB } = setup();
+    const stats = adapter.getAssessmentStats(assessment.id, null, classB);
+
+    expect(stats.classes).toEqual([
+      { class_id: classB, name: "2025级2班", enrolled: 2, assessed: 1 },
+    ]);
+    expect(stats.total).toMatchObject({ enrolled: 2, assessed: 1 });
+    expect(stats.types).toEqual([{ key: "A", count: 1 }]);
+    expect(stats.codes).toEqual([{ code: "ASE", count: 1 }]);
+    expect(stats.classTypes).toEqual([{ class_id: classB, key: "A", count: 1 }]);
+
+    adapter.close();
+    cleanup(dbPath);
+  });
+
   it("空班级集合（教师还没带班）返回全零，不会退回全校口径", () => {
     const { dbPath, adapter, assessment } = setup();
     const stats = adapter.getAssessmentStats(assessment.id, []);
     expect(stats).toEqual({
       classes: [],
       types: [],
+      classTypes: [],
       codes: [],
       total: { enrolled: 0, assessed: 0, last_completed_at: null },
     });

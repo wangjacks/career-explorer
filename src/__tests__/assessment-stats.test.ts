@@ -19,6 +19,7 @@ function raw(overrides: Partial<AssessmentStatsRaw> = {}): AssessmentStatsRaw {
   return {
     classes: [],
     types: [],
+    classTypes: [],
     codes: [],
     total: { enrolled: 0, assessed: 0, last_completed_at: null },
     ...overrides,
@@ -88,6 +89,41 @@ describe("finalizeAssessmentStats", () => {
     expect(stats.types.every((t) => t.label.length > 0)).toBe(true);
   });
 
+  it("班级六型构成：按班名与 classId 稳定排序，六型补齐 0", () => {
+    const stats = finalizeAssessmentStats(
+      raw({
+        classes: [
+          { class_id: 12, name: "B班", enrolled: 2, assessed: 1 },
+          { class_id: 8, name: "A班", enrolled: 0, assessed: 0 },
+          { class_id: 3, name: "A班", enrolled: 4, assessed: 2 },
+        ],
+        classTypes: [
+          { class_id: 12, key: "S", count: 1 },
+          { class_id: 3, key: "R", count: 2 },
+          { class_id: 3, key: "X", count: 99 },
+        ],
+      }),
+      DIMENSIONS
+    );
+
+    expect(stats.byClass.map((row) => row.classId)).toEqual([3, 8, 12]);
+    expect(stats.byClass[0]).toEqual({
+      classId: 3,
+      name: "A班",
+      assessed: 2,
+      types: [
+        { key: "R", count: 2 },
+        { key: "I", count: 0 },
+        { key: "A", count: 0 },
+        { key: "S", count: 0 },
+        { key: "E", count: 0 },
+        { key: "C", count: 0 },
+      ],
+    });
+    expect(stats.byClass[1].types.every((item) => item.count === 0)).toBe(true);
+    expect(stats.byClass[2].types.find((item) => item.key === "S")?.count).toBe(1);
+  });
+
   it("三字码排行：count 降序、同数按 code 升序，附首位类型中文标记", () => {
     const stats = finalizeAssessmentStats(
       raw({
@@ -146,6 +182,7 @@ describe("finalizeAssessmentStats", () => {
   it("空数据也能渲染：六型齐全、班级/三字码为空数组", () => {
     const stats = finalizeAssessmentStats(raw(), DIMENSIONS);
     expect(stats.classes).toEqual([]);
+    expect(stats.byClass).toEqual([]);
     expect(stats.codes).toEqual([]);
     expect(stats.types).toHaveLength(6);
     expect(stats.total).toEqual({ enrolled: 0, assessed: 0, rate: 0, lastSubmittedAt: null });
