@@ -636,12 +636,15 @@ export default function ProfilesTab({
                 <td className="px-5 py-3">
                   {/* 兴趣列优先取「当前启用量表」的当前有效结果，旧接口缺字段时回退兼容字段 */}
                   {(() => {
-                    const interestCode =
-                      scaleResultOf(p, typologicalScale?.code)?.typeCode ?? p.assessmentCode ?? null;
-                    return assessmentLeadOf(interestCode) ? (
-                      <AssessmentCodeBadge code={interestCode as string} />
-                    ) : (
-                      <NotAssessedPill />
+                    const result = scaleResultOf(p, typologicalScale?.code);
+                    const interestCode = result?.typeCode ?? p.assessmentCode ?? null;
+                    if (!assessmentLeadOf(interestCode)) return <NotAssessedPill />;
+                    const completedAt = formatResultTime(result?.completedAt ?? p.assessmentAt);
+                    return (
+                      <div className="flex flex-col items-start gap-0.5">
+                        <AssessmentCodeBadge code={interestCode as string} />
+                        {completedAt && <span className="font-mono text-[10px] text-muted">{completedAt}</span>}
+                      </div>
                     );
                   })()}
                 </td>
