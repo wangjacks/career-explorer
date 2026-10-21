@@ -513,8 +513,8 @@ export class MysqlAdapter implements DbAdapter {
   /**
    * 题库**只增不改**升级（#281）：与 sqlite 适配器同构（同一套写动作与判据），差异只在方言与事务写法。
    *
-   * 只允许四种写动作：缺题 INSERT、已存在题号只回填 `origin`、`scale_version` 变化时整体更新量表定义、
-   * `items_per_attempt`（#282）与种子不一致时只回填这一列；
+   * 只允许五种写动作：缺题 INSERT、已存在题号只回填 `origin`、`scale_version` 变化时整体更新量表定义、
+   * `items_per_attempt`（#282）与种子不一致时只回填这一列、`license_text`（#284）同版本库不一致时只刷新这一列；
    * 写之前跑新版校验，全程单事务；重复执行幂等（第二次不改任何字段）。
    */
   async upgradeAssessmentBank(): Promise<AssessmentBankUpgradeResult> {
@@ -522,6 +522,7 @@ export class MysqlAdapter implements DbAdapter {
       inserted: 0,
       originBackfilled: 0,
       definitionUpdated: false,
+      licenseTextUpdated: false,
       itemsPerAttemptUpdated: false,
     };
     const conn = await this.pool.getConnection();
@@ -594,6 +595,14 @@ export class MysqlAdapter implements DbAdapter {
             ]
           );
           result.definitionUpdated = true;
+        } else if (existing.license_text !== definition.licenseText) {
+          // #284：同版本库只刷新合规文案这一列，不覆盖后台维护的 name / attribution
+          await conn.execute("UPDATE assessments SET license_text = ?, updated_at = ? WHERE id = ?", [
+            definition.licenseText,
+            now,
+            existing.id,
+          ]);
+          result.licenseTextUpdated = true;
         }
 
         // #282：`items_per_attempt` 与 scale_version 无关也要补齐——生产库在 #281 时已是

@@ -13,6 +13,10 @@
  * - 61–120 `cn-original`：本项目原创 60 题（6 维各 10 题），每题锚定一个真实 O*NET 职业，
  *   其职业信息参照 O*NET Database 30.2（CC BY 4.0）。
  *
+ * **放行状态（#284）**：原创题尚未完成专家评审与班级试测，按回退路径整批排除在抽题池外
+ * （`SAMPLING_EXCLUDED_ORIGINS`）。题目仍留在题库里，历史结果与种子校验不受影响；
+ * 验证通过后从该常量移除来源即可恢复抽题。判据与记录见 `docs/assessment-validation.md`。
+ *
  * 命题规则与完整题面清单见 `docs/plan-assessment-120.md` §4 / §6；本文件是题面的**权威落库来源**，
  * 方案文档只保留规则与清单，避免两处漂移。
  *
@@ -43,6 +47,15 @@ export interface AssessmentSeed {
 
 /** 题目来源：霍兰德分层抽样依赖 O*NET 分布；IPIP 公有领域条目单独标记 */
 export type QuestionOrigin = "onet-mini" | "onet-sf" | "cn-original" | "ipip";
+
+/**
+ * 尚未通过信效度验证、**不进入抽题池**的来源（#284 回退路径）。
+ *
+ * 题库本身不删题：历史结果快照、种子校验（每维题数 / 来源分布）继续按全量 120 题成立。
+ * 放行判据见 `docs/assessment-validation.md`；验证通过后从这里移除 `"cn-original"`，
+ * 指纹会随之变化，旧卷子自动重派。
+ */
+export const SAMPLING_EXCLUDED_ORIGINS: ReadonlySet<QuestionOrigin> = new Set(["cn-original"]);
 
 /** 作答页按量表下发的 5 点锚点 */
 export interface AssessmentAnchor {
@@ -95,7 +108,7 @@ export const RIASEC_LICENSE_TEXT =
   "30 题版本见 O*NET Mini Interest Profiler 技术报告（https://www.onetcenter.org/dl_files/Mini-IP.pdf）；" +
   "题库中 31–60 题同样出自上述 O*NET Interest Profiler Short Form；" +
   "61–120 题为本项目原创，其职业信息参照 O*NET Database（https://www.onetcenter.org/database.html，CC BY 4.0）。" +
-  "正式启用前须完成专家评审与一个班级的试测（试测结果只出聚合指标）；" +
+  "正式启用前须完成专家评审与一个班级的试测（试测结果只出聚合指标）；在完成上述验证前，61–120 题不参与抽题；" +
   "授权条款：https://www.onetcenter.org/license_tools.html 。";
 
 /** 免责声明：随测评定义下发，结果页必须展示（不得被解读为诊断或录用依据） */
