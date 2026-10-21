@@ -26,9 +26,20 @@ const QUIZ_HREF = "/dashboard/student/assessment/quiz";
 export default function FiveFactorResultCard({
   data,
   code,
+  id,
+  open,
+  onOpenChange,
+  highlight = false,
 }: {
   data: AssessmentResultsPayload;
   code: string;
+  /** 页面锚点（#323：速览卡定位到这里） */
+  id?: string;
+  /** 受控展开（#323）；不传则由折叠卡自管 */
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+  /** 被摘要卡定位时短暂高亮（#323） */
+  highlight?: boolean;
 }) {
   const current = data.current;
   // 父组件只在有当前结果时渲染本卡；这里仅做类型收窄
@@ -46,7 +57,15 @@ export default function FiveFactorResultCard({
   });
 
   return (
-    <CollapsibleCard title={data.assessment.name} status="completed" subtitle={trailing}>
+    <CollapsibleCard
+      id={id}
+      title={data.assessment.name}
+      status="completed"
+      subtitle={trailing}
+      open={open}
+      onOpenChange={onOpenChange}
+      highlight={highlight}
+    >
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div className="bg-brand rounded-xl px-4 py-3 text-white">
           <p className="text-[11px] text-white/70">你的主要特质</p>
