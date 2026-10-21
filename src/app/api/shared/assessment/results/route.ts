@@ -1,6 +1,6 @@
 import { withDemoScope } from "@/lib/demo-scope";
 import { NextRequest, NextResponse } from "next/server";
-import { getAssessmentByCode, getEnabledAssessments, getUserById, normalizeAssessmentCode, type AssessmentResultRow } from "@/lib/db";
+import { getAssessmentByCode, getUserById, normalizeAssessmentCode, type AssessmentResultRow } from "@/lib/db";
 import { RIASEC_CODE } from "@/lib/assessment-data";
 import {
   MAX_RESULT_VERSIONS,
@@ -39,34 +39,12 @@ async function GET_impl(request: NextRequest) {
     const user = await getUserById(result.uid);
     if (!user) return NextResponse.json({ error: "用户不存在" }, { status: 401 });
 
-    const requestedCode = request.nextUrl.searchParams.get("code");
-    const code = normalizeAssessmentCode(requestedCode ?? RIASEC_CODE);
+    const code = normalizeAssessmentCode(request.nextUrl.searchParams.get("code") ?? RIASEC_CODE);
     const assessment = await getAssessmentByCode(code);
     if (!assessment) return NextResponse.json({ error: "测评不存在" }, { status: 404 });
 
-    // 量表清单（#292）：档案页据此循环渲染每套量表的结果卡。只列启用中的量表——
-    // 停用后不再出现在档案页（历史结果仍可按 ?code= 直接读取，教师端量表管理落地时再定只读卡口径）。
-    // 只在缺省请求（档案页第一次取数）时附带：按 code 的单套查询保持既有响应形状，
-    // 不影响仍按「一套结果」消费该接口的页面；档案页的其余量表补拉也不需要重复下发清单。
-    const includeScaleList = !requestedCode;
-    const assessments = includeScaleList
-      ? (await getEnabledAssessments()).map((row) => ({
-          code: row.code,
-          name: row.name,
-          // 清单里的题量按量表定义算（与 start / 测评中心同一口径）：抽题时是每次题数，否则是题库总量
-          questionCount:
-            row.items_per_attempt > 0 ? Math.min(row.items_per_attempt, row.question_count) : row.question_count,
-          poolSize: row.question_count,
-          itemsPerAttempt: row.items_per_attempt,
-          enabled: row.enabled === 1,
-          scoringMode: row.scoring_mode,
-          scaleVersion: row.scale_version,
-          dimensions: parseDimensions(row.dimensions_json),
-          attribution: row.attribution,
-          licenseText: row.license_text,
-          disclaimer: row.disclaimer,
-        }))
-      : [];
+    // 启用量表清单只有一个家（#291 的 `/api/shared/assessment/list`）：本接口只回**一套**量表的结果，
+    // 档案页（#292）先按 list 拿 code 清单，再逐套按 `?code=` 取结果，避免同一信息两处维护。
 
     // 一次读取即得本轮口径 + 草稿 + 全部完成记录（current 也从这里挑，不再单独查一次）
     const context = await loadAttemptContext(assessment, user.id);
@@ -125,8 +103,6 @@ async function GET_impl(request: NextRequest) {
       },
       current: current ? toView(current) : null,
       history,
-      // 已启用量表清单（#292）：只随缺省请求下发，档案页按它循环渲染每套量表的结果卡
-      ...(includeScaleList ? { assessments } : {}),
       // 进行中的作答进度（未完成过或正在重测时给「继续作答」用）；没有草稿时为 null
       inProgress:
         context.draft && draftProgress.answered > 0

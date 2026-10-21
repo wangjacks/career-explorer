@@ -8,23 +8,22 @@ import {
   CROSS_SCALE_LINKS,
   resultCardMode,
   type AssessmentResultsPayload,
-  type AssessmentScaleMeta,
 } from "@/lib/assessment-view";
+import { normalizeAssessmentList, type AssessmentListItem } from "@/lib/assessment-list";
 
 /**
  * 「我的档案」里的测评结果区（#224 + #292）：按**量表清单循环渲染每套量表的结果卡**。
  *
- * 数据口径：
- * - 首次请求不带 code，拿到主测评（霍兰德）的完整结果 + `assessments` 已启用量表清单（#292，
- *   清单只随缺省请求下发，按 code 的单套查询保持既有响应形状）；
- * - 其余量表按 `?code=` 各自补拉，单套失败只影响那一张卡，不拖垮整个结果区；
+ * 数据口径（启用量表清单只有一个家，与 #291 对齐）：
+ * - 先取 `GET /api/shared/assessment/list`（#291，只列启用中的量表）拿到有哪些量表；
+ * - 再逐套按 `?code=` 取本人结果，单套失败只影响那一张卡，不拖垮整个结果区；
  * - 全部数据由本组件持有，结果卡只负责按计分模式分流渲染（不再各自 fetch）。
  *
  * 与档案提交流程仍然完全解耦：不看 `submissionClosed`、不参与档案版本快照。
  * 霍兰德与大五各有一份当前结果时，在卡片下方补一张「人格与兴趣一起看」提示卡（#292）。
  */
 export default function AssessmentResultsSection() {
-  const [scales, setScales] = useState<AssessmentScaleMeta[]>([]);
+  const [scales, setScales] = useState<AssessmentListItem[]>([]);
   const [payloads, setPayloads] = useState<Record<string, AssessmentResultsPayload>>({});
   const [failedCodes, setFailedCodes] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
@@ -35,24 +34,20 @@ export default function AssessmentResultsSection() {
     setFailed(false);
     setFailedCodes([]);
     try {
-      const res = await fetch("/api/shared/assessment/results");
-      const payload = (await res.json()) as AssessmentResultsPayload & { error?: string };
-      if (!res.ok) throw new Error(payload?.error || "测评结果加载失败");
-      // 清单缺失（undefined = 老接口）才回退成单套；空数组是「全部量表都已停用」，
-      // 按文档口径停用量表不进档案页，不能把已停用的默认量表又渲染出来
-      const list = Array.isArray(payload.assessments) ? payload.assessments : [payload.assessment];
-      setScales(list);
-      setPayloads({ [payload.assessment.code]: payload });
+      const listRes = await fetch("/api/shared/assessment/list");
+      const listPayload = (await listRes.json()) as { assessments?: unknown; error?: string };
+      if (!listRes.ok) throw new Error(listPayload?.error || "测评量表清单加载失败");
+      const items = normalizeAssessmentList(listPayload?.assessments);
+      setScales(items);
 
-      // 其余量表并行补拉：单套失败只记在这一张卡上
-      const rest = list.filter((item) => item.code !== payload.assessment.code);
+      // 逐套并行补拉：单套失败只记在这一张卡上
       const failures: string[] = [];
       const loaded = await Promise.all(
-        rest.map(async (item) => {
+        items.map(async (item) => {
           try {
-            const res2 = await fetch(`/api/shared/assessment/results?code=${encodeURIComponent(item.code)}`);
-            const data = await res2.json();
-            if (!res2.ok) throw new Error(data?.error || "测评结果加载失败");
+            const res = await fetch(`/api/shared/assessment/results?code=${encodeURIComponent(item.code)}`);
+            const data = await res.json();
+            if (!res.ok) throw new Error(data?.error || "测评结果加载失败");
             return [item.code, data as AssessmentResultsPayload] as const;
           } catch (err) {
             console.error(`Failed to load assessment results (${item.code}):`, err);
@@ -61,13 +56,11 @@ export default function AssessmentResultsSection() {
           }
         })
       );
-      setPayloads((prev) => {
-        const next = { ...prev };
-        for (const row of loaded) {
-          if (row) next[row[0]] = row[1];
-        }
-        return next;
-      });
+      const next: Record<string, AssessmentResultsPayload> = {};
+      for (const row of loaded) {
+        if (row) next[row[0]] = row[1];
+      }
+      setPayloads(next);
       setFailedCodes(failures);
     } catch (err) {
       console.error("Failed to load assessment results:", err);
@@ -77,7 +70,7 @@ export default function AssessmentResultsSection() {
     }
   }, []);
 
-  /* eslint-disable react-hooks/set-state-in-effect -- 结果区进入时读取本人各量表结果（与档案数据并列、互不依赖） */
+  /* eslint-disable react-hooks/set-state-in-effect -- 结果区进入时读取本人各量表清单与结果（与档案数据并列、互不依赖） */
   useEffect(() => {
     void load();
   }, [load]);
@@ -111,14 +104,13 @@ export default function AssessmentResultsSection() {
     );
   }
 
+  // 清单为空 = 没有启用中的量表（停用后不出现在档案页），整个结果区不占位
+  if (scales.length === 0) return null;
+
   // 提示卡讲的是霍兰德 × 大五的对应关系：两类各有一份当前结果才出现。
   // 不写「完成数 ≥ 2」——将来第三套量表（如再一套 dimensional）都完成时不该弹这张卡。
-  const hasHollandResult = scales.some(
-    (item) => resultCardMode(item) === "holland" && payloads[item.code]?.current
-  );
-  const hasBigFiveResult = scales.some(
-    (item) => resultCardMode(item) === "big-five" && payloads[item.code]?.current
-  );
+  const hasHollandResult = scales.some((item) => resultCardMode(item) === "holland" && payloads[item.code]?.current);
+  const hasBigFiveResult = scales.some((item) => resultCardMode(item) === "big-five" && payloads[item.code]?.current);
 
   return (
     <div className="space-y-5">
@@ -150,7 +142,7 @@ export default function AssessmentResultsSection() {
   );
 }
 
-/** 「人格与兴趣一起看」提示卡（#292）：两套结果都完成时出现，用学生语言解释三组常见对应关系 */
+/** 「人格与兴趣一起看」提示卡（#292）：霍兰德与大五都有当前结果时出现，用学生语言解释三组常见对应关系 */
 function CrossScaleTipCard() {
   return (
     <section className="bg-card rounded-xl border border-border-soft p-5 space-y-3">

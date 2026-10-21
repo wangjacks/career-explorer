@@ -330,20 +330,9 @@ describe("提交与结果落库", () => {
     expect(body.assessment.questionCount).toBe(ROUND_SIZE);
     expect(body.assessment.poolSize).toBe(BANK_SIZE);
 
-    // 量表清单（#292）：缺省请求一次带全部已启用量表，档案页按它循环渲染结果卡
-    expect(body.assessments.map((a: { code: string }) => a.code)).toEqual([RIASEC_CODE, IPIP_NEO_FFI_CODE]);
-    expect(body.assessments[0]).toMatchObject({
-      questionCount: ROUND_SIZE,
-      poolSize: BANK_SIZE,
-      enabled: true,
-      scoringMode: "typological",
-    });
-    expect(body.assessments[1]).toMatchObject({
-      name: IPIP_ASSESSMENT.name,
-      questionCount: IPIP_QUESTIONS.length,
-      poolSize: IPIP_QUESTIONS.length,
-      scoringMode: "dimensional",
-    });
+    // 启用量表清单只有一个家（#291 的 /list）：结果接口始终只回一套量表，
+    // 档案页（#292）先按清单拿 code，再逐套按 ?code= 取结果
+    expect(body.assessments).toBeUndefined();
 
     const audit = await queryAuditLogs({ page: 1, pageSize: 20, action: "assessment:results" });
     expect(audit.total).toBeGreaterThan(0);
@@ -499,11 +488,11 @@ describe("量表停用", () => {
       expect(resultsBody.current.typeCode).toBe("RIA");
       expect(resultsBody.assessment.enabled).toBe(false);
 
-      // 量表清单（#292）只列启用中的量表：停用后档案页不再给它渲染结果卡，
-      // 但历史结果仍可按 ?code= 读到（上面已断言）
-      const listRes = await resultsGet(getRequest("/api/shared/assessment/results", users.A.token));
+      // 量表清单只有一个家（#291）：停用后清单不再列这套量表，档案页也就不再渲染它的结果卡
+      const listRes = await listGet(getRequest("/api/shared/assessment/list", users.A.token));
+      expect(listRes.status).toBe(200);
       const listBody = await listRes.json();
-      expect(listBody.assessments.map((a: { code: string }) => a.code)).toEqual([IPIP_NEO_FFI_CODE]);
+      expect(listBody.assessments.map((entry: { code: string }) => entry.code)).toEqual([IPIP_NEO_FFI_CODE]);
     } finally {
       const restore = new Database(state.dbPath);
       restore.prepare("UPDATE assessments SET enabled = 1 WHERE code = ?").run(RIASEC_CODE);
@@ -599,7 +588,7 @@ describe("多量表作答链路（#289）", () => {
       IPIP_DIMENSIONS.map((dimension) => dimension.key)
     );
     expect(resultsBody.history).toHaveLength(1);
-    // 按 code 的单套查询保持既有响应形状：不附带档案页的批量清单（#292）
+    // 按 code 的单套查询只回这一套量表：清单一律来自 /list（#291）
     expect(resultsBody.assessments).toBeUndefined();
   });
 });
@@ -727,5 +716,45 @@ describe("测评中心多量表列表（#291）", () => {
     const metadata = JSON.parse(row!.metadata ?? "{}");
     expect(metadata).toEqual({ count: 2, codes: [RIASEC_CODE, IPIP_NEO_FFI_CODE] });
     expect(metadata).not.toHaveProperty("answers");
+  });
+});
+
+/**
+ * 档案页结果区的取数链路（#292）：清单只有一个来源（`/list`），逐套按 `?code=` 取结果。
+ * 这里锁住「清单有几套就取几套、每套只回自己、没做过的量表回空结果」——页面不依赖
+ * `results` 附带清单，因此清单接口的字段一旦和结果接口分叉，这条链路会先在这里断掉。
+ */
+describe("档案页结果区取数链路（#292）", () => {
+  it("先拿清单再逐套取结果：每套只回自己，未做过的量表回空结果", async () => {
+    const listRes = await listGet(getRequest("/api/shared/assessment/list", users.A.token));
+    expect(listRes.status).toBe(200);
+    const { assessments } = (await listRes.json()) as { assessments: { code: string; status: string }[] };
+    expect(assessments.map((entry) => entry.code)).toEqual([RIASEC_CODE, IPIP_NEO_FFI_CODE]);
+
+    const payloads = await Promise.all(
+      assessments.map(async (entry) => {
+        const res = await resultsGet(getRequest(`/api/shared/assessment/results?code=${entry.code}`, users.A.token));
+        expect(res.status).toBe(200);
+        return res.json();
+      })
+    );
+
+    // 逐套一一对应：`assessment.code` 就是请求的那个 code，且不再附带清单
+    expect(payloads.map((payload) => payload.assessment.code)).toEqual(assessments.map((entry) => entry.code));
+    for (const payload of payloads) {
+      expect(payload.assessments).toBeUndefined();
+    }
+
+    // A 只做完了霍兰德：大五那套 current 为 null、history 为空（档案页据此不渲染结果卡）
+    const riasec = payloads[0];
+    expect(riasec.assessment.scoringMode).toBe("typological");
+    expect(riasec.current.typeCode).toBe("RIA");
+    expect(riasec.history.length).toBeGreaterThan(0);
+
+    const ipip = payloads[1];
+    expect(ipip.assessment.scoringMode).toBe("dimensional");
+    expect(ipip.current).toBeNull();
+    expect(ipip.history).toEqual([]);
+    expect(ipip.inProgress).toBeNull();
   });
 });

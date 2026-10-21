@@ -191,14 +191,12 @@ export interface AssessmentScaleMeta {
   enabled?: boolean;
 }
 
-/** `GET /api/shared/assessment/results` 的返回（档案页结果区消费） */
+/** `GET /api/shared/assessment/results` 的返回（**单套**量表；档案页结果区按 #291 的清单逐套取数） */
 export interface AssessmentResultsPayload {
   assessment: AssessmentScaleMeta;
   current: AssessmentResultSnapshot | null;
   history: AssessmentResultSnapshot[];
   inProgress: { answered: number; total: number; updatedAt: string } | null;
-  /** 同一次响应附带的已启用量表清单（#292）：档案页按它循环渲染每套量表的结果卡 */
-  assessments?: AssessmentScaleMeta[];
 }
 
 /**
