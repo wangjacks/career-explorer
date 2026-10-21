@@ -396,15 +396,18 @@ describe("学生面板的测评区挂载（#344）", () => {
   const pageSource = () =>
     readFileSync(join(process.cwd(), "src/app/dashboard/student/page.tsx"), "utf8");
 
-  it("页面先用纯函数判定再挂载测评结果区，不存在无条件渲染", () => {
+  it("页面先用纯函数判定再挂载测评结果区与速览四卡，不存在无条件渲染", () => {
     const source = pageSource();
     expect(source).toContain("shouldRenderAssessmentResults(activeView, editing)");
-    expect(source).toMatch(/showAssessmentResults\s*&&\s*<AssessmentResultsSection/);
-    expect(source).not.toMatch(/^\s*<AssessmentResultsSection/m);
+    expect(source).toMatch(/showAssessmentResults\s*&&\s*\(?\s*<AssessmentResultsSection/);
+    expect(source).toMatch(/showAssessmentResults\s*&&\s*\(?\s*<ProfileSummaryBoard/);
+    // 各自只挂载一处，且上面两条已锁「由判定式引导」，不存在第二处无条件渲染
+    expect(source.match(/<AssessmentResultsSection/g)).toHaveLength(1);
+    expect(source.match(/<ProfileSummaryBoard/g)).toHaveLength(1);
   });
 
   it("页尾授权卡与测评结果区同范围渲染（小组 / 历史视图不残留合规卡）", () => {
     const source = pageSource();
-    expect(source).toMatch(/showAssessmentResults\s*&&\s*assessmentFooter\.scales\.length\s*>\s*0/);
+    expect(source).toMatch(/showAssessmentResults\s*&&\s*assessment\.data\.scales\.length\s*>\s*0/);
   });
 });

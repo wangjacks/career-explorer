@@ -54,10 +54,21 @@ export default function AssessmentResultCard({
   code,
   data,
   careers,
+  id,
+  open,
+  onOpenChange,
+  highlight = false,
 }: {
   code: string;
   data: AssessmentResultsPayload;
   careers: readonly CareerCardView[];
+  /** 页面锚点（#323：速览卡定位到这里） */
+  id?: string;
+  /** 受控展开（#323）；不传则由折叠卡自管 */
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+  /** 被摘要卡定位时短暂高亮（#323） */
+  highlight?: boolean;
 }) {
   const current = data.current;
   const mode = resultCardMode(data.assessment);
@@ -77,9 +88,13 @@ export default function AssessmentResultCard({
             .join(" · ") || "题目准备中";
     return (
       <CollapsibleCard
+        id={id}
         title={data.assessment.name}
         status={status}
         subtitle={meta}
+        open={open}
+        onOpenChange={onOpenChange}
+        highlight={highlight}
         action={
           <Link
             href={quizHref(code)}
@@ -103,7 +118,16 @@ export default function AssessmentResultCard({
   }
 
   if (mode === "big-five") {
-    return <FiveFactorResultCard data={data} code={code} />;
+    return (
+      <FiveFactorResultCard
+        data={data}
+        code={code}
+        id={id}
+        open={open}
+        onOpenChange={onOpenChange}
+        highlight={highlight}
+      />
+    );
   }
 
   // 霍兰德卡（#224 原有内容）：按行排列的六型视图 + 推荐职业
@@ -117,7 +141,15 @@ export default function AssessmentResultCard({
   });
 
   return (
-    <CollapsibleCard title={data.assessment.name} status={status} subtitle={trailing}>
+    <CollapsibleCard
+      id={id}
+      title={data.assessment.name}
+      status={status}
+      subtitle={trailing}
+      open={open}
+      onOpenChange={onOpenChange}
+      highlight={highlight}
+    >
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <HollandCodeBadge typeCode={current.typeCode} />
         <Link

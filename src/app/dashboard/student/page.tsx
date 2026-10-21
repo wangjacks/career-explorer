@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Toaster, toast } from "sonner";
 import { Compass, SquarePen, UsersRound, X } from "lucide-react";
@@ -8,7 +8,8 @@ import NavigationBar from "@/components/NavigationBar";
 import DemoBanner from "@/components/DemoBanner";
 import StudentSidebar, { type StudentViewKey } from "@/components/student/StudentSidebar";
 import TextAvatar from "@/components/TextAvatar";
-import AssessmentResultsSection, { type AssessmentFooterData } from "@/components/student/AssessmentResultsSection";
+import AssessmentResultsSection from "@/components/student/AssessmentResultsSection";
+import ProfileSummaryBoard from "@/components/student/ProfileSummaryBoard";
 import AssessmentAttributionCard from "@/components/student/assessment/AssessmentAttributionCard";
 import ProfileSectionHeader from "@/components/student/ProfileSectionHeader";
 import ConfirmDialog from "@/components/admin/ConfirmDialog";
@@ -17,6 +18,7 @@ import ImageUploadBox from "@/components/ImageUploadBox";
 import EvaluationWordCloud from "@/components/EvaluationWordCloud";
 import EvaluationTexts from "@/components/EvaluationTexts";
 import { useSession } from "@/hooks/useSession";
+import { useAssessmentResults } from "@/hooks/useAssessmentResults";
 import { useFileUrl } from "@/hooks/useFileUrl";
 import { safeImageUrl } from "@/lib/sanitize";
 import { submitProfile } from "@/lib/profile-submit";
@@ -28,7 +30,14 @@ import {
 import { MAX_RESULT_VERSIONS } from "@/lib/assessment-flow";
 import { shouldRenderAssessmentResults } from "@/lib/assessment-view";
 import { latestCompletedOf } from "@/lib/assessment-list";
+import {
+  assessmentCodeFromDetailId,
+  buildProfileSummary,
+  PROFILE_INFO_ID,
+  type SummaryCard,
+} from "@/lib/profile-summary";
 import { toThumbnailUrl } from "@/lib/thumbnail-utils";
+import { buildProfileCompletion } from "@/lib/profile-completion";
 import type { WordCloudItem } from "@/types";
 
 interface MyProfile {
@@ -79,16 +88,14 @@ interface GroupRoster {
   members: GroupRosterMember[];
 }
 
-/** 资料完整度三项（#322 / #162）：hero 进度环与资料卡共用同一口径 */
-function completionItems(profile: MyProfile): { label: string; done: boolean }[] {
-  const evaluationDone =
-    Boolean(profile.evaluation_url) ||
-    (profile.evaluation_texts ?? []).filter((text) => text.trim()).length === EVALUATION_COUNT;
-  return [
-    { label: "标签", done: profile.tags.length > 0 },
-    { label: "头像", done: Boolean(profile.avatar_url) },
-    { label: "他人评价", done: evaluationDone },
-  ];
+/** 资料完整度三项（#322 / #162）：hero 进度环、资料卡与速览卡共用同一口径 */
+function profileCompletion(profile: MyProfile) {
+  return buildProfileCompletion({
+    tags: profile.tags,
+    avatarUrl: profile.avatar_url,
+    evaluationUrl: profile.evaluation_url,
+    evaluationTexts: profile.evaluation_texts,
+  });
 }
 
 /** 罗盘进度环（signature）：档案完成度 x/3，琥珀弧线随完成度填充 */
@@ -341,8 +348,8 @@ function GroupPanel({
 }
 
 /**
- * 「我的档案资料」卡（#322）：标签（按分类三色、全量展示）+ 评价词云缩略图（点击放大）
- * + 三项完成度 + 提交时间合并为一张卡，卡尾放主操作「修改数据」。
+ * 「我的档案资料」卡（#322）：标签（按分类三色、全量展示）+ 他人评价（#162 文字优先，
+ * 历史图片兜底）+ 三项完成度 + 提交时间合并为一张卡，卡尾放主操作「修改数据」。
  */
 function ProfileOverviewCard({
   profile,
@@ -352,6 +359,7 @@ function ProfileOverviewCard({
   submissionDeadline,
   onEdit,
   onPreview,
+  highlight = false,
 }: {
   profile: MyProfile;
   categories: TagCategory[];
@@ -361,6 +369,8 @@ function ProfileOverviewCard({
   submissionDeadline: string | null;
   onEdit: () => void;
   onPreview: (url: string) => void;
+  /** 被速览卡定位时短暂高亮（#323） */
+  highlight?: boolean;
 }) {
   // 词云缩略图（#118）：小图优先降低首屏体积；存量未补生成缩略图时回退原图（review 修复同 HistoryItem）
   const [thumbFailed, setThumbFailed] = useState(false);
@@ -377,14 +387,19 @@ function ProfileOverviewCard({
   }));
   const groupedNames = new Set(groupedTags.flatMap((group) => group.tags));
   const ungrouped = profile.tags.filter((tag) => !groupedNames.has(tag));
-  const completion = completionItems(profile);
+  const completion = profileCompletion(profile);
   const evaluationTexts = profile.evaluation_texts ?? [];
   const evaluationWords = profile.evaluation_words ?? [];
   const hasEvaluationText =
     evaluationTexts.filter((text) => text.trim()).length === EVALUATION_COUNT;
 
   return (
-    <section className="bg-card rounded-xl border border-border-soft p-5 space-y-4">
+    <section
+      id={PROFILE_INFO_ID}
+      className={`bg-card rounded-xl border border-border-soft p-5 space-y-4 scroll-mt-24 transition-shadow duration-300 ${
+        highlight ? "ring-2 ring-accent/70 shadow-lg" : ""
+      }`}
+    >
       <div className="flex flex-wrap items-center gap-2">
         <ProfileSectionHeader label="我的档案资料" />
         <span className="ml-auto text-xs text-muted">
@@ -562,11 +577,23 @@ export default function StudentDashboardPage() {
   // 通览态图片放大预览
   const [lightbox, setLightbox] = useState<string | null>(null);
 
-  // 测评结果区回传的页尾授权数据（#322）：结果区是唯一数据源，页尾卡不重复请求
-  const [assessmentFooter, setAssessmentFooter] = useState<AssessmentFooterData>({
-    scales: [],
-    careersAttribution: "",
-  });
+  // 测评数据（#323）：页面统一拉取一次，速览卡与折叠详情卡共用（不再由结果区自己 fetch）
+  const assessment = useAssessmentResults(session?.role === "student");
+  // 速览卡「查看详情」的联动状态：受控展开 + 定位后短暂高亮。
+  // 展开态用集合而不是单个 code——期 1 每张折叠卡各自独立，两套结果可以同时展开，这里不能退化成手风琴。
+  const [expandedCodes, setExpandedCodes] = useState<string[]>([]);
+  const [highlightId, setHighlightId] = useState<string | null>(null);
+  const highlightTimer = useRef<number | null>(null);
+
+  // 折叠卡展开/收起（受控）：速览卡与卡片自身的折叠按钮改同一份状态
+  const setCardOpen = useCallback(
+    (code: string, open: boolean) => {
+      setExpandedCodes((prev) =>
+        open ? (prev.includes(code) ? prev : [...prev, code]) : prev.filter((item) => item !== code)
+      );
+    },
+    []
+  );
 
   // 历史提交版本（#95）：独立 Tab，首次切入时懒加载；恢复生成新版本不回写旧记录
   const [activeView, setActiveView] = useState<StudentViewKey>("profile");
@@ -664,14 +691,38 @@ export default function StudentDashboardPage() {
 
   // hero「第 N 次测评与完成时间」（#322）：取最近一次完成的量表，与「我的测评」共用同一条规则
   const latestAssessment = useMemo(
-    () => latestCompletedOf(assessmentFooter.scales),
-    [assessmentFooter.scales]
+    () => latestCompletedOf(assessment.data.scales),
+    [assessment.data.scales]
   );
 
-  // 测评结果区只在「我的档案」视图、非编辑态渲染（#344）：小组 / 历史视图不挂载、也不再发取数请求
+  // 速览四卡（#323）：由同一份数据算出，与折叠详情共用 assessment-view 的 builders，口径不会分叉
+  const summary = useMemo(
+    () =>
+      buildProfileSummary({
+        profile: profile
+          ? {
+              tags: profile.tags,
+              avatarUrl: profile.avatar_url,
+              evaluationUrl: profile.evaluation_url,
+              evaluationTexts: profile.evaluation_texts,
+              submitted: Boolean(profile.submitted_at),
+            }
+          : null,
+        scales: assessment.data.scales,
+        results: assessment.data.payloads,
+        careers: assessment.data.careers,
+        listFailed: assessment.failed,
+        failedCodes: assessment.data.failedCodes,
+        careersFailed: assessment.data.careersFailed,
+      }),
+    [profile, assessment.data, assessment.failed]
+  );
+
+  // 测评区（速览四卡 + 结果详情 + 页尾授权）只在「我的档案」视图、非编辑态渲染（#344）：
+  // 小组 / 历史视图与编辑态不挂载，避免无关结果卡挤占视图内容与填写干扰
   const showAssessmentResults = shouldRenderAssessmentResults(activeView, editing);
 
-  const startEdit = async () => {
+  const startEdit = useCallback(async () => {
     if (!profile) return;
     // 从「我的小组 / 历史提交」点 hero 的修改入口时，先切回档案视图，保存后才看得到结果
     setActiveView("profile");
@@ -691,7 +742,7 @@ export default function StudentDashboardPage() {
     } else {
       void loadCategories();
     }
-  };
+  }, [profile, categories.length, loadCategories]);
 
   const toggleTag = (tag: string) => {
     setEditTags((prev) => (prev.includes(tag) ? prev.filter((t) => t !== tag) : [...prev, tag]));
@@ -700,6 +751,46 @@ export default function StudentDashboardPage() {
   const removeTag = (tag: string) => {
     setEditTags((prev) => prev.filter((t) => t !== tag));
   };
+
+  // 速览卡「查看详情」（#323）：滚动到目标 + 短暂高亮（1800ms 后自动淡出）
+  const focusDetail = useCallback((targetId: string) => {
+    window.requestAnimationFrame(() => {
+      const target = document.getElementById(targetId);
+      if (!target) return;
+      target.scrollIntoView({ block: "start", behavior: "smooth" });
+      setHighlightId(targetId);
+      if (highlightTimer.current !== null) window.clearTimeout(highlightTimer.current);
+      highlightTimer.current = window.setTimeout(() => setHighlightId(null), 1800);
+    });
+  }, []);
+
+  useEffect(
+    () => () => {
+      if (highlightTimer.current !== null) window.clearTimeout(highlightTimer.current);
+    },
+    []
+  );
+
+  // 摘要卡点击的总入口：进编辑态 / 展开并定位详情（「去测评」由速览卡直接渲染成链接，不经这里）
+  const handleSummaryAction = useCallback(
+    (card: SummaryCard) => {
+      const { cta } = card;
+      if (cta.action === "edit") {
+        if (!editing) void startEdit();
+        return;
+      }
+      if (!cta.targetId) return;
+      if (editing) {
+        toast("请先保存或取消当前编辑");
+        return;
+      }
+      const scaleCode = assessmentCodeFromDetailId(cta.targetId);
+      if (scaleCode) setCardOpen(scaleCode, true);
+      setActiveView("profile");
+      focusDetail(cta.targetId);
+    },
+    [editing, startEdit, focusDetail, setCardOpen]
+  );
 
   // #208：标签必填；#162：三条他人评价必填（仅历史图片账户在三条留空时保留旧图）
   const hasEditTags = editTags.length > 0;
@@ -869,8 +960,8 @@ export default function StudentDashboardPage() {
   const avatarPreview = safeImageUrl(avatarResolved);
   const evaluationPreview = safeImageUrl(evaluationResolved);
 
-  // 档案完成度：兴趣标签 / 头像 / 他人评价（进度环 x/3；#322 共用 completionItems）
-  const completion = completionItems(profile).filter((item) => item.done).length;
+  // 档案完成度：兴趣标签 / 头像 / 他人评价（进度环 x/3；#322 与资料卡共用同一实现）
+  const completion = profileCompletion(profile).filter((item) => item.done).length;
 
   return (
     <div className="min-h-screen bg-background">
@@ -953,7 +1044,7 @@ export default function StudentDashboardPage() {
                       role="tooltip"
                       className="pointer-events-none absolute right-0 top-full z-10 mt-2 w-44 rounded-lg border border-border-soft bg-card p-2 text-[11px] leading-relaxed text-foreground opacity-0 shadow-sm transition-opacity group-hover:opacity-100 group-focus-within:opacity-100"
                     >
-                      资料完整度：标签 / 头像 / 评价词云（已完成 {completion}/3）
+                      资料完整度：标签 / 头像 / 他人评价（已完成 {completion}/3）
                     </div>
                   </div>
                   {!editing && (
@@ -977,9 +1068,30 @@ export default function StudentDashboardPage() {
               </div>
             </section>
 
-            {/* 测评结果区（#224 + #292 + #322）：只在「我的档案」视图、非编辑态渲染（#344）——小组 / 历史提交与测评无关，
-                不挂载也就不会发起 assessment/list + results 请求；仍不受提交截止门控、不进档案版本快照 */}
-            {showAssessmentResults && <AssessmentResultsSection onData={setAssessmentFooter} />}
+            {/* 速览四卡（#323）：hero 之下的结论区，点「查看详情」展开并滚动到对应内容；
+                与测评结果区同范围（#344）：小组 / 历史视图与编辑态不挂载 */}
+            {showAssessmentResults && (
+              <ProfileSummaryBoard
+                summary={summary}
+                loading={assessment.loading}
+                onAction={handleSummaryAction}
+                tagColors={tagColorMap}
+              />
+            )}
+
+            {/* 测评结果区（#224 + #292 + #322 + #323）：折叠详情，与速览共用同一份数据；
+                只在「我的档案」视图、非编辑态渲染（#344）——不挂载就不会新增取数，仍不受提交截止门控、不进档案版本快照 */}
+            {showAssessmentResults && (
+              <AssessmentResultsSection
+                data={assessment.data}
+                loading={assessment.loading}
+                failed={assessment.failed}
+                onRetry={assessment.reload}
+                expandedCodes={expandedCodes}
+                onExpandedChange={setCardOpen}
+                highlightId={highlightId}
+              />
+            )}
 
             {/* Tab 导航（#322 上移）：速览区之后、资料区之前，保证「历史提交」在 1 屏内可达；历史提交仍懒加载 */}
             {!editing && hasSubmitted && activeView !== "group" && (
@@ -1026,6 +1138,7 @@ export default function StudentDashboardPage() {
                     submissionDeadline={submissionDeadline}
                     onEdit={startEdit}
                     onPreview={setLightbox}
+                    highlight={highlightId === PROFILE_INFO_ID}
                   />
                 ) : (
                   /* 历史提交（#95）：独立 Tab，恢复按钮截止后隐藏 */
@@ -1203,11 +1316,11 @@ export default function StudentDashboardPage() {
 
             {/* 页尾授权与免责（#322）：全页只出现一次，结果卡内只留指针；与测评结果区同范围（#344），
                 小组 / 历史视图与编辑态不显示 */}
-            {showAssessmentResults && assessmentFooter.scales.length > 0 && (
+            {showAssessmentResults && assessment.data.scales.length > 0 && (
               <AssessmentAttributionCard
                 collapsible
-                scales={assessmentFooter.scales}
-                careersAttribution={assessmentFooter.careersAttribution}
+                scales={assessment.data.scales}
+                careersAttribution={assessment.data.careersAttribution}
               />
             )}
           </div>

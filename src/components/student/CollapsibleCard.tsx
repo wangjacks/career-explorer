@@ -37,6 +37,9 @@ export default function CollapsibleCard({
   action,
   defaultOpen = false,
   keepMounted = false,
+  open: controlledOpen,
+  onOpenChange,
+  highlight = false,
   children,
 }: {
   /** 页面内锚点（如页尾授权卡 `#assessment-attribution`） */
@@ -51,15 +54,33 @@ export default function CollapsibleCard({
   defaultOpen?: boolean;
   /** 收起时仍挂载内容（只用于无图表的合规文本，保证文本留在 DOM） */
   keepMounted?: boolean;
+  /** 受控展开（#323：速览卡点「查看详情」时由页面展开对应卡）；不传则组件自管 */
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+  /** 被摘要卡定位时短暂高亮（#323） */
+  highlight?: boolean;
   children: ReactNode;
 }) {
-  const [open, setOpen] = useState(defaultOpen);
+  const [internalOpen, setInternalOpen] = useState(defaultOpen);
   const baseId = useId();
   const panelId = `${baseId}-panel`;
+  const controlled = controlledOpen !== undefined;
+  const open = controlled ? controlledOpen : internalOpen;
   const panelVisible = open || keepMounted;
 
+  const toggle = () => {
+    const next = !open;
+    if (!controlled) setInternalOpen(next);
+    onOpenChange?.(next);
+  };
+
   return (
-    <section id={id} className="bg-card rounded-xl border border-border-soft">
+    <section
+      id={id}
+      className={`bg-card rounded-xl border border-border-soft transition-shadow duration-300 scroll-mt-24 ${
+        highlight ? "ring-2 ring-accent/70 shadow-lg" : ""
+      }`}
+    >
       <div className="flex items-start gap-3 p-5">
         <span className="mt-0.5 h-4 w-1 flex-shrink-0 rounded-full bg-accent" aria-hidden />
         <h2 className="min-w-0 flex-1 text-sm font-semibold text-foreground">
@@ -67,7 +88,7 @@ export default function CollapsibleCard({
             type="button"
             aria-expanded={open}
             aria-controls={panelVisible ? panelId : undefined}
-            onClick={() => setOpen((value) => !value)}
+            onClick={toggle}
             className="flex w-full items-start gap-3 rounded-lg text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
           >
             <span className="min-w-0 flex-1">
