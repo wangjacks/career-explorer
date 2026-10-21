@@ -48,6 +48,7 @@ import type {
   CompleteAssessmentInput,
   OnetOccupationRow,
   AssessmentStatsRaw,
+  CompletionStatsRaw,
   AssessmentRosterRow,
   AssessmentMissingRosterRow,
   AssessmentBankUpgradeResult,
@@ -61,6 +62,11 @@ import {
   type RawClassTrendRow,
   type RawCompareRow,
 } from "./stats-utils";
+import {
+  buildCompletionStatsSql,
+  mapCompletionStatsRows,
+  type CompletionStatsRow,
+} from "./completion-query";
 
 function getNow(): string {
   return new Date().toLocaleString("sv-SE", { timeZone: "Asia/Shanghai" });
@@ -2420,6 +2426,17 @@ export class MysqlAdapter implements DbAdapter {
         last_completed_at: assessedTotalRow?.last ?? null,
       },
     };
+  }
+
+  // 班级完成矩阵（#310）：SQL 与行映射由 `completion-query.ts` 与 SQLite 共用，避免两适配器分叉
+  async getCompletionStats(
+    assessmentIds: number[],
+    classIds: number[] | null
+  ): Promise<CompletionStatsRaw> {
+    const { sql, params } = buildCompletionStatsSql(assessmentIds, classIds);
+    if (!sql) return { profile: [], assessments: [] };
+    const [rows] = await this.pool.execute(sql, params);
+    return mapCompletionStatsRows(rows as CompletionStatsRow[]);
   }
 
   async getAssessmentRoster(

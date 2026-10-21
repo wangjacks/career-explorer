@@ -438,6 +438,25 @@ export interface AssessmentStatsRaw {
 }
 
 /**
+ * 班级完成矩阵的**原始计数**（#310）：档案提交与各量表已完成人数都按 `class_id` 分组，
+ * `class_id = null` 表示未分班；`name` 只用于展示，**绝不作为分组键**（改名/重名会串数据）。
+ * 完成率、列顺序、排序、空班剔除与总计统一由 `src/lib/completion-stats.ts` 的纯函数算。
+ */
+export interface CompletionStatsRaw {
+  profile: {
+    class_id: number | null;
+    name: string | null;
+    enrolled: number;
+    submitted: number;
+  }[];
+  assessments: {
+    assessment_id: number;
+    class_id: number | null;
+    assessed: number;
+  }[];
+}
+
+/**
  * 测评名册行（#229）：**含个人信息**，只给教师端下钻用，读取必须记审计。
  *
  * #313 起支持多量表：`riasec` 看 `code`（三字码），`dimensional` 量表（如 `ipip-neo-ffi`）没有三字码，
@@ -868,6 +887,15 @@ export interface DbAdapter {
     classIds: number[] | null,
     classId?: number
   ): Promise<AssessmentStatsRaw> | AssessmentStatsRaw;
+  /**
+   * 班级完成矩阵原始计数（#310）：档案提交 + 各量表完成人数，按 `class_id` 分组。
+   * `assessmentIds` 为空时只返回档案列；`classIds = null` 为全校口径（含未分班），
+   * 传集合则只统计这些班级（教师「只看我的班」）。不含任何姓名/学号。
+   */
+  getCompletionStats(
+    assessmentIds: number[],
+    classIds: number[] | null
+  ): Promise<CompletionStatsRaw> | CompletionStatsRaw;
   /**
    * 测评名册（**含姓名/学号，读取须记审计**）：只返回已完成且当前有效的结果。
    * `classIds` 收窄班级范围（教师归属班级），`filters.classId` 再收窄到单班，
@@ -1562,6 +1590,15 @@ export async function getAssessmentStats(
 ): Promise<AssessmentStatsRaw> {
   const adapter = await ensureInit();
   return Promise.resolve(adapter.getAssessmentStats(assessmentId, classIds, classId));
+}
+
+/** #310：班级完成矩阵原始计数（档案提交 + 多量表完成人数，不含个人信息） */
+export async function getCompletionStats(
+  assessmentIds: number[],
+  classIds: number[] | null
+): Promise<CompletionStatsRaw> {
+  const adapter = await ensureInit();
+  return Promise.resolve(adapter.getCompletionStats(assessmentIds, classIds));
 }
 
 /** #229：教师端测评名册（含个人信息，调用方必须记审计并先收窄班级范围） */
