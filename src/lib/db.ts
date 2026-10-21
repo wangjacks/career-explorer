@@ -694,6 +694,11 @@ export interface DbAdapter {
     pageSize: number,
     filters?: SubmittedProfileFilters
   ): Promise<{ rows: UserRow[]; total: number }> | { rows: UserRow[]; total: number };
+  /**
+   * 导出用（#331）：按与列表**完全相同的筛选/排序口径**取全部命中行，不分页。
+   * 口径由 `buildSubmittedProfilesSql` 统一生成，避免导出在内存里二次实现一套筛选。
+   */
+  getSubmittedProfilesForExport(filters?: SubmittedProfileFilters): Promise<UserRow[]> | UserRow[];
   getAllSubmitted(): Promise<UserRow[]> | UserRow[];
   clearSubmissions(userCodes: string[]): Promise<number> | number;
 
@@ -1110,6 +1115,13 @@ export async function getSubmittedProfiles(
 ): Promise<{ rows: UserRow[]; total: number }> {
   const adapter = await ensureInit();
   return Promise.resolve(adapter.getSubmittedProfiles(page, pageSize, filters));
+}
+
+export async function getSubmittedProfilesForExport(
+  filters?: SubmittedProfileFilters
+): Promise<UserRow[]> {
+  const adapter = await ensureInit();
+  return Promise.resolve(adapter.getSubmittedProfilesForExport(filters));
 }
 
 export async function getAllSubmitted(): Promise<UserRow[]> {

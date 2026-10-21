@@ -47,7 +47,9 @@
 |---|---|
 | 数据中心 | 数据概览 / 数据大屏 / 数据导出 / 提交历史（#95） |
 | 用户管理 | 学生管理 / 教师管理 / 班级管理 / 课堂分组（#101） / 标签管理 |
-| 系统设置 | 数据源设置 / 功能设置 / 存储管理（#111） / 媒体管理（#117） / 操作审计（#110） |
+| 系统设置 | 数据源设置 / 功能设置 / 存储管理（#111） / 媒体管理（#117） / 操作审计（#110） / 演示环境（#258） |
+
+> **演示环境 Tab（#258）**：仅生产 admin 可用。`DEMO_ENABLED` 关闭时显示启用引导而非报错；开启后可查看演示库状态、全量重置演示数据、发放/禁用/启用/重置密码/删除访客账户（密码明文仅展示一次）。重置会清空全部访客账户，UI 与 `DEPLOY.md` 均明示。demo-admin 无权访问（`demo/*` 不在 `DEMO_ALLOWED`），该 Tab 对其隐藏。
 
 **教师面板 `/dashboard/teacher`** — 四组：
 
@@ -196,7 +198,7 @@
 | `/api/manage/assessment` | GET |
 | `/api/manage/audit-logs` | GET |
 
-**显式拒绝**：`/api/manage/test-db`（唯一绕过演示作用域、可按请求体打开任意 SQLite/MySQL 的端点，**含生产库**）、`settings`、`storage*`、`backup`、`media*`、`teachers*`、`demo/*`，以及 `students` / `tags` / `classes` / `profile-config` 的写与 `profiles/submissions/cleanup`。拒绝由 proxy 直接 403、不进入路由；演示管理员仍可打开 `/dashboard/admin` 页面，对应 Tab 会显示接口 403（UI 收敛归 #258）。
+**显式拒绝**：`/api/manage/test-db`（唯一绕过演示作用域、可按请求体打开任意 SQLite/MySQL 的端点，**含生产库**）、`settings`、`storage*`、`backup`、`media*`、`teachers*`、`demo/*`，以及 `students` / `tags` / `classes` / `profile-config` 的写与 `profiles/submissions/cleanup`。拒绝由 proxy 直接 403、不进入路由。#258 起，演示管理员的侧边栏隐藏完全无权的 Tab（演示环境 / 数据源设置 / 教师管理 / 存储管理 / 媒体管理）；其余只读 Tab 保留，其中的写操作仍会收到 403（读可用、写不可用）。
 
 ### 共享域 `/api/shared/*`（不进 proxy，路由自鉴权）
 
@@ -440,17 +442,20 @@
 - **无结果空态**：每套量表自己的空态——折叠卡标题用该量表名，题量与预计耗时复用 `assessment-center.ts` 的统一口径（不写死数字），标题右侧 CTA 带 `?code=` 直达答题页；有未完成草稿时提示「上次答到 N/M」并把 CTA 改成「继续作答」
 - **容错**：首屏清单接口（`/list`）失败时整区显示「暂时读不到」+ 重试，不会把失败说成「没做过测评」；单套结果补拉失败只影响那一张卡；得分缺 `standard` 等脏数据在 `parseScores`（#223）与视图模型两层过滤，不用坏数据渲染
 
-## 数据导出（#233）
+## 数据导出（#233 / #331）
 
-<!-- 对账：列定义与格式化纯函数在 `src/lib/export-columns.ts`（测试 `export-columns.test.ts`）；路由 `src/app/api/manage/export/route.ts`；界面 `src/components/admin/ExportTab.tsx` -->
+<!-- 对账：列定义与格式化纯函数在 `src/lib/export-columns.ts`（测试 `export-columns.test.ts`）；导出请求共享层在 `src/lib/export-request.ts`；路由 `src/app/api/manage/export/route.ts`；界面 `src/components/admin/ExportTab.tsx` / `ExportProfilesDialog.tsx` -->
 
-- **列分两组**：基础信息（班级 / 学号 / 姓名 / 标签 / 学生头像 / 历史评价词云图片 / 他人评价1–3 / 头像 URL / 历史评价词云图片 URL / 提交时间）与职业兴趣测评（测评状态 / 测评完成时间 / 霍兰德三字码 / 六型得分 / 推荐职业 Top3）。**默认列集合在 #233 基线上追加他人评价1–3**（#162；历史图片列保留以兼容存量），新增列仍是增量勾选
-- **列顺序以 `EXPORT_COLUMNS` 为准**（与前端勾选顺序无关）：xlsx 的图片锚点由**最终列下标**算出（`columnLetter` / `imageColumnIndex`），因此插入班级/测评/评价文字列后头像与历史词云图片仍落在各自列上；评价文字列在 CSV 中单行化并对 `= + - @` 开头做公式注入防护，在 XLSX 中自动换行
+- **两个入口共用一套列定义**：管理/教师面板「数据导出」页负责范围 / 日期 / 学号 / 图片放置；「数据列表」卡头右侧「导出名单」（#331）固定导出**当前筛选结果（含所有页）**，两者都消费 `EXPORT_COLUMNS` 与 `export-request.ts` 的请求参数拼装，避免两套列定义分叉
+- **列分两组**：基础信息（班级 / 学号 / 姓名 / 标签 / 学生头像 / 历史评价词云图片 / 他人评价1–3 / 头像 URL / 历史评价词云图片 URL / 提交时间）与职业测评（测评状态 / 测评完成时间 / 霍兰德三字码 / 六型得分 / 推荐职业 Top3 / 人格特质 / 大五得分）。**默认列集合在 #233 基线上追加他人评价1–3**（#162；历史图片列保留以兼容存量），其余新增列（含 #331 的人格列）一律增量勾选
+- **列顺序以 `EXPORT_COLUMNS` 为准**（与前端勾选顺序无关）：#331 的 `personality_traits` / `big_five_scores` **追加在末尾**，既有列顺序与 xlsx 图片锚点（`columnLetter` / `imageColumnIndex`）完全不变；评价文字列在 CSV 中单行化并对 `= + - @` 开头做公式注入防护，在 XLSX 中自动换行
 - **六型得分两种形态**：合成一列 `R42 I38 A20 S74 E31 C25`，或拆成 R/I/A/S/E/C 六列；取结果快照的 0–100 标准分并取整，两种形态共用同一口径
+- **大五列（#331）**：读取启用中的 `dimensional` 量表当前有效结果（`completed + is_current=1`），按学号集合一次批查；`personality_traits` 复用结果页 `buildBigFiveHeadline`（Top2 画像，如「高开放性 · 高尽责性」），`big_five_scores` 按 `dimensions_json` 顺序输出 `N42 E58 O71 A44 C66`；未测 / 快照缺失整格留空，不补 0
 - **班级名**：学生行自带 `class_id`，内存关联班级表得到班名（不新增 SQL 联表）；未分班为空串
 - **测评列取值**：只认 `assessment_results` 的当前有效完成结果（`status=completed` + `is_current=1`），按学号集合**一次批查**（`getCurrentAssessmentResultsByUserCodes`，适配器内 500 分片）；未测评学生整格留空（不填 0 / undefined），状态列为「未测」
+- **筛选下推（#331）**：`GET /api/manage/export` 接受与列表一致的 `q` / `tag` / `interest` / `personality`，解析与人格维度下标解析复用 `profile-query.ts`；带筛选时按 `buildSubmittedProfilesSql` 同一份 SQL **全量取行（不分页）**，`scope` / `ids` / `dateFrom` / `dateTo` 语义保留；无筛选时仍走原 `getAllSubmitted`，行为不变
 - **推荐职业 Top3**：复用 #226 的匹配纯函数（画像取结果快照六维分、候选由 `toCareerCandidates` 从 `onet_occupations` 转），输出中文名（无译名回退英文名）分号分隔；职业库为空时该列不输出内容，界面按钮置灰并悬停说明（`?capabilities=1` 探测），**不隐藏**
-- **审计沿用**：导出动作仍记 `export:excel`（只记范围/列数/格式，明细不入库）；本 Issue 不做脱敏（教师本地留存）
+- **审计沿用**：导出动作仍记 `export:excel`（只记范围 / 列数 / 格式 / 是否筛选，明细不入库）；本 Issue 不做脱敏（教师本地留存）
 
 ## 他人评价与词云（#162）
 
@@ -469,7 +474,7 @@
 学生端（激活）：/activate 第一步 verify 三要素核验（#93）→ 第二步设置密码并自动登录
 学生端（职业测评，#222/#223/#225）：侧边栏「职业测评」→ 测评中心（三态状态卡：未开始 / 进行中 / 已完成 + 测验清单 / 六型科普 / 学职平台外链 / 授权与免责四张内容卡）→「开始 / 继续作答」进答题页单题单屏（每题自动存草稿，可退出续答）→ 全部答完后二次确认提交 → 服务端计分并按快照落库 → 答题页展示三字码与六维分；完整解读在「我的档案」测评区（#224）
 教师端：登录 → 主页（问候 + 分组快捷入口，**不含统计数字**）→ 数据中心（概览/大屏/导出）→ 数据管理（数据列表/学生/班级/课堂分组/标签）→ 系统设置（功能设置/操作审计）
-管理端：登录 → 数据中心（概览/大屏/导出/提交历史）→ 用户管理（学生/教师/班级/课堂分组/标签）→ 系统设置（数据源/功能设置/存储管理/媒体管理/操作审计）
+管理端：登录 → 数据中心（概览/大屏/导出/提交历史）→ 用户管理（学生/教师/班级/课堂分组/标签）→ 系统设置（数据源/功能设置/存储管理/媒体管理/操作审计/演示环境）
 ```
 
 ## 班级邀请海报（#102）

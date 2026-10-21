@@ -147,6 +147,27 @@ describe("getSubmittedProfiles 服务端筛选（#295）", () => {
     cleanup(dbPath);
   });
 
+  it("导出取全量命中行（#331）：不套分页，筛选 / 排序与列表同一口径", () => {
+    const { dbPath, adapter } = seed();
+    const all = adapter.getSubmittedProfilesForExport();
+    expect(all).toHaveLength(25);
+    expect(all[0].user_code).toBe("202505051001");
+
+    expect(adapter.getSubmittedProfilesForExport({ lead: "I" }).map((row) => row.user_code)).toEqual([
+      CODE_24,
+      CODE_25,
+    ]);
+
+    const personality = adapter.getSubmittedProfilesForExport({
+      personality: { mode: "dimension", key: "C", dir: "high" },
+      personalitySql: { scaleCode: IPIP_NEO_FFI_CODE, dimensionIndex: 4 },
+    });
+    expect(personality.map((row) => row.user_code)).toEqual([CODE_24]);
+
+    adapter.close();
+    cleanup(dbPath);
+  });
+
   it("兴趣测评筛选跨页生效：第 2 页的 IAR 学生在第 1 页筛选就能拿到", () => {
     const { dbPath, adapter } = seed();
     const result = adapter.getSubmittedProfiles(1, 20, { lead: "I" });

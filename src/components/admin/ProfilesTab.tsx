@@ -2,8 +2,9 @@
 
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { toast } from "sonner";
-import { Tag, ChevronDown } from "lucide-react";
+import { Tag, ChevronDown, Download } from "lucide-react";
 import ConfirmDialog from "./ConfirmDialog";
+import ExportProfilesDialog from "./ExportProfilesDialog";
 import { useEscapeKey } from "@/hooks/useEscapeKey";
 import StorageImage from "@/components/StorageImage";
 import EvaluationWordCloud from "@/components/EvaluationWordCloud";
@@ -157,6 +158,7 @@ export default function ProfilesTab({
   const [appliedSearch, setAppliedSearch] = useState("");
   const [selectedTags, setSelectedTags] = useState<Set<string>>(new Set());
   const [confirmDelete, setConfirmDelete] = useState<string[] | null>(null);
+  const [exportOpen, setExportOpen] = useState(false);
   const [sortKey, setSortKey] = useState<ProfileSortKey>(DEFAULT_PROFILE_SORT.sortKey);
   const [sortDir, setSortDir] = useState<SortDir>(DEFAULT_PROFILE_SORT.sortDir);
   // 测评筛选（#330）：兴趣（多选 AND / 未测）与人格（已测 / 未测 / 单维度偏高偏低）互斥，
@@ -452,7 +454,7 @@ export default function ProfilesTab({
   return (
     <div className="bg-card rounded-xl border border-border-soft">
       <div className="px-5 py-4 border-b border-border-soft flex flex-col gap-3">
-        <div className="flex items-center justify-between gap-3">
+        <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex min-w-0 flex-wrap items-center gap-2">
             <h2 className="font-semibold text-foreground">
               数据列表 {paged && `(${paged.total} 条${hasFilter ? " · 已筛选" : ""})`}
@@ -461,14 +463,32 @@ export default function ProfilesTab({
               <span className="text-xs text-danger-strong">班级归属加载失败，暂不可删除档案</span>
             )}
           </div>
-          {selectedDeletableIds.length > 0 && (
+          <div className="flex items-center gap-2">
             <button
-              onClick={() => setConfirmDelete(selectedDeletableIds)}
-              className="px-4 py-1.5 bg-danger hover:bg-red-600 text-white text-sm font-medium rounded-lg transition-colors"
+              type="button"
+              onClick={() => setExportOpen(true)}
+              disabled={!paged || paged.total === 0}
+              title={
+                !paged
+                  ? "列表加载中，暂不可导出"
+                  : paged.total === 0
+                    ? "当前筛选结果为空，暂无可导出的数据"
+                    : "导出当前筛选结果（含所有页）"
+              }
+              className="inline-flex items-center gap-1.5 px-4 py-1.5 bg-primary hover:bg-primary-strong text-white text-sm font-medium rounded-lg transition-colors disabled:cursor-not-allowed disabled:opacity-50"
             >
-              删除选中（{selectedDeletableIds.length}）
+              <Download className="w-4 h-4" strokeWidth={1.8} />
+              导出名单
             </button>
-          )}
+            {selectedDeletableIds.length > 0 && (
+              <button
+                onClick={() => setConfirmDelete(selectedDeletableIds)}
+                className="px-4 py-1.5 bg-danger hover:bg-red-600 text-white text-sm font-medium rounded-lg transition-colors"
+              >
+                删除选中（{selectedDeletableIds.length}）
+              </button>
+            )}
+          </div>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <input
@@ -899,6 +919,15 @@ export default function ProfilesTab({
             </div>
           </div>
         </div>
+      )}
+
+      {/* 导出名单（#331）：范围 = 当前筛选结果（含所有页）；按需挂载，每次打开回到默认勾选 */}
+      {exportOpen && (
+        <ExportProfilesDialog
+          onClose={() => setExportOpen(false)}
+          filters={query}
+          total={paged?.total ?? 0}
+        />
       )}
 
       {/* Confirm Delete */}
