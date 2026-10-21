@@ -419,12 +419,12 @@
 - **缩略图**：key 派生规则 `{base}.jpg` → `{base}_thumb.jpg`（仅 `.jpg` 派生，常量在 `src/lib/thumbnail-utils.ts`，生成逻辑 `src/lib/thumbnail.ts` 仅服务端）；`generate-thumbnails/status` 只读检测缺失，`generate-thumbnails` 补生成（单文件失败不中断，返回统计）
 - **权限**：媒体治理不开放教师，路由内二次校验仅 admin
 
-## 职业测评结果展示（#224 + #292）
+## 职业测评结果展示（#224 + #292 + #344）
 
-<!-- 对账：视图模型纯函数在 `src/lib/assessment-view.ts`（测试 `assessment-view.test.ts`）；组件在 `src/components/student/`；数据来自 `/api/shared/assessment/list`（#291，量表清单）+ `/api/shared/assessment/results`（#223，逐套结果）与 `/careers`（#226） -->
+<!-- 对账：视图模型纯函数在 `src/lib/assessment-view.ts`（测试 `assessment-view.test.ts`，含渲染范围判定 `shouldRenderAssessmentResults`）；组件在 `src/components/student/`；数据来自 `/api/shared/assessment/list`（#291，量表清单）+ `/api/shared/assessment/results`（#223，逐套结果）与 `/careers`（#226） -->
 
-- **位置**：学生面板「我的档案」内容区（hero 之下、Tab/资料区之上）常驻**测评结果区**；#322 起每套量表默认折叠为速览卡，Tab（我的档案 / 历史提交）紧随其后、在 1 屏内可达，不区分「已提交 / 建档中 / 编辑态」——这样无论档案提交流程处于哪一步，结果都能看到
-- **与档案提交流程完全解耦**：结果区自己读 `/api/shared/assessment/list` + `/api/shared/assessment/results`，**不看 `submissionClosed` / 截止日期**（档案截止后仍可查看与重测）、不进档案版本快照、不显示「已归档 / 未提交」状态。测评的截止/停用规则只由测评自身（量表 `enabled`）决定
+- **位置与渲染范围（#344）**：学生面板「我的档案」内容区（hero 之下、Tab/资料区之上）**只在「我的档案」视图、且不在编辑态**渲染测评结果区与页尾授权卡（判定为纯函数 `shouldRenderAssessmentResults(activeView, editing)`）；「我的小组」「历史提交」视图与编辑态不挂载，因而也不会发起 `assessment/list` + 逐套 `results` 请求。范围卡在组装档案资料时隐藏，与「先保存 / 取消，再回来看结果」的交互一致；保存或切回档案视图即恢复
+- **与档案提交流程完全解耦**：结果区自己读 `/api/shared/assessment/list` + `/api/shared/assessment/results`，**不看 `submissionClosed` / 截止日期**（档案截止后仍可查看与重测）、不进档案版本快照、不显示「已归档 / 未提交」状态。测评的截止/停用规则只由测评自身（量表 `enabled`）决定；「是否渲染」只看视图与编辑态，与提交截止无关
 - **多量表清单（#292）**：**「有哪些启用的量表」只有一个家**——`AssessmentResultsSection` 先取 #291 的 `/api/shared/assessment/list`（只列 `enabled=1` 的量表），再逐套按 `?code=` 并行取本人结果；`/results` 本身不附带清单，避免同一信息两处维护。清单为空（全部量表停用）时整个结果区不占位，停用量表的历史结果仍可按 `?code=` 直读。每套量表一张卡（`AssessmentResultCard`），全部数据由结果区持有，卡片只负责渲染；单套补拉失败只让那一张卡显示重试，不拖垮整个结果区
 - **入口分流（红线）**：卡片在入口按 `assessment.scoringMode` 分流（`resultCardMode` 纯函数）——`dimensional` 走大五卡 `FiveFactorResultCard`，其余走霍兰德卡。大五的 E/A/C 与霍兰德同名不同义（外向性 ≠ 企业型、宜人性 ≠ 艺术型、尽责性 ≠ 常规型），所以大五分数**绝不进入** `buildRiasec*` / `parseTypeCodeParts` / 职业推荐；分流看模式而不是「三字码是不是 null」
 - **霍兰德卡（#224）**：三字码徽章（`bg-brand` 深绿块 + 每枚字母的中文型名）→ 六型雷达图（recharts `RadarChart`，量程固定 0–100、不画半径刻度）与条状排名并列（排名标出三字码里的「主要兴趣」）→ 六型逐条通俗解读（按排名顺序，不出现「维度 / 标准分 / 口径」等术语）→ 推荐职业（#226，渐进增强）→ 页尾合规指针（#322：署名与免责全文只在页尾出现一次）

@@ -26,6 +26,7 @@ import {
   extractEvaluationWords,
 } from "@/lib/evaluation-text";
 import { MAX_RESULT_VERSIONS } from "@/lib/assessment-flow";
+import { shouldRenderAssessmentResults } from "@/lib/assessment-view";
 import { latestCompletedOf } from "@/lib/assessment-list";
 import { toThumbnailUrl } from "@/lib/thumbnail-utils";
 import type { WordCloudItem } from "@/types";
@@ -667,6 +668,9 @@ export default function StudentDashboardPage() {
     [assessmentFooter.scales]
   );
 
+  // 测评结果区只在「我的档案」视图、非编辑态渲染（#344）：小组 / 历史视图不挂载、也不再发取数请求
+  const showAssessmentResults = shouldRenderAssessmentResults(activeView, editing);
+
   const startEdit = async () => {
     if (!profile) return;
     // 从「我的小组 / 历史提交」点 hero 的修改入口时，先切回档案视图，保存后才看得到结果
@@ -973,8 +977,9 @@ export default function StudentDashboardPage() {
               </div>
             </section>
 
-            {/* 测评结果区（#224 + #292 + #322）：按量表清单渲染折叠卡，独立于档案提交流程——不受截止门控、不进档案版本快照 */}
-            <AssessmentResultsSection onData={setAssessmentFooter} />
+            {/* 测评结果区（#224 + #292 + #322）：只在「我的档案」视图、非编辑态渲染（#344）——小组 / 历史提交与测评无关，
+                不挂载也就不会发起 assessment/list + results 请求；仍不受提交截止门控、不进档案版本快照 */}
+            {showAssessmentResults && <AssessmentResultsSection onData={setAssessmentFooter} />}
 
             {/* Tab 导航（#322 上移）：速览区之后、资料区之前，保证「历史提交」在 1 屏内可达；历史提交仍懒加载 */}
             {!editing && hasSubmitted && activeView !== "group" && (
@@ -1196,8 +1201,9 @@ export default function StudentDashboardPage() {
               </div>
             )}
 
-            {/* 页尾授权与免责（#322）：全页只出现一次，结果卡内只留指针；折叠但保留 DOM 文本 */}
-            {assessmentFooter.scales.length > 0 && (
+            {/* 页尾授权与免责（#322）：全页只出现一次，结果卡内只留指针；与测评结果区同范围（#344），
+                小组 / 历史视图与编辑态不显示 */}
+            {showAssessmentResults && assessmentFooter.scales.length > 0 && (
               <AssessmentAttributionCard
                 collapsible
                 scales={assessmentFooter.scales}

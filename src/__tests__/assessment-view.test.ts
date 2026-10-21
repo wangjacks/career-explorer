@@ -1,4 +1,6 @@
 import { describe, it, expect } from "vitest";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import type { DimensionScore } from "../lib/assessment-scoring";
 import { RIASEC_KEYS, RIASEC_LABELS } from "../lib/assessment-match";
 import {
@@ -18,6 +20,7 @@ import {
   parseTypeCodeParts,
   resultCardMode,
   resultCardStatus,
+  shouldRenderAssessmentResults,
 } from "../lib/assessment-view";
 
 function score(key: string, standard: number, label?: string): DimensionScore {
@@ -363,5 +366,45 @@ describe("页尾授权分组（#322）", () => {
     expect(model.disclaimers).toEqual([{ text: "声明", scaleNames: ["霍兰德"] }]);
     expect(model.careersAttribution).toBe("CC BY 4.0");
     expect(buildAttributionGroups({}).careersAttribution).toBe("");
+  });
+});
+
+describe("shouldRenderAssessmentResults（#344 测评结果区的渲染范围）", () => {
+  it("只在「我的档案」视图渲染", () => {
+    expect(shouldRenderAssessmentResults("profile", false)).toBe(true);
+  });
+
+  it("「我的小组」「历史提交」不渲染（避免无关结果卡挤占视图内容、也不再发测评请求）", () => {
+    expect(shouldRenderAssessmentResults("group", false)).toBe(false);
+    expect(shouldRenderAssessmentResults("history", false)).toBe(false);
+  });
+
+  it("编辑态统一隐藏：填写时结果卡只干扰输入，与资料卡「先保存再看结果」一致", () => {
+    expect(shouldRenderAssessmentResults("profile", true)).toBe(false);
+    expect(shouldRenderAssessmentResults("history", true)).toBe(false);
+    expect(shouldRenderAssessmentResults("group", true)).toBe(false);
+  });
+
+  it("判定只认视图与编辑态，不认提交截止（测评与档案提交流程解耦）", () => {
+    // 函数签名里没有 submissionClosed：截止与否不改变渲染范围
+    expect(shouldRenderAssessmentResults.length).toBe(2);
+    expect(shouldRenderAssessmentResults("profile", false)).toBe(true);
+  });
+});
+
+describe("学生面板的测评区挂载（#344）", () => {
+  const pageSource = () =>
+    readFileSync(join(process.cwd(), "src/app/dashboard/student/page.tsx"), "utf8");
+
+  it("页面先用纯函数判定再挂载测评结果区，不存在无条件渲染", () => {
+    const source = pageSource();
+    expect(source).toContain("shouldRenderAssessmentResults(activeView, editing)");
+    expect(source).toMatch(/showAssessmentResults\s*&&\s*<AssessmentResultsSection/);
+    expect(source).not.toMatch(/^\s*<AssessmentResultsSection/m);
+  });
+
+  it("页尾授权卡与测评结果区同范围渲染（小组 / 历史视图不残留合规卡）", () => {
+    const source = pageSource();
+    expect(source).toMatch(/showAssessmentResults\s*&&\s*assessmentFooter\.scales\.length\s*>\s*0/);
   });
 });
