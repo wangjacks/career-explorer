@@ -18,6 +18,7 @@ import { useFileUrl } from "@/hooks/useFileUrl";
 import { safeImageUrl } from "@/lib/sanitize";
 import { submitProfile } from "@/lib/profile-submit";
 import { MAX_RESULT_VERSIONS } from "@/lib/assessment-flow";
+import { latestCompletedOf } from "@/lib/assessment-list";
 import { toThumbnailUrl } from "@/lib/thumbnail-utils";
 
 interface MyProfile {
@@ -395,13 +396,19 @@ function ProfileOverviewCard({
       <div className="space-y-2">
         <p className="text-xs font-medium text-foreground">评价词云</p>
         {thumbnailPreview ? (
-          <img
-            src={thumbnailPreview}
-            alt="评价词云"
+          <button
+            type="button"
             onClick={() => onPreview(evaluationUrl || thumbnailPreview)}
-            onError={() => setThumbFailed(true)}
-            className="w-full max-w-xs cursor-zoom-in rounded-lg border border-border-soft"
-          />
+            aria-label="放大评价词云"
+            className="block w-full max-w-xs cursor-zoom-in rounded-lg border border-border-soft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
+          >
+            <img
+              src={thumbnailPreview}
+              alt="评价词云"
+              onError={() => setThumbFailed(true)}
+              className="w-full rounded-lg"
+            />
+          </button>
         ) : (
           <div className="flex flex-wrap items-center gap-3">
             <p className="text-sm text-muted">还没有评价词云。</p>
@@ -567,12 +574,11 @@ export default function StudentDashboardPage() {
 
   const hasSubmitted = !!profile?.submitted_at;
 
-  // hero「第 N 次测评与完成时间」（#322）：取最近一次完成的量表，不额外请求接口
-  const latestAssessment = useMemo(() => {
-    const completed = assessmentFooter.scales.filter((item) => item.completedAt !== "");
-    if (completed.length === 0) return null;
-    return completed.reduce((latest, item) => (item.completedAt > latest.completedAt ? item : latest));
-  }, [assessmentFooter.scales]);
+  // hero「第 N 次测评与完成时间」（#322）：取最近一次完成的量表，与「我的测评」共用同一条规则
+  const latestAssessment = useMemo(
+    () => latestCompletedOf(assessmentFooter.scales),
+    [assessmentFooter.scales]
+  );
 
   const startEdit = async () => {
     if (!profile) return;
@@ -822,7 +828,8 @@ export default function StudentDashboardPage() {
                           次
                         </>
                       )}
-                      {latestAssessment.completedAt && ` · ${latestAssessment.completedAt}`}
+                      {" · "}
+                      {latestAssessment.completedAt}
                     </p>
                   )}
                 </div>

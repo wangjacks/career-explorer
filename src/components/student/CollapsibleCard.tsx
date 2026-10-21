@@ -89,6 +89,8 @@ export default function CollapsibleCard({
               aria-hidden
               className={`mt-0.5 flex-shrink-0 text-muted transition-transform duration-200 ${open ? "rotate-180" : ""}`}
             />
+            {/* 读屏可听到「展开 / 收起」，不依赖 aria-expanded 的隐含语义 */}
+            <span className="sr-only">{open ? "收起详情" : "展开详情"}</span>
           </button>
         </h2>
         {action && <div className="flex-shrink-0">{action}</div>}
