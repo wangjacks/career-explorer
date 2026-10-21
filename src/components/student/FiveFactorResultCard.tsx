@@ -1,9 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import ProfileSectionHeader from "./ProfileSectionHeader";
+import CollapsibleCard from "./CollapsibleCard";
 import ScoreRadarChart from "./ScoreRadarChart";
-import AssessmentDisclaimer from "./assessment/AssessmentDisclaimer";
+import { formatResultTime } from "@/lib/assessment-flow";
 import {
   buildBigFiveBars,
   buildBigFiveHeadline,
@@ -17,10 +17,10 @@ import {
 const QUIZ_HREF = "/dashboard/student/assessment/quiz";
 
 /**
- * 五大人格结果卡（#292）：**只在 dimensional 量表上渲染**（由 `AssessmentResultCard` 在入口分流）。
+ * 五大人格结果卡（#292 + #322）：**只在 dimensional 量表上渲染**（由 `AssessmentResultCard` 在入口分流）。
  *
  * 构成与霍兰德卡平级但内容不同：画像标签（最高两维）→ 五维雷达 + 条形排名（标「主要特质」）→
- * 逐维高 / 低分解读 → 免责声明与署名。大五没有三字码、也没有职业推荐，
+ * 逐维高 / 低分解读 → 页尾合规指针。大五没有三字码、也没有职业推荐，
  * 所以这里不 import 任何 RIASEC 视图函数（E/A/C 同名不同义，混用会把外向性画成企业型）。
  */
 export default function FiveFactorResultCard({
@@ -41,14 +41,12 @@ export default function FiveFactorResultCard({
   const points = buildRadarPoints(current.scores, dimensions);
   const trailing = buildResultTrailing({
     questionCount: current.questionCount,
-    completedAt: current.completedAt,
+    completedAt: formatResultTime(current.completedAt),
     historyCount: data.history.length,
   });
 
   return (
-    <section className="bg-card rounded-xl border border-border-soft p-5 space-y-5">
-      <ProfileSectionHeader label={data.assessment.name} trailing={<span className="text-xs text-muted">{trailing}</span>} />
-
+    <CollapsibleCard title={data.assessment.name} status="completed" subtitle={trailing}>
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div className="bg-brand rounded-xl px-4 py-3 text-white">
           <p className="text-[11px] text-white/70">你的主要特质</p>
@@ -62,12 +60,12 @@ export default function FiveFactorResultCard({
         </Link>
       </div>
 
-      {/* 两种视图并列：雷达看整体形状，条状排名看具体高低 */}
+      {/* 两种视图并列：雷达看整体形状，条状排名看具体高低；窄屏上下堆叠 */}
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-        <div className="rounded-lg border border-border-soft px-2 py-1">
+        <div className="min-w-0">
           <ScoreRadarChart points={points} seriesName="人格得分" ariaLabel="五大人格得分雷达图" />
         </div>
-        <ul className="space-y-2.5" aria-label="五大人格得分排名">
+        <ul className="min-w-0 space-y-2.5" aria-label="五大人格得分排名">
           {bars.map((bar) => (
             <li key={bar.key} className="space-y-1">
               <div className="flex items-center justify-between gap-2 text-sm">
@@ -108,14 +106,16 @@ export default function FiveFactorResultCard({
         </ul>
       </div>
 
-      {/* 署名 / 授权 / 免责：与霍兰德卡同一个组件与同一份接口文案，保证口径一致 */}
-      <AssessmentDisclaimer text={data.assessment.disclaimer} variant="inline" />
-      {data.assessment.attribution && (
-        <p className="text-[11px] text-muted/80 leading-relaxed">{data.assessment.attribution}</p>
-      )}
-      {data.assessment.licenseText && (
-        <p className="text-[11px] text-muted/80 leading-relaxed">{data.assessment.licenseText}</p>
-      )}
-    </section>
+      <p className="text-xs leading-relaxed text-muted">
+        本测评的署名、授权与免责声明见页尾
+        <a
+          href="#assessment-attribution"
+          className="ml-1 text-primary-strong underline underline-offset-2 hover:no-underline"
+        >
+          「关于这些测评」
+        </a>
+        。
+      </p>
+    </CollapsibleCard>
   );
 }
