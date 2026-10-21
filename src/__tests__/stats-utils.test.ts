@@ -131,7 +131,7 @@ describe("fillGroupedTrend", () => {
     ]);
   });
 
-  it("未分班哨兵固定排末尾，真实班名「未分班」仍保持传入顺序", () => {
+  it("未分班哨兵固定排末尾，真实班名「未分班」按 key 正常排序", () => {
     const series = fillGroupedTrend(
       [
         { date: "2026-09-29", key: "__unassigned__", label: "未分班", count: 1 },
@@ -142,10 +142,22 @@ describe("fillGroupedTrend", () => {
       1
     );
     expect(series.series.map((group) => group.key)).toEqual([
-      "未分班",
       "一班",
+      "未分班",
       "__unassigned__",
     ]);
+  });
+
+  it("排序与适配器返回顺序无关（JS 稳定排序，锁两库一致）", () => {
+    const series = fillGroupedTrend(
+      [
+        { date: "2026-09-29", key: "二班", label: "二班", count: 1 },
+        { date: "2026-09-29", key: "一班", label: "一班", count: 1 },
+      ],
+      "2026-09-29",
+      1
+    );
+    expect(series.series.map((group) => group.key)).toEqual(["一班", "二班"]);
   });
 
   it("同「日期 + 分组」累加，轴外数据丢弃", () => {
@@ -243,6 +255,15 @@ describe("mapCompareRows", () => {
       { key: "未分班", label: "未分班", total: 5, submitted: 3 },
       { key: "__unassigned__", label: "未分班", total: 6, submitted: 2 },
     ]);
+  });
+
+  it("排序与适配器返回顺序无关（JS 稳定排序，锁两库一致）", () => {
+    expect(
+      mapCompareRows([
+        { class_id: 2, class_name: "B班", total: 1, submitted: 0 },
+        { class_id: 1, class_name: "A班", total: 1, submitted: 0 },
+      ]).map((item) => item.key)
+    ).toEqual(["A班", "B班"]);
   });
 
   it("空输入返回空数组", () => {

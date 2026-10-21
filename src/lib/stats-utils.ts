@@ -107,10 +107,11 @@ export function fillGroupedTrend(
   for (const row of rows) {
     if (!groups.has(row.key)) groups.set(row.key, { key: row.key, label: row.label });
   }
-  // 未分班哨兵排末尾（与班级对比、班级概览的行序一致）；其余保持传入顺序（SQL 已按名称升序）
+  // 排序放在 JS 里做：SQLite BINARY 与 MySQL collation 对班名的排序不同，
+  // 依赖 SQL ORDER BY 会让两适配器的序列顺序（进而配色）不一致。
   const all = Array.from(groups.values());
   const ordered = [
-    ...all.filter((group) => !isUnassignedClassKey(group.key)),
+    ...all.filter((group) => !isUnassignedClassKey(group.key)).sort(compareClassKeys),
     ...all.filter((group) => isUnassignedClassKey(group.key)),
   ];
 
@@ -181,7 +182,14 @@ export function mapCompareRows(rows: readonly RawCompareRow[]): CompareStat[] {
   }
   const all = Array.from(byKey.values());
   return [
-    ...all.filter((item) => !isUnassignedClassKey(item.key)),
+    ...all.filter((item) => !isUnassignedClassKey(item.key)).sort(compareClassKeys),
     ...all.filter((item) => isUnassignedClassKey(item.key)),
   ];
+}
+
+/** 与数据库 collation 无关的稳定排序：按 key 的码元序，保证两适配器输出一致 */
+function compareClassKeys(a: ClassGroup, b: ClassGroup): number {
+  if (a.key < b.key) return -1;
+  if (a.key > b.key) return 1;
+  return 0;
 }
