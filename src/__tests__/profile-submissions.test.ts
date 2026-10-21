@@ -362,7 +362,7 @@ describe("备份恢复集成（#95）", () => {
     adapter.submitProfileWithVersion("202505050101", "[2]", "/a2.png", "/w2.png", null, storageId);
 
     const data = adapter.backup();
-    expect(data.version).toBe(7); // #162 起含评价文字列
+    expect(data.version).toBe(8); // #162 起含评价文字列
     expect(data.profile_submissions).toHaveLength(2);
     expect(data.profile_submissions![0]).toMatchObject({ user_id: studentId, version: 1, is_current: 0 });
     expect(data.profile_submissions![1]).toMatchObject({ user_id: studentId, version: 2, is_current: 1 });

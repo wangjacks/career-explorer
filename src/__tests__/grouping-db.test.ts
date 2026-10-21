@@ -4,7 +4,7 @@ import { mkdtempSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import path from "path";
 import { SqliteAdapter } from "../lib/db-sqlite";
-import type { BackupData } from "../lib/db";
+import type { BackupData, NewGroupBatchInput } from "../lib/db";
 
 const tmpDirs: string[] = [];
 /** 每个测试用独立目录；班级序号保证同一库内学号不重复 */
@@ -66,7 +66,7 @@ function batchInput(
     actorId: 7,
     actorName: "测试教师",
     actorRole: "teacher",
-    groups: entries.map((members, i) => ({ groupNo: i + 1, cohesion, members })),
+    groups: entries.map((members, i): NewGroupBatchInput["groups"][number] => ({ groupNo: i + 1, cohesion, leaderUserId: null, members })),
   };
 }
 
@@ -433,7 +433,7 @@ describe("分组五表与适配器方法（#101）", () => {
     );
 
     const dump = adapter.backup();
-    expect(dump.version).toBe(7); // #162 起含评价文字列
+    expect(dump.version).toBe(8); // #345 起含分组长字段
     expect(dump.class_groups?.length).toBe(1);
     expect(dump.class_group_members?.length).toBe(2);
     expect(dump.group_batches?.length).toBe(1);
@@ -492,6 +492,124 @@ describe("分组五表与适配器方法（#101）", () => {
     adapter.init();
     expect(adapter.getClassGroups(classId).length).toBe(1);
     expect(adapter.getClassGroupMembers(classId).length).toBe(2);
+    adapter.close();
+  });
+});
+
+describe("分组长持久化与备份（#345）", () => {
+  it("replaceClassGrouping 可带组长；组长必须是本组成员（否则整批拒绝）", () => {
+    const adapter = makeAdapter();
+    const { classId, ids } = seedClass(adapter, "A", 3);
+    adapter.replaceClassGrouping(classId, [{ group_no: 1, user_ids: ids, leader_user_id: ids[1] }]);
+    expect(adapter.getClassGroups(classId)[0].leader_user_id).toBe(ids[1]);
+
+    expect(() =>
+      adapter.replaceClassGrouping(classId, [{ group_no: 1, user_ids: ids, leader_user_id: 99999 }])
+    ).toThrow("组长必须是本组成员");
+    adapter.close();
+  });
+
+  it("updateClassGroupLeader 设置 / 取消；组不存在时报可读错误", () => {
+    const adapter = makeAdapter();
+    const { classId, ids } = seedClass(adapter, "A", 2);
+    adapter.replaceClassGrouping(classId, [{ group_no: 1, user_ids: ids }]);
+    adapter.updateClassGroupLeader(classId, 1, ids[0]);
+    expect(adapter.getClassGroups(classId)[0].leader_user_id).toBe(ids[0]);
+    adapter.updateClassGroupLeader(classId, 1, null);
+    expect(adapter.getClassGroups(classId)[0].leader_user_id).toBeNull();
+    expect(() => adapter.updateClassGroupLeader(classId, 9, ids[0])).toThrow("该组不存在");
+    adapter.close();
+  });
+
+  it("applyGroupingResult 同时把组长写进当前分组与历史批次快照", () => {
+    const adapter = makeAdapter();
+    const { classId, ids, codes } = seedClass(adapter, "A", 2);
+    const members = (index: number[]) =>
+      index.map((i) => ({ userId: ids[i], userCode: codes[i], name: `学生${i + 1}` }));
+    const batch = batchInput(classId, [members([0]), members([1])]);
+    batch.groups[0].leaderUserId = ids[0];
+    const batchId = adapter.applyGroupingResult(
+      classId,
+      [
+        { group_no: 1, user_ids: [ids[0]], leader_user_id: ids[0] },
+        { group_no: 2, user_ids: [ids[1]], leader_user_id: null },
+      ],
+      batch
+    );
+
+    expect(adapter.getClassGroups(classId).map((group) => group.leader_user_id)).toEqual([ids[0], null]);
+    const detail = adapter.getGroupBatchDetail(batchId);
+    expect(detail.groups.map((group) => group.leader_user_id)).toEqual([ids[0], null]);
+    adapter.close();
+  });
+
+  it("备份往返保留组长：dump.version=8，恢复后当前分组与历史批次组长都在", () => {
+    const adapter = makeAdapter();
+    const { classId, ids, codes } = seedClass(adapter, "A", 2);
+    const batch = batchInput(classId, [
+      [{ userId: ids[0], userCode: codes[0], name: "学生1" }],
+      [{ userId: ids[1], userCode: codes[1], name: "学生2" }],
+    ]);
+    batch.groups[1].leaderUserId = ids[1];
+    adapter.applyGroupingResult(
+      classId,
+      [
+        { group_no: 1, user_ids: [ids[0]], leader_user_id: null },
+        { group_no: 2, user_ids: [ids[1]], leader_user_id: ids[1] },
+      ],
+      batch
+    );
+    const dump = adapter.backup();
+    expect(dump.version).toBe(8);
+    expect(dump.class_groups?.map((group) => group.leader_user_id)).toEqual([null, ids[1]]);
+    expect(dump.group_batch_groups?.map((group) => group.leader_user_id)).toEqual([null, ids[1]]);
+
+    // 恢复到另一个库：ID 原样重插（#211 口径）
+    const restored = makeAdapter();
+    restored.restore(dump);
+    const groups = restored.getClassGroups(classId).sort((a, b) => a.group_no - b.group_no);
+    expect(groups.map((group) => group.leader_user_id)).toEqual([null, ids[1]]);
+    const detail = restored.getGroupBatchDetail(dump.group_batches![0].id);
+    expect(detail.groups.map((group) => group.leader_user_id)).toEqual([null, ids[1]]);
+    adapter.close();
+    restored.close();
+  });
+
+  it("旧库迁移：已有的 class_groups / group_batch_groups 没有组长列时，init 自动补列", () => {
+    const dbPath = path.join(makeDir(), "legacy.db");
+    const raw = new Database(dbPath);
+    raw.exec(`CREATE TABLE classes (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL,
+      invitation_code TEXT NOT NULL UNIQUE,
+      created_at TEXT NOT NULL
+    )`);
+    raw.exec(`CREATE TABLE class_groups (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      class_id INTEGER NOT NULL REFERENCES classes(id),
+      group_no INTEGER NOT NULL,
+      created_at TEXT NOT NULL,
+      UNIQUE(class_id, group_no)
+    )`);
+    raw.exec(`CREATE TABLE group_batch_groups (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      batch_id INTEGER NOT NULL,
+      group_no INTEGER NOT NULL,
+      cohesion REAL,
+      member_count INTEGER NOT NULL,
+      created_at TEXT NOT NULL,
+      UNIQUE(batch_id, group_no)
+    )`);
+    raw.close();
+
+    const adapter = new SqliteAdapter(dbPath);
+    adapter.init();
+    const check = new Database(dbPath, { readonly: true });
+    const columns = (table: string) =>
+      (check.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]).map((column) => column.name);
+    expect(columns("class_groups")).toContain("leader_user_id");
+    expect(columns("group_batch_groups")).toContain("leader_user_id");
+    check.close();
     adapter.close();
   });
 });

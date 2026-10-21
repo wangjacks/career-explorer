@@ -11,6 +11,9 @@ vi.mock("@/lib/db", () => ({
   getGroupBatches: vi.fn(),
   getGroupBatchDetail: vi.fn(),
   getStudentGroupRef: vi.fn(),
+  getAssessmentByCode: vi.fn(async () => undefined),
+  getCurrentAssessmentResultsByUserCodes: vi.fn(async () => []),
+  updateClassGroupLeader: vi.fn(),
   moveGroupMember: vi.fn(),
   insertGroupEntry: vi.fn(),
   deleteGroupEntry: vi.fn(),
@@ -23,6 +26,8 @@ vi.mock("@/lib/db", () => ({
 import { POST as triggerPost, GET as groupsGet } from "@/app/api/manage/groups/route";
 import { PATCH as membersPatch } from "@/app/api/manage/groups/members/route";
 import { POST as entriesPost, DELETE as entriesDelete } from "@/app/api/manage/groups/entries/route";
+import { POST as previewPost } from "@/app/api/manage/groups/preview/route";
+import { PATCH as leaderPatch } from "@/app/api/manage/groups/leader/route";
 import {
   applyGroupingResult,
   deleteGroupEntry,
@@ -38,6 +43,7 @@ import {
   insertAuditLog,
   insertGroupEntry,
   moveGroupMember,
+  updateClassGroupLeader,
 } from "@/lib/db";
 import type { ClassGroupMemberRow, ClassGroupRow, UserRow } from "@/lib/db";
 
@@ -184,7 +190,8 @@ describe("POST /api/manage/groups — 触发自动分组（#101）", () => {
     expect(groups.length).toBe(2);
     expect(groups.map((g) => g.user_ids.length).sort()).toEqual([3, 3]);
     expect(new Set(groups.flatMap((g) => g.user_ids)).size).toBe(6);
-    expect(batch.strategy).toBe("idf-cosine");
+    // #345：默认策略改为「兴趣相近 + 性格互补」（本用例只给 classId，未传 groups）
+    expect(batch.strategy).toBe("interest-role-v1");
     expect(JSON.parse(batch.featureSources)[0]).toMatchObject({ key: "tags", kind: "set" });
     expect(batch.studentCount).toBe(6);
     expect(batch.taggedCount).toBe(4);
@@ -254,8 +261,8 @@ describe("GET /api/manage/groups — 读当前分组（读不限）", () => {
     vi.mocked(getGroupBatchDetail).mockResolvedValue({
       batch: undefined,
       groups: [
-        { id: 51, batch_id: 5, group_no: 1, cohesion: 0.5, member_count: 2, created_at: "" },
-        { id: 52, batch_id: 5, group_no: 2, cohesion: null, member_count: 1, created_at: "" },
+        { id: 51, batch_id: 5, group_no: 1, cohesion: 0.5, member_count: 2, leader_user_id: null, created_at: "" },
+        { id: 52, batch_id: 5, group_no: 2, cohesion: null, member_count: 1, leader_user_id: null, created_at: "" },
       ],
       members: [
         { id: 1, batch_id: 5, group_id: 51, user_id: 1, user_code: "a", name: "甲", created_at: "" },
@@ -395,6 +402,19 @@ describe("PATCH /api/manage/groups/members — 手工换人（#101）", () => {
     expect(log.resource_type).toBe("group");
     // recordAudit 会把 metadata 序列化为字符串后再入库
     expect(JSON.parse(String(log.metadata))).toMatchObject({ classId: CLASS_A, userId: 3, fromGroupNo: 1, toGroupNo: 2 });
+  });
+
+  it("被移走的人原是组长 → 组长自动回退（#345）", async () => {
+    const token = await signToken({ role: "admin", uid: 1, name: "管理员" });
+    vi.mocked(getStudentGroupRef).mockResolvedValue({ class_id: CLASS_A, group_no: 1 });
+    currentGroupFixtures();
+    const res = await membersPatch(
+      jsonRequest({ classId: CLASS_A, userId: 1, toGroupNo: 2 }, `auth_token=${token}`, "PATCH")
+    );
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.leaderCleared).toBe(true);
+    expect(updateClassGroupLeader).toHaveBeenCalledWith(CLASS_A, 1, null);
   });
 
   it("界面快照带学号且与库中不符 → 409，不落库（SQLite 删后会复用 id）", async () => {
@@ -589,5 +609,154 @@ describe("POST/DELETE /api/manage/groups/entries — 建/删组（#101）", () =
     const log = lastAudit();
     expect(log).toMatchObject({ action: "group:delete", status: "failed", actor_id: OTHER_TEACHER_UID });
     expect(JSON.parse(String(log.metadata))).toEqual({ classId: CLASS_A, groupNo: 1 });
+  });
+});
+
+/* ---------- #345：预览 / 应用 / 组长 ---------- */
+
+const OWNER_COOKIE = async () =>
+  `auth_token=${await signToken({ role: "teacher", uid: TEACHER_UID, name: "张老师" })}`;
+
+/** 当前分组：第 1 组 1/2/3 号，第 2 组 4/5/6 号（用于组长 / 移动用例） */
+function currentGroupFixtures() {
+  vi.mocked(getClassGroups).mockResolvedValue([
+    { id: 101, class_id: CLASS_A, group_no: 1, leader_user_id: 1, created_at: "" },
+    { id: 102, class_id: CLASS_A, group_no: 2, leader_user_id: null, created_at: "" },
+  ]);
+  vi.mocked(getClassGroupMembers).mockResolvedValue([
+    { id: 1, group_id: 101, user_id: 1, created_at: "" },
+    { id: 2, group_id: 101, user_id: 2, created_at: "" },
+    { id: 3, group_id: 101, user_id: 3, created_at: "" },
+    { id: 4, group_id: 102, user_id: 4, created_at: "" },
+    { id: 5, group_id: 102, user_id: 5, created_at: "" },
+    { id: 6, group_id: 102, user_id: 6, created_at: "" },
+  ]);
+}
+
+describe("POST /api/manage/groups/preview — 智能分组预览（#345，不写库）", () => {
+  it("未登录 → 401；非法 classId / 策略 / 权重 → 400", async () => {
+    expect((await previewPost(jsonRequest({ classId: CLASS_A }, ""))).status).toBe(401);
+    const cookie = await OWNER_COOKIE();
+    expect((await previewPost(jsonRequest({ classId: 0 }, cookie))).status).toBe(400);
+    expect((await previewPost(jsonRequest({ classId: CLASS_A, strategy: "nope" }, cookie))).status).toBe(400);
+    expect((await previewPost(jsonRequest({ classId: CLASS_A, weights: { tags: 2 } }, cookie))).status).toBe(400);
+    expect((await previewPost(jsonRequest({ classId: CLASS_A, variant: -1 }, cookie))).status).toBe(400);
+  });
+
+  it("生成预览但**不调用任何写库方法**，默认策略为「兴趣相近 + 性格互补」", async () => {
+    const cookie = await OWNER_COOKIE();
+    const res = await previewPost(jsonRequest({ classId: CLASS_A }, cookie));
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.ok).toBe(true);
+    expect(body.preview.strategy).toBe("interest-role-v1");
+    expect(body.preview.strategyLabel).toBe("兴趣相近 + 性格互补");
+    expect(body.preview.groups.length).toBe(2);
+    expect(body.preview.groups.flatMap((g: { members: unknown[] }) => g.members).length).toBe(6);
+    expect(body.preview.metrics.roleCoverageTarget).toBe(3);
+    // 预览口径：不写分组、不写批次
+    expect(applyGroupingResult).not.toHaveBeenCalled();
+  });
+
+  it("同一参数重复预览结果一致（确定性）", async () => {
+    const cookie = await OWNER_COOKIE();
+    const first = await (await previewPost(jsonRequest({ classId: CLASS_A, variant: 0 }, cookie))).json();
+    const second = await (await previewPost(jsonRequest({ classId: CLASS_A, variant: 0 }, cookie))).json();
+    expect(second.preview.groups).toEqual(first.preview.groups);
+  });
+
+  it("班级不存在 → 404；空班 → 400", async () => {
+    const cookie = await OWNER_COOKIE();
+    expect((await previewPost(jsonRequest({ classId: 999 }, cookie))).status).toBe(404);
+    vi.mocked(getStudents).mockResolvedValueOnce([]);
+    expect((await previewPost(jsonRequest({ classId: CLASS_A }, cookie))).status).toBe(400);
+  });
+});
+
+describe("POST /api/manage/groups — 应用预览分组（#345）", () => {
+  const validGroups = [
+    { groupNo: 1, userIds: [1, 2, 3], leaderUserId: 2 },
+    { groupNo: 2, userIds: [4, 5, 6], leaderUserId: null },
+  ];
+
+  it("带 groups 应用：组长随分组落库，批次记录策略与特征源，成功记审计", async () => {
+    const cookie = await OWNER_COOKIE();
+    const res = await triggerPost(jsonRequest({ classId: CLASS_A, strategy: "interest-role-v1", groups: validGroups }, cookie));
+    expect(res.status).toBe(200);
+    expect(applyGroupingResult).toHaveBeenCalledTimes(1);
+    const [classIdArg, groupsArg, batchArg] = vi.mocked(applyGroupingResult).mock.calls[0];
+    expect(classIdArg).toBe(CLASS_A);
+    expect(groupsArg).toEqual([
+      { group_no: 1, user_ids: [1, 2, 3], leader_user_id: 2 },
+      { group_no: 2, user_ids: [4, 5, 6], leader_user_id: null },
+    ]);
+    expect(batchArg.groups.map((g) => g.leaderUserId)).toEqual([2, null]);
+    expect(batchArg.strategy).toBe("interest-role-v1");
+    await flushAudit();
+    expect(lastAudit()).toMatchObject({ action: "group:generate", status: "success" });
+  });
+
+  it.each([
+    ["外班学生", [{ groupNo: 1, userIds: [1, 2, 21], leaderUserId: null }, { groupNo: 2, userIds: [4, 5, 6], leaderUserId: null }], "非本班"],
+    ["漏人（全班 6 人只提交 5 人）", [{ groupNo: 1, userIds: [1, 2, 3], leaderUserId: null }, { groupNo: 2, userIds: [4, 5], leaderUserId: null }], "全部学生"],
+    ["重复学生", [{ groupNo: 1, userIds: [1, 2, 3], leaderUserId: null }, { groupNo: 2, userIds: [3, 4, 5, 6], leaderUserId: null }], "多个组"],
+    ["组间人数差超过 1", [{ groupNo: 1, userIds: [1, 2, 3, 4], leaderUserId: null }, { groupNo: 2, userIds: [5, 6], leaderUserId: null }], "人数差距"],
+    ["组长不在本组", [{ groupNo: 1, userIds: [1, 2, 3], leaderUserId: 4 }, { groupNo: 2, userIds: [4, 5, 6], leaderUserId: null }], "组长"],
+    ["未知策略", null, "未知的分组策略"],
+  ])("非法应用请求（%s）→ 400 且不写库", async (_label, groups, message) => {
+    const cookie = await OWNER_COOKIE();
+    const body = groups ? { classId: CLASS_A, groups } : { classId: CLASS_A, strategy: "nope" };
+    const res = await triggerPost(jsonRequest(body, cookie));
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toContain(message);
+    expect(applyGroupingResult).not.toHaveBeenCalled();
+  });
+
+  it("非本班教师应用 → 403，并记 failed 审计", async () => {
+    const token = await signToken({ role: "teacher", uid: OTHER_TEACHER_UID, name: "别的老师" });
+    const res = await triggerPost(
+      jsonRequest({ classId: CLASS_A, groups: validGroups }, `auth_token=${token}`)
+    );
+    expect(res.status).toBe(403);
+    await flushAudit();
+    expect(lastAudit()).toMatchObject({ action: "group:generate", status: "failed", actor_id: OTHER_TEACHER_UID });
+  });
+});
+
+describe("PATCH /api/manage/groups/leader — 设置组长（#345）", () => {
+  it("本班教师设置组长 → 200、写库并记 group:leader 审计", async () => {
+    currentGroupFixtures();
+    const cookie = await OWNER_COOKIE();
+    const res = await leaderPatch(jsonRequest({ classId: CLASS_A, groupNo: 1, leaderUserId: 2 }, cookie, "PATCH"));
+    expect(res.status).toBe(200);
+    expect(updateClassGroupLeader).toHaveBeenCalledWith(CLASS_A, 1, 2);
+    await flushAudit();
+    expect(lastAudit()).toMatchObject({ action: "group:leader", status: "success" });
+  });
+
+  it("取消组长（leaderUserId=null）也可用", async () => {
+    currentGroupFixtures();
+    const cookie = await OWNER_COOKIE();
+    const res = await leaderPatch(jsonRequest({ classId: CLASS_A, groupNo: 1, leaderUserId: null }, cookie, "PATCH"));
+    expect(res.status).toBe(200);
+    expect(updateClassGroupLeader).toHaveBeenCalledWith(CLASS_A, 1, null);
+  });
+
+  it("组长不是本组成员 → 400；组不存在 → 404；非本班教师 → 403（均不写库）", async () => {
+    currentGroupFixtures();
+    const cookie = await OWNER_COOKIE();
+    expect(
+      (await leaderPatch(jsonRequest({ classId: CLASS_A, groupNo: 1, leaderUserId: 4 }, cookie, "PATCH"))).status
+    ).toBe(400);
+    expect(
+      (await leaderPatch(jsonRequest({ classId: CLASS_A, groupNo: 9, leaderUserId: 1 }, cookie, "PATCH"))).status
+    ).toBe(404);
+
+    const otherToken = await signToken({ role: "teacher", uid: OTHER_TEACHER_UID, name: "别的老师" });
+    expect(
+      (await leaderPatch(jsonRequest({ classId: CLASS_A, groupNo: 1, leaderUserId: 2 }, `auth_token=${otherToken}`, "PATCH")))
+        .status
+    ).toBe(403);
+    expect(updateClassGroupLeader).not.toHaveBeenCalled();
   });
 });
