@@ -150,6 +150,9 @@ const RESULTS_FALLBACK_CTA: SummaryCardCta = {
   targetId: ASSESSMENT_RESULTS_ID,
 };
 
+/** 不给指针（内容已在本卡展示完）：`ProfileSummaryBoard` 对 `none` 不渲染按钮 */
+const NO_CTA: SummaryCardCta = { label: "", action: "none" };
+
 function toBars(rows: readonly { label: string; standard: number; percent: number }[], limit: number): SummaryBar[] {
   return rows.slice(0, limit).map((row) => ({ label: row.label, standard: row.standard, percent: row.percent }));
 }
@@ -377,8 +380,14 @@ function buildCareersCard(input: {
 }): SummaryCard {
   const { hollandScale, hollandCurrent, hollandFailed, careers, listFailed, careersFailed, audience } = input;
   const base = { kind: "careers" as const, title: "推荐职业" };
+  // 教师弹窗的霍兰德详情卡里没有职业列表（`AssessmentResultsSection` 对 viewer=teacher 传 careers=[]），
+  // 所以这里的指针只能说「去看兴趣结果」，不能承诺「查看全部职业」。
   const detailTarget = hollandScale
-    ? { label: "查看全部职业", action: "detail" as const, targetId: assessmentDetailId(hollandScale.code) }
+    ? {
+        label: audience === "teacher" ? "查看兴趣结果" : "查看全部职业",
+        action: "detail" as const,
+        targetId: assessmentDetailId(hollandScale.code),
+      }
     : RESULTS_FALLBACK_CTA;
 
   if (listFailed) {
@@ -424,7 +433,12 @@ function buildCareersCard(input: {
       ...base,
       state: "degraded",
       headline: careersFailed ? "推荐职业暂时没取到" : "还没有匹配到推荐职业",
-      caption: "兴趣结果不受影响，可以到详情里查看完整方向",
+      caption:
+        audience === "teacher"
+          ? careersFailed
+            ? "该生的兴趣结果不受影响，稍后重新打开弹窗可以再取一次"
+            : "该生的兴趣结果不受影响，可以在兴趣详情看六型分布"
+          : "兴趣结果不受影响，可以到详情里查看完整方向",
       cta: detailTarget,
     };
   }
@@ -432,13 +446,21 @@ function buildCareersCard(input: {
   return {
     ...base,
     state: "ready",
-    headline: "可能适合你的方向",
-    caption: `按匹配度取前 ${Math.min(SUMMARY_CAREERS, careers.length)} 个`,
+    headline: audience === "teacher" ? "可能适合该生的方向" : "可能适合你的方向",
+    caption:
+      audience === "teacher"
+        ? `按匹配度取前 ${Math.min(SUMMARY_CAREERS, careers.length)} 个，详情卡不重复职业列表`
+        : `按匹配度取前 ${Math.min(SUMMARY_CAREERS, careers.length)} 个`,
     items: careers.slice(0, SUMMARY_CAREERS).map((career) => ({
       title: career.displayName,
       subtitle: [career.meta, career.hasChineseName ? career.englishName : ""].filter(Boolean).join(" · "),
     })),
-    cta: { label: "查看详情", action: "detail", targetId: assessmentDetailId(hollandScale.code) },
+    // 学生端点「查看详情」会展开带完整职业列表的霍兰德卡；教师端那里没有职业，
+    // 前三条就是全部展示面，所以不给会落空的指针
+    cta:
+      audience === "teacher"
+        ? NO_CTA
+        : { label: "查看详情", action: "detail", targetId: assessmentDetailId(hollandScale.code) },
   };
 }
 

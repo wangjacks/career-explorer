@@ -267,6 +267,30 @@ describe("速览四卡：空态与降级", () => {
     expect(empty.headline).toBe("还没有匹配到推荐职业");
   });
 
+  it("教师受众：推荐职业卡不指向没有职业列表的详情卡（#332 死链回归）", () => {
+    const ready = cardOf(build({ audience: "teacher" }), "careers");
+    expect(ready.state).toBe("ready");
+    expect(ready.items).toHaveLength(3);
+    expect(ready.headline).toBe("可能适合该生的方向");
+    expect(ready.caption).toContain("详情卡不重复职业列表");
+    expect(ready.cta).toMatchObject({ action: "none" });
+
+    const failed = cardOf(build({ audience: "teacher", careers: [], careersFailed: true }), "careers");
+    expect(failed.cta).toMatchObject({ label: "查看兴趣结果", action: "detail", targetId: assessmentDetailId("riasec") });
+    expect(failed.caption).not.toContain("查看完整方向");
+
+    const noMatch = cardOf(build({ audience: "teacher", careers: [] }), "careers");
+    expect(noMatch.cta).toMatchObject({ label: "查看兴趣结果" });
+    expect(noMatch.caption).toContain("六型分布");
+  });
+
+  it("学生受众：推荐职业卡的指针与文案不变（「查看全部职业 / 查看详情」）", () => {
+    expect(cardOf(build(), "careers").cta).toMatchObject({ label: "查看详情", action: "detail" });
+    const failed = cardOf(build({ careers: [], careersFailed: true }), "careers");
+    expect(failed.cta.label).toBe("查看全部职业");
+    expect(failed.caption).toBe("兴趣结果不受影响，可以到详情里查看完整方向");
+  });
+
   it("没有霍兰德结果时推荐职业卡为空态（去测评）", () => {
     const card = cardOf(build({ results: {} }), "careers");
     expect(card.state).toBe("empty");
