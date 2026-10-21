@@ -17,6 +17,8 @@
   /* 危险色「浅底胶囊」配对（暗色下在 .dark 重写；#208） */
   --danger-soft: #fef2f2; /* red-50 浅底 */
   --danger-strong: #b91c1c; /* red-700：浅底上实测 5.9:1（red-600 仅 4.4:1，卡在 AA 边界） */
+  /* 警告色文字配对（暗色下在 .dark 重写；#256）：与 bg-warning/10 浅底搭配 */
+  --warning-text: #78350f; /* amber-900：浅底实测 8.36:1（amber-800 仅 4.46:1，别用） */
 }
 
 .dark {
@@ -31,6 +33,7 @@
   /* 危险色浅底/文字在暗色下换配：深底上要提亮文字、压暗底色 */
   --danger-soft: rgb(127 29 29 / 0.3); /* red-900/30 暗色浅底 */
   --danger-strong: #f87171; /* red-400 暗色提亮 */
+  --warning-text: #fcd34d; /* amber-300：深底实测 9.44:1 */
 }
 
 @theme inline {
@@ -53,6 +56,8 @@
   --color-info: var(--color-blue-500);
   --color-warning: var(--color-amber-500);
   --color-warning-strong: var(--color-amber-600);
+  /* 警告文字：随主题重定义，配 bg-warning/10 浅底满足 WCAG AA（#256） */
+  --color-warning-text: var(--warning-text);
   --color-danger: var(--color-red-500);
   /* 危险色浅底/强对比配对（引用 :root/.dark 变量，暗色自动重配） */
   --color-danger-soft: var(--danger-soft);

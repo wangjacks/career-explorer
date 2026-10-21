@@ -101,8 +101,7 @@
   - 键盘行为由控件统一实现（↓ / ↑ / Home / End / Enter / Space / Escape；选项不是独立 tab stop），
     新增入口直接复用即可，不要各写一套 keydown（#194）；
   - 班级列表加载失败且无缓存时，控件内展示失败态与「重试」，不得把正确班级名误报为不存在。
-- 警告类提示统一用 `--color-warning` / `--color-warning-strong`（如 `bg-warning/10`、`text-warning-strong`），
-  不得硬编码 `bg-amber-50` 一类色值。
+- 警告类提示统一用 `--color-warning` 作底（如 `bg-warning/10`），正文用**随主题重定义**的 `--color-warning-text`（浅色 amber-900 实测 8.36:1、暗色 amber-300 9.44:1，均达 WCAG AA）；`--color-warning-strong` 是静态 amber-600，浅底仅 2.83:1，**不得用于正文**。不得硬编码 `bg-amber-50` 一类色值。
 
 ## 图标
 
@@ -127,3 +126,4 @@
 - UserMenu 必须高于导航栏（同处顶栏位置），但低于弹窗（弹窗打开时遮罩覆盖 UserMenu）
 - 弹窗必须高于全局导航，遮罩区域点击不被拦截
 - 粘性元素：NavigationBar `sticky z-40`、表头 `sticky z-10`（卡片内局部）
+- 演示横幅（#256）为**在流顶部条**，紧贴 NavigationBar 之下，**不新增 z-index 层级**、不改变既有 3rem 顶栏偏移；仅 demo 会话渲染，配色走 warning 语义 token（`bg-warning/10` / `text-warning-text` / `border-warning/30`，浅/深实测 8.36:1 / 9.44:1 达 AA）。
