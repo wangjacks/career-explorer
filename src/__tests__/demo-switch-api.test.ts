@@ -22,7 +22,7 @@ vi.mock("@/lib/captcha", () => ({
 import { POST as switchPOST } from "@/app/api/auth/demo-switch/route";
 import { GET as sessionGET } from "@/app/api/auth/route";
 import { signToken } from "@/lib/token";
-import { insertUser, getUserByCode, queryAuditLogs, closeDb, closeDemoDb } from "@/lib/db";
+import { insertUser, getUserByCode, deleteTeacher, queryAuditLogs, closeDb, closeDemoDb } from "@/lib/db";
 import { runInDemoScope } from "@/lib/demo-scope";
 import { resetDemo } from "@/lib/demo-lifecycle";
 import { createVisitorAccount, disableVisitorAccount } from "@/lib/demo-accounts-service";
@@ -136,6 +136,24 @@ describe("POST /api/auth/demo-switch（#255）", () => {
     const toStudent = await switchPOST(req("/api/auth/demo-switch", `auth_token=${token}`, { role: "student" }));
     expect(toStudent.status).toBe(200);
     expect((await toStudent.json()).uid).toBe(rows.student!.id);
+
+    // 切到当前角色幂等：仍成功重签
+    const sameAgain = await switchPOST(
+      req("/api/auth/demo-switch", `auth_token=${cookieOf(toStudent)}`, { role: "student" })
+    );
+    expect(sameAgain.status).toBe(200);
+    expect((await sameAgain.json()).uid).toBe(rows.student!.id);
+  }, 60_000);
+
+  it("目标角色身份缺失 → 404", async () => {
+    const second = await runInDemoScope(() => createVisitorAccount());
+    const codes = demoAccountCodes(second.seq);
+    const teacher = await runInDemoScope(() => getUserByCode(codes.teacher));
+    await runInDemoScope(() => deleteTeacher(teacher!.id)); // 人为删掉教师身份
+    const student = await runInDemoScope(() => getUserByCode(codes.student));
+    const token = await signToken({ role: "student", uid: student!.id, name: student!.name, demo: true });
+    const res = await switchPOST(req("/api/auth/demo-switch", `auth_token=${token}`, { role: "teacher" }));
+    expect(res.status).toBe(404);
   }, 60_000);
 
   it("非法角色 → 400", async () => {
