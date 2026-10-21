@@ -39,6 +39,7 @@ import { GET as startGet } from "@/app/api/shared/assessment/start/route";
 import { POST as answerPost } from "@/app/api/shared/assessment/answer/route";
 import { POST as submitPost } from "@/app/api/shared/assessment/submit/route";
 import { GET as resultsGet } from "@/app/api/shared/assessment/results/route";
+import { GET as listGet } from "@/app/api/shared/assessment/list/route";
 
 const BASE = "http://localhost:3000";
 /** 题库总量、每次作答题数与每维题数（#281 起 120 题库 / #282 每次 30 题），数字一律取自种子常量 */
@@ -157,6 +158,7 @@ describe("鉴权（#223：路由自鉴权，只认会话本人）", () => {
     },
     { name: "submit", call: (token) => submitPost(postRequest("/api/shared/assessment/submit", { code: RIASEC_CODE }, token)) },
     { name: "results", call: (token) => resultsGet(getRequest(`/api/shared/assessment/results?code=${RIASEC_CODE}`, token)) },
+    { name: "list", call: (token) => listGet(getRequest("/api/shared/assessment/list", token)) },
   ];
 
   it.each(endpoints)("$name：未登录 401、无效 token 401、教师 403", async ({ call }) => {
@@ -561,5 +563,131 @@ describe("多量表作答链路（#289）", () => {
       expect(score.standard).toBeGreaterThanOrEqual(0);
       expect(score.standard).toBeLessThanOrEqual(100);
     }
+  });
+});
+
+describe("测评中心多量表列表（#291）", () => {
+  interface ListItem {
+    code: string;
+    name: string;
+    questionCount: number;
+    poolSize: number;
+    scoringMode: string;
+    scaleVersion: string;
+    dimensions: { key: string; label: string }[];
+    status: string;
+    typeCode: string | null;
+    completedAt: string;
+    historyCount: number;
+    inProgress: { answered: number; total: number; updatedAt: string } | null;
+    attribution: string;
+    licenseText: string;
+    disclaimer: string;
+  }
+
+  async function listBody(token: string): Promise<{ assessments: ListItem[] }> {
+    const res = await listGet(getRequest("/api/shared/assessment/list", token));
+    expect(res.status).toBe(200);
+    return res.json();
+  }
+
+  it("两套启用量表各一行：本人状态、题量口径与结果字段逐套下发", async () => {
+    // A 的霍兰德已完成两轮；大五还没做过
+    const body = await listBody(users.A.token);
+    expect(body.assessments.map((entry) => entry.code)).toEqual([RIASEC_CODE, IPIP_NEO_FFI_CODE]);
+
+    const riasec = body.assessments[0];
+    expect(riasec).toMatchObject({
+      status: "completed",
+      typeCode: "RIA",
+      historyCount: 2,
+      questionCount: ROUND_SIZE,
+      poolSize: BANK_SIZE,
+      scoringMode: "typological",
+      inProgress: null,
+    });
+    expect(riasec.completedAt).toMatch(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/);
+    expect(riasec.scaleVersion).toBe(RIASEC_ASSESSMENT.scaleVersion);
+    expect(riasec.dimensions.map((dimension) => dimension.key)).toEqual(DIMENSION_KEYS);
+    // 授权与免责随列表下发，测评中心页底的授权卡不依赖 results 接口
+    expect(riasec.attribution).toContain("O*NET");
+    expect(riasec.licenseText.trim()).not.toBe("");
+    expect(riasec.disclaimer).toContain("不作为心理诊断");
+
+    const ipip = body.assessments[1];
+    expect(ipip).toMatchObject({
+      status: "not-started",
+      typeCode: null,
+      completedAt: "",
+      historyCount: 0,
+      questionCount: IPIP_QUESTIONS.length,
+      poolSize: IPIP_QUESTIONS.length,
+      scoringMode: "dimensional",
+      inProgress: null,
+    });
+    expect(ipip.dimensions).toEqual(IPIP_DIMENSIONS);
+  });
+
+  it("dimensional 量表完成后状态为已完成、三字码为 null（不因无三字码被当成未开始）", async () => {
+    const body = await listBody(users.D.token);
+    const ipip = body.assessments.find((entry) => entry.code === IPIP_NEO_FFI_CODE)!;
+    expect(ipip.status).toBe("completed");
+    expect(ipip.typeCode).toBeNull();
+    expect(ipip.completedAt).toMatch(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/);
+    expect(ipip.historyCount).toBe(1);
+
+    // D 没做过霍兰德：同一份响应里两套量表的状态互不影响
+    const riasec = body.assessments.find((entry) => entry.code === RIASEC_CODE)!;
+    expect(riasec.status).toBe("not-started");
+  });
+
+  it("在途草稿：进行中进度按本轮题量、updatedAt 供「最近活跃」排序", async () => {
+    const started = await startBody(users.B.token);
+    const answered = await answerPost(
+      postRequest(
+        "/api/shared/assessment/answer",
+        { code: RIASEC_CODE, questionIndex: started.roundIndexes[0], value: 4 },
+        users.B.token
+      )
+    );
+    expect(answered.status).toBe(200);
+
+    const body = await listBody(users.B.token);
+    const riasec = body.assessments.find((entry) => entry.code === RIASEC_CODE)!;
+    expect(riasec.status).toBe("in-progress");
+    expect(riasec.inProgress).toMatchObject({ answered: 1, total: ROUND_SIZE });
+    expect(riasec.inProgress?.updatedAt.trim()).not.toBe("");
+
+    // 另一套量表仍是未开始：草稿不会串到别的量表
+    const ipip = body.assessments.find((entry) => entry.code === IPIP_NEO_FFI_CODE)!;
+    expect(ipip.status).toBe("not-started");
+    expect(ipip.inProgress).toBeNull();
+  });
+
+  it("只返回启用的量表：停用大五后列表只剩霍兰德（单量表页不回归）", async () => {
+    const raw = new Database(state.dbPath);
+    raw.prepare("UPDATE assessments SET enabled = 0 WHERE code = ?").run(IPIP_NEO_FFI_CODE);
+    raw.close();
+
+    try {
+      const body = await listBody(users.A.token);
+      expect(body.assessments.map((entry) => entry.code)).toEqual([RIASEC_CODE]);
+    } finally {
+      const restore = new Database(state.dbPath);
+      restore.prepare("UPDATE assessments SET enabled = 1 WHERE code = ?").run(IPIP_NEO_FFI_CODE);
+      restore.close();
+    }
+  });
+
+  it("每次读取都记审计：只记条数与量表 code，不记任何作答内容", async () => {
+    const audit = await queryAuditLogs({ page: 1, pageSize: 20, action: "assessment:list" });
+    expect(audit.total).toBeGreaterThan(0);
+    const rows = audit.rows.filter((entry) => entry.actor_user_code === users.A.code && entry.status === "success");
+    // 之后还有「停用大五」那次单量表读取，这里锁定两套量表都在时的那条
+    const row = rows.find((entry) => JSON.parse(entry.metadata ?? "{}").count === 2);
+    expect(row, "应有一条读到两套量表的审计").toBeDefined();
+    const metadata = JSON.parse(row!.metadata ?? "{}");
+    expect(metadata).toEqual({ count: 2, codes: [RIASEC_CODE, IPIP_NEO_FFI_CODE] });
+    expect(metadata).not.toHaveProperty("answers");
   });
 });

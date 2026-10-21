@@ -81,6 +81,78 @@ export const ASSESSMENT_TIPS: readonly string[] = [
   "提交后立刻生成三字码与六型兴趣得分，结果只用于职业兴趣探索参考。",
 ];
 
+/** 大五人格的五个方面（顺序与量表一致：N→E→O→A→C） */
+export type BigFiveKey = "N" | "E" | "O" | "A" | "C";
+
+export interface BigFiveIntro {
+  key: BigFiveKey;
+  /** 中文名称（与结果页的名称一致） */
+  label: string;
+  /** 英文原名（IPIP NEO Domains Key 的写法） */
+  english: string;
+  /** 一段通俗介绍：讲「这个方面指的是什么」，不下结论、不做人格判断 */
+  summary: string;
+  /** 得分偏高时的常见表现 */
+  high: string[];
+  /** 得分偏低时的常见表现 */
+  low: string[];
+}
+
+/**
+ * 大五人格科普文案（#291）。
+ *
+ * 与霍兰德卡同口径：只讲「这个方面看的是什么」与高低两端的常见表现，不评判哪种更好。
+ * 名称与 `IPIP_DIMENSIONS`（`assessment-data.ts`）保持一致，单测会逐项比对防止两处漂移。
+ */
+export const BIG_FIVE_INTRO: readonly BigFiveIntro[] = [
+  {
+    key: "N",
+    label: "神经质",
+    english: "Neuroticism",
+    summary: "对情绪起伏的敏感程度：遇到压力时容易紧张、心情起伏，还是能比较快地平静下来。",
+    high: ["情绪反应强", "容易紧张"],
+    low: ["情绪平稳", "抗压从容"],
+  },
+  {
+    key: "E",
+    label: "外向性",
+    english: "Extraversion",
+    summary: "和人相处时的能量来源：喜欢热闹、主动开口，还是更享受安静和独处。",
+    high: ["爱热闹", "主动健谈"],
+    low: ["喜欢独处", "安静慢热"],
+  },
+  {
+    key: "O",
+    label: "开放性",
+    english: "Openness",
+    summary: "对新想法、新体验的好奇程度：爱尝试没做过的事，还是更喜欢熟悉的做法。",
+    high: ["爱尝鲜", "想象丰富"],
+    low: ["偏好熟悉", "务实守常"],
+  },
+  {
+    key: "A",
+    label: "宜人性",
+    english: "Agreeableness",
+    summary: "和人合作时的态度：愿意体谅、配合别人，还是更直接地坚持自己的看法。",
+    high: ["体谅他人", "乐于合作"],
+    low: ["直率", "坚持己见"],
+  },
+  {
+    key: "C",
+    label: "尽责性",
+    english: "Conscientiousness",
+    summary: "做事的条理与坚持：习惯先计划、说到做到，还是更随性、走一步看一步。",
+    high: ["有计划", "说到做到"],
+    low: ["随性", "灵活应变"],
+  },
+];
+
+/** 大五与霍兰德六型的呼应关系（放在大五科普卡底部，避免学生把两套结果硬套在一起） */
+export const BIG_FIVE_RIASEC_NOTE =
+  "两套测评的视角不同：大五讲的是比较稳定的性格特点，霍兰德讲的是你对各类活动的兴趣，结果对不上也很正常。" +
+  "可以这样对照着看——霍兰德的社会型（S）和宜人性都关注与人相处，企业型（E）和外向性都偏向主动表达，" +
+  "常规型（C）和尽责性都看重条理和坚持。";
+
 export interface HelpLink {
   id: string;
   title: string;
@@ -91,9 +163,12 @@ export interface HelpLink {
   source: string;
 }
 
+/** IPIP 国际人格题库（大五题目的公有领域来源；授权文本里也引用它） */
+export const IPIP_SOURCE_URL = "https://ipip.ori.org/";
+
 /**
- * 权威渠道外链：学职平台（教育部学信网 / 「全国大学生学业与职业发展平台」）。
- * 只做外链推荐、不复刻其题目（内容版权归平台，口径见 `docs/plan-assessment.md` 第 2 节）。
+ * 权威渠道外链：学职平台（教育部学信网 / 「全国大学生学业与职业发展平台」）与 IPIP 国际人格题库。
+ * 只做外链推荐、不复刻其题目（内容版权归平台；IPIP 条目属于公有领域，见 `IPIP_LICENSE_TEXT`）。
  */
 export const ASSESSMENT_HELP_LINKS: readonly HelpLink[] = [
   {
@@ -116,6 +191,13 @@ export const ASSESSMENT_HELP_LINKS: readonly HelpLink[] = [
     description: "全国大学生学业与职业发展平台，测评、职业信息与成长资源都在这里。",
     href: "https://xz.chsi.com.cn/",
     source: "教育部学信网",
+  },
+  {
+    id: "ipip",
+    title: "IPIP 国际人格题库",
+    description: "五大人格测评的题目来源（International Personality Item Pool）；条目属于公有领域，可免费用于学习与研究。",
+    href: IPIP_SOURCE_URL,
+    source: "IPIP · 公有领域",
   },
 ];
 

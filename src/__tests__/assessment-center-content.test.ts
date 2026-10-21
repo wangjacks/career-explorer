@@ -2,13 +2,16 @@ import { describe, it, expect } from "vitest";
 import {
   ASSESSMENT_HELP_LINKS,
   ASSESSMENT_TIPS,
+  BIG_FIVE_INTRO,
+  BIG_FIVE_RIASEC_NOTE,
   DISCLAIMER_FALLBACK,
   EXTERNAL_LINK_REL,
+  IPIP_SOURCE_URL,
   ONET_TOOLS_LICENSE_URL,
   RIASEC_INTRO,
   resolveDisclaimer,
 } from "../lib/assessment-center-content";
-import { RIASEC_DISCLAIMER } from "../lib/assessment-data";
+import { IPIP_DIMENSIONS, RIASEC_DISCLAIMER } from "../lib/assessment-data";
 import { RIASEC_KEYS } from "../lib/assessment-match";
 
 /**
@@ -70,18 +73,70 @@ describe("学职平台外链卡（#225）", () => {
     expect(ASSESSMENT_HELP_LINKS.map((link) => link.href)).toContain("https://xz.chsi.com.cn/occupation/index.action");
   });
 
-  it("全部是 https 且只指向学职平台（不混入站内路由或 http 链接）", () => {
+  it("全部是 https 且只指向学职平台与 IPIP 题库（不混入站内路由或 http 链接）", () => {
+    const allowedHosts = new Set(["xz.chsi.com.cn", "ipip.ori.org"]);
     for (const link of ASSESSMENT_HELP_LINKS) {
       expect(link.href, `${link.id} 必须是 https`).toMatch(/^https:\/\//);
-      expect(new URL(link.href).host).toBe("xz.chsi.com.cn");
+      expect(allowedHosts.has(new URL(link.href).host), `${link.id} 指向了未登记的外站`).toBe(true);
       expect(link.title.trim()).not.toBe("");
       expect(link.description.trim()).not.toBe("");
       expect(link.source.trim()).not.toBe("");
     }
   });
 
+  it("IPIP 题库外链（#291）指向公有领域来源并写明授权属性", () => {
+    const ipip = ASSESSMENT_HELP_LINKS.find((link) => link.id === "ipip");
+    expect(ipip?.href).toBe(IPIP_SOURCE_URL);
+    expect(ipip?.href).toBe("https://ipip.ori.org/");
+    expect(ipip?.source).toContain("公有领域");
+    expect(ipip?.description).toContain("公有领域");
+  });
+
   it("外链 rel 含 noopener（新窗口打开时不给 opener 反向控制本页）", () => {
     expect(EXTERNAL_LINK_REL).toContain("noopener");
+  });
+});
+
+describe("大五人格科普文案（#291）", () => {
+  it("五个方面齐全、顺序 N→E→O→A→C（与量表维度一致）", () => {
+    expect(BIG_FIVE_INTRO.map((dimension) => dimension.key)).toEqual(IPIP_DIMENSIONS.map((dimension) => dimension.key));
+    expect(BIG_FIVE_INTRO.map((dimension) => dimension.label)).toEqual(
+      IPIP_DIMENSIONS.map((dimension) => dimension.label)
+    );
+  });
+
+  it("每个方面都有英文名、一段通俗介绍与高低分各 2 个表现标签", () => {
+    for (const dimension of BIG_FIVE_INTRO) {
+      expect(dimension.english.trim(), `${dimension.key} 缺英文名`).not.toBe("");
+      expect(dimension.summary.trim().length, `${dimension.key} 介绍太短`).toBeGreaterThan(20);
+      expect(dimension.high.length, `${dimension.key} 高分表现不全`).toBeGreaterThanOrEqual(2);
+      expect(dimension.low.length, `${dimension.key} 低分表现不全`).toBeGreaterThanOrEqual(2);
+      expect([...dimension.high, ...dimension.low].every((keyword) => keyword.trim() !== "")).toBe(true);
+    }
+  });
+
+  it("只描述两端表现、不评判哪种更好，也不复述商业量表名称", () => {
+    const forbidden = ["MBTI", "Myers", "Strong", "SDS", "Self-Directed", "Clifton", "16Personalities", "DISC"];
+    const allText = [
+      ...BIG_FIVE_INTRO.map(
+        (dimension) =>
+          `${dimension.label}${dimension.english}${dimension.summary}${dimension.high.join("")}${dimension.low.join("")}`
+      ),
+      BIG_FIVE_RIASEC_NOTE,
+    ].join(" ");
+    for (const word of forbidden) {
+      expect(allText.toLowerCase(), `文案里不应出现商业量表名：${word}`).not.toContain(word.toLowerCase());
+    }
+  });
+
+  it("大五与霍兰德的关系卡住三组呼应（S↔宜人性、E↔外向性、C↔尽责性）且强调两套视角不同", () => {
+    expect(BIG_FIVE_RIASEC_NOTE).toContain("社会型（S）");
+    expect(BIG_FIVE_RIASEC_NOTE).toContain("企业型（E）");
+    expect(BIG_FIVE_RIASEC_NOTE).toContain("常规型（C）");
+    expect(BIG_FIVE_RIASEC_NOTE).toContain("宜人性");
+    expect(BIG_FIVE_RIASEC_NOTE).toContain("外向性");
+    expect(BIG_FIVE_RIASEC_NOTE).toContain("尽责性");
+    expect(BIG_FIVE_RIASEC_NOTE).toContain("视角不同");
   });
 });
 
