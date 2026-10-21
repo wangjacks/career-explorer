@@ -18,7 +18,15 @@ export type AssessmentCenterStatus = "not-started" | "in-progress" | "completed"
 
 /** 接口返回的字段都当作不可信：UI 只消费归一后的值 */
 export interface AssessmentCenterPayload {
-  assessment?: { questionCount?: unknown; enabled?: unknown; code?: unknown; name?: unknown } | null;
+  assessment?: {
+    /** 每次作答的题量（启用抽题时是抽题数，不是题库总量） */
+    questionCount?: unknown;
+    /** 题库总量（启用抽题时大于 `questionCount`；旧接口没有该字段） */
+    poolSize?: unknown;
+    enabled?: unknown;
+    code?: unknown;
+    name?: unknown;
+  } | null;
   /**
    * 多量表预留（#225）：接口将来若一次返回多套量表，就用这个数组（每项形状同 `assessment`）；
    * 当前接口只返回单个 `assessment`，列表卡退化成一条。
@@ -33,6 +41,11 @@ export interface AssessmentCenterView {
   status: AssessmentCenterStatus;
   /** 本次测评题量（接口题库为空时为 0） */
   questionCount: number;
+  /**
+   * 题库总量（#283）：启用抽题时大于 `questionCount`，页面据此补「题库 N 题」；
+   * 字段缺失或与每次题量冲突时收敛为 `questionCount`，页面不显示「从 N 题中抽取」。
+   */
+  poolSize: number;
   estimatedMinutes: number;
   /** 进行中已答题数 / 总题数（未进行中时为 0） */
   answered: number;
@@ -77,10 +90,17 @@ export function estimateMinutes(questionCount: number): number {
  */
 export function deriveAssessmentCenter(payload: AssessmentCenterPayload | null | undefined): AssessmentCenterView {
   const questionCount = toCount(payload?.assessment?.questionCount);
+  // 题库不可能小于一次卷子：旧接口缺字段（0）或脏数据冲突时都按「题库 = 每次题量」收敛，
+  // 页面因此不会出现「从 30 题中抽 30 题」或「题库 20 题、每次 30 题」这类自相矛盾的显示。
+  const rawPoolSize = toCount(payload?.assessment?.poolSize);
+  const poolSize = rawPoolSize >= questionCount ? rawPoolSize : questionCount;
   const enabled = payload?.assessment?.enabled !== false;
 
   const rawDraft = payload?.inProgress;
-  const draftTotal = Math.max(0, toCount(rawDraft?.total) || questionCount);
+  const rawDraftTotal = toCount(rawDraft?.total);
+  // 分母一律取本轮题量：服务端下发的草稿总数与本次题量冲突时（旧口径 120、脏数据更小），
+  // 进度仍显示 n/本轮题量，不会出现 12/120 或被脏值提前判定为「可以提交」。
+  const draftTotal = questionCount > 0 ? questionCount : rawDraftTotal;
   const draftAnswered = Math.min(toCount(rawDraft?.answered), draftTotal);
   const inProgress = draftAnswered > 0;
 
@@ -96,6 +116,7 @@ export function deriveAssessmentCenter(payload: AssessmentCenterPayload | null |
   return {
     status,
     questionCount,
+    poolSize,
     estimatedMinutes: estimateMinutes(questionCount),
     answered: inProgress ? draftAnswered : 0,
     total: inProgress ? draftTotal : questionCount,

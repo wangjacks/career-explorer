@@ -15,7 +15,10 @@ import type { DimensionScore } from "@/lib/assessment-scoring";
 interface AssessmentMeta {
   code: string;
   name: string;
+  /** 本轮题量（#282：启用抽题时是抽题数，不是题库总量） */
   questionCount: number;
+  /** 题库总量（#283 的抽题说明用） */
+  poolSize: number;
   scaleVersion: string;
   dimensions: { key: string; label: string }[];
   attribution: string;
@@ -64,7 +67,17 @@ function ProgressBar({ answered, total }: { answered: number; total: number }) {
 }
 
 /** 提交后的结果摘要：三字码 + 六维标准分（完整解读与职业推荐在「我的档案」测评区） */
-function ResultSummary({ result, onRetry }: { result: SubmitResult; onRetry: () => void }) {
+function ResultSummary({
+  result,
+  attribution,
+  licenseText,
+  onRetry,
+}: {
+  result: SubmitResult;
+  attribution: string;
+  licenseText: string;
+  onRetry: () => void;
+}) {
   return (
     <div className="space-y-5">
       <section className="bg-brand rounded-2xl p-5 sm:p-6 shadow-sm text-white">
@@ -94,8 +107,14 @@ function ResultSummary({ result, onRetry }: { result: SubmitResult; onRetry: () 
             </li>
           ))}
         </ul>
-        <p className="text-xs text-muted leading-relaxed">{result.disclaimer}</p>
       </section>
+
+      {/* 署名 / 授权 / 免责：O*NET 授权要求随结果展示；「未经官方审核」的声明也不能在结果页折掉 */}
+      <footer className="pt-2 border-t border-border-soft space-y-1.5">
+        <p className="text-xs text-muted leading-relaxed">{attribution}</p>
+        <p className="text-xs text-muted leading-relaxed">{licenseText}</p>
+        <p className="text-xs text-muted leading-relaxed">{result.disclaimer}</p>
+      </footer>
 
       <div className="flex flex-col sm:flex-row gap-3">
         <Link
@@ -196,7 +215,12 @@ export default function AssessmentQuizPage() {
         <Toaster position="top-center" />
         <NavigationBar title="职业兴趣测评" showHome />
         <main className="max-w-2xl mx-auto px-4 sm:px-6 py-6 pb-16">
-          <ResultSummary result={result} onRetry={retry} />
+          <ResultSummary
+            result={result}
+            attribution={start?.assessment.attribution ?? ""}
+            licenseText={start?.assessment.licenseText ?? ""}
+            onRetry={retry}
+          />
         </main>
       </div>
     );
@@ -323,6 +347,11 @@ export default function AssessmentQuizPage() {
             <span className="text-muted">已答 {answeredCount} 题</span>
           </div>
           <ProgressBar answered={answeredCount} total={total} />
+          {start.assessment.poolSize > total && (
+            <p className="text-xs text-muted">
+              本次题目从 {start.assessment.poolSize} 题题库中随机抽取 {total} 题，重测会换题。
+            </p>
+          )}
           <p className="text-xs text-muted">每次作答都会自动保存，中途离开可以从上次的题继续。</p>
         </section>
 

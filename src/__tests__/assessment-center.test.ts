@@ -45,6 +45,33 @@ describe("档案页耗时文案（#286）", () => {
   });
 });
 
+describe("题量口径来源守卫（#283）", () => {
+  const SOURCES = [
+    "../app/dashboard/student/assessment/page.tsx",
+    "../app/dashboard/student/assessment/quiz/page.tsx",
+    "../components/student/AssessmentResultCard.tsx",
+  ] as const;
+
+  it("学生端不写死题量与分钟数（一律来自接口字段或 estimateMinutes）", () => {
+    for (const rel of SOURCES) {
+      const source = readFileSync(new URL(rel, import.meta.url), "utf8");
+      // 允许「每次 {view.questionCount} 题」这类表达式，不允许出现字面量数字 + 题/分钟
+      expect(source, rel).not.toMatch(/\d+\s*(?:道题|题|分钟)/);
+    }
+  });
+
+  it("题库规模只出现在测评中心 Fact 与答题页抽题说明里，且取自接口的 poolSize", () => {
+    const center = readFileSync(new URL(SOURCES[0], import.meta.url), "utf8");
+    const quiz = readFileSync(new URL(SOURCES[1], import.meta.url), "utf8");
+    const card = readFileSync(new URL(SOURCES[2], import.meta.url), "utf8");
+
+    expect(center).toContain("view.poolSize");
+    expect(quiz).toContain("start.assessment.poolSize");
+    // 档案侧只关心本人作答量，不出现题库规模
+    expect(card).not.toContain("poolSize");
+  });
+});
+
 const ASSESSMENT = { questionCount: 30, enabled: true };
 
 describe("deriveAssessmentCenter：三种状态分支（#222）", () => {
@@ -180,6 +207,62 @@ describe("deriveAssessmentCenter：三种状态分支（#222）", () => {
       expect(view.estimatedMinutes).toBe(0);
       expect(view.percent).toBe(0);
     }
+  });
+});
+
+describe("题量口径分离：每次题量 vs 题库总量（#283）", () => {
+  it("poolSize=120、questionCount=30：题量按每次算，耗时不变，题库规模单独透出", () => {
+    const view = deriveAssessmentCenter({ assessment: { questionCount: 30, poolSize: 120, enabled: true } });
+    expect(view.questionCount).toBe(30);
+    expect(view.poolSize).toBe(120);
+    // 耗时只跟每次题量走：120 题的 16 分钟不能漏到这里
+    expect(view.estimatedMinutes).toBe(4);
+    expect(estimateMinutes(120)).toBe(16);
+    expect(view.total).toBe(30);
+  });
+
+  it("poolSize 缺失（旧接口）：回退为每次题量，页面据此不显示「从 N 题中抽取」", () => {
+    const view = deriveAssessmentCenter({ assessment: { questionCount: 30 } });
+    expect(view.poolSize).toBe(30);
+    expect(view.questionCount).toBe(30);
+  });
+
+  it("本轮题量与题库规模冲突（poolSize < questionCount）：题库按每次题量收敛", () => {
+    const view = deriveAssessmentCenter({ assessment: { questionCount: 30, poolSize: 20 } });
+    expect(view.questionCount).toBe(30);
+    expect(view.poolSize).toBe(30);
+  });
+
+  it("questionCount 异常但 poolSize 合法：题量归零不影响题库规模，也不产生 NaN", () => {
+    for (const bad of ["30", Number.NaN, -5, null]) {
+      const view = deriveAssessmentCenter({ assessment: { questionCount: bad as unknown, poolSize: 120 } });
+      expect(view.questionCount).toBe(0);
+      expect(view.poolSize).toBe(120);
+      expect(Number.isFinite(view.estimatedMinutes)).toBe(true);
+      expect(view.estimatedMinutes).toBe(0);
+    }
+  });
+
+  it("进行中草稿总数大于本次题量（旧口径 120）：分母收敛为本次题量，不出现 12/120", () => {
+    const view = deriveAssessmentCenter({
+      assessment: { questionCount: 30, poolSize: 120 },
+      inProgress: { answered: 12, total: 120 },
+    });
+    expect(view.status).toBe("in-progress");
+    expect(view.answered).toBe(12);
+    expect(view.total).toBe(30);
+    expect(view.percent).toBe(40);
+  });
+
+  it("草稿总数与本次题量冲突（脏数据更小）时分母仍取本轮题量，不被脏值提前判定为可提交", () => {
+    const view = deriveAssessmentCenter({
+      assessment: { questionCount: 30, poolSize: 120 },
+      inProgress: { answered: 5, total: 10 },
+    });
+    expect(view.total).toBe(30);
+    expect(view.answered).toBe(5);
+    expect(view.percent).toBe(17);
+    expect(view.draftComplete).toBe(false);
   });
 });
 
