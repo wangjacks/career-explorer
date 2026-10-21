@@ -35,6 +35,8 @@
 | `/dashboard/student/assessment/quiz` | 职业兴趣测评答题页（#223）：按 `?code=` 取量表（#289，缺省 `riasec`），单题单屏 + 进度条 + Likert 1-5，自动存草稿、可续答，提交前二次确认；霍兰德每次答的是**分层抽出的 30 题**（#282），不是 120 题题库 |
 | `/setup` | 安装引导（首次配置数据库 + 管理员密码） |
 
+> `/form` 已删除（#318），不再有对应页面路由；旧链接由 `next.config.ts` 的 `redirects()` 以 `permanent: true`（308）重定向到 `/`。它底下从未存在子路由，因此没有通配规则。
+
 ## 面板导航结构
 
 <!-- 对账：读 src/app/dashboard/{admin,teacher}/page.tsx 的 MENU_GROUPS 与 src/app/dashboard/student/page.tsx 的 Tab 定义 -->
