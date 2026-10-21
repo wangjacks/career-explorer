@@ -23,7 +23,10 @@ interface AssessmentResultsPayload {
   assessment?: {
     code?: string;
     name?: string;
+    /** 每次作答的题量（#282 起不是题库总量） */
     questionCount?: number;
+    /** 题库总量（#283 展示「题库 N 题」用） */
+    poolSize?: number;
     enabled?: boolean;
     scaleVersion?: string;
     dimensions?: { key: string; label: string }[];
@@ -201,7 +204,7 @@ export default function AssessmentCenterPage() {
               <div className="mt-4 flex flex-wrap items-center gap-2">
                 {view.questionCount > 0 && (
                   <span className="px-2.5 py-0.5 rounded-full text-xs bg-white/10 text-white/85 border border-white/20">
-                    霍兰德六型 · {view.questionCount} 题
+                    霍兰德六型 · 每次 {view.questionCount} 题
                   </span>
                 )}
                 {view.estimatedMinutes > 0 && (
@@ -260,12 +263,20 @@ export default function AssessmentCenterPage() {
                     <>
                       <p className="text-sm text-muted leading-relaxed">
                         {view.questionCount > 0
-                          ? `还没有做过职业兴趣测评。全部答完大约需要 ${view.estimatedMinutes} 分钟，作答会自动保存，可以中途退出。`
+                          ? `还没有做过职业兴趣测评。每次 ${view.questionCount} 题，全部答完大约需要 ${view.estimatedMinutes} 分钟，作答会自动保存，可以中途退出。`
                           : "还没有做过职业兴趣测评，题库还在准备中。"}
                       </p>
                       {view.questionCount > 0 && (
                         <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
-                          <Fact icon={ListChecks} label="题量" value={`${view.questionCount} 题`} />
+                          <Fact
+                            icon={ListChecks}
+                            label="题量"
+                            value={
+                              view.poolSize > view.questionCount
+                                ? `每次 ${view.questionCount} 题 · 题库 ${view.poolSize} 题`
+                                : `每次 ${view.questionCount} 题`
+                            }
+                          />
                           <Fact icon={Timer} label="预计耗时" value={`约 ${view.estimatedMinutes} 分钟`} />
                           <Fact icon={Compass} label="结果形式" value="三字码 + 六型分布" />
                         </div>

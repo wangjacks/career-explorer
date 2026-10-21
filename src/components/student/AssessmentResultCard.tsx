@@ -38,6 +38,8 @@ interface ResultView {
   scores: DimensionScore[];
   completedAt: string;
   isCurrent: boolean;
+  /** 该条结果实际作答量（旧记录回退为当时作答数；#283 起由结果接口逐条下发） */
+  questionCount?: number;
 }
 
 interface ResultsPayload {
@@ -163,7 +165,7 @@ export default function AssessmentResultCard() {
             </p>
             {inProgress && (
               <p className="mt-1 text-xs text-muted">
-                上次答到 {inProgress.answered}/{inProgress.total} 题，可以接着做。
+                上次答到 {assessmentView.answered}/{assessmentView.total} 题，可以接着做。
               </p>
             )}
           </div>
@@ -188,7 +190,9 @@ export default function AssessmentResultCard() {
       <ProfileSectionHeader
         label="职业兴趣测评"
         trailing={
-          <span className="text-xs text-muted whitespace-nowrap">
+          <span className="text-xs text-muted text-right">
+            {current.questionCount ? `本次 ${current.questionCount} 题` : null}
+            {current.questionCount && completedAt ? " · " : null}
             {completedAt ? `完成于 ${completedAt}` : "已完成"}
           </span>
         }
@@ -273,6 +277,9 @@ export default function AssessmentResultCard() {
       <AssessmentDisclaimer text={data?.assessment.disclaimer} variant="inline" />
       {data?.assessment.attribution && (
         <p className="text-[11px] text-muted/80 leading-relaxed">{data.assessment.attribution}</p>
+      )}
+      {data?.assessment.licenseText && (
+        <p className="text-[11px] text-muted/80 leading-relaxed">{data.assessment.licenseText}</p>
       )}
     </section>
   );
