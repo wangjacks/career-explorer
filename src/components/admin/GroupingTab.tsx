@@ -9,6 +9,7 @@ import {
   Lock,
   Plus,
   RefreshCw,
+  Star,
   Trash2,
   TriangleAlert,
   Upload,
@@ -18,10 +19,11 @@ import {
   X,
 } from "lucide-react";
 import ClassSelect from "./ClassSelect";
+import GroupingPreviewPanel from "./GroupingPreviewPanel";
 import ConfirmDialog from "./ConfirmDialog";
 import TextAvatar from "@/components/TextAvatar";
 import { useEscapeKey } from "@/hooks/useEscapeKey";
-import { GROUP_SIZE_CAP, computeGroupSizes } from "@/lib/grouping-utils";
+import { GROUP_SIZE_CAP } from "@/lib/grouping-utils";
 
 const SECONDARY_BUTTON_BASE =
   "bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-200 " +
@@ -42,13 +44,32 @@ interface MemberView {
   avatarUrl: string | null;
   storageId: number;
   featureLabels: Record<string, string[]>;
+  /** 主导兴趣型（#345；无兴趣结果时 null） */
+  dominantType?: string | null;
+  /** 命中角色（大五 C/E/O/A 高维映射，仅用于分组决策展示） */
+  roles?: { key: string; label: string }[];
 }
 
 interface GroupView {
   groupNo: number;
   memberCount: number;
   cohesion: number | null;
+  /** 组长（#345） */
+  leaderUserId?: number | null;
+  leaderName?: string | null;
+  /** 角色覆盖数（0–4） */
+  roleCoverage?: number;
+  /** 主型（按成员主导兴趣汇总） */
+  primaryType?: string | null;
   members: MemberView[];
+}
+
+interface StrategyItem {
+  key: string;
+  label: string;
+  description: string;
+  requiresAssessment: boolean;
+  isDefault: boolean;
 }
 
 interface GroupingView {
@@ -60,17 +81,26 @@ interface GroupingView {
   overall: number;
   baselines: { sequence: number; random: number };
   activeSourceKeys: string[];
-  sources: { key: string; label: string; kind: string }[];
+  sources: { key: string; label: string; kind: string; version?: string }[];
+  strategies: StrategyItem[];
+  defaultStrategy: string;
+  coverageBySource: { key: string; label: string; covered: number; total: number }[];
+  untestedCount: number;
+  roleCoverageAverage: number;
+  roleCoverageTarget: number;
+  assessmentAvailable: { riasec: boolean; bigfive: boolean };
   groups: GroupView[];
   ungrouped: MemberView[];
   latestBatch: {
     id: number;
     createdAt: string;
     strategy: string;
+    strategyLabel: string;
     studentCount: number;
     taggedCount: number;
     createdByName: string | null;
     metrics: { overall?: number } | null;
+    featureSources: { key: string; kind: string; weight: number; version?: string }[] | null;
   } | null;
   diffCount: number;
 }
@@ -78,6 +108,7 @@ interface GroupingView {
 interface BatchItem {
   id: number;
   strategy: string;
+  strategyLabel?: string;
   groupSize: number;
   studentCount: number;
   taggedCount: number;
@@ -90,12 +121,16 @@ interface BatchDetailGroup {
   groupNo: number;
   cohesion: number | null;
   memberCount: number;
+  leaderUserId?: number | null;
+  leaderName?: string | null;
   members: { userId: number; userCode: string | null; name: string | null }[];
 }
 
 interface BatchDetail {
   batch: {
     id: number;
+    strategy?: string;
+    strategyLabel?: string;
     studentCount: number;
     taggedCount: number;
     createdAt: string;
@@ -104,7 +139,6 @@ interface BatchDetail {
   };
   groups: BatchDetailGroup[];
 }
-
 interface ClassItem {
   id: number;
   name: string;
@@ -124,6 +158,8 @@ interface Writes {
   onMove: (member: MemberView, fromGroupNo: number | null) => void;
   onCreateGroup: () => void;
   onDeleteGroup: (groupNo: number) => void;
+  /** 设置 / 取消组长（#345；写操作，权限由服务端再校验） */
+  onSetLeader: (groupNo: number, userId: number | null) => void;
 }
 
 /** 批次的 metrics 是入库的 JSON 文本，界面只取整体目标值，解析失败就什么都不显示 */
@@ -179,9 +215,9 @@ export default function GroupingTab({
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailError, setDetailError] = useState<string | null>(null);
 
-  // 写操作：自动分组强确认、换人抽屉、进行中的动作（用于禁用重复提交）
+  // 写操作：智能分组预览、换人抽屉、进行中的动作（用于禁用重复提交）
   const [pending, setPending] = useState<string | null>(null);
-  const [confirmGenerate, setConfirmGenerate] = useState(false);
+  const [previewOpen, setPreviewOpen] = useState(false);
   const [moveTarget, setMoveTarget] = useState<{ member: MemberView; fromGroupNo: number | null } | null>(
     null
   );
@@ -317,7 +353,6 @@ export default function GroupingTab({
 
   const selectedClassName = classId == null ? "" : classList.find((c) => c.id === classId)?.name ?? "";
   // 自动分组的预期组数：与算法同一口径（前端只算组数，不复制分配逻辑）
-  const expectedGroupCount = view ? computeGroupSizes(view.studentCount).length : 0;
 
   /** 统一的写请求：成功则静默刷新，失败把服务端原因如实 toast 出来（不吞异常） */
   const write = useCallback(
@@ -348,7 +383,14 @@ export default function GroupingTab({
     [classId, loadView]
   );
 
-  const requestJson = useCallback(async (res: Response): Promise<{ ok: boolean; error?: string; view?: GroupingView }> => {
+  const requestJson = useCallback(
+    async (res: Response): Promise<{
+      ok: boolean;
+      error?: string;
+      view?: GroupingView;
+      /** #345：换人时原组长被自动取消 */
+      leaderCleared?: boolean;
+    }> => {
     const data = await res.json().catch(() => null);
     if (!res.ok) {
       // 导入的拒绝矩阵把差异清单放在 errors[] 里，只报 error 会让教师看不出到底差在哪
@@ -356,34 +398,51 @@ export default function GroupingTab({
       const base = data?.error || "操作失败";
       return { ok: false, error: details ? `${base}：${details}` : base };
     }
-    return { ok: true, view: (data?.view as GroupingView) ?? undefined };
+    return {
+      ok: true,
+      view: (data?.view as GroupingView) ?? undefined,
+      leaderCleared: data?.leaderCleared === true,
+    };
   }, []);
 
-  const handleGenerate = useCallback(async () => {
-    if (classId == null) return;
-    const done = await write("generate", async () => {
-      const res = await fetch("/api/manage/groups", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ classId }),
+  /** 设置 / 取消组长（#345）：设完直接刷新视图，组长徽章即时变化 */
+  const handleSetLeader = useCallback(
+    async (groupNo: number, userId: number | null) => {
+      if (classId == null) return;
+      const done = await write("leader", async () => {
+        const res = await fetch("/api/manage/groups/leader", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ classId, groupNo, leaderUserId: userId }),
+        });
+        return requestJson(res);
       });
-      return requestJson(res);
-    });
-    if (done) toast.success("已生成分组名单");
-  }, [classId, requestJson, write]);
+      if (done) toast.success(userId == null ? `已取消第 ${groupNo} 组组长` : `已设置第 ${groupNo} 组组长`);
+    },
+    [classId, requestJson, write]
+  );
 
   const handleMove = useCallback(
     async (member: MemberView, toGroupNo: number) => {
       if (classId == null) return false;
+      let leaderCleared = false;
       const done = await write("move", async () => {
         const res = await fetch("/api/manage/groups/members", {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ classId, userId: member.userId, userCode: member.userCode, toGroupNo }),
         });
-        return requestJson(res);
+        const result = await requestJson(res);
+        leaderCleared = result.leaderCleared === true;
+        return result;
       });
-      if (done) toast.success(`已将 ${member.name} 移到第 ${toGroupNo} 组`);
+      if (done) {
+        toast.success(
+          leaderCleared
+            ? `已将 ${member.name} 移到第 ${toGroupNo} 组；他原是组长，组长位已自动取消，请重新指定`
+            : `已将 ${member.name} 移到第 ${toGroupNo} 组`
+        );
+      }
       return done;
     },
     [classId, requestJson, write]
@@ -527,6 +586,7 @@ export default function GroupingTab({
     onMove: (member, fromGroupNo) => setMoveTarget({ member, fromGroupNo }),
     onCreateGroup: handleCreateGroup,
     onDeleteGroup: handleDeleteGroup,
+    onSetLeader: (groupNo, userId) => void handleSetLeader(groupNo, userId),
   };
 
   return (
@@ -595,12 +655,12 @@ export default function GroupingTab({
                   </button>
                   <button
                     type="button"
-                    onClick={() => setConfirmGenerate(true)}
-                    disabled={!!pending || (view !== null && view.studentCount === 0)}
+                    onClick={() => setPreviewOpen(true)}
+                    disabled={!!pending || view === null || view.studentCount === 0}
                     className="px-4 py-2 bg-primary hover:bg-primary-strong disabled:opacity-40 text-white text-sm font-medium rounded-lg transition-colors inline-flex items-center gap-1.5"
                   >
                     <WandSparkles size={14} aria-hidden />
-                    {pending === "generate" ? "分组中..." : "自动分组"}
+                    智能分组
                   </button>
                 </>
               )}
@@ -618,10 +678,28 @@ export default function GroupingTab({
         </div>
         {canModify && classId != null && (
           <p className="text-xs text-muted">
-            自动分组会<strong>完全覆盖</strong>当前名单（手工调整不可恢复），并把这一次结果归档进历史批次。
+            「智能分组」会先生成预览（不写库）：可看指标、换人、设组长；确认应用后
+            <strong>完全覆盖</strong>当前名单（手工调整不可恢复），并把这一次结果归档进历史批次。
           </p>
         )}
       </div>
+
+      {/* 智能分组预览（#345）：替代原来的「自动分组」直接覆盖，先预览再应用 */}
+      {classId != null && previewOpen && view && (
+        <GroupingPreviewPanel
+          classId={classId}
+          classLabel={selectedClassName}
+          canModify={canModify}
+          strategies={view.strategies}
+          defaultStrategy={view.defaultStrategy}
+          onClose={() => setPreviewOpen(false)}
+          onApplied={() => {
+            setPreviewOpen(false);
+            setSegment("current");
+            void loadView(classId, { clear: false });
+          }}
+        />
+      )}
 
       {classId == null ? (
         <div className="bg-card rounded-xl border border-border-soft p-8 text-center space-y-2">
@@ -673,7 +751,6 @@ export default function GroupingTab({
           ) : (
             <HistoryPanel
               classLabel={selectedClassName}
-              sourceNames={sourceNames}
               loading={viewLoading}
               batches={batches}
               batchesError={batchesError}
@@ -692,41 +769,6 @@ export default function GroupingTab({
             />
           )}
         </>
-      )}
-
-      {view && (
-        <ConfirmDialog
-          open={confirmGenerate}
-          title="按兴趣相似度自动分组"
-          variant="danger"
-          confirmText="覆盖并分组"
-          message={
-            <div className="space-y-2">
-              <p>
-                将把 <span className="font-medium text-foreground">{selectedClassName}</span> 的
-                {view.studentCount} 名学生重新分组，
-                <strong>完全覆盖当前名单</strong>
-                {view.diffCount > 0
-                  ? `（与最近一次自动分组已有的 ${view.diffCount} 处差异会一并丢失）`
-                  : ""}
-                。
-              </p>
-              <p className="text-xs text-muted">
-                这一次结果会归档进历史批次；学生端「我的小组」立即跟着变。
-              </p>
-            </div>
-          }
-          expectInput={{
-            label: `请输入预期组数以确认（${view.studentCount} 人 → ${expectedGroupCount} 组，每组上限 ${GROUP_SIZE_CAP} 人）`,
-            value: String(expectedGroupCount),
-            placeholder: String(expectedGroupCount),
-          }}
-          onConfirm={() => {
-            setConfirmGenerate(false);
-            void handleGenerate();
-          }}
-          onCancel={() => setConfirmGenerate(false)}
-        />
       )}
 
       {importRows && (
@@ -844,6 +886,9 @@ function CurrentPanel({
 
   const uncovered = view.studentCount - view.coveredCount;
   const bestBaseline = Math.max(view.baselines.sequence, view.baselines.random);
+  const assessmentCoverage = view.coverageBySource.filter((source) => source.key !== "tags");
+  const roleAverage = view.roleCoverageAverage ?? 0;
+  const roleTarget = view.roleCoverageTarget || 3;
   // 相似度只统计已进组的人，覆盖率与学生对数按全班算——两个分母必须分开显示（见 grouping-utils 的口径注释）
   const grouped = view.groups.reduce((sum, g) => sum + g.memberCount, 0);
 
@@ -859,13 +904,16 @@ function CurrentPanel({
             hint={grouped < view.studentCount ? `还有 ${view.studentCount - grouped} 人未进组` : undefined}
           />
           <MetricCell
-            label={`有${sourceNames}的学生`}
-            value={`${view.coveredCount} / ${view.studentCount}`}
+            label="角色覆盖均值"
+            value={`${roleAverage.toFixed(1)} / 4`}
+            hint={`目标每组 ≥ ${roleTarget}`}
           />
           <MetricCell
-            label={`有共同${sourceNames}的学生对`}
-            value={`${view.nonZeroPairs} / ${view.totalPairs}`}
-            hint="按全班人数计"
+            label="测评覆盖"
+            value={assessmentCoverage
+              .map((source) => `${source.label} ${source.covered}/${source.total}`)
+              .join(" · ")}
+            hint={view.untestedCount > 0 ? `两套都没做 ${view.untestedCount} 人` : "全班都有测评数据"}
           />
           <MetricCell label="组内相似度合计" value={view.overall.toFixed(2)} hint="只含已进组的人" />
         </div>
@@ -890,7 +938,7 @@ function CurrentPanel({
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted pt-1 border-t border-border-soft">
           {view.latestBatch ? (
             <span>
-              最近一次自动分组：{view.latestBatch.createdAt}
+              最近一次自动分组：{view.latestBatch.createdAt} · {view.latestBatch.strategyLabel}
               {view.latestBatch.createdByName ? ` · ${view.latestBatch.createdByName}` : ""}
             </span>
           ) : (
@@ -980,6 +1028,17 @@ function GroupCard({
       <div className="flex items-center gap-2 flex-wrap">
         <h3 className="text-sm font-semibold text-foreground">第 {group.groupNo} 组</h3>
         <span className="text-xs text-muted">{group.memberCount} 人</span>
+        {group.primaryType && (
+          <span className="rounded px-1.5 py-0.5 text-[10px] font-medium bg-green-50 text-green-700 dark:bg-green-900/30 dark:text-green-300">
+            主型 {group.primaryType}
+          </span>
+        )}
+        {typeof group.roleCoverage === "number" && (
+          <span className="rounded px-1.5 py-0.5 text-[10px] font-medium bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-300"
+            title="组内命中的角色数（组织者/推进者/点子王/协调者）">
+            角色 {group.roleCoverage}/4
+          </span>
+        )}
         {over && (
           <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-danger-soft text-danger-strong">
             超员
@@ -1009,8 +1068,45 @@ function GroupCard({
             <li key={m.userId} className="flex items-center gap-2.5">
               <TextAvatar name={m.name} avatarUrl={m.avatarUrl} storageId={m.storageId} size="sm" />
               {/* flex 子项默认 min-width:auto，不加 min-w-0 时 truncate 不生效、长名字会挤出卡片 */}
-              <span className="flex-1 min-w-0 truncate text-sm text-foreground">{m.name}</span>
+              <span className="min-w-0 flex-1 truncate text-sm text-foreground">
+                {m.name}
+                {group.leaderUserId === m.userId && (
+                  <span className="ml-1 inline-flex items-center gap-0.5 rounded bg-amber-100 px-1 py-0.5 text-[10px] text-amber-800 dark:bg-amber-900/40 dark:text-amber-200">
+                    <Star size={9} aria-hidden />
+                    组长
+                  </span>
+                )}
+              </span>
+              <span className="flex flex-shrink-0 flex-wrap justify-end gap-1">
+                {m.dominantType && (
+                  <span className="rounded bg-gray-100 px-1 py-0.5 text-[10px] text-gray-600 dark:bg-gray-800 dark:text-gray-300">
+                    {m.dominantType}
+                  </span>
+                )}
+                {(m.roles ?? []).map((role) => (
+                  <span key={role.key} className="rounded bg-blue-50 px-1 py-0.5 text-[10px] text-blue-700 dark:bg-blue-900/30 dark:text-blue-300">
+                    {role.label}
+                  </span>
+                ))}
+              </span>
               <span className="flex-shrink-0 font-mono text-xs text-muted">{m.userCode}</span>
+              {writes.canModify && (
+                <button
+                  type="button"
+                  onClick={() => writes.onSetLeader(group.groupNo, group.leaderUserId === m.userId ? null : m.userId)}
+                  disabled={writes.busy}
+                  aria-label={group.leaderUserId === m.userId ? `取消 ${m.name} 的组长` : `设 ${m.name} 为第 ${group.groupNo} 组组长`}
+                  aria-pressed={group.leaderUserId === m.userId}
+                  title={group.leaderUserId === m.userId ? "取消组长" : "设为组长"}
+                  className={`rounded px-1.5 py-1 text-[10px] font-medium transition-colors disabled:opacity-40 ${
+                    group.leaderUserId === m.userId
+                      ? "text-amber-700 hover:bg-amber-100 dark:text-amber-300 dark:hover:bg-amber-900/30"
+                      : "text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800"
+                  }`}
+                >
+                  <Star size={11} aria-hidden />
+                </button>
+              )}
               {writes.canModify && (
                 <button
                   type="button"
@@ -1169,7 +1265,6 @@ function MoveMemberSheet({
 
 function HistoryPanel({
   classLabel,
-  sourceNames,
   loading,
   batches,
   batchesError,
@@ -1182,7 +1277,6 @@ function HistoryPanel({
   onRetryDetail,
 }: {
   classLabel: string;
-  sourceNames: string;
   loading: boolean;
   batches: BatchItem[];
   batchesError: string | null;
@@ -1249,8 +1343,13 @@ function HistoryPanel({
                 >
                   <span className="flex items-center gap-2 flex-wrap">
                     <span className="font-medium">{b.createdAt}</span>
+                    {b.strategyLabel && (
+                      <span className="rounded bg-gray-100 px-1.5 py-0.5 text-[10px] font-medium text-gray-600 dark:bg-gray-800 dark:text-gray-300">
+                        {b.strategyLabel}
+                      </span>
+                    )}
                     <span className="text-xs text-muted">
-                      {b.studentCount} 人 · {b.taggedCount} 人有{sourceNames}
+                      {b.studentCount} 人 · {b.taggedCount} 人有分组依据
                     </span>
                     {overall !== null && <span className="text-xs text-muted">相似度合计 {overall}</span>}
                     {b.createdByName && <span className="ml-auto text-xs text-muted">{b.createdByName}</span>}
@@ -1288,6 +1387,7 @@ function HistoryPanel({
                   批次 #{detail.batch.id} 名单
                 </h3>
                 <span className="text-xs text-muted">
+                  {detail.batch.strategyLabel ? `${detail.batch.strategyLabel} · ` : ""}
                   {detail.batch.studentCount} 人 · 归档于 {detail.batch.createdAt} · 只读
                 </span>
               </div>
@@ -1297,6 +1397,12 @@ function HistoryPanel({
                     <div className="flex items-center gap-2">
                       <span className="text-sm font-medium text-foreground">第 {g.groupNo} 组</span>
                       <span className="text-xs text-muted">{g.memberCount} 人</span>
+                      {g.leaderName && (
+                        <span className="inline-flex items-center gap-0.5 rounded bg-amber-100 px-1 py-0.5 text-[10px] text-amber-800 dark:bg-amber-900/40 dark:text-amber-200">
+                          <Star size={9} aria-hidden />
+                          组长 {g.leaderName}
+                        </span>
+                      )}
                       <span className="ml-auto text-xs text-muted">
                         内聚度 {g.cohesion === null ? "—" : g.cohesion.toFixed(2)}
                       </span>
