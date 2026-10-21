@@ -1,8 +1,19 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import Link from "next/link";
 import CollapsibleCard from "./CollapsibleCard";
-import ScoreRadarChart from "./ScoreRadarChart";
+import ChartLoadingPlaceholder from "./ChartLoadingPlaceholder";
+import { chartAriaLabel } from "@/lib/profile-ui";
+
+/**
+ * 雷达图按需加载（#324）：折叠卡展开前不下载 recharts；`ssr:false` 因为图表依赖容器宽度。
+ * 折叠卡收起时子内容不挂载，因此这里的 dynamic 只在展开后触发。
+ */
+const ScoreRadarChart = dynamic(() => import("./ScoreRadarChart"), {
+  ssr: false,
+  loading: () => <ChartLoadingPlaceholder />,
+});
 import { formatResultTime } from "@/lib/assessment-flow";
 import {
   buildBigFiveBars,
@@ -82,7 +93,12 @@ export default function FiveFactorResultCard({
       {/* 两种视图并列：雷达看整体形状，条状排名看具体高低；窄屏上下堆叠 */}
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
         <div className="min-w-0">
-          <ScoreRadarChart points={points} seriesName="人格得分" ariaLabel="五大人格得分雷达图" />
+          <ScoreRadarChart
+            points={points}
+            seriesName="人格得分"
+            // #324：读屏可读到每一维分数（图形本身对读屏不可见）
+            ariaLabel={chartAriaLabel("五大人格得分雷达图", points)}
+          />
         </div>
         <ul className="min-w-0 space-y-2.5" aria-label="五大人格得分排名">
           {bars.map((bar) => (

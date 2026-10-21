@@ -97,9 +97,12 @@ export default function ScoreRadarChart({
               <Radar
                 name={seriesName}
                 dataKey="standard"
-                stroke="#059669"
+                // 雷达本体用语义 token 色（`text-primary` 给 path 上色，`currentColor` 再引用它）；
+                // 坐标轴 / 网格仍继承外层 text-muted——不硬编码 #059669，也不把刻度和数据混成同色
+                className="text-primary"
+                stroke="currentColor"
                 strokeWidth={2}
-                fill="#059669"
+                fill="currentColor"
                 fillOpacity={0.25}
                 isAnimationActive={false}
               />
