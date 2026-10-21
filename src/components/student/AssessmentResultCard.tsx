@@ -79,7 +79,8 @@ export default function AssessmentResultCard({
     return () => {
       cancelled = true;
     };
-  }, [wantsCareers]);
+    // 依赖当前结果的 id：结果区重试后可能拿到另一条结果，只依赖布尔开关会让推荐停留在上一份结果
+  }, [currentId, mode, wantsCareers]);
 
   // 无结果：空态引导去该量表的答题页；有未完成草稿时提示接着答
   if (!current) {

@@ -4,7 +4,12 @@ import { useCallback, useEffect, useState } from "react";
 import { Loader2, Sparkles } from "lucide-react";
 import ProfileSectionHeader from "./ProfileSectionHeader";
 import AssessmentResultCard from "./AssessmentResultCard";
-import { CROSS_SCALE_LINKS, type AssessmentResultsPayload, type AssessmentScaleMeta } from "@/lib/assessment-view";
+import {
+  CROSS_SCALE_LINKS,
+  resultCardMode,
+  type AssessmentResultsPayload,
+  type AssessmentScaleMeta,
+} from "@/lib/assessment-view";
 
 /**
  * 「我的档案」里的测评结果区（#224 + #292）：按**量表清单循环渲染每套量表的结果卡**。
@@ -16,7 +21,7 @@ import { CROSS_SCALE_LINKS, type AssessmentResultsPayload, type AssessmentScaleM
  * - 全部数据由本组件持有，结果卡只负责按计分模式分流渲染（不再各自 fetch）。
  *
  * 与档案提交流程仍然完全解耦：不看 `submissionClosed`、不参与档案版本快照。
- * 两套量表都有当前结果时，在卡片下方补一张「人格与兴趣一起看」提示卡（#292）。
+ * 霍兰德与大五各有一份当前结果时，在卡片下方补一张「人格与兴趣一起看」提示卡（#292）。
  */
 export default function AssessmentResultsSection() {
   const [scales, setScales] = useState<AssessmentScaleMeta[]>([]);
@@ -33,10 +38,9 @@ export default function AssessmentResultsSection() {
       const res = await fetch("/api/shared/assessment/results");
       const payload = (await res.json()) as AssessmentResultsPayload & { error?: string };
       if (!res.ok) throw new Error(payload?.error || "测评结果加载失败");
-      const list =
-        Array.isArray(payload.assessments) && payload.assessments.length > 0
-          ? payload.assessments
-          : [payload.assessment];
+      // 清单缺失（undefined = 老接口）才回退成单套；空数组是「全部量表都已停用」，
+      // 按文档口径停用量表不进档案页，不能把已停用的默认量表又渲染出来
+      const list = Array.isArray(payload.assessments) ? payload.assessments : [payload.assessment];
       setScales(list);
       setPayloads({ [payload.assessment.code]: payload });
 
@@ -107,7 +111,14 @@ export default function AssessmentResultsSection() {
     );
   }
 
-  const completedCount = scales.filter((item) => payloads[item.code]?.current).length;
+  // 提示卡讲的是霍兰德 × 大五的对应关系：两类各有一份当前结果才出现。
+  // 不写「完成数 ≥ 2」——将来第三套量表（如再一套 dimensional）都完成时不该弹这张卡。
+  const hasHollandResult = scales.some(
+    (item) => resultCardMode(item) === "holland" && payloads[item.code]?.current
+  );
+  const hasBigFiveResult = scales.some(
+    (item) => resultCardMode(item) === "big-five" && payloads[item.code]?.current
+  );
 
   return (
     <div className="space-y-5">
@@ -134,7 +145,7 @@ export default function AssessmentResultsSection() {
         return <AssessmentResultCard key={item.code} code={item.code} data={data} />;
       })}
 
-      {completedCount >= 2 && <CrossScaleTipCard />}
+      {hasHollandResult && hasBigFiveResult && <CrossScaleTipCard />}
     </div>
   );
 }

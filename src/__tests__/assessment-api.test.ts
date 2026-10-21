@@ -498,6 +498,12 @@ describe("量表停用", () => {
       const resultsBody = await resultsRes.json();
       expect(resultsBody.current.typeCode).toBe("RIA");
       expect(resultsBody.assessment.enabled).toBe(false);
+
+      // 量表清单（#292）只列启用中的量表：停用后档案页不再给它渲染结果卡，
+      // 但历史结果仍可按 ?code= 读到（上面已断言）
+      const listRes = await resultsGet(getRequest("/api/shared/assessment/results", users.A.token));
+      const listBody = await listRes.json();
+      expect(listBody.assessments.map((a: { code: string }) => a.code)).toEqual([IPIP_NEO_FFI_CODE]);
     } finally {
       const restore = new Database(state.dbPath);
       restore.prepare("UPDATE assessments SET enabled = 1 WHERE code = ?").run(RIASEC_CODE);
