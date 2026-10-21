@@ -25,6 +25,7 @@ import {
   type DemoSeedActor,
   type DemoSeedReport,
 } from "./demo-seed";
+import { visitorSeqOf } from "./demo-accounts";
 
 /** 每次全新随机种子（不可复现、不暴露、不存储）——满足「演示数据每次新随机」 */
 function freshSeed(): number {
@@ -38,6 +39,11 @@ function demoDbFile(): string {
 function removeDbArtifacts(): void {
   const dbFile = demoDbFile();
   for (const suffix of ["", "-wal", "-shm"]) rmSync(dbFile + suffix, { force: true });
+}
+
+/** 演示库文件是否存在（只 stat 文件，不打开 adapter）；供账户端点做无副作用门禁 */
+export function demoDbExists(): boolean {
+  return existsSync(demoDbFile());
 }
 
 /** 仅确保演示库存在并完成 init（建表 + seedTags/seedAssessments/seedO*NET + 本地默认后端）。幂等 */
@@ -58,6 +64,8 @@ export interface DemoStatus {
     teachers: number;
     submittedProfiles: number;
     demoFiles: number;
+    /** 已发放的访客账户数（按 seq 去重；不计入上面的名册 students/teachers） */
+    visitorAccounts: number;
   };
 }
 
@@ -120,13 +128,24 @@ export function readDemoStatus(): Promise<DemoStatus> {
       enabled: isDemoEnabled(),
       dbPath,
       initialized: false,
-      counts: { classes: 0, students: 0, teachers: 0, submittedProfiles: 0, demoFiles: 0 },
+      counts: { classes: 0, students: 0, teachers: 0, submittedProfiles: 0, demoFiles: 0, visitorAccounts: 0 },
     });
   }
   return runInDemoScope(async () => {
     const classes = await getClasses();
-    const students = (await getStudents()).filter((s) => /^9\d{11}$/.test(s.user_code));
-    const teachers = (await getTeachers()).filter((t) => /^99\d{6}$/.test(t.user_code));
+    // 名册（seq<1000）与访客账户（seq>=1000）分开计数：发放账户不应让「班级规模」虚增
+    const visitorSeqs = new Set<number>();
+    const students = (await getStudents())
+      .filter((s) => /^9\d{11}$/.test(s.user_code))
+      .filter((s) => {
+        const seq = visitorSeqOf(s.user_code);
+        if (seq == null) return true;
+        visitorSeqs.add(seq);
+        return false;
+      });
+    const teachers = (await getTeachers()).filter(
+      (t) => /^99\d{6}$/.test(t.user_code) && visitorSeqOf(t.user_code) == null
+    );
     const submittedProfiles = students.filter((s) => s.submitted_at).length;
 
     let demoFiles = 0;
@@ -145,6 +164,7 @@ export function readDemoStatus(): Promise<DemoStatus> {
         teachers: teachers.length,
         submittedProfiles,
         demoFiles,
+        visitorAccounts: visitorSeqs.size,
       },
     };
   });

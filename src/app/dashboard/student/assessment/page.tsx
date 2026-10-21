@@ -10,36 +10,24 @@ import AssessmentListCard from "@/components/student/assessment/AssessmentListCa
 import AssessmentLinksCard from "@/components/student/assessment/AssessmentLinksCard";
 import AssessmentAttributionCard from "@/components/student/assessment/AssessmentAttributionCard";
 import RiasecGuideCard from "@/components/student/assessment/RiasecGuideCard";
+import BigFiveGuideCard from "@/components/student/assessment/BigFiveGuideCard";
 import { useSession } from "@/hooks/useSession";
-import { RIASEC_CODE } from "@/lib/assessment-data";
+import { IPIP_NEO_FFI_CODE, RIASEC_CODE } from "@/lib/assessment-data";
+import { deriveAssessmentCenter, estimateMinutes, type AssessmentCenterView } from "@/lib/assessment-center";
 import {
+  assessmentCenterPayloadOf,
   buildAssessmentList,
-  deriveAssessmentCenter,
-  type AssessmentCenterView,
-} from "@/lib/assessment-center";
+  deriveLatestActive,
+  normalizeAssessmentList,
+  quizHref,
+  resultFormCopy,
+} from "@/lib/assessment-list";
 
-/** `GET /api/shared/assessment/results` 的返回（只声明本页用到的字段） */
-interface AssessmentResultsPayload {
-  assessment?: {
-    code?: string;
-    name?: string;
-    /** 每次作答的题量（#282 起不是题库总量） */
-    questionCount?: number;
-    /** 题库总量（#283 展示「题库 N 题」用） */
-    poolSize?: number;
-    enabled?: boolean;
-    scaleVersion?: string;
-    dimensions?: { key: string; label: string }[];
-    attribution?: string;
-    licenseText?: string;
-    disclaimer?: string;
-  };
-  current?: { typeCode?: string | null; completedAt?: string | null } | null;
-  history?: unknown[];
-  inProgress?: { answered: number; total: number; updatedAt?: string } | null;
+/** `GET /api/shared/assessment/list` 的返回（只声明本页用到的字段，逐项由 `normalizeAssessmentList` 归一） */
+interface AssessmentListPayload {
+  assessments?: unknown[];
 }
 
-const QUIZ_HREF = "/dashboard/student/assessment/quiz";
 /** 「查看报告」落在「我的档案」的测评区（#224 上线后就是那里的锚点，当前先回到学生面板） */
 const REPORT_HREF = "/dashboard/student";
 
@@ -101,13 +89,16 @@ function ProgressTrack({ view }: { view: AssessmentCenterView }) {
 }
 
 /**
- * 职业测评中心（#222 骨架 + #225 内容卡）：入口、状态、科普与授权说明。
+ * 职业测评中心（#222 骨架 + #225 内容卡 + #291 多量表）：入口、状态、科普与授权说明。
  * 结果解读与职业推荐在「我的档案」（#224）。
  *
- * 三态来自服务端草稿 / 结果（`GET /api/shared/assessment/results`），判定在
- * `src/lib/assessment-center.ts`（纯函数，可单测）；本页不缓存作答内容，也不做任何计分。
- * 内容卡（清单 / 六型科普 / 权威渠道 / 授权免责）的文案与结构在
- * `src/lib/assessment-center-content.ts` + `src/components/student/assessment/`，接口不可用时也常驻。
+ * 状态来自 `GET /api/shared/assessment/list`：每套启用的量表各带本人在该量表上的
+ * 三态 / 三字码 / 草稿进度，页面据此渲染「我的测评」（最近活跃量表）与多行清单。
+ * 「最近活跃」与逐行状态是纯函数（`src/lib/assessment-list.ts`），三态口径仍复用
+ * `src/lib/assessment-center.ts`，本页不缓存作答内容，也不做任何计分。
+ * 内容卡（清单 / 六型科普 / 大五科普 / 权威渠道 / 授权免责）的文案与结构在
+ * `src/lib/assessment-center-content.ts` + `src/components/student/assessment/`；
+ * 六型科普、外链与授权卡在接口不可用时也常驻，清单与大五科普随列表结果渲染。
  */
 export default function AssessmentCenterPage() {
   const router = useRouter();
@@ -120,11 +111,11 @@ export default function AssessmentCenterPage() {
   }, []);
   /* eslint-enable react-hooks/set-state-in-effect */
 
-  const [payload, setPayload] = useState<AssessmentResultsPayload | null>(null);
+  const [payload, setPayload] = useState<AssessmentListPayload | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
-  /** 404 = 后端没有这套量表（未安装 / 被清空），与「加载失败」区分成空态 */
-  const [unavailable, setUnavailable] = useState(false);
+  /** 成功拉到列表才置 true：科普卡据此决定是否按「已启用量表」渲染（加载中不闪变） */
+  const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
     if (!checking && (!session || session.role !== "student")) {
@@ -135,24 +126,20 @@ export default function AssessmentCenterPage() {
   const load = useCallback(async () => {
     setLoading(true);
     setLoadError(null);
-    setUnavailable(false);
     try {
-      const res = await fetch(`/api/shared/assessment/results?code=${encodeURIComponent(RIASEC_CODE)}`);
+      const res = await fetch("/api/shared/assessment/list");
       // 会话过期：留在页面上重试只会一直 401，直接回登录页
       if (res.status === 401) {
         router.replace("/login");
         return;
       }
       const data = await res.json();
-      if (res.status === 404) {
-        setUnavailable(true);
-        setPayload(null);
-        return;
-      }
       if (!res.ok) throw new Error(data.error || "测评状态加载失败");
-      setPayload(data as AssessmentResultsPayload);
+      setPayload(data as AssessmentListPayload);
+      setLoaded(true);
     } catch (err) {
       console.error("Failed to load assessment center:", err);
+      setLoaded(false);
       setLoadError(err instanceof Error ? err.message : "测评状态加载失败");
     } finally {
       setLoading(false);
@@ -173,10 +160,19 @@ export default function AssessmentCenterPage() {
     );
   }
 
-  const view = deriveAssessmentCenter(payload);
-  const listRows = buildAssessmentList(payload, view);
+  const items = normalizeAssessmentList(payload?.assessments);
+  const listRows = buildAssessmentList(items);
+  // 「我的测评」卡展示最近活跃的那套：有草稿优先 → 最近完成 → 主测评兜底
+  const latest = deriveLatestActive(items);
+  const view = deriveAssessmentCenter(latest ? assessmentCenterPayloadOf(latest) : null);
+  // Hero 的题量徽章取主测评（霍兰德）；主测评被停用时退回列表第一套
+  const primary = items.find((item) => item.code === RIASEC_CODE) ?? items[0] ?? null;
   const canStart = view.enabled && view.questionCount > 0;
-  const meta = payload?.assessment;
+  const unavailable = !loading && !loadError && loaded && items.length === 0;
+  // 科普卡跟着「启用的量表」走：停用大五时不出现大五科普，单量表页面与 #225 时一致；
+  // 列表还没加载成功时保留六型科普兜底（大五是否启用未知，先不渲染）
+  const showRiasecGuide = !loaded || items.length === 0 || items.some((item) => item.code === RIASEC_CODE);
+  const showBigFiveGuide = loaded && items.some((item) => item.code === IPIP_NEO_FFI_CODE);
 
   return (
     <div className="min-h-screen bg-background">
@@ -197,19 +193,19 @@ export default function AssessmentCenterPage() {
                 <div className="flex-1 min-w-0">
                   <h1 className="text-2xl font-extrabold text-white leading-tight">职业测评</h1>
                   <p className="text-sm text-white/75 mt-1 leading-relaxed">
-                    用一组兴趣问题认识自己的职业倾向：答完会得到一个三字码，对应六种职业兴趣类型。
+                    用几组问题认识自己的职业兴趣与性格特点，结果解读会出现在「我的档案」里。
                   </p>
                 </div>
               </div>
               <div className="mt-4 flex flex-wrap items-center gap-2">
-                {view.questionCount > 0 && (
+                {primary && primary.questionCount > 0 && (
                   <span className="px-2.5 py-0.5 rounded-full text-xs bg-white/10 text-white/85 border border-white/20">
-                    霍兰德六型 · 每次 {view.questionCount} 题
+                    {primary.name} · {primary.questionCount} 题
                   </span>
                 )}
-                {view.estimatedMinutes > 0 && (
+                {primary && primary.questionCount > 0 && (
                   <span className="px-2.5 py-0.5 rounded-full text-xs bg-white/10 text-white/85 border border-white/20">
-                    约 {view.estimatedMinutes} 分钟
+                    约 {estimateMinutes(primary.questionCount)} 分钟
                   </span>
                 )}
                 {/* 跳到页底授权区（#225）：署名与免责全文在那里常驻，hero 里不再收一份折叠面板 */}
@@ -223,7 +219,7 @@ export default function AssessmentCenterPage() {
               </div>
             </section>
 
-            {/* 加载 / 失败 / 未开放 / 三态 */}
+            {/* 加载 / 失败 / 空列表 / 「我的测评」三态 */}
             {loading ? (
               <section className="bg-card rounded-xl border border-border-soft p-10 text-center">
                 <p className="text-sm text-muted">测评状态加载中...</p>
@@ -235,135 +231,135 @@ export default function AssessmentCenterPage() {
                   重试
                 </button>
               </section>
-            ) : unavailable ? (
+            ) : unavailable || !latest ? (
               <section className="bg-card rounded-xl border border-border-soft p-8 text-center space-y-2">
                 <p className="text-sm font-medium text-foreground">暂无可用测评</p>
-                <p className="text-xs text-muted">老师还没有开放职业测评，稍后再来看看吧。</p>
+                <p className="text-xs text-muted">老师还没有开放测评，稍后再来看看吧。</p>
               </section>
             ) : (
-              <>
-                {/* 状态卡：未开始 / 进行中 / 已完成 */}
-                <section className="bg-card rounded-xl border border-border-soft p-5 space-y-4">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <h2 className="text-base font-semibold text-foreground">我的测评</h2>
-                    <StatusBadge status={view.status} />
-                    {!view.enabled && (
-                      <span className="px-2 py-0.5 rounded-full text-xs bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-400">
-                        当前未开放
-                      </span>
-                    )}
-                    {view.status === "completed" && view.typeCode && (
-                      <span className="ml-auto px-2.5 py-0.5 rounded-full text-xs font-semibold bg-primary-soft text-primary-strong dark:bg-green-900/30 dark:text-green-300 tracking-wide">
-                        {view.typeCode}
-                      </span>
-                    )}
-                  </div>
-
-                  {view.status === "not-started" && (
-                    <>
-                      <p className="text-sm text-muted leading-relaxed">
-                        {view.questionCount > 0
-                          ? `还没有做过职业兴趣测评。每次 ${view.questionCount} 题，全部答完大约需要 ${view.estimatedMinutes} 分钟，作答会自动保存，可以中途退出。`
-                          : "还没有做过职业兴趣测评，题库还在准备中。"}
-                      </p>
-                      {view.questionCount > 0 && (
-                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
-                          <Fact
-                            icon={ListChecks}
-                            label="题量"
-                            value={
-                              view.poolSize > view.questionCount
-                                ? `每次 ${view.questionCount} 题 · 题库 ${view.poolSize} 题`
-                                : `每次 ${view.questionCount} 题`
-                            }
-                          />
-                          <Fact icon={Timer} label="预计耗时" value={`约 ${view.estimatedMinutes} 分钟`} />
-                          <Fact icon={Compass} label="结果形式" value="三字码 + 六型分布" />
-                        </div>
-                      )}
-                      {canStart ? (
-                        <Link href={QUIZ_HREF} className={PRIMARY_BUTTON}>
-                          <Play size={16} aria-hidden />
-                          开始测评
-                        </Link>
-                      ) : (
-                        <p className="text-xs text-muted">
-                          {view.enabled ? "题库准备中，稍后再来。" : "测评当前未开放，开放后即可开始。"}
-                        </p>
-                      )}
-                    </>
+              /* 状态卡：展示最近活跃量表（草稿优先 → 最近完成 → 主测评兜底） */
+              <section className="bg-card rounded-xl border border-border-soft p-5 space-y-4">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <h2 className="text-base font-semibold text-foreground">我的测评</h2>
+                  <StatusBadge status={view.status} />
+                  {view.status === "completed" && view.typeCode && (
+                    <span className="ml-auto px-2.5 py-0.5 rounded-full text-xs font-semibold bg-primary-soft text-primary-strong dark:bg-green-900/30 dark:text-green-300 tracking-wide">
+                      {view.typeCode}
+                    </span>
                   )}
+                </div>
+                <p className="text-xs text-muted">最近活跃：{latest.name}</p>
 
-                  {view.status === "in-progress" && (
-                    <>
-                      <p className="text-sm text-muted leading-relaxed">
-                        {view.draftComplete
-                          ? "题目已经全部答完，只差提交了——继续作答可以直接提交并查看结果。"
-                          : `上次答到第 ${view.answered} 题就离开了，进度已经保存在服务端，继续作答会从上次的题接着往下。`}
-                      </p>
-                      <ProgressTrack view={view} />
-                      <div className="flex flex-wrap items-center gap-2.5">
-                        {canStart ? (
-                          <Link href={QUIZ_HREF} className={PRIMARY_BUTTON}>
-                            <Play size={16} aria-hidden />
-                            {view.draftComplete ? "去提交" : "继续作答"}
-                          </Link>
-                        ) : (
-                          <p className="text-xs text-muted">测评当前未开放，已答进度会保留。</p>
-                        )}
-                        {view.typeCode && (
-                          <p className="text-xs text-muted">
-                            上一次结果：<span className="font-semibold text-foreground">{view.typeCode}</span>
-                          </p>
-                        )}
-                      </div>
-                    </>
-                  )}
-
-                  {view.status === "completed" && (
-                    <>
-                      <p className="text-sm text-muted leading-relaxed">
-                        你已经完成过这个测评{view.completedAt ? `（${view.completedAt}）` : ""}。
-                        {view.typeCode
-                          ? "结果解读与职业推荐在「我的档案」里查看。"
-                          : "结果已保存，可在「我的档案」里查看。"}
-                      </p>
+                {view.status === "not-started" && (
+                  <>
+                    <p className="text-sm text-muted leading-relaxed">
+                      {view.questionCount > 0
+                        ? `还没有做过「${latest.name}」。每次 ${view.questionCount} 题，全部答完大约需要 ${view.estimatedMinutes} 分钟，作答会自动保存，可以中途退出。`
+                        : `还没有做过「${latest.name}」，题库还在准备中。`}
+                    </p>
+                    {view.questionCount > 0 && (
                       <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
-                        <Fact icon={Compass} label="三字码" value={view.typeCode ?? "已出分"} />
-                        <Fact icon={Timer} label="完成时间" value={view.completedAt || "—"} />
                         <Fact
                           icon={ListChecks}
-                          label="结果版本"
-                          value={`${view.historyCount}${view.historyCapped ? "+" : ""} 次`}
+                          label="题量"
+                          value={
+                            view.poolSize > view.questionCount
+                              ? `每次 ${view.questionCount} 题 · 题库 ${view.poolSize} 题`
+                              : `每次 ${view.questionCount} 题`
+                          }
                         />
+                        <Fact icon={Timer} label="预计耗时" value={`约 ${view.estimatedMinutes} 分钟`} />
+                        <Fact icon={Compass} label="结果形式" value={resultFormCopy(latest.scoringMode)} />
                       </div>
-                      <div className="flex flex-wrap items-center gap-2.5">
-                        <Link href={REPORT_HREF} className={PRIMARY_BUTTON}>
-                          查看报告
-                          <ArrowRight size={16} aria-hidden />
+                    )}
+                    {canStart ? (
+                      <Link href={quizHref(latest.code)} className={PRIMARY_BUTTON}>
+                        <Play size={16} aria-hidden />
+                        开始测评
+                      </Link>
+                    ) : (
+                      <p className="text-xs text-muted">
+                        {view.enabled ? "题库准备中，稍后再来。" : "测评当前未开放，开放后即可开始。"}
+                      </p>
+                    )}
+                  </>
+                )}
+
+                {view.status === "in-progress" && (
+                  <>
+                    <p className="text-sm text-muted leading-relaxed">
+                      {view.draftComplete
+                        ? `「${latest.name}」的题目已经全部答完，只差提交了——继续作答可以直接提交并查看结果。`
+                        : `你在「${latest.name}」上还有一轮没答完：上次答到第 ${view.answered} 题就离开了，进度已经保存在服务端，继续作答会从上次的题接着往下。`}
+                    </p>
+                    <ProgressTrack view={view} />
+                    <div className="flex flex-wrap items-center gap-2.5">
+                      {canStart ? (
+                        <Link href={quizHref(latest.code)} className={PRIMARY_BUTTON}>
+                          <Play size={16} aria-hidden />
+                          {view.draftComplete ? "去提交" : "继续作答"}
                         </Link>
-                        {canStart && (
-                          <Link href={QUIZ_HREF} className={SECONDARY_BUTTON}>
-                            <RotateCcw size={16} aria-hidden />
-                            再测一次
-                          </Link>
-                        )}
-                      </div>
-                    </>
-                  )}
-                </section>
-              </>
+                      ) : (
+                        <p className="text-xs text-muted">测评当前未开放，已答进度会保留。</p>
+                      )}
+                      {view.typeCode && (
+                        <p className="text-xs text-muted">
+                          上一次结果：<span className="font-semibold text-foreground">{view.typeCode}</span>
+                        </p>
+                      )}
+                    </div>
+                  </>
+                )}
+
+                {view.status === "completed" && (
+                  <>
+                    <p className="text-sm text-muted leading-relaxed">
+                      你已经完成过「{latest.name}」{view.completedAt ? `（${view.completedAt}）` : ""}。
+                      {latest.scoringMode === "dimensional"
+                        ? "结果已保存在「我的档案」里，可以查看五个人格方面的相对位置。"
+                        : "结果解读与职业推荐在「我的档案」里查看。"}
+                    </p>
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                      {latest.scoringMode === "dimensional" ? (
+                        <Fact icon={Compass} label="结果形式" value={resultFormCopy(latest.scoringMode)} />
+                      ) : (
+                        <Fact icon={Compass} label="三字码" value={view.typeCode ?? "已出分"} />
+                      )}
+                      <Fact icon={Timer} label="完成时间" value={view.completedAt || "—"} />
+                      <Fact
+                        icon={ListChecks}
+                        label="结果版本"
+                        value={`${view.historyCount}${view.historyCapped ? "+" : ""} 次`}
+                      />
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2.5">
+                      <Link href={REPORT_HREF} className={PRIMARY_BUTTON}>
+                        查看报告
+                        <ArrowRight size={16} aria-hidden />
+                      </Link>
+                      {canStart && (
+                        <Link href={quizHref(latest.code)} className={SECONDARY_BUTTON}>
+                          <RotateCcw size={16} aria-hidden />
+                          再测一次
+                        </Link>
+                      )}
+                    </div>
+                  </>
+                )}
+              </section>
             )}
 
-            {/* 内容卡（#225）：科普、清单、权威渠道与授权说明——接口不可用 / 加载失败时也常驻，
-                学生至少能看到「六型是什么」和去哪儿做别的测评 */}
+            {/* 内容卡（#225 / #291）：六型科普、外链与授权卡在接口不可用 / 加载失败时也常驻，
+                学生至少能看到「六型是什么」和去哪儿做别的测评；清单与大五科普随 list 结果渲染
+                （列表读取失败时无法判断量表是否启用，不渲染以免误导） */}
             {listRows.length > 0 && <AssessmentListCard rows={listRows} />}
-            <RiasecGuideCard />
+            {showRiasecGuide && <RiasecGuideCard />}
+            {showBigFiveGuide && <BigFiveGuideCard />}
             <AssessmentLinksCard />
             <AssessmentAttributionCard
-              attribution={meta?.attribution}
-              licenseText={meta?.licenseText}
-              disclaimer={meta?.disclaimer}
+              attribution={primary?.attribution}
+              licenseText={primary?.licenseText}
+              disclaimer={primary?.disclaimer}
             />
           </div>
         </main>

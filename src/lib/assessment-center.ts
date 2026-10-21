@@ -1,11 +1,12 @@
 import { MAX_RESULT_VERSIONS, formatResultTime } from "./assessment-flow";
 
 /**
- * 测评中心页（#222）的纯逻辑：把 `GET /api/shared/assessment/results` 的返回归一成
- * 「未开始 / 进行中 / 已完成」三态视图，并算题目耗时估算与进度百分比。
+ * 测评中心页（#222）的纯逻辑：把 `GET /api/shared/assessment/results`（或 #291 列表接口的单套归一结果）
+ * 归一成「未开始 / 进行中 / 已完成」三态视图，并算题目耗时估算与进度百分比。
  *
  * 页面只负责渲染，三态判定不写进组件，这样「三种状态分支」可以直接单测
  * （`assessment-center.test.ts`），也避免页面与服务端进度口径各算一遍。
+ * 多量表的选择与清单行在 `assessment-list.ts`（#291），三态仍只在这里判定一次。
  */
 
 /** 单题耗时估算（秒）：30 题 ≈ 4 分钟；只为给一个量级，不需要精确 */
@@ -27,13 +28,14 @@ export interface AssessmentCenterPayload {
     code?: unknown;
     name?: unknown;
   } | null;
-  /**
-   * 多量表预留（#225）：接口将来若一次返回多套量表，就用这个数组（每项形状同 `assessment`）；
-   * 当前接口只返回单个 `assessment`，列表卡退化成一条。
-   */
-  assessments?: unknown[] | null;
   current?: { typeCode?: unknown; completedAt?: unknown } | null;
+  /** 历史版本数组（results 接口）：有它时以数组长度为准 */
   history?: unknown;
+  /**
+   * 历史版本条数（#291 的 list 接口只下发计数、不下发整份历史）：
+   * 没有 `history` 数组时用它算「结果版本」与是否撞上限。
+   */
+  historyCount?: unknown;
   inProgress?: { answered?: unknown; total?: unknown } | null;
 }
 
@@ -66,8 +68,14 @@ export interface AssessmentCenterView {
   enabled: boolean;
 }
 
-function toCount(value: unknown): number {
+/** 接口给的正整数计数（其余一律按 0），供列表归一（#291）共用同一口径 */
+export function toCount(value: unknown): number {
   return typeof value === "number" && Number.isFinite(value) && value > 0 ? Math.floor(value) : 0;
+}
+
+/** 接口给的文本（去首尾空白，非字符串按空串），供列表归一（#291）共用同一口径 */
+export function toText(value: unknown): string {
+  return typeof value === "string" ? value.trim() : "";
 }
 
 /** 进度百分比：总数为 0 返回 0，并钳在 0–100（数据异常时进度条不越界） */
@@ -109,7 +117,8 @@ export function deriveAssessmentCenter(payload: AssessmentCenterPayload | null |
   const rawCompletedAt = payload?.current?.completedAt;
   const completedAt = typeof rawCompletedAt === "string" ? formatResultTime(rawCompletedAt) : "";
   const hasCurrent = Boolean(payload?.current) && (typeCode !== null || completedAt !== "");
-  const historyCount = Array.isArray(payload?.history) ? payload.history.length : 0;
+  // results 接口给 history 数组；#291 的 list 接口只给条数（不下发整份历史）
+  const historyCount = Array.isArray(payload?.history) ? payload.history.length : toCount(payload?.historyCount);
 
   const status: AssessmentCenterStatus = inProgress ? "in-progress" : hasCurrent ? "completed" : "not-started";
 
@@ -129,71 +138,4 @@ export function deriveAssessmentCenter(payload: AssessmentCenterPayload | null |
     draftComplete: inProgress && draftTotal > 0 && draftAnswered >= draftTotal,
     enabled,
   };
-}
-
-/** 测验列表卡（#225）的一行 */
-export interface AssessmentListRow {
-  code: string;
-  name: string;
-  questionCount: number;
-  estimatedMinutes: number;
-  /** 主测评沿用三态判定；后续新增量表没有作答进度，先按「未开始」展示 */
-  status: AssessmentCenterStatus;
-  enabled: boolean;
-  /** 题库非空且量表开放时才给「开始 / 继续作答」入口 */
-  canStart: boolean;
-  /**
-   * 是否当前唯一有作答页的量表（接口里的主测评）。
-   * 列表卡只给主测评渲染「去作答」——答题页目前只认 RIASEC，多量表预留项若也放按钮，
-   * 会把学生带到错的量表（宁可显示「即将开放」也不给错入口）。
-   */
-  isPrimary: boolean;
-}
-
-function toText(value: unknown): string {
-  return typeof value === "string" ? value.trim() : "";
-}
-
-/**
- * 把接口返回归一成「测验列表」（#225）：当前接口只返回单套 RIASEC，列表就是 1 行；
- * 将来多量表时让接口返回 `assessments` 数组即可，渲染结构不用改。
- *
- * 列表只消费 `assessment` / `assessments` 的**展示字段**（code / name / 题量 / 是否开放），
- * 三态与耗时沿用 `deriveAssessmentCenter` / `estimateMinutes`，不另算一套。
- * 没有 code 的行直接丢弃：列表卡要能点进对应量表，缺标识的行没有渲染价值。
- * 只有主测评（`isPrimary`）带作答入口：新增量表要等它自己的答题路由落地后再放开。
- */
-export function buildAssessmentList(
-  payload: AssessmentCenterPayload | null | undefined,
-  view?: AssessmentCenterView
-): AssessmentListRow[] {
-  const center = view ?? deriveAssessmentCenter(payload);
-  const single = payload?.assessment ?? null;
-  const rawList: unknown[] =
-    Array.isArray(payload?.assessments) && payload.assessments.length > 0
-      ? payload.assessments
-      : single
-        ? [single]
-        : [];
-
-  return rawList
-    .map((raw, index) => {
-      const item = (raw ?? {}) as { code?: unknown; name?: unknown; questionCount?: unknown; enabled?: unknown };
-      const code = toText(item.code);
-      const questionCount = toCount(item.questionCount);
-      const enabled = item.enabled !== false;
-      const isPrimary = index === 0 && single !== null;
-      return {
-        code,
-        name: toText(item.name) || code,
-        questionCount,
-        estimatedMinutes: estimateMinutes(questionCount),
-        // 只有主测评（单套量表的那个）知道本人进度；多量表预留项先按未开始算
-        status: isPrimary ? center.status : ("not-started" as AssessmentCenterStatus),
-        enabled,
-        canStart: enabled && questionCount > 0,
-        isPrimary,
-      };
-    })
-    .filter((row) => row.code !== "");
 }

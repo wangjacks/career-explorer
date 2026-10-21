@@ -11,6 +11,8 @@ import {
   randInt,
   hashDemoPassword,
   createDemoAccount,
+  DEMO_CLASS_NAME,
+  VISITOR_SEQ_START,
   type Rng,
   type DemoAccountSpec,
 } from "./demo-accounts";
@@ -219,6 +221,10 @@ function toGroupingRows(students: DemoSeedStudent[]): UserRow[] {
 
 export function planDemoSeed(seed: number, opts: DemoSeedOptions): DemoSeedPlan {
   const studentCount = opts.studentCount ?? 20;
+  // 名册 seq 从 1 起；访客账户号段从 VISITOR_SEQ_START 起，名册不得侵入
+  if (studentCount >= VISITOR_SEQ_START) {
+    throw new Error(`演示名册规模须小于访客号段起点 ${VISITOR_SEQ_START}`);
+  }
   const submitRate = opts.submitRate ?? 0.8;
   const assessmentRate = opts.assessmentRate ?? 0.75;
   const draftShare = opts.draftShare ?? 0.25;
@@ -283,7 +289,7 @@ export function planDemoSeed(seed: number, opts: DemoSeedOptions): DemoSeedPlan 
 
   return {
     seed,
-    class: { name: "演示班级", invitationCode: demoInviteCode(rng) },
+    class: { name: DEMO_CLASS_NAME, invitationCode: demoInviteCode(rng) },
     teacher,
     students,
     grouping: {

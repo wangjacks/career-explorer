@@ -32,8 +32,8 @@
 | `/dashboard/admin` | 管理面板（分组见「面板导航结构」） |
 | `/dashboard/teacher` | 教师面板（分组见「面板导航结构」） |
 | `/dashboard/student` | 学生面板（我的档案：未提交可就地填写与提交、已提交可就地修改 / 历史提交 #95，两个 Tab；档案内容上方常驻**测评结果区** #224 + #292——按量表清单循环渲染每套结果卡：霍兰德卡（三字码 + 六型雷达/排名/解读 + 推荐职业）与大五卡（画像标签 + 五维雷达/排名/高低分解读），两套都完成时附「人格与兴趣一起看」提示卡；与档案提交流程解耦；侧边栏另含「我的小组 #101」视图） |
-| `/dashboard/student/assessment` | 职业测评中心（#222 骨架 + #225 内容卡）：三态状态卡（未开始 / 进行中 / 已完成）+ 测验清单卡 + 霍兰德六型科普卡 + 学职平台外链卡 + 页底「授权与免责」卡（O\*NET 署名 + 免责声明，锚点 `#assessment-attribution`）；结果解读在「我的档案」测评区（#224） |
-| `/dashboard/student/assessment/quiz` | 职业兴趣测评答题页（#223）：单题单屏 + 进度条 + Likert 1-5，自动存草稿、可续答，提交前二次确认；每次答的是**分层抽出的 30 题**（#282），不是 120 题题库 |
+| `/dashboard/student/assessment` | 职业测评中心（#222 骨架 + #225 内容卡 + #291 多量表）：Hero 题量徽章取主测评元信息 + 「我的测评」卡（最近活跃量表的三态 / 进度 / 结果摘要）+ 多行测验清单卡 + 霍兰德六型科普卡 + 大五人格科普卡（#291，随大五量表启用）+ 学职平台 / IPIP 外链卡 + 页底「授权与免责」卡（锚点 `#assessment-attribution`）；结果解读在「我的档案」测评区（#224 + #292） |
+| `/dashboard/student/assessment/quiz` | 职业兴趣测评答题页（#223）：按 `?code=` 取量表（#289，缺省 `riasec`），单题单屏 + 进度条 + Likert 1-5，自动存草稿、可续答，提交前二次确认；霍兰德每次答的是**分层抽出的 30 题**（#282），不是 120 题题库 |
 | `/setup` | 安装引导（首次配置数据库 + 管理员密码） |
 
 ## 面板导航结构
@@ -63,20 +63,22 @@
 
 **学生面板 `/dashboard/student`** — 侧边栏五项：我的档案、我的小组（#101）、职业测评（#222）、我的班级（即将上线）、成长记录（即将上线）。「我的档案」「我的小组」是页内视图切换（由 `StudentSidebar` 的 `activeView` / `onSelect` 控制，历史提交作为「我的档案」子视图仍高亮「我的档案」）；「职业测评」是独立路由，按路径前缀高亮（覆盖答题页）。条目定义与判定规则在 `src/lib/student-nav.ts`。
 
-**学生测评中心 `/dashboard/student/assessment`（#222 骨架 + #225 内容卡）** — 承载入口、状态与说明，结果解读与职业推荐留给「我的档案」测评区（#224）。状态来自 `GET /api/shared/assessment/results`（`current` / `inProgress`），三态判定在 `src/lib/assessment-center.ts`：**进行中 > 已完成 > 未开始**（重测中的草稿优先，旧三字码作为次要信息）；量表停用（`assessment.enabled=false`）时收掉「开始 / 继续作答」入口但历史结果照常展示。
+**学生测评中心 `/dashboard/student/assessment`（#222 骨架 + #225 内容卡 + #291 多量表）** — 承载入口、状态与说明，结果解读与职业推荐留给「我的档案」测评区（#224）。数据来自 `GET /api/shared/assessment/list`（#291）：只含启用量表，每套带本人的 `status / typeCode / completedAt / historyCount / inProgress` 与定义元信息（题量 / 题库 / 计分模式 / 维度 / 署名授权）。三态判定仍复用 `src/lib/assessment-center.ts`（**进行中 > 已完成 > 未开始**，重测中的草稿优先）；多量表的选择与逐行归一在 `src/lib/assessment-list.ts`：`deriveLatestActive` 决定「我的测评」卡展示哪一套（**有草稿者优先、按 `updatedAt` 最新 → 最近完成 → 主测评 `riasec` 兜底**），`buildAssessmentList` 生成清单行。停用量表不出现在列表里（答不了新卷），历史结果仍可在「我的档案」查看。
 
-内容卡（#225）从上到下四张，**接口不可用 / 加载失败时也常驻**（学生至少能看到「六型是什么」与「去哪儿做别的测评」）：
+内容卡（#225 / #291）从上到下。**六型科普、外链与授权卡在接口不可用 / 加载失败时也常驻**（学生至少能看到「六型是什么」与「去哪儿做别的测评」）；清单与大五科普随 list 结果渲染（列表读取失败时无法判断量表是否启用，不渲染以免误导）：
 
-- **测验清单卡**：一行一套量表（名称 / 题量 / 预计耗时 / 本人三态 / 是否开放 + 作答入口）。数据由 `buildAssessmentList` 归一——当前接口只返回单套 RIASEC（列表 1 行），接口将来返回 `assessments` 数组时即多行，渲染结构不变。**只有主测评渲染作答入口**（`isPrimary`）：答题页目前只认 RIASEC，预留项显示「即将开放」而不是给一个会进错量表的链接；新增量表要等它自己的答题路由落地后再放开。
+- **我的测评卡（#291）**：展示最近活跃的那套量表——名称、三态徽章、进行中进度条（按本轮题量）、已完成的三字码 / 完成时间 / 结果版本；结果形式按 `scoringMode` 说明（大五为「五大人格画像」，没有三字码）。CTA 一律带该量表的 `?code=`（`quizHref`）。
+- **测验清单卡**：一行一套启用的量表（名称 / 题量 / 预计耗时 / 本人三态 + 作答入口）。每套量表都能进自己的卷子（答题页 #289 按 `?code=` 取量表），`isPrimary` 已退役；状态直通 list 接口，不再统一写「未开始」。
 - **六型科普卡**：R/I/A/S/E/C 各一段自建通俗介绍（参考 O\*NET 对六类的公开描述改写）+ 2–3 个关键词 + 三条作答提示。**只讲倾向、不做人格判断、不给「适合什么职业」的结论**；文案在 `src/lib/assessment-center-content.ts`，单测锁「六型齐全 + 顺序 R→I→A→S→E→C」。
-- **权威渠道外链卡**：学职平台（教育部学信网）的测评入口 / 职业探索 / 平台首页，全部 `target="_blank" rel="noopener noreferrer"`，单测锁「只走 https 且 host 为 `xz.chsi.com.cn`」。**只外链、不复刻其题目**（平台内容版权归官方）。
-- **授权与免责卡**：O\*NET 改编署名 + 授权说明 + 授权页外链 + 免责声明。权威文案是 `assessments` 表的授权字段（随 `/results` 下发），前端不复制一份；接口无数据时退化成一段简短来源说明 + 兜底免责声明，保证「结果不作诊断/录用依据」始终可见。免责声明组件 `AssessmentDisclaimer` 与「我的档案」测评区**共用**，两边口径只有一处。
+- **大五人格科普卡（#291）**：N/E/O/A/C 五个方面各一段通俗介绍 + 高低分各两个常见表现标签（两端用同一套中性标签，不暗示高分更好）+ 卡底「大五与霍兰德六型的关系」（S↔宜人性、E↔外向性、C↔尽责性）。与大五量表（`ipip-neo-ffi`）的启用状态绑定：量表停用或列表加载失败时不渲染，单量表页面与 #225 时一致；名称与 `IPIP_DIMENSIONS` 由单测逐项比对。
+- **权威渠道外链卡**：学职平台（教育部学信网）的测评入口 / 职业探索 / 平台首页 + IPIP 国际人格题库（#291，标明公有领域），全部 `target="_blank" rel="noopener noreferrer"`，单测锁「只走 https 且 host 在允许清单内」。**只外链、不复刻其题目**（平台内容版权归官方，IPIP 条目本身属于公有领域）。
+- **授权与免责卡**：O\*NET 改编署名 + 授权说明 + 授权页外链 + 免责声明。权威文案是 `assessments` 表的授权字段（随 list 接口下发，按主测评展示），前端不复制一份；接口无数据时退化成一段简短来源说明 + 兜底免责声明，保证「结果不作诊断/录用依据」始终可见。免责声明组件 `AssessmentDisclaimer` 与「我的档案」测评区**共用**，两边口径只有一处。
 
 版权红线：科普文案只写自建的通俗描述，**不出现 SDS / Strong / MBTI 等商业量表的名称与题面**（单测里有禁用词表，口径见 `docs/plan-assessment.md` 第 2 节）。
 
 ## API 路由
 
-<!-- 对账：`find src/app/api -name route.ts | wc -l`（当前 68 条 = manage 48 + auth 4 + setup 3 + shared 10 + tags/upload/uploads 各 1） -->
+<!-- 对账：`find src/app/api -name route.ts | wc -l`（当前 71 条 = manage 50 + auth 4 + setup 3 + shared 11 + tags/upload/uploads 各 1） -->
 
 ### 认证层（proxy 之外，公开）
 
@@ -97,7 +99,7 @@
 
 ### 管理域 `/api/manage/*`（proxy 拦截：admin 全放行，teacher 按声明式权限表）
 
-<!-- 对账：路由清单 `find src/app/api/manage -name route.ts`（共 48 条）；teacher 权限列须与 src/proxy.ts 的 TEACHER_ALLOWED 逐条一致 -->
+<!-- 对账：路由清单 `find src/app/api/manage -name route.ts`（共 50 条）；teacher 权限列须与 src/proxy.ts 的 TEACHER_ALLOWED 逐条一致 -->
 
 **教师禁止（不在 `TEACHER_ALLOWED`，一律 403）**
 
@@ -110,6 +112,8 @@
 | `/api/manage/test-db` | POST | 数据库连接测试 |
 | `/api/manage/demo/reset` | POST | 演示库全量重置（#253，**仅生产 admin**）：删演示库文件 + 清 `uploads/demo` + 重新 init + 全新随机重播账户/提交/测评（完成+进行中草稿）/分组/占位图；测评数据按**每次 30 题的分层抽题**生成并带 `items_json` 快照（#282：演示班级与真实施测同口径，草稿的已答题是本轮卷子的前缀、可被真人续答）；`DEMO_ENABLED` 关 404、演示会话 403；成功与生产越权拒绝落**生产**审计、演示会话越权拒绝落**演示**审计（隔离不变量）；并发重置经模块级单飞锁、播种失败丢弃半成品回到可重试态 |
 | `/api/manage/demo/status` | GET | 演示库状态（#253，仅生产 admin）：initialized + 按演示号段过滤的规模计数，绝不泄露生产；库文件不存在时直接返回未初始化（不开 adapter、无建库副作用）。成功只读不审计；越权拒绝记审计（演示会话拒绝落演示审计、生产非 admin 落生产审计） |
+| `/api/manage/demo/accounts` | GET / POST | 演示访客账户（#278，仅生产 admin）：GET 列表（无 hash，演示库不存在返空）；POST 创建 3 角色套装（admin/teacher/student 共用一个姓名与密码、按同一 `seq` 从专用号段派生编号），密码缺省服务端生成、明文仅返回一次；演示库未初始化 409；成功审计落生产、演示会话拒绝落演示审计 |
+| `/api/manage/demo/accounts/[seq]` | PATCH / DELETE | 单个访客账户（#278，仅生产 admin）：PATCH `action=disable\|enable\|regenerate-password`（禁用=三身份 `password_hash` 置空；enable 即重生成密码并返回明文一次）；DELETE 级联清 `profile_submissions`/`class_group_members`/`assessment_results`/`teacher_classes`/`users` 并 best-effort 删 `uploads/demo` 派生文件（含缩略图） |
 | `/api/manage/storage` | GET / POST / PUT / PATCH / DELETE | 存储后端管理（#111）：注册表 CRUD + 设默认，均记审计 |
 | `/api/manage/storage/test` | POST | 存储后端连通性测试（#111） |
 | `/api/manage/storage/migrate` | POST | 本地→云后端迁移（#111，幂等，已存在对象跳过） |
@@ -183,7 +187,8 @@
 | `/api/shared/assessment/start` | GET | 进入答题页（#223）：按 `?code=` 取量表（缺省 `riasec`）并**派生本轮抽题**（#282，`draw = f(uid, assessmentId, 题库指纹, attemptNo)`）后下发题面（不含维度，避免暗示答案）+ 量表元信息（`scoringMode`、`anchors`、署名/授权/免责）+ 草稿进度与续答落点；响应 `questionCount` = 本轮题数、`poolSize` = 题库总量；**只读，不建草稿行** |
 | `/api/shared/assessment/answer` | POST | 保存一次作答（#223）：题号必须属于**本轮卷子**（在题库里但不在本轮 → 400 + 失败审计），服务端**合并**进 `status=in_progress` 草稿并回进度 + 下一个未答题；首次作答把抽题快照一起写进草稿 `items_json`（#282）；非法题号/取值 400，停用量表 403 |
 | `/api/shared/assessment/submit` | POST | 提交作答（#223）：未答完 400（回带本轮 `missingIndexes`）→ 复用 #220 引擎按量表 `scoring_mode` 计分（只传本轮抽中题，标准分按各维实际已答数折算）→ 结果快照落库（含 `items_json`；`is_current` 唯一，重复提交生成新版本；**沿用草稿行**不新增记录）→ 响应 `result` 带 `scoringMode`（dimensional 的 `typeCode` 为 null，不能靠 null 反推模式）→ 审计 `assessment:submit`（带 `attemptNo` 与题库指纹，不带作答内容） |
-| `/api/shared/assessment/results` | GET | 结果查询（#223）：当前有效结果 + 最近 10 个历史版本 + 进行中进度，供「我的档案」测评区（#224）与测评中心（#222）消费；`assessment.questionCount` = 每次作答题数、`poolSize` = 题库总量（#282），`inProgress` 按**本轮题号**算（不是整库 120）；每条记录带自己的 `questionCount`（快照缺失的旧数据回退作答条数）；量表元信息带 `enabled`（停用时测评中心收掉作答入口，历史结果仍可读）与 `scoringMode`（#292 档案页据此分流结果卡）；响应**只在缺省（不带 `code`）请求时附带** `assessments` 已启用量表清单（#292，每项同 `assessment` 形状，题量按量表定义算），档案页据此循环渲染每套结果卡；带 `code` 的单套查询保持既有响应形状、不带清单（测评中心等仍按「一套结果」消费该接口的页面不受影响）；只按会话 uid 读取，**无 userId 参数**，因此没有越权读他人结果的路径 |
+| `/api/shared/assessment/results` | GET | 结果查询（#223）：当前有效结果 + 最近 10 个历史版本 + 进行中进度，供「我的档案」测评区（#224 + #292）消费；`assessment.questionCount` = 每次作答题数、`poolSize` = 题库总量（#282），`inProgress` 按**本轮题号**算（不是整库 120）；每条记录带自己的 `questionCount`（快照缺失的旧数据回退作答条数）；量表元信息带 `enabled`（停用时测评中心收掉作答入口，历史结果仍可读）与 `scoringMode`（#292 档案页据此分流结果卡）；响应**只在缺省（不带 `code`）请求时附带** `assessments` 已启用量表清单（#292，每项同 `assessment` 形状，题量按量表定义算），档案页据此循环渲染每套结果卡；带 `code` 的单套查询保持既有响应形状、不带清单（测评中心的多量表清单已另由 `/list` 提供，#291）；只按会话 uid 读取，**无 userId 参数**，因此没有越权读他人结果的路径 |
+| `/api/shared/assessment/list` | GET | 测评中心多量表列表（#291）：**只返回 `enabled=1` 的量表**，每套带 `code / name / questionCount / poolSize / scoringMode / scaleVersion / dimensions / status / typeCode / completedAt / historyCount / inProgress{answered,total,updatedAt}` 与署名/授权/免责；`historyCount` 与 `/results` 同口径（至多 `MAX_RESULT_VERSIONS`，页面显示「10+」）；逐套用 `loadAttemptContext` + `buildAssessmentListItem` 归一（三态口径与 `/results` 同一处），鉴权同 `/results`（只认会话 uid，未登录 401、非学生 403），每次读取记审计 `assessment:list`（只记条数与 code 列表） |
 | `/api/shared/assessment/careers` | GET | 本人最新霍兰德结果 → Top-N 推荐职业（#226）：只认会话 uid（显式传别人的 `user_id` 直接 403，非学生 403），`?limit=1–20`（非法值 400），返回推荐列表 + O*NET 署名与快照版本；没完成测评 404、结果里既无六维分也无三字码 409、职业库为空 503 |
 
 ### 其他开放端点（proxy 之外）
@@ -284,7 +289,7 @@
 - **合并式保存而不是整份覆盖**：客户端每次只提交「题号 + 取值」，服务端读出现有草稿、按**本轮卷子**（#282 抽题集合）过滤后合并再 upsert——整份回写不会把别的题冲掉，不在本轮的题号也不会带进这一轮。**边界**：合并是「读草稿 → 合并 → 整份写」的读-改-写，跨标签页**并发**请求在极端重叠时仍是最后写入为准（单标签页由前端「保存中禁用」串行）；丢的一题会显示为未答、重进补答即可，不会产生半份脏结果。要彻底消除需把合并下沉成适配器事务（SQLite 事务 / MySQL `FOR UPDATE` 锁草稿行），当前单实例部署按前者取舍
 - **题号口径只在派生，不在传递**：客户端传来的题号一律对照服务端派生出的本轮卷子校验（在题库里但不在本轮 → 400 + 失败审计），所以「答不该答的题」在服务端就被挡住，而不依赖前端只渲染抽中的题；`items_json` 的解析与序列化各有**唯一一处**（`assessment-sampling.ts`），路由不自己 `JSON.parse`
 - **提交必须完整**：缺答一律 400 并回带**本轮** `missingIndexes`（答题页据此跳回漏题）；计分复用 #220 的引擎（`src/lib/assessment-scoring.ts`），只传本轮抽中题——`standardizeLinear` 按「该维已答题数 × 1..5」折算，与题库大小无关，所以每维 5 题与每维 20 题的标准分同一量程（全 4 分恒为 75）；数据层不重复实现算法，作答内容**只认服务端草稿**，不接受客户端传来的答案或 userId，改分无从下手
-- **结果与审计**：得分 JSON + 三字码 + 本轮抽题快照（`items_json`，#282）作为快照写入 `assessment_results`，重复提交生成新版本（旧版本保留、`is_current` 唯一）。审计动作为 `assessment:answer`（**只记进度与本轮口径（`attemptNo` / 题库指纹），不记选了哪一项**——选项是个人数据不重复落审计表）、`assessment:submit`（成功/失败）、`assessment:results`（读取也记）；**被拒的写同样落审计**——参数非法 400、量表不存在 404、量表停用 403 各记一条 failed（带 `reason` / 题号，「题号在题库里但不在本轮」也记 `question-not-in-round`，同样不落选项值），停用后仍有人刷题或刷错 `code` 在审计里看得到
+- **结果与审计**：得分 JSON + 三字码 + 本轮抽题快照（`items_json`，#282）作为快照写入 `assessment_results`，重复提交生成新版本（旧版本保留、`is_current` 唯一）。审计动作为 `assessment:answer`（**只记进度与本轮口径（`attemptNo` / 题库指纹），不记选了哪一项**——选项是个人数据不重复落审计表）、`assessment:submit`（成功/失败）、`assessment:results`（读取也记）、`assessment:list`（读取也记，只记条数与量表 code）；**被拒的写同样落审计**——参数非法 400、量表不存在 404、量表停用 403 各记一条 failed（带 `reason` / 题号，「题号在题库里但不在本轮」也记 `question-not-in-round`，同样不落选项值），停用后仍有人刷题或刷错 `code` 在审计里看得到
 - **停用与越权**：停用的量表拒绝 start / answer / submit（403），但**历史结果仍可读**（结果不随量表下线消失）；所有端点只按会话 uid 读写，无 userId 入参，因此不存在越权读他人结果的路径（教师/管理员访问同样 403）
 - **作答锚点随量表下发（#289）**：1-5 量程统一但语义按量表区分——霍兰德问「愿不愿意」（非常不愿意 → 非常愿意），IPIP 问「同不同意」（非常不同意 → 非常同意）。锚点表 `ASSESSMENT_ANCHORS` 与取值入口 `getAssessmentAnchors()` 在 `assessment-data.ts`，由 `GET /start` 随 `scoringMode` 一起下发，答题页不再写死某一套量表的锚点（两套量表都是 1–5，与计分引擎量程同一口径）
 
@@ -361,11 +366,11 @@
 
 - **位置**：学生面板「我的档案」内容区（hero 之下、Tab/表单之上）常驻**测评结果区**，不区分「已提交 / 建档中 / 编辑态」——这样无论档案提交流程处于哪一步，结果都能看到
 - **与档案提交流程完全解耦**：结果区自己读 `/api/shared/assessment/results`，**不看 `submissionClosed` / 截止日期**（档案截止后仍可查看与重测）、不进档案版本快照、不显示「已归档 / 未提交」状态。测评的截止/停用规则只由测评自身（量表 `enabled`）决定
-- **多量表清单（#292）**：`AssessmentResultsSection` 先按缺省 code 取主测评结果，同一响应里的 `assessments` 就是已启用量表清单（清单只随缺省请求下发）；其余量表按 `?code=` 并行补拉。每套量表一张卡（`AssessmentResultCard`），全部数据由结果区持有，卡片只负责渲染。单套补拉失败只让那一张卡显示重试，不拖垮整个结果区
+- **多量表清单（#292）**：`AssessmentResultsSection` 先按缺省 code 取主测评结果，同一响应里的 `assessments` 就是已启用量表清单（清单只随缺省请求下发，且**只列启用中的量表**——全部停用时结果区不给停用量表渲染卡片，只有清单字段缺失的老接口响应才回退成单套）；其余量表按 `?code=` 并行补拉。每套量表一张卡（`AssessmentResultCard`），全部数据由结果区持有，卡片只负责渲染。单套补拉失败只让那一张卡显示重试，不拖垮整个结果区
 - **入口分流（红线）**：卡片在入口按 `assessment.scoringMode` 分流（`resultCardMode` 纯函数）——`dimensional` 走大五卡 `FiveFactorResultCard`，其余走霍兰德卡。大五的 E/A/C 与霍兰德同名不同义（外向性 ≠ 企业型、宜人性 ≠ 艺术型、尽责性 ≠ 常规型），所以大五分数**绝不进入** `buildRiasec*` / `parseTypeCodeParts` / 职业推荐；分流看模式而不是「三字码是不是 null」
 - **霍兰德卡（#224）**：三字码徽章（`bg-brand` 深绿块 + 每枚字母的中文型名）→ 六型雷达图（recharts `RadarChart`，量程固定 0–100、不画半径刻度）与条状排名并列（排名标出三字码里的「主要兴趣」）→ 六型逐条通俗解读（按排名顺序，不出现「维度 / 标准分 / 口径」等术语）→ 推荐职业（#226，渐进增强）→ 免责声明 + 署名
 - **大五卡（#292）**：头部画像标签取最高两维（如「高开放性 · 高尽责性」；两维都没过 50 分中线时写「偏低开放性 · 偏低尽责性」，与逐维解读同口径，避免同一张卡自相矛盾）→ 五维雷达（N-E-O-A-C 顺序）+ 条状排名（前两维标「主要特质」）→ 逐维解读按 50 分中线取高分 / 低分文案（5 维 × 2 = 10 段，`BIG_FIVE_INTERPRETATIONS`）→ 免责声明 + 署名。**无三字码、无职业推荐**
-- **「人格与兴趣一起看」提示卡（#292）**：两套量表都有当前结果时出现在卡片下方，用学生语言解释三组常见对应（S↔宜人性、E↔外向性、C↔尽责性，`CROSS_SCALE_LINKS`），并说明两边不一致也正常
+- **「人格与兴趣一起看」提示卡（#292）**：霍兰德与大五**各有一份当前结果**时出现在卡片下方（按计分模式判定，不是「完成数 ≥ 2」），用学生语言解释三组常见对应（S↔宜人性、E↔外向性、C↔尽责性，`CROSS_SCALE_LINKS`），文案是条件句、不对具体结果下判断，并说明两边不一致也正常
 - **卡片口径行（#283 + #292）**：右上角统一显示「本次 N 题 · 完成于 … · 第 N 次」，题量取自该条结果快照，版本数取自 `history`（撞上接口上限显示 `10+`，由 `buildResultTrailing` 统一拼装）
 - **视图模型先行**：`assessment-view.ts` 是纯函数层（补齐缺失维度、排序破平、三字码规范化、大五画像 / 条形 / 高低分解读、雷达点泛化、职业卡清洗），组件只负责画。雷达图已从 `RiasecRadarChart` 抽成通用 `ScoreRadarChart`（传维度点，样式与配色不变），霍兰德卡继续复用
 - **推荐职业渐进增强**：只在霍兰德卡有当前结果时补拉 `/careers`；接口失败 / 为空 / 无中文数据时**整块静默不渲染**（`console.error` 留痕，不打断学生），与「A3 未就绪也能上线」的验收口径一致；渲染时必须展示接口下发的 **CC BY 4.0 署名**
