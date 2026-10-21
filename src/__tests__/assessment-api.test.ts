@@ -699,6 +699,16 @@ describe("测评中心多量表列表（#291）", () => {
     try {
       const body = await listBody(users.A.token);
       expect(body.assessments.map((entry) => entry.code)).toEqual([RIASEC_CODE]);
+
+      // 清单里没有 ≠ 读不到：停用量表的历史结果仍按 `?code=` 可读（档案页不显示，接口不丢数据）
+      const disabled = await resultsGet(
+        getRequest(`/api/shared/assessment/results?code=${IPIP_NEO_FFI_CODE}`, users.D.token)
+      );
+      expect(disabled.status).toBe(200);
+      const disabledBody = await disabled.json();
+      expect(disabledBody.assessment.enabled).toBe(false);
+      expect(disabledBody.current.typeCode).toBeNull();
+      expect(disabledBody.history).toHaveLength(1);
     } finally {
       const restore = new Database(state.dbPath);
       restore.prepare("UPDATE assessments SET enabled = 1 WHERE code = ?").run(IPIP_NEO_FFI_CODE);
