@@ -10,12 +10,6 @@ export const ROLE_LABELS: Record<Role, string> = {
   student: "学生",
 };
 
-export const ROLE_DASHBOARD: Record<Role, string> = {
-  admin: "/dashboard/admin",
-  teacher: "/dashboard/teacher",
-  student: "/dashboard/student",
-};
-
 const ROLE_ORDER: readonly Role[] = ["admin", "teacher", "student"];
 
 /** 仅服务端下发的 demo 标志为 true 时视为演示会话（生产会话恒 false） */

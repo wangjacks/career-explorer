@@ -6,11 +6,11 @@ import { FlaskConical } from "lucide-react";
 import { toast } from "sonner";
 import { useSession } from "@/hooks/useSession";
 import {
-  ROLE_DASHBOARD,
   ROLE_LABELS,
   demoSwitchTargets,
   isDemoSession,
 } from "@/lib/demo-view";
+import { roleHome } from "@/lib/role-home";
 import type { Role } from "@/lib/token";
 
 /**
@@ -45,7 +45,7 @@ export default function DemoBanner() {
       }
       toast.success(`已切换到${ROLE_LABELS[role]}视角`);
       await refresh();
-      const target = ROLE_DASHBOARD[role];
+      const target = roleHome(role);
       // 用 replace 而非 push：避免后退回到角色不匹配的旧面板（会被重定向到登录页）
       if (target && target !== pathname) router.replace(target);
     } catch (err) {
