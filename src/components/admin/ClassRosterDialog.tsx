@@ -187,21 +187,15 @@ export default function ClassRosterDialog({ open, classKey, displayName, onClose
               })}
             </div>
 
-            <label className="relative block w-full sm:w-56">
-              <span className="sr-only">按姓名或学号搜索</span>
-              {/* Align to the input height without a percentage transform that can drift under font scaling. */}
-              <span
-                aria-hidden="true"
-                className="pointer-events-none absolute inset-y-0 left-2.5 flex items-center text-muted/60"
-              >
-                <Search className="h-3.5 w-3.5" />
-              </span>
+            <label className="flex w-full items-center gap-2 rounded-lg border border-border-soft bg-background py-1.5 pl-2.5 pr-3 text-xs focus-within:ring-2 focus-within:ring-focus-ring sm:w-56">
+              <Search aria-hidden="true" className="h-3.5 w-3.5 shrink-0 text-muted/60" />
               <input
                 type="search"
+                aria-label="按姓名或学号搜索"
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
                 placeholder="搜索姓名或学号"
-                className="w-full rounded-lg border border-border-soft bg-background py-1.5 pl-8 pr-3 text-xs text-foreground placeholder:text-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
+                className="min-w-0 flex-1 bg-transparent p-0 text-xs text-foreground outline-none placeholder:text-muted/60"
               />
             </label>
           </div>
