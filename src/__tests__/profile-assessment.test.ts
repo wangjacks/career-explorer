@@ -1,16 +1,16 @@
 import { describe, it, expect } from "vitest";
 import {
-  ASSESSMENT_LEAD_FILTERS,
+  ASSESSMENT_INTEREST_FILTERS,
   assessmentLeadOf,
   hasAssessmentScores,
   isAssessed,
-  matchesAssessmentLead,
-  type AssessmentLeadFilter,
+  matchesAssessmentInterest,
+  type AssessmentInterestFilter,
 } from "@/lib/profile-assessment";
 
-describe("主导型筛选口径（#234 数据列表）", () => {
+describe("兴趣测评筛选口径（#234 / #305 数据列表）", () => {
   it("胶囊顺序固定：全部 / R I A S E C / 未测", () => {
-    expect(ASSESSMENT_LEAD_FILTERS.map((f) => f.value)).toEqual([
+    expect(ASSESSMENT_INTEREST_FILTERS.map((f) => f.value)).toEqual([
       "all",
       "R",
       "I",
@@ -20,8 +20,8 @@ describe("主导型筛选口径（#234 数据列表）", () => {
       "C",
       "none",
     ]);
-    expect(ASSESSMENT_LEAD_FILTERS[0].label).toBe("全部");
-    expect(ASSESSMENT_LEAD_FILTERS[ASSESSMENT_LEAD_FILTERS.length - 1].label).toBe("未测");
+    expect(ASSESSMENT_INTEREST_FILTERS[0].label).toBe("全部");
+    expect(ASSESSMENT_INTEREST_FILTERS[ASSESSMENT_INTEREST_FILTERS.length - 1].label).toBe("未测");
   });
 
   it("三字码首位即主导型；大小写/空白容忍，非法字母与空值返回 null", () => {
@@ -42,25 +42,30 @@ describe("主导型筛选口径（#234 数据列表）", () => {
     expect(isAssessed({})).toBe(false);
   });
 
-  it("全部通过；六型按首位匹配；未测只留没有码的行", () => {
+  it("全部通过；六型按三字码任意位置包含；未测只留没有码的行", () => {
     const row = (code: string | null): { assessmentCode: string | null } => ({ assessmentCode: code });
-    expect(matchesAssessmentLead(row("SIA"), "all")).toBe(true);
-    expect(matchesAssessmentLead(row(null), "all")).toBe(true);
+    expect(matchesAssessmentInterest(row("SIA"), "all")).toBe(true);
+    expect(matchesAssessmentInterest(row(null), "all")).toBe(true);
 
-    expect(matchesAssessmentLead(row("SIA"), "S")).toBe(true);
-    expect(matchesAssessmentLead(row("SIA"), "I")).toBe(false);
-    expect(matchesAssessmentLead(row("ria"), "R")).toBe(true);
+    expect(matchesAssessmentInterest(row("SIA"), "S")).toBe(true);
+    expect(matchesAssessmentInterest(row("SIA"), "I")).toBe(true);
+    expect(matchesAssessmentInterest(row("SIA"), "A")).toBe(true);
+    expect(matchesAssessmentInterest(row("SIA"), "R")).toBe(false);
+    expect(matchesAssessmentInterest(row("SER"), "R")).toBe(true);
+    expect(matchesAssessmentInterest(row("SER"), "E")).toBe(true);
+    expect(matchesAssessmentInterest(row("ria"), "A")).toBe(true);
+    expect(matchesAssessmentInterest(row(" sia "), "A")).toBe(true);
 
-    expect(matchesAssessmentLead(row(null), "none")).toBe(true);
-    expect(matchesAssessmentLead(row(""), "none")).toBe(true);
-    expect(matchesAssessmentLead(row("XYZ"), "none")).toBe(true);
-    expect(matchesAssessmentLead(row("SIA"), "none")).toBe(false);
+    expect(matchesAssessmentInterest(row(null), "none")).toBe(true);
+    expect(matchesAssessmentInterest(row(""), "none")).toBe(true);
+    expect(matchesAssessmentInterest(row("XYZ"), "none")).toBe(true);
+    expect(matchesAssessmentInterest(row("SIA"), "none")).toBe(false);
   });
 
   it("每个筛选值都能安全用于任意行（非法输入不抛错）", () => {
-    const filters = ASSESSMENT_LEAD_FILTERS.map((f) => f.value) as AssessmentLeadFilter[];
+    const filters = ASSESSMENT_INTEREST_FILTERS.map((f) => f.value) as AssessmentInterestFilter[];
     for (const filter of filters) {
-      expect(() => matchesAssessmentLead({}, filter)).not.toThrow();
+      expect(() => matchesAssessmentInterest({}, filter)).not.toThrow();
     }
   });
 });

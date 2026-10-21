@@ -129,9 +129,9 @@ describe("buildSubmittedProfilesSql（两适配器共用的 SQL 口径）", () =
     expect(mysqlSql.whereSql).toContain("INSTR(u.tags COLLATE utf8mb4_bin, ?) > 0");
   });
 
-  it("主导型：六型按首位字母匹配；none 用 NOT EXISTS（含三字码非法/无结果）", () => {
+  it("兴趣测评：六型按三字码任意位置包含；none 用 NOT EXISTS（含三字码非法/无结果）", () => {
     const leadSql = buildSubmittedProfilesSql("sqlite", { lead: "I" }, "riasec");
-    expect(leadSql.whereSql).toContain("UPPER(SUBSTR(r.type_code, 1, 1)) = ?");
+    expect(leadSql.whereSql).toContain("INSTR(UPPER(r.type_code), ?) > 0");
     expect(leadSql.whereSql).toContain("a.code = ?");
     expect(leadSql.params).toEqual(["riasec", "I"]);
 
@@ -161,7 +161,7 @@ describe("小工具", () => {
     expect(escapeLikePattern("a\\b")).toBe("a\\\\b");
   });
 
-  it("hasActiveProfileFilters：只有主导型/关键字/标签算筛选，排序不算", () => {
+  it("hasActiveProfileFilters：只有兴趣测评/关键字/标签算筛选，排序不算", () => {
     expect(hasActiveProfileFilters(undefined)).toBe(false);
     expect(hasActiveProfileFilters({ lead: "all" })).toBe(false);
     expect(hasActiveProfileFilters({ sortKey: "studentId" })).toBe(false);
