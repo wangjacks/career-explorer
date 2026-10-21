@@ -7,6 +7,7 @@ import {
   type AssessmentRow,
 } from "./db";
 import { filterAnswersToBank, parseAnswers, parseDimensions, type AssessmentAnswers } from "./assessment-flow";
+import { RIASEC_CODE, SAMPLING_RETIRED_INDEXES } from "./assessment-data";
 import {
   buildItemsSnapshot,
   parseItemsSnapshot,
@@ -84,6 +85,8 @@ export async function loadAttemptContext(assessment: AssessmentRow, userId: numb
     excludedIndexes: new Set(previousSnapshot?.indexes ?? []),
     answeredIndexes,
     snapshotRaw: draft?.items_json ?? null,
+    // 退役台账只属于 RIASEC；题号在量表间会重复，其它量表必须用空集
+    retiredIndexes: assessment.code === RIASEC_CODE ? SAMPLING_RETIRED_INDEXES : undefined,
   });
   if (plan.warnings.length > 0) {
     console.warn(

@@ -1,4 +1,21 @@
-import { NEAR_DUPLICATE_GROUPS, SAMPLING_EXCLUDED_ORIGINS, type QuestionOrigin } from "./assessment-data";
+import {
+  NEAR_DUPLICATE_GROUPS,
+  SAMPLING_EXCLUDED_ORIGINS,
+  type QuestionOrigin,
+} from "./assessment-data";
+import { parseItemsSnapshot } from "./assessment-snapshot";
+
+// `items_json` 的解析 / 序列化在叶子模块 `assessment-snapshot.ts`（只读脚本也要直接加载它）；
+// 这里保持原有 re-export，路由与测试的导入路径不变。
+export { buildItemsSnapshot, parseItemsSnapshot } from "./assessment-snapshot";
+export type { ItemsSnapshot } from "./assessment-snapshot";
+
+/**
+ * 低层抽题函数的默认退役集是**空集**：题号只在量表内唯一，RIASEC 的退役题号不能串到
+ * IPIP 等同号题目上。知道量表 code 的调用方（`loadAttemptContext` / 演示播种）显式传
+ * `SAMPLING_RETIRED_INDEXES`；单测也用它注入合成退役集。
+ */
+const NO_RETIRED: ReadonlySet<number> = new Set();
 
 /**
  * 每次作答的分层确定性抽题（#282）：纯函数、无 I/O，rng 可注入。
@@ -14,6 +31,9 @@ import { NEAR_DUPLICATE_GROUPS, SAMPLING_EXCLUDED_ORIGINS, type QuestionOrigin }
  *
  * 降级阶梯（池子不够时按序放宽并打 warning，不抛错——后台删题不能让作答 500）：
  * 来源配比 → 排除集 → 近重复组。
+ *
+ * #285 的题目退役也在这里生效：`RETIRED_QUESTIONS` 里的旧题号不再进池，退役集计入题库指纹，
+ * 旧快照自动失效重派；历史结果与旧题面完全不动。
  */
 
 /** 抽题所需的题库行投影（路由从 `assessment_questions` 行映射而来） */
@@ -47,6 +67,8 @@ export interface DrawOptions {
   nearDuplicateGroups?: readonly (readonly number[])[];
   /** 不参与抽题的来源；默认取全局放行开关（#284），仅测试需要显式传入 */
   excludedOrigins?: ReadonlySet<QuestionOrigin>;
+  /** 已退役题号；默认空集，RIASEC 调用方显式传 #285 台账，单测也用它注入合成集合 */
+  retiredIndexes?: ReadonlySet<number>;
   rng?: () => number;
 }
 
@@ -55,21 +77,27 @@ const NO_EXCLUDE: ReadonlySet<number> = new Set();
 /**
  * 题库指纹：排序后的「题号:版本」列表 + `scale_version` + 不参与抽题的来源
  * 的短哈希（FNV-1a 32 位 → base36）。
- * 题库一改（加题 / 题面版本自增 / 换量表版本 / 放行状态变化）指纹就变，
+ * 题库一改（加题 / 题面版本自增 / 换量表版本 / 放行状态变化 / 题目退役）指纹就变，
  * 卷子自动重派，不会拿旧卷子配新题库。
+ *
+ * 退役集为空时**不拼进指纹**：没有发生换题时，升级代码不应让线上在途草稿无谓重派。
  */
 export function poolFingerprint(
   questions: readonly { index: number; version: number }[],
   scaleVersion: string,
-  excludedOrigins: ReadonlySet<QuestionOrigin> = SAMPLING_EXCLUDED_ORIGINS
+  excludedOrigins: ReadonlySet<QuestionOrigin> = SAMPLING_EXCLUDED_ORIGINS,
+  retiredIndexes: ReadonlySet<number> = NO_RETIRED
 ): string {
   const exclusions = [...excludedOrigins].sort().join(",");
-  const canonical =
+  let canonical =
     questions
       .slice()
       .sort((a, b) => a.index - b.index)
       .map((q) => `${q.index}:${q.version}`)
       .join(",") + `|${scaleVersion}|exclude:${exclusions}`;
+  if (retiredIndexes.size > 0) {
+    canonical += `|retired:${[...retiredIndexes].sort((a, b) => a - b).join(",")}`;
+  }
   let hash = 0x811c9dc5;
   for (let i = 0; i < canonical.length; i += 1) {
     hash ^= canonical.charCodeAt(i);
@@ -125,9 +153,13 @@ function isOfficial(item: DrawItem): boolean {
   return item.origin !== "cn-original";
 }
 
-/** 题目是否进入抽题池（#284：未验证来源整体排除；题库本身不删题） */
-function isEligible(item: DrawItem, excludedOrigins: ReadonlySet<QuestionOrigin>): boolean {
-  return !excludedOrigins.has(item.origin);
+/** 题目是否进入抽题池（#284 未验证来源整体排除；#285 已退役题号排除；题库本身不删题） */
+function isEligible(
+  item: DrawItem,
+  excludedOrigins: ReadonlySet<QuestionOrigin>,
+  retiredIndexes: ReadonlySet<number>
+): boolean {
+  return !excludedOrigins.has(item.origin) && !retiredIndexes.has(item.index);
 }
 
 /** 整维（已锁定题 + 本次补抽）允许的官方题数区间：两侧各不少于 2 题 */
@@ -302,6 +334,7 @@ export function drawItems(options: DrawOptions): DrawResult {
   const rng = options.rng ?? Math.random;
   const exclude = options.excludeIndexes ?? NO_EXCLUDE;
   const excludedOrigins = options.excludedOrigins ?? SAMPLING_EXCLUDED_ORIGINS;
+  const retiredIndexes = options.retiredIndexes ?? NO_RETIRED;
   const groups = options.nearDuplicateGroups ?? NEAR_DUPLICATE_GROUPS;
   const groupOf = new Map<number, number>();
   groups.forEach((group, groupId) => {
@@ -310,7 +343,7 @@ export function drawItems(options: DrawOptions): DrawResult {
 
   const byDimension = new Map<string, DrawItem[]>();
   for (const item of options.items) {
-    if (!isEligible(item, excludedOrigins)) continue;
+    if (!isEligible(item, excludedOrigins, retiredIndexes)) continue;
     const list = byDimension.get(item.dimension);
     if (list) list.push(item);
     else byDimension.set(item.dimension, [item]);
@@ -339,44 +372,6 @@ export function drawItems(options: DrawOptions): DrawResult {
   const shuffled = shuffle(picked, rng);
   const ordered = interleave(shuffled);
   return { indexes: ordered.map((item) => item.index), warnings };
-}
-
-/** `assessment_results.items_json` 的快照形态：`indexes` 按呈现顺序 */
-export interface ItemsSnapshot {
-  v: 1;
-  pool: string;
-  indexes: number[];
-}
-
-/**
- * 解析抽题快照（全项目唯一的 `items_json` 解析点，调用方不要自己再 JSON.parse）。
- * 容忍空值、空数组与脏 JSON：解析失败或索引为空一律返回 null——**旧数据读作「全库即本轮」**，
- * 由调用方（`planAttempt`）走「已答 ∪ 确定性补抽」的兼容路径。
- */
-export function parseItemsSnapshot(raw: string | null | undefined): ItemsSnapshot | null {
-  if (!raw) return null;
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(raw);
-  } catch {
-    return null;
-  }
-  if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) return null;
-  const candidate = parsed as { v?: unknown; pool?: unknown; indexes?: unknown };
-  if (candidate.v !== 1 || typeof candidate.pool !== "string" || !candidate.pool) return null;
-  if (!Array.isArray(candidate.indexes)) return null;
-  const seen = new Set<number>();
-  const indexes = candidate.indexes.filter(
-    (index): index is number => {
-      // 只认正整数题号，且**同卷去重**：脏快照里的重复题号会让计分引擎判定「题目序号重复」而抛错
-      if (typeof index !== "number" || !Number.isInteger(index) || index < 1) return false;
-      if (seen.has(index)) return false;
-      seen.add(index);
-      return true;
-    }
-  );
-  if (indexes.length === 0) return null;
-  return { v: 1, pool: candidate.pool, indexes };
 }
 
 /** 本轮题号口径（路由共用）：一次算出，四个路由对同一份草稿算出的进度/缺答/计分集合互相一致 */
@@ -408,6 +403,8 @@ export interface PlanAttemptOptions {
   snapshotRaw?: string | null;
   /** 不参与抽题的来源；默认取全局放行开关（#284），仅测试需要显式传入 */
   excludedOrigins?: ReadonlySet<QuestionOrigin>;
+  /** 已退役题号；默认空集，RIASEC 调用方显式传 #285 台账，单测也用它注入合成集合 */
+  retiredIndexes?: ReadonlySet<number>;
   rng?: () => number;
 }
 
@@ -424,9 +421,15 @@ export interface PlanAttemptOptions {
  */
 export function planAttempt(options: PlanAttemptOptions): AttemptPlan {
   const excludedOrigins = options.excludedOrigins ?? SAMPLING_EXCLUDED_ORIGINS;
-  const fingerprint = poolFingerprint(options.pool, options.scaleVersion, excludedOrigins);
-  // 只让「已放行来源」进卷：题库本身不删题，历史结果与种子校验仍按全量口径
-  const eligible = options.pool.filter((item) => isEligible(item, excludedOrigins));
+  const retiredIndexes = options.retiredIndexes ?? NO_RETIRED;
+  const fingerprint = poolFingerprint(
+    options.pool,
+    options.scaleVersion,
+    excludedOrigins,
+    retiredIndexes
+  );
+  // 只让「已放行来源、未退役」的题进卷：题库本身不删题，历史结果与种子校验仍按全量口径
+  const eligible = options.pool.filter((item) => isEligible(item, excludedOrigins, retiredIndexes));
   const fullBank = options.itemsPerAttempt <= 0;
   if (fullBank) {
     return { indexes: eligible.map((item) => item.index), poolFingerprint: fingerprint, warnings: [] };
@@ -506,12 +509,8 @@ export function planAttempt(options: PlanAttemptOptions): AttemptPlan {
     perDimension,
     excludeIndexes: options.excludedIndexes ?? NO_EXCLUDE,
     excludedOrigins,
+    retiredIndexes,
     rng,
   });
   return { indexes: draw.indexes, poolFingerprint: fingerprint, warnings: draw.warnings };
-}
-
-/** 序列化抽题快照（写草稿与完成记录用；全项目唯一的写点，与 `parseItemsSnapshot` 成对） */
-export function buildItemsSnapshot(indexes: readonly number[], poolFingerprint: string): string {
-  return JSON.stringify({ v: 1, pool: poolFingerprint, indexes: [...indexes] } satisfies ItemsSnapshot);
 }

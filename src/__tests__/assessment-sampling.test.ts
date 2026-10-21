@@ -502,3 +502,103 @@ describe("planAttempt：本轮题号口径", () => {
     expectPaperShape(result.indexes);
   });
 });
+
+describe("退役题号（#285）：指纹与抽题排除", () => {
+  const RETIRED = new Set([1, 2, 3, 4, 5, 6]);
+
+  it("退役集为空不改变题库指纹；登记退役题后指纹变化，且与集合顺序无关", () => {
+    const base = poolFingerprint(POOL, RIASEC_SCALE_VERSION);
+    expect(poolFingerprint(POOL, RIASEC_SCALE_VERSION, undefined, new Set())).toBe(base);
+    const a = poolFingerprint(POOL, RIASEC_SCALE_VERSION, undefined, new Set([1, 2]));
+    const b = poolFingerprint(POOL, RIASEC_SCALE_VERSION, undefined, new Set([2, 1]));
+    expect(a).toBe(b);
+    expect(a).not.toBe(base);
+  });
+
+  it("drawItems 永不抽退役题，卷面形状与配比不被破坏", () => {
+    const result = drawItems({
+      items: ELIGIBLE,
+      dimensions: RIASEC_DIMENSIONS,
+      perDimension: PER_DIMENSION,
+      retiredIndexes: RETIRED,
+      rng: mulberry32(20261021),
+    });
+    expect(result.indexes).toHaveLength(RIASEC_ASSESSMENT.itemsPerAttempt);
+    expect(result.indexes.every((index) => !RETIRED.has(index))).toBe(true);
+    expect(new Set(result.indexes).size).toBe(result.indexes.length);
+    for (const dimension of RIASEC_DIMENSIONS) {
+      const count = result.indexes.filter((index) => byIndex.get(index)!.dimension === dimension.key).length;
+      expect(count, `维度 ${dimension.key} 题数`).toBe(PER_DIMENSION);
+    }
+    expect(result.warnings).toEqual([]);
+  });
+
+  it("planAttempt 的三种路径都排除退役题：新轮、全量作答、在途草稿", () => {
+    const fresh = planAttempt({
+      pool: POOL,
+      dimensions: RIASEC_DIMENSIONS,
+      scaleVersion: RIASEC_SCALE_VERSION,
+      itemsPerAttempt: RIASEC_ASSESSMENT.itemsPerAttempt,
+      userId: 1,
+      assessmentId: 1,
+      attemptNo: 1,
+      retiredIndexes: RETIRED,
+    });
+    expect(fresh.indexes).toHaveLength(30);
+    expect(fresh.indexes.every((index) => !RETIRED.has(index))).toBe(true);
+
+    const full = planAttempt({
+      pool: POOL,
+      dimensions: RIASEC_DIMENSIONS,
+      scaleVersion: RIASEC_SCALE_VERSION,
+      itemsPerAttempt: 0,
+      userId: 1,
+      assessmentId: 1,
+      attemptNo: 1,
+      retiredIndexes: new Set([1]),
+    });
+    expect(full.indexes).not.toContain(1);
+    expect(full.indexes).toHaveLength(ELIGIBLE.length - 1);
+
+    // 已答的退役题不再进入本轮，其余已答题保留（在途草稿兼容路径）
+    const draft = planAttempt({
+      pool: POOL,
+      dimensions: RIASEC_DIMENSIONS,
+      scaleVersion: RIASEC_SCALE_VERSION,
+      itemsPerAttempt: RIASEC_ASSESSMENT.itemsPerAttempt,
+      userId: 1,
+      assessmentId: 1,
+      attemptNo: 1,
+      answeredIndexes: new Set([1, 7]),
+      retiredIndexes: new Set([1]),
+    });
+    expect(draft.indexes).not.toContain(1);
+    expect(draft.indexes).toContain(7);
+    expect(draft.indexes).toHaveLength(30);
+    expectPaperShape(draft.indexes);
+  });
+
+  it("快照里含刚退役的题：即使指纹一致也作废重派，不拿退役题继续答卷", () => {
+    const retired = new Set([1]);
+    const fingerprint = poolFingerprint(POOL, RIASEC_SCALE_VERSION, undefined, retired);
+    // 30 道官方题、每维 5 题，故意把第 1 题（R 维）留在快照里
+    const indexes = ELIGIBLE.slice(0, 30).map((item) => item.index);
+    expect(indexes).toContain(1);
+    const result = planAttempt({
+      pool: POOL,
+      dimensions: RIASEC_DIMENSIONS,
+      scaleVersion: RIASEC_SCALE_VERSION,
+      itemsPerAttempt: RIASEC_ASSESSMENT.itemsPerAttempt,
+      userId: 1,
+      assessmentId: 1,
+      attemptNo: 1,
+      snapshotRaw: buildItemsSnapshot(indexes, fingerprint),
+      retiredIndexes: retired,
+    });
+    expect(result.poolFingerprint).toBe(fingerprint);
+    expect(result.indexes).not.toContain(1);
+    expect(result.indexes).not.toEqual(indexes);
+    expect(result.indexes).toHaveLength(30);
+    expectPaperShape(result.indexes);
+  });
+});

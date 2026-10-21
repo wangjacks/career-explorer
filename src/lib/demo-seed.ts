@@ -20,7 +20,14 @@ import {
   buildGrouping,
 } from "./grouping-utils";
 import { buildFeatureVectors, describeSources } from "./grouping-features";
-import { RIASEC_ASSESSMENT, RIASEC_CODE, RIASEC_DIMENSIONS, RIASEC_QUESTIONS } from "./assessment-data";
+import {
+  RIASEC_ASSESSMENT,
+  RIASEC_CODE,
+  RIASEC_DIMENSIONS,
+  RIASEC_QUESTIONS,
+  SAMPLING_EXCLUDED_ORIGINS,
+  SAMPLING_RETIRED_INDEXES,
+} from "./assessment-data";
 import { scoreAssessment, type QuestionConfig } from "./assessment-scoring";
 import { buildItemsSnapshot, drawItems, poolFingerprint } from "./assessment-sampling";
 import { generateObjectKey, getStorage, type StorageAdapter } from "./storage";
@@ -138,7 +145,9 @@ const DEMO_ROUND_SIZE = RIASEC_ASSESSMENT.itemsPerAttempt;
 /** 种子阶段所有题 `version = 1`，该指纹与适配器播种后 `loadAttemptContext` 算出的同值 */
 const DEMO_POOL_FINGERPRINT = poolFingerprint(
   RIASEC_QUESTIONS.map((question) => ({ index: question.index, version: 1 })),
-  RIASEC_ASSESSMENT.scaleVersion
+  RIASEC_ASSESSMENT.scaleVersion,
+  SAMPLING_EXCLUDED_ORIGINS,
+  SAMPLING_RETIRED_INDEXES
 );
 const DEMO_POOL = RIASEC_QUESTIONS.map((question) => ({
   index: question.index,
@@ -153,6 +162,7 @@ function demoRoundIndexes(rng: Rng): number[] {
     items: DEMO_POOL,
     dimensions: RIASEC_DIMENSIONS,
     perDimension: Math.floor(DEMO_ROUND_SIZE / RIASEC_DIMENSIONS.length),
+    retiredIndexes: SAMPLING_RETIRED_INDEXES,
     rng,
   }).indexes;
 }
