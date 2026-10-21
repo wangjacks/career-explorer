@@ -96,10 +96,119 @@ export const SAMPLING_EXCLUDED_ORIGINS: ReadonlySet<QuestionOrigin> = new Set(["
 2. 完成 §3 的班级试测，四项指标全部达到判定线，并记录样本量、施测日期与配对人数；
 3. 更新本文的结论与复核日期，把 `license_text` 中关于试测的表述改成与实际一致（当前只写「须完成」）；
 4. 从 `SAMPLING_EXCLUDED_ORIGINS` 移除 `"cn-original"`（或只移除通过评审的题号对应的来源策略），重跑种子校验与抽题测试；指纹会变化，旧快照自动重派；
-5. 若只有部分原创题通过，按「新增候补题号 + 与旧题同进近重复组」的流程处理，不改写旧题面。
+5. 若只有部分原创题通过，按 §7.3 的「新增候补题号 + 与旧题同进近重复组 + 退役台账」流程处理，不改写旧题面。
 
 ## 6. 复核记录
 
 | 日期 | 结论 | 依据 |
 |---|---|---|
 | 2026-10-21 | 未放行：原创题整批退出抽题池，线上只抽 60 道 O\*NET 官方题 | 专家评审与班级试测均未开展，四项指标无数据；按 #284 回退路径执行 |
+
+---
+
+## 7. 题目质量回收（#285）
+
+> **本期状态：机制已落地，尚未执行真实换题。** 线上没有满足单题 `n ≥ 50` 的作答数据（#284 未放行、班级试测未开展），
+> `RETIRED_QUESTIONS` 台账为空。按「淘汰结论必须来自真实作答数据，不能凭演示数据或主观印象」的约束，
+> 本期不填写任何淘汰记录，也不把机制测试当成一次真实换题。台账格式、换题流程与验收测试见 §7.3–§7.5。
+
+### 7.1 指标与判定线
+
+| 指标 | 本仓库口径 | 判定线 | 处置 |
+|---|---|---|---|
+| 单题均值 | 该题所有有效 1–5 作答按**计分方向**转换后的均值（反向题按 `6 − 原始值`） | `< 1.6` 或 `> 4.4` | 淘汰（地板 / 天花板题） |
+| 单题标准差 | 样本标准差（`ddof = 1`） | `= 0` | 淘汰（无变异，无法提供信息） |
+| 校正题目-总分相关 `r_it` | 该题 vs **同一张卷子同维度其余题之和**的 Pearson 相关 | `< 0.30` 或无法计算 | 淘汰（区分度不足） |
+| 维度内部一致性 α | 按「同一维度的同一组 5 题」分组，只用完整作答的行；维度 α 为各组合按人数加权的均值 | 任一组合 `< 0.55` | 复查该维度题池（不自动淘汰） |
+| 来源差异 | 官方题（`onet-*`）与原创题（`cn-original`）的**同维、单题 n ≥ 50** 的题均值之差 | 官方 − 原创的绝对值 `> 0.5` | 整批原创题复评 |
+
+- **样本门槛**：单题累计有效作答 `< 50` 时只标注「样本不足」，不给淘汰结论；均值、标准差、`r_it` 可以照常显示，但不得据此换题。
+- **反向计分**：IPIP 五大量表每维 5 正 5 反（共 25 道反向题）。统计层在算均值 / 标准差 / `r_it` / α 之前统一按 `6 − 原始值` 转成计分方向，CSV 的 `reverse_scored` 列保留原始方向；不转换会把反向题判成负区分度，这是错误的淘汰依据。
+- **为什么 α 按卷面组合算**：#282 之后每人只答 30 题，不同人拿到的 5 题组合不同，按人算 α 会把不同卷子混在一起；
+  同一组合不足 `ALPHA_FORM_MIN_SAMPLE = 2` 人时 α 不可计算，报告同时输出「组合总数 / 可计算组合数 / 低于阈值组合数」，提醒样本可信度。`r_it` 是主要淘汰依据。
+- **来源差异在 #284 回退期的限制**：原创题不进抽题池，新数据只会覆盖官方题；脚本会明确提示「原创题复评前须先恢复放行」，不会把「无原创题数据」当成来源达标。
+- 阈值常量集中在 `src/lib/assessment-item-stats.ts`；改阈值必须同步改本节与 `src/__tests__/assessment-item-stats.test.ts`。
+
+### 7.2 运行方式与输出
+
+```bash
+# SQLite 部署：只读打开，不建表、不写行、不碰 updated_at
+npm run stats:assessment -- --db ./data/career.db --out items.csv
+
+# MySQL 部署 / 研究复核：先按 §7.4 导出匿名 JSON
+node scripts/assessment-item-stats.mjs --export ./item-responses.json --out items.csv
+
+# CI / 复核：存在建议淘汰题或需复查维度时退出码 2；样本不足不算失败
+node scripts/assessment-item-stats.mjs --db ./data/career.db --strict
+```
+
+- 脚本**只 SELECT** `assessments` / `assessment_questions` / `assessment_results` 的题目与作答聚合字段，不取 `user_id`、姓名、学号或班级；
+  CSV 只有题目级聚合，没有单条作答明细，可直接交给指导教师复核。
+- stdout 是 CSV（`--out` 时写文件并加 UTF-8 BOM，方便 Excel）；运行摘要与告警走 stderr。
+- CSV 字段：`dimension` / `dimension_label` / `origin` / `reverse_scored` / `item_index` / `version` / `prompt` / `n` / `mean` / `sd` / `r_it` /
+  `item_verdict` / `flags` / `sampling_status` / `dimension_alpha` / `dimension_alpha_min` / `dimension_alpha_form_total` /
+  `dimension_alpha_forms` / `dimension_alpha_forms_below` / `dimension_verdict` / `official_mean` / `original_mean` /
+  `source_gap` / `source_verdict` / `note`。
+  `sampling_status` 区分 `active` / `origin-gated`（#284 未放行）/ `retired`（§7.3 台账）；不可计算的值留空，不写 `NaN` 或 `0`。
+- 历史结果即使题目已退役也照常纳入统计：退役只影响后续抽题，不影响快照解释。
+
+### 7.3 换题流程（不删题、不改旧题面）
+
+1. 按 §7.1 得到结论，并至少有一份可复核的 CSV（记录运行日期、数据区间与 `n`）；
+2. 在 `src/lib/assessment-data.ts` 的题库里**追加**候补题：题号取现有最大值 + 1，同维度、`origin = "cn-original"`、带 `anchor`，
+   题面通过汉字数 / 禁词 / 归一化唯一性 / 锚定职业校验；**不 UPDATE 旧题行、不改旧题面、不改旧题 `version`**；
+3. 把旧题号与候补题号放进**同一个** `NEAR_DUPLICATE_GROUPS` 组（同卷至多一题的第二道保险）；
+4. 在 `RETIRED_QUESTIONS` 追加 `{ index: 旧题号, replacementIndex: 候补题号, reason, decidedAt }`；
+   `reason` 必须带指标与数据导出日期（如 `r_it = 0.12（n = 63，2026-10-21 导出）`），`decidedAt` 为 `YYYY-MM-DD`；
+5. 跑种子校验与抽题测试：`validateRetirementLedger` 会拦「题号不存在 / 不同维 / 候补题不是原创 / 候补题号不更大 /
+   旧题重复登记 / 候补题重复使用 / 缺依据或日期 / 不在同一近重复组」；`validateAssessmentSeed` 按**在用题目**校验每维题数与来源分布；
+6. `SAMPLING_RETIRED_INDEXES` 由台账派生，`planAttempt` / `drawItems` 自动排除旧题；`poolFingerprint` 在退役集非空时把它计入哈希，
+   旧快照自动作废并重派，在途草稿里的旧题作答不再进入本轮（其余已答题保留）；
+7. 历史结果、`assessment_questions` 旧行与旧题面完全不动——快照里的题号当年对应的仍是那段文字；
+8. 先在测试环境或在途草稿上观察一轮，再上线；淘汰记录追加到 §7.6。
+
+**关于 `version`**：候补题是**新行**，以自身 `version = 1` 进入题库；旧行保持原 `version`、原题面不动。
+这比「原地自增版本号」更严格——历史快照不会因为改题而失去可解释性（与 #281「只增不改」一致）。
+
+### 7.4 MySQL 匿名导出格式
+
+```json
+{
+  "assessment": {
+    "code": "riasec",
+    "name": "霍兰德职业兴趣测评（120 题库）",
+    "scaleVersion": "RIASEC-CN 2.0",
+    "itemsPerAttempt": 30,
+    "dimensions": [{ "key": "R", "label": "现实型" }]
+  },
+  "questions": [
+    { "index": 1, "dimension": "R", "origin": "onet-mini", "reverseScored": false, "version": 1, "prompt": "……" }
+  ],
+  "attempts": [{ "indexes": [1, 7, 13], "answers": { "1": 4, "7": 3, "13": 5 } }]
+}
+```
+
+- `attempts` 不带 `studentKey`：逐题统计不需要配对，也就没有可识别信息；导出前删除姓名、完整学号与班级归属。
+- `answers` 保留**原始** 1–5 整数；反向转换在统计层完成。`questions[].reverseScored` 必填（数据库侧来自 `reverse_scored`，SQLite 的 0/1 与 JSON 布尔值都接受），遗漏会被当作正向题。
+- `indexes` 取完成记录的 `items_json.indexes`（缺快照的抽样记录脚本会跳过并计数，不猜题集）。
+- 全量作答的量表（`itemsPerAttempt = 0`）允许 `indexes` 缺失，脚本按整个题库作为本轮。
+
+### 7.5 「近 N 轮」排除的评估结论
+
+**本期不实现。** 当前放行池只有 60 道官方题、每维 10 道，每轮每维抽 5 道；要把排除集扩到近 2 轮，每维至少需要 15 道可抽题，
+现有池子做不到，强行实现只会让「排除」退化成大面积放宽并让重题更多。现有口径仍是**只排除上一轮**（第 3 轮允许回到第 1 轮），
+这是 #282 的已知设计而非缺陷。将来满足任一条件后再评估：① #284 放行原创题（每维回到 20 道）；② 题库扩容；③ 获得足够数据证明
+「放宽排除集」的分布仍然均匀。实现时必须补 1000 次抽样的均匀性回归（每题被抽中频率、每维 5 题与来源配比不破裂）。
+
+### 7.6 淘汰台账
+
+| 日期 | 旧题 | 候补题 | 维度 | 依据（CSV / n） | 处置 |
+|---|---|---|---|---|---|
+| — | — | — | — | 尚无真实作答数据，未执行换题 | 台账为空 |
+
+### 7.7 验收测试
+
+- `src/__tests__/assessment-item-stats.test.ts`：阈值边界、手算 `n / mean / sd / r_it`、样本不足、卷面组合 α、来源差异、反向计分转换、
+  CSV 转义与空值、CLI 只读（执行前后数据库 SHA-256 与 `updated_at` 不变）、CSV 不含学生身份信息、`--strict` 退出码；
+- `src/__tests__/assessment-items.test.ts`：台账正反例、候补题让在用题数重新均衡、全维退役报错、在用官方题下限、当前台账为空；
+- `src/__tests__/assessment-sampling.test.ts`：退役集改变题库指纹、三种抽题路径都排除退役题、含退役题的历史快照作废重派。

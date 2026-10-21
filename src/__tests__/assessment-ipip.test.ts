@@ -123,7 +123,7 @@ describe("IPIP NEO-FFI 50 题种子（#290）", () => {
         { ...IPIP_ASSESSMENT, questionCount: 49 },
         mutate((questions) => questions.filter((question) => question.index !== 50))
       )
-    ).toThrow(/各维度题数不相等/);
+    ).toThrow(/在用题数不相等/);
   });
 });
 

@@ -57,6 +57,41 @@ export type QuestionOrigin = "onet-mini" | "onet-sf" | "cn-original" | "ipip";
  */
 export const SAMPLING_EXCLUDED_ORIGINS: ReadonlySet<QuestionOrigin> = new Set(["cn-original"]);
 
+/**
+ * 已退役题目的台账（#285）：**只停用、不删除、不改题面**。
+ *
+ * 每次淘汰都新增一个候补题号（同维度、`origin = "cn-original"`），把旧题与候补题放进同一个
+ * 近重复组，再把旧题号登记到这里。`planAttempt` 不再抽旧题，`poolFingerprint` 把退役集计入哈希，
+ * 旧快照自动失效重派；但 `assessment_questions` 里的旧行与历史结果的 `items_json` 都原样保留，
+ * 当年那张卷子仍然可解释。
+ *
+ * 台账为空表示**尚未执行过退役**——回收结论必须来自真实作答数据（单题 n ≥ 50），
+ * 不能凭演示数据或主观印象填。执行流程与记录见 `docs/assessment-validation.md` §7。
+ */
+export interface RetiredQuestion {
+  /** 退役的旧题号：题面与 `version` 都不再改动 */
+  index: number;
+  /** 候补题号：必须是同维度的新题（题号更大），与旧题同属一个近重复组 */
+  replacementIndex: number;
+  /** 淘汰依据（指标 + 数据导出日期），落档要求可复核 */
+  reason: string;
+  /** 决策日期（ISO 日期，如 2026-10-21） */
+  decidedAt: string;
+}
+
+export const RETIRED_QUESTIONS: readonly RetiredQuestion[] = [];
+
+/** 退役题号集合（抽题时直接排除；由台账派生，避免两处手写） */
+export const SAMPLING_RETIRED_INDEXES: ReadonlySet<number> = new Set(
+  RETIRED_QUESTIONS.map((entry) => entry.index)
+);
+
+/**
+ * 其它量表的空退役集：题号只在量表内唯一，RIASEC 的退役题号不能串到 IPIP 等同号题目上。
+ * 抽题与种子校验的默认值都是空集，只有确认 `assessment.code === RIASEC_CODE` 的调用方才传全局台账。
+ */
+const EMPTY_RETIRED_INDEXES: ReadonlySet<number> = new Set();
+
 /** 作答页按量表下发的 5 点锚点 */
 export interface AssessmentAnchor {
   value: 1 | 2 | 3 | 4 | 5;
@@ -728,21 +763,85 @@ export function promptSimilarity(a: string, b: string): number {
 export type OnetInterestCodeLookup = (occupationTitle: string) => string | undefined;
 
 /**
+ * 退役台账自检（#285）：坏台账在安装时抛错，避免出现「旧题还在抽 / 候补题没进组」的半截换题。
+ *
+ * 规则：
+ * 1. 旧题与候补题号都存在，且候补题号更大（新题只能往后加，不能顶替历史题号）；
+ * 2. 同维度；候补题来源为原创题（#285 的换题口径）；
+ * 3. 两题同属一个近重复组（同卷至多一题，作为退役逻辑之外的第二道保险）；
+ * 4. 同一条旧题不能登记两次，同一个候补题不能承接两条退役；
+ * 5. 淘汰依据与决策日期必填（日期为 `YYYY-MM-DD`），台账要能回溯到数据。
+ *
+ * 纯函数、可选参数只为单测造合成题库；生产调用走默认的 `RETIRED_QUESTIONS` / `NEAR_DUPLICATE_GROUPS`。
+ */
+export function validateRetirementLedger(
+  questions: readonly QuestionSeed[],
+  retired: readonly RetiredQuestion[] = RETIRED_QUESTIONS,
+  groups: readonly (readonly number[])[] = NEAR_DUPLICATE_GROUPS
+): void {
+  if (retired.length === 0) return;
+  const byIndex = new Map(questions.map((question) => [question.index, question]));
+  const retiredSeen = new Set<number>();
+  const replacementSeen = new Set<number>();
+  for (const entry of retired) {
+    const oldQuestion = byIndex.get(entry.index);
+    const replacement = byIndex.get(entry.replacementIndex);
+    if (!oldQuestion) throw new Error(`退役台账包含不存在的旧题号：${entry.index}`);
+    if (!replacement) throw new Error(`退役台账包含不存在的候补题号：${entry.replacementIndex}`);
+    if (retiredSeen.has(entry.index)) throw new Error(`退役台账重复登记旧题号：${entry.index}`);
+    retiredSeen.add(entry.index);
+    if (replacementSeen.has(entry.replacementIndex)) {
+      throw new Error(`退役台账的候补题号被重复使用：${entry.replacementIndex}`);
+    }
+    replacementSeen.add(entry.replacementIndex);
+    if (entry.replacementIndex <= entry.index) {
+      throw new Error(
+        `第 ${entry.index} 题的候补题号 ${entry.replacementIndex} 必须大于旧题号（历史题号不可顶替）`
+      );
+    }
+    if (oldQuestion.dimension !== replacement.dimension) {
+      throw new Error(
+        `第 ${entry.index} 题（${oldQuestion.dimension}）的候补题 ${entry.replacementIndex} 属于 ${replacement.dimension}，必须同维度`
+      );
+    }
+    if (replacement.origin !== "cn-original") {
+      throw new Error(`第 ${entry.index} 题的候补题 ${entry.replacementIndex} 必须标注为 cn-original`);
+    }
+    if (!entry.reason.trim()) throw new Error(`第 ${entry.index} 题的退役台账缺少淘汰依据`);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(entry.decidedAt)) {
+      throw new Error(`第 ${entry.index} 题的退役日期格式必须为 YYYY-MM-DD：${entry.decidedAt}`);
+    }
+    const grouped = groups.some(
+      (group) => group.includes(entry.index) && group.includes(entry.replacementIndex)
+    );
+    if (!grouped) {
+      throw new Error(
+        `第 ${entry.index} 题与候补题 ${entry.replacementIndex} 必须放进同一个 NEAR_DUPLICATE_GROUPS 组`
+      );
+    }
+  }
+}
+
+/**
  * 种子自检：结构性规则 + #281 扩容后的新增规则。两适配器在落库/升级前调用，
  * 坏数据宁可在安装时报错，也不留半截题库（同一个函数保证两种数据库的校验口径完全一致）。
  *
  * 规则清单（反例单测见 `assessment-items.test.ts`）：
  * 1. 题数一致、题号 1..n 连续、维度归属合法、题干与英文原文非空（#221 既有）；
- * 2. 每个维度题数相等；
- * 3. 霍兰德每维度 `origin` 分布：官方题（`onet-*`）≥ 3 且原创题 ≥ 3（分层抽样的可行性前提）；
+ * 2. **在用题目**每个维度题数相等（已退役题不计入；候选题可以让原始题数不等）；
+ * 3. 霍兰德每维度在用 `origin` 分布：官方题（`onet-*`）≥ 3 且原创题 ≥ 3（分层抽样的可行性前提）；
  * 4. 题干归一化后全局唯一；
  * 5. 题干 4–24 汉字、不含收入/学历/地位线索禁词；
  * 6. 原创题必须有 `anchor`，传了 `onetInterestCodeOf` 时还要命中 O*NET 快照且维度在兴趣高码前两位；
- * 7. 霍兰德同维度相似度 ≥ `NEAR_DUPLICATE_THRESHOLD` 的题对必须被 `NEAR_DUPLICATE_GROUPS` 覆盖；
- * 8. `itemsPerAttempt`（#282）：0 = 全量作答，或为正值、能被维度数整除（每维抽固定题数的前提）且不超过题库总量。
+ * 7. 霍兰德同维度相似度 ≥ `NEAR_DUPLICATE_THRESHOLD` 的**在用**题对必须被 `NEAR_DUPLICATE_GROUPS` 覆盖；
+ * 8. `itemsPerAttempt`（#282）：0 = 全量作答，或为正值、能被维度数整除（每维抽固定题数的前提）且不超过题库总量；
+ * 9. 退役台账（#285）：旧题与候补题同维、同组、候补题号更大且来源为原创题（见 `validateRetirementLedger`）。
  *
  * 3 / 6 / 7 是霍兰德题库的专属规则；IPIP 大五只走通用结构、题面、维度均衡与 `itemsPerAttempt` 校验，
  * 不会因为缺少 O*NET 职业锚点或使用 IPIP 来源而误报。
+ *
+ * `retiredIndexes` 只给 RIASEC 传全局台账，其它量表默认空集（题号在不同量表间会重复，不能串用）；
+ * 单测也可以注入合成退役集，生产调用不需要传。
  *
  * `onetInterestCodeOf` 由服务端注入（`onet.ts` 的 `onetInterestCodeOf`），避免把 92KB 的
  * O*NET 快照拖进客户端 bundle——两个学生端页面只 import `RIASEC_CODE`。
@@ -750,8 +849,11 @@ export type OnetInterestCodeLookup = (occupationTitle: string) => string | undef
 export function validateAssessmentSeed(
   definition: AssessmentSeed,
   questions: readonly QuestionSeed[],
-  onetInterestCodeOf?: OnetInterestCodeLookup
+  onetInterestCodeOf?: OnetInterestCodeLookup,
+  retiredIndexes?: ReadonlySet<number>
 ): void {
+  const activeRetired =
+    retiredIndexes ?? (definition.code === RIASEC_CODE ? SAMPLING_RETIRED_INDEXES : EMPTY_RETIRED_INDEXES);
   if (!definition.code) throw new Error("测评种子缺少 code");
   if (definition.questionCount <= 0) throw new Error(`${definition.code} 的题数必须为正`);
   if (definition.questionCount !== questions.length) {
@@ -784,8 +886,8 @@ export function validateAssessmentSeed(
   }
 
   const indexes = new Set<number>();
-  const usedDimensions = new Set<string>();
-  const byDimension = new Map<string, QuestionSeed[]>();
+  const activeDimensions = new Set<string>();
+  const activeByDimension = new Map<string, QuestionSeed[]>();
   const normalizedPrompts = new Map<string, number>();
   const isRiasec = definition.code === RIASEC_CODE;
   for (const question of questions) {
@@ -797,16 +899,18 @@ export function validateAssessmentSeed(
     if (!dimensionKeys.has(question.dimension)) {
       throw new Error(`${definition.code} 第 ${question.index} 题归属了未定义的维度：${question.dimension}`);
     }
-    usedDimensions.add(question.dimension);
     if (!question.prompt.trim()) throw new Error(`${definition.code} 第 ${question.index} 题题干为空`);
     if (!question.source.trim()) throw new Error(`${definition.code} 第 ${question.index} 题缺少英文原文`);
     if (!["onet-mini", "onet-sf", "cn-original", "ipip"].includes(question.origin)) {
       throw new Error(`${definition.code} 第 ${question.index} 题的 origin 非法：${String(question.origin)}`);
     }
 
-    const list = byDimension.get(question.dimension);
-    if (list) list.push(question);
-    else byDimension.set(question.dimension, [question]);
+    if (!activeRetired.has(question.index)) {
+      activeDimensions.add(question.dimension);
+      const activeList = activeByDimension.get(question.dimension);
+      if (activeList) activeList.push(question);
+      else activeByDimension.set(question.dimension, [question]);
+    }
 
     // 题干归一化后全局唯一：翻译/创作撞题会让同一道题重复计分
     const normalized = normalizePrompt(question.prompt);
@@ -850,41 +954,46 @@ export function validateAssessmentSeed(
   for (let expected = 1; expected <= questions.length; expected += 1) {
     if (!indexes.has(expected)) throw new Error(`${definition.code} 题号不连续，缺少第 ${expected} 题`);
   }
-  // 每个声明的维度都要有题：零题维度在计分里恒为 0 分，会把未作答与真实低分混为一谈
+  // 每个声明的维度都要有**在用**题：零题维度在计分里恒为 0 分，会把未作答与真实低分混为一谈
   for (const key of dimensionKeys) {
-    if (!usedDimensions.has(key)) throw new Error(`${definition.code} 的维度 ${key} 没有对应题目`);
+    if (!activeDimensions.has(key)) throw new Error(`${definition.code} 的维度 ${key} 没有在用题目`);
   }
 
-  // 每维度题数相等 + origin 分布：两者共同决定「每张卷每维固定抽 5 题」能否成立
+  // 每维度**在用**题数相等 + origin 分布：两者共同决定「每张卷每维固定抽 5 题」能否成立。
+  // 退役换题允许题库原始题数不等（一维新增候补、另一维退役旧题），所以在用口径才是真约束。
   const perDimensionCounts = new Set<number>();
   for (const dimension of definition.dimensions) {
-    const list = byDimension.get(dimension.key) ?? [];
+    const list = activeByDimension.get(dimension.key) ?? [];
     perDimensionCounts.add(list.length);
     if (isRiasec) {
       const official = list.filter((question) => question.origin !== "cn-original").length;
       const original = list.filter((question) => question.origin === "cn-original").length;
       if (official < MIN_OFFICIAL_PER_DIMENSION) {
         throw new Error(
-          `${definition.code} 的维度 ${dimension.key} 官方题不足 ${MIN_OFFICIAL_PER_DIMENSION} 道（实际 ${official}）`
+          `${definition.code} 的维度 ${dimension.key} 在用官方题不足 ${MIN_OFFICIAL_PER_DIMENSION} 道（实际 ${official}）`
         );
       }
       if (original < MIN_ORIGINAL_PER_DIMENSION) {
         throw new Error(
-          `${definition.code} 的维度 ${dimension.key} 原创题不足 ${MIN_ORIGINAL_PER_DIMENSION} 道（实际 ${original}）`
+          `${definition.code} 的维度 ${dimension.key} 在用原创题不足 ${MIN_ORIGINAL_PER_DIMENSION} 道（实际 ${original}）`
         );
       }
     }
   }
   if (perDimensionCounts.size > 1) {
     throw new Error(
-      `${definition.code} 各维度题数不相等：${definition.dimensions
-        .map((dimension) => `${dimension.key}=${(byDimension.get(dimension.key) ?? []).length}`)
+      `${definition.code} 各维度在用题数不相等（退役题不计入）：${definition.dimensions
+        .map((dimension) => `${dimension.key}=${(activeByDimension.get(dimension.key) ?? []).length}`)
         .join(" / ")}`
     );
   }
 
   if (isRiasec) {
-    // 近重复覆盖：阈值以上必须被 NEAR_DUPLICATE_GROUPS 包住，否则同卷可能抽到两道近乎一样的题
+    // 退役台账先自检：坏台账必须在安装前拦下，不能出现「旧题还在抽 / 候补题没进组」
+    validateRetirementLedger(questions, RETIRED_QUESTIONS, NEAR_DUPLICATE_GROUPS);
+    // 近重复覆盖：阈值以上必须被 NEAR_DUPLICATE_GROUPS 包住，否则同卷可能抽到两道近乎一样的题。
+    // 只看在用题目：退役题已经不参与抽题，它与候补题的同组要求由退役台账单独校验。
+
     const groupedPairs = new Set<string>();
     for (const group of NEAR_DUPLICATE_GROUPS) {
       for (let i = 0; i < group.length; i += 1) {
@@ -894,7 +1003,7 @@ export function validateAssessmentSeed(
       }
     }
     const byIndex = new Map(questions.map((question) => [question.index, question]));
-    for (const [dimensionKey, list] of byDimension) {
+    for (const [dimensionKey, list] of activeByDimension) {
       for (let i = 0; i < list.length; i += 1) {
         for (let j = i + 1; j < list.length; j += 1) {
           const similarity = promptSimilarity(list[i].prompt, list[j].prompt);

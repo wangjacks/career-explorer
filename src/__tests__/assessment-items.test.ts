@@ -8,12 +8,16 @@ import {
   RIASEC_CODE,
   RIASEC_DIMENSIONS,
   RIASEC_QUESTIONS,
+  RETIRED_QUESTIONS,
   SAMPLING_EXCLUDED_ORIGINS,
+  SAMPLING_RETIRED_INDEXES,
   normalizePrompt,
   promptHanLength,
   promptSimilarity,
   validateAssessmentSeed,
+  validateRetirementLedger,
   type QuestionSeed,
+  type RetiredQuestion,
 } from "../lib/assessment-data";
 import { ONET_OCCUPATIONS } from "../lib/onet-data";
 import { onetInterestCodeOf } from "../lib/onet";
@@ -278,5 +282,128 @@ describe("量表定义与校验入口", () => {
     expect(() =>
       validateAssessmentSeed({ ...RIASEC_ASSESSMENT, itemsPerAttempt: 60 }, RIASEC_QUESTIONS)
     ).not.toThrow();
+  });
+});
+
+describe("退役台账与在用题目（#285）", () => {
+  /** 合成台账的最小题库：1 → 2 是合法换题（同维、候补题号更大、同近重复组、候补为原创题） */
+  const questions: QuestionSeed[] = [
+    { index: 1, dimension: "R", origin: "onet-mini", reverseScored: false, prompt: "旧题", source: "old" },
+    { index: 2, dimension: "R", origin: "cn-original", reverseScored: false, prompt: "候补题", source: "new", anchor: "统计师" },
+    { index: 3, dimension: "R", origin: "onet-sf", reverseScored: false, prompt: "官方题", source: "official" },
+    { index: 4, dimension: "I", origin: "cn-original", reverseScored: false, prompt: "别维题", source: "other", anchor: "统计师" },
+  ];
+  const groups = [[1, 2]];
+  const valid: RetiredQuestion = {
+    index: 1,
+    replacementIndex: 2,
+    reason: "r_it = 0.12（n = 63），区分度不足",
+    decidedAt: "2026-10-21",
+  };
+
+  it("当前台账为空：没有凭演示数据或主观印象填写的退役题", () => {
+    expect(SAMPLING_RETIRED_INDEXES.size).toBe(RETIRED_QUESTIONS.length);
+    for (const entry of RETIRED_QUESTIONS) {
+      expect(SAMPLING_RETIRED_INDEXES.has(entry.index)).toBe(true);
+    }
+  });
+
+  it("合法台账通过：旧题停用、候补题同维同组、依据与日期齐全", () => {
+    expect(() => validateRetirementLedger(questions, [valid], groups)).not.toThrow();
+    expect(() => validateRetirementLedger(questions, [], groups)).not.toThrow();
+  });
+
+  it("台账引用不存在的题号直接报错", () => {
+    expect(() => validateRetirementLedger(questions, [{ ...valid, index: 99 }], groups)).toThrowError(
+      /不存在的旧题号/
+    );
+    expect(() =>
+      validateRetirementLedger(questions, [{ ...valid, replacementIndex: 99 }], groups)
+    ).toThrowError(/不存在的候补题号/);
+  });
+
+  it("候补题必须同维度、来源为原创题、题号更大", () => {
+    expect(() =>
+      validateRetirementLedger(questions, [{ ...valid, replacementIndex: 4 }], groups)
+    ).toThrowError(/必须同维度/);
+    expect(() =>
+      validateRetirementLedger(questions, [{ ...valid, replacementIndex: 3 }], [[1, 3]])
+    ).toThrowError(/必须标注为 cn-original/);
+    expect(() =>
+      validateRetirementLedger(questions, [{ ...valid, index: 2, replacementIndex: 1 }], [[1, 2]])
+    ).toThrowError(/必须大于旧题号/);
+  });
+
+  it("旧题不能登记两次，候补题不能承接两条退役", () => {
+    expect(() =>
+      validateRetirementLedger(questions, [valid, { ...valid, replacementIndex: 3 }], [[1, 2, 3]])
+    ).toThrowError(/重复登记旧题号/);
+    expect(() =>
+      validateRetirementLedger(
+        questions,
+        [valid, { ...valid, index: 3, replacementIndex: 2 }],
+        [[1, 2, 3]]
+      )
+    ).toThrowError(/候补题号被重复使用/);
+  });
+
+  it("淘汰依据与决策日期不能空，日期必须是 YYYY-MM-DD", () => {
+    expect(() => validateRetirementLedger(questions, [{ ...valid, reason: "  " }], groups)).toThrowError(
+      /缺少淘汰依据/
+    );
+    expect(() =>
+      validateRetirementLedger(questions, [{ ...valid, decidedAt: "2026/10/21" }], groups)
+    ).toThrowError(/YYYY-MM-DD/);
+  });
+
+  it("旧题与候补题必须同属一个近重复组（同卷至多一题的第二道保险）", () => {
+    expect(() => validateRetirementLedger(questions, [valid], [[1], [2]])).toThrowError(
+      /同一个 NEAR_DUPLICATE_GROUPS 组/
+    );
+  });
+});
+
+describe("种子校验按在用题数计算（#285）", () => {
+  /** 给真实题库加一道候选原创题：R 维 21 题，退役 1 道 R 题后 6 维恢复各 20 题 */
+  const candidate: QuestionSeed = {
+    index: RIASEC_QUESTIONS.length + 1,
+    dimension: "R",
+    origin: "cn-original",
+    reverseScored: false,
+    prompt: "校准候补题目样张",
+    source: "calibration candidate",
+    anchor: "统计师",
+  };
+  const extended = [...RIASEC_QUESTIONS, candidate];
+  const definition = { ...RIASEC_ASSESSMENT, questionCount: extended.length };
+
+  it("候补题未退役旧题时题数不均衡，校验应拦下", () => {
+    expect(() => validateAssessmentSeed(definition, extended)).toThrowError(/在用题数不相等/);
+  });
+
+  it("退役同一维旧题后按在用题数校验通过：题库不删题、题数声明仍与全量一致", () => {
+    expect(() =>
+      validateAssessmentSeed(definition, extended, undefined, new Set([1]))
+    ).not.toThrow();
+    expect(extended).toHaveLength(121);
+    expect(definition.questionCount).toBe(121);
+  });
+
+  it("某维全部退役时明确报「没有在用题目」，而不是静默算成 0 题", () => {
+    const all = new Set(RIASEC_QUESTIONS.map((question) => question.index));
+    expect(() => validateAssessmentSeed(RIASEC_ASSESSMENT, RIASEC_QUESTIONS, undefined, all)).toThrowError(
+      /没有在用题目/
+    );
+  });
+
+  it("在用官方题不足 3 道时，规则 3 仍然生效", () => {
+    const rOfficial = RIASEC_QUESTIONS.filter(
+      (question) => question.dimension === "R" && question.origin !== "cn-original"
+    )
+      .slice(0, 8)
+      .map((question) => question.index);
+    expect(() =>
+      validateAssessmentSeed(RIASEC_ASSESSMENT, RIASEC_QUESTIONS, undefined, new Set(rOfficial))
+    ).toThrowError(/官方题不足/);
   });
 });

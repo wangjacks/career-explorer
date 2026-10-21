@@ -216,7 +216,7 @@ describe("RIASEC 题库种子（#221 / #281 扩容到 120 题）", () => {
     // #281 新规则：每维题数相等（删掉一道 R 维原创题）
     expect(
       caseOf((qs) => qs.filter((q) => !(q.dimension === "R" && q.origin === "cn-original" && q.index === 61)))
-    ).toThrow(/各维度题数不相等|题数与题库不符/);
+    ).toThrow(/在用题数不相等|题数与题库不符/);
     // 维度题数相等但某维原创题不足 3 道（把 R 维 8 道原创题改成官方来源，只剩 2 道原创）
     expect(
       caseOf((qs) => qs.map((q) => (q.index >= 61 && q.index <= 68 ? { ...q, origin: "onet-sf" as const } : q)))
