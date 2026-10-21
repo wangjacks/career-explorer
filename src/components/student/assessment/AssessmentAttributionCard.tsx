@@ -2,16 +2,11 @@ import { ExternalLink, ShieldCheck } from "lucide-react";
 import SectionCard from "./SectionCard";
 import AssessmentDisclaimer from "./AssessmentDisclaimer";
 import CollapsibleCard from "../CollapsibleCard";
+import {
+  buildAttributionGroups,
+  type AttributionScaleInput,
+} from "@/lib/assessment-view";
 import { EXTERNAL_LINK_REL, ONET_TOOLS_LICENSE_URL } from "@/lib/assessment-center-content";
-
-/** 一套量表的授权声明（页尾卡按量表分组展示） */
-export interface AttributionScale {
-  code: string;
-  name: string;
-  attribution?: string | null;
-  licenseText?: string | null;
-  disclaimer?: string | null;
-}
 
 const CARD_TITLE = "关于这些测评 · 授权与免责";
 const CARD_SUBTITLE =
@@ -26,7 +21,10 @@ const CARD_SUBTITLE =
  * 兜底免责声明，保证页面上始终能看到「结果不作诊断/录用依据」。
  *
  * #322 起「我的档案」页尾传 `scales`（多套量表）并开启 `collapsible`：
- * 声明全文全页只出现一次，结果卡内只留一行指针；测评中心沿用单量表入参、保持常驻展开。
+ * 声明全文全页只出现一次，结果卡内只留一行指针。**合规卡默认展开**——结果卡才是需要折叠的主体；
+ * 法定声明必须首屏可见、可 Ctrl+F、可被屏幕阅读器读到，指针锚点也要落在正文上。
+ * 仍保留折叠按钮，供学生手动收起；收起后 `keepMounted` 仍把文本留在 DOM。
+ * 分组 / 去重 / O*NET 兜底判定在 `assessment-view.ts#buildAttributionGroups`（纯函数，有单测）。
  */
 export default function AssessmentAttributionCard({
   attribution,
@@ -41,50 +39,36 @@ export default function AssessmentAttributionCard({
   licenseText?: string | null;
   disclaimer?: string | null;
   /** 多量表入参（我的档案页尾，按量表分组） */
-  scales?: readonly AttributionScale[];
+  scales?: readonly AttributionScaleInput[];
   /** 推荐职业的 CC BY 4.0 署名（来自 `/careers`） */
   careersAttribution?: string | null;
   /** 页尾折叠（我的档案）；默认常驻展开 */
   collapsible?: boolean;
 }) {
-  const groups: AttributionScale[] =
-    scales && scales.length > 0
-      ? [...scales]
-      : [{ code: "legacy", name: "", attribution, licenseText, disclaimer }];
-  // 兼容测评中心「接口失败也常驻来源说明」的旧行为：仅单量表占位（legacy）时给 O*NET 兜底文案；
-  // 真正启用的单套量表即使缺 attribution 也不能套 O*NET 文案（可能是 IPIP）
-  const useOnetFallback =
-    groups.length === 1 &&
-    groups[0].code === "legacy" &&
-    !(groups[0].attribution ?? "").trim();
-  // 两套量表的免责声明通常逐字相同：去重后只展示一次，避免同一句话出现两遍
-  const disclaimerTexts = Array.from(
-    new Set(groups.map((group) => (group.disclaimer ?? "").trim()).filter(Boolean))
-  );
-  const careersText = (careersAttribution ?? "").trim();
+  const {
+    groups,
+    disclaimers,
+    careersAttribution: careersText,
+  } = buildAttributionGroups({ scales, attribution, licenseText, disclaimer, careersAttribution });
 
   const content = (
     <>
-      {groups.map((group) => {
-        const groupAttribution = (group.attribution ?? "").trim();
-        const groupLicense = (group.licenseText ?? "").trim();
-        return (
-          <div key={group.code} className="space-y-1.5">
-            {group.name && <h3 className="text-xs font-semibold text-foreground">{group.name}</h3>}
-            {groupAttribution ? (
-              <p className="text-xs text-muted leading-relaxed">{groupAttribution}</p>
-            ) : (
-              useOnetFallback && (
-                <p className="text-xs text-muted leading-relaxed">
-                  本测评题目改编自 O*NET Career Exploration Tools（美国劳工部就业与培训署），依据 O*NET Tools
-                  Developer License 使用；O*NET® 是 USDOL/ETA 的商标。
-                </p>
-              )
-            )}
-            {groupLicense && <p className="text-xs text-muted leading-relaxed">{groupLicense}</p>}
-          </div>
-        );
-      })}
+      {groups.map((group) => (
+        <div key={group.code} className="space-y-1.5">
+          {group.name && <h3 className="text-xs font-semibold text-foreground">{group.name}</h3>}
+          {group.attribution ? (
+            <p className="text-xs text-muted leading-relaxed">{group.attribution}</p>
+          ) : (
+            group.onetFallback && (
+              <p className="text-xs text-muted leading-relaxed">
+                本测评题目改编自 O*NET Career Exploration Tools（美国劳工部就业与培训署），依据 O*NET Tools
+                Developer License 使用；O*NET® 是 USDOL/ETA 的商标。
+              </p>
+            )
+          )}
+          {group.licenseText && <p className="text-xs text-muted leading-relaxed">{group.licenseText}</p>}
+        </div>
+      ))}
 
       {careersText && (
         <div className="space-y-1.5">
@@ -93,10 +77,18 @@ export default function AssessmentAttributionCard({
         </div>
       )}
 
-      <div className="space-y-1.5">
+      <div className="space-y-2">
         <h3 className="text-xs font-semibold text-foreground">免责声明</h3>
-        {disclaimerTexts.length > 0 ? (
-          disclaimerTexts.map((text) => <AssessmentDisclaimer key={text} text={text} />)
+        {disclaimers.length > 0 ? (
+          disclaimers.map((entry) => (
+            <div key={entry.text} className="space-y-1">
+              {/* 不同声明各自带量表归属，避免读者无法判断哪句属于哪套量表 */}
+              {disclaimers.length > 1 && entry.scaleNames.length > 0 && (
+                <h4 className="text-[11px] font-medium text-muted">{entry.scaleNames.join("、")}</h4>
+              )}
+              <AssessmentDisclaimer text={entry.text} />
+            </div>
+          ))
         ) : (
           <AssessmentDisclaimer />
         )}
@@ -121,6 +113,7 @@ export default function AssessmentAttributionCard({
         title={CARD_TITLE}
         subtitle={CARD_SUBTITLE}
         icon={ShieldCheck}
+        defaultOpen
         keepMounted
       >
         {content}

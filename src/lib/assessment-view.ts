@@ -455,3 +455,97 @@ export function buildCareerCards(careers: readonly CareerApiItem[] | null | unde
   }
   return cards;
 }
+
+/** 页尾授权卡的量表声明入参（与 `AssessmentListItem` 的结构兼容，#322） */
+export interface AttributionScaleInput {
+  code: string;
+  name?: string;
+  attribution?: string | null;
+  licenseText?: string | null;
+  disclaimer?: string | null;
+}
+
+/** 一套量表在授权卡里的一组声明 */
+export interface AttributionGroupView {
+  code: string;
+  name: string;
+  attribution: string;
+  licenseText: string;
+  /** 仅 legacy 占位（测评中心旧入参）且没有 attribution 时给 O*NET 兜底文案 */
+  onetFallback: boolean;
+}
+
+/** 去重后的一条免责声明；`scaleNames` 标出它适用于哪些量表 */
+export interface DisclaimerGroupView {
+  text: string;
+  /** 空数组表示 legacy 单卡（没有量表名） */
+  scaleNames: string[];
+}
+
+export interface AttributionCardModel {
+  groups: AttributionGroupView[];
+  disclaimers: DisclaimerGroupView[];
+  careersAttribution: string;
+}
+
+/**
+ * 页尾授权卡的分组模型（#322）：把「按量表分组 / 免责去重 / O*NET 兜底」三段决策
+ * 从组件里搬到纯函数层（与 `buildCareerCards` 同一做法），组件只负责画。
+ *
+ * 合规口径：
+ * - 同一段免责声明出现在多套量表上时只保留一条，并记下适用量表名；
+ * - 不同声明各自成组并带量表归属，不把不同法定义务糊成一段；
+ * - O*NET 兜底文案只给 legacy 单量表占位（测评中心接口失败时），
+ *   真正启用的量表（如 IPIP）缺 attribution 时绝不套 O*NET 文案。
+ */
+export function buildAttributionGroups(input: {
+  scales?: readonly AttributionScaleInput[] | null;
+  /** 测评中心单量表兼容入参 */
+  attribution?: string | null;
+  licenseText?: string | null;
+  disclaimer?: string | null;
+  careersAttribution?: string | null;
+}): AttributionCardModel {
+  const source: AttributionScaleInput[] =
+    input.scales && input.scales.length > 0
+      ? [...input.scales]
+      : [
+          {
+            code: "legacy",
+            name: "",
+            attribution: input.attribution ?? null,
+            licenseText: input.licenseText ?? null,
+            disclaimer: input.disclaimer ?? null,
+          },
+        ];
+
+  const groups: AttributionGroupView[] = source.map((scale) => {
+    const attribution = (scale.attribution ?? "").trim();
+    return {
+      code: scale.code,
+      name: (scale.name ?? "").trim(),
+      attribution,
+      licenseText: (scale.licenseText ?? "").trim(),
+      onetFallback: scale.code === "legacy" && attribution === "",
+    };
+  });
+
+  const disclaimers: DisclaimerGroupView[] = [];
+  for (const scale of source) {
+    const text = (scale.disclaimer ?? "").trim();
+    if (!text) continue;
+    const name = (scale.name ?? "").trim();
+    const existing = disclaimers.find((entry) => entry.text === text);
+    if (existing) {
+      if (name && !existing.scaleNames.includes(name)) existing.scaleNames.push(name);
+    } else {
+      disclaimers.push({ text, scaleNames: name ? [name] : [] });
+    }
+  }
+
+  return {
+    groups,
+    disclaimers,
+    careersAttribution: (input.careersAttribution ?? "").trim(),
+  };
+}
