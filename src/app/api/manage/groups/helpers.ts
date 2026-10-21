@@ -361,11 +361,13 @@ export async function buildGroupingView(classId: number): Promise<GroupingView> 
 
 /* ---------- 预览（#345：不落库） ---------- */
 
-/** 预览入参（已校验/归一化）：策略 + 可选权重 + 确定性变体 */
+/** 预览入参（已校验/归一化）：策略 + 可选权重 + 确定性变体 + 换人后的分组 */
 export interface PreviewOptions {
   strategy: string;
   weights?: Record<string, number> | null;
   variant: number;
+  /** 预览里换人后提交的分组（未校验）：给出时按它重算指标，不再重新分配 */
+  groups?: unknown;
 }
 
 export interface PreviewGroupView {
@@ -438,25 +440,57 @@ export function parseVariant(value: unknown): number | null {
   return Math.min(value, 99);
 }
 
+export type GroupingPreviewResult =
+  | { ok: true; preview: GroupingPreview }
+  | { ok: false; error: string };
+
 /**
  * 生成分组预览（**不写库**）。
  *
- * 与「应用」共用同一套算法/口径：教师在预览里看到的指标就是应用后批次归档的指标
- * （应用时服务端会用提交上来的分组重算一次，防止客户端改坏）。
+ * 与「应用」共用同一套算法/口径：教师在预览里看到的指标就是应用后批次归档的指标。
+ * 换人后前端把新分组提交回来，这里用与「应用」相同的校验与指标口径重算——
+ * 原始测评分不下发客户端，客户端算不出也不该算这些数。
  */
-export async function buildGroupingPreview(classId: number, options: PreviewOptions): Promise<GroupingPreview> {
+export async function buildGroupingPreview(
+  classId: number,
+  options: PreviewOptions
+): Promise<GroupingPreviewResult> {
   const roster = rosterOf(await getStudents(), classId);
+  if (roster.length === 0) return { ok: false, error: "该班没有学生，无法分组" };
+
   const loaded = await loadAssessmentFeatureContext(roster);
   const sources = sourcesForStrategy(options.strategy, options.weights ?? null);
   const vectors = buildFeatureVectors(roster, sources, { assessments: loaded.context });
   const result = buildGrouping(vectors, sources, { strategy: options.strategy, variant: options.variant });
 
-  const groups: PreviewGroupView[] = result.groups.map((indexes, i) => {
-    const members = indexes
+  let applied: AppliedGroupInput[] | null = null;
+  if (options.groups !== undefined && options.groups !== null) {
+    const normalized = normalizeAppliedGroups(options.groups, roster);
+    if (!normalized.ok) return { ok: false, error: normalized.error };
+    applied = normalized.groups;
+  }
+  const metrics = applied
+    ? metricsForAppliedGroups(applied, result.vectors, options.strategy, sources)
+    : result.metrics;
+  const indexByUserId = new Map(result.vectors.map((vector, index) => [vector.studentId, index]));
+  const layout = applied
+    ? applied.map((group) => ({
+        groupNo: group.groupNo,
+        indexes: group.userIds
+          .map((userId) => indexByUserId.get(userId))
+          .filter((index): index is number => index !== undefined)
+          .sort((a, b) => a - b),
+      }))
+    : result.groups.map((indexes, i) => ({ groupNo: i + 1, indexes }));
+  // 主型是算法分配的主型配额，不是成员属性的汇总：重算指标时按组号沿用同一份确定性候选的结果
+  const basePrimaryByNo = new Map(result.groups.map((_, i) => [i + 1, result.primaryTypes[i] ?? null]));
+
+  const groups: PreviewGroupView[] = layout.map((group, i) => {
+    const members = group.indexes
       .map((index) => ({ index, user: roster[index] }))
       .sort((a, b) => (a.user.user_code < b.user.user_code ? -1 : 1))
-      .map(({ index, user }) => memberView(vectors[index], user));
-    const roleCoverage = result.metrics.roleCoverage?.[i] ?? 0;
+      .map(({ index, user }) => memberView(result.vectors[index], user));
+    const roleCoverage = metrics.roleCoverage?.[i] ?? 0;
     // 建议组长：命中角色最多者（同分取组内学号最小），教师可改
     let suggested: number | null = null;
     let bestRoles = -1;
@@ -467,10 +501,12 @@ export async function buildGroupingPreview(classId: number, options: PreviewOpti
       }
     }
     return {
-      groupNo: i + 1,
-      memberCount: indexes.length,
-      cohesion: result.metrics.cohesion[i] ?? null,
-      primaryType: result.primaryTypes[i] ?? null,
+      groupNo: group.groupNo,
+      memberCount: group.indexes.length,
+      cohesion: metrics.cohesion[i] ?? null,
+      primaryType: applied
+        ? basePrimaryByNo.get(group.groupNo) ?? null
+        : result.primaryTypes[i] ?? null,
       roleCoverage,
       suggestedLeaderUserId: suggested,
       members,
@@ -478,20 +514,23 @@ export async function buildGroupingPreview(classId: number, options: PreviewOpti
   });
 
   return {
-    strategy: options.strategy,
-    strategyLabel: groupingStrategyLabel(options.strategy),
-    variant: options.variant,
-    sources: sources.map((s) => ({ key: s.key, label: s.label, kind: s.kind, weight: s.weight })),
-    coverageBySource: coverageBySource(vectors, sources),
-    untestedCount: untestedAssessmentCount(vectors),
-    assessmentAvailable: loaded.available,
-    degraded: loaded.degraded,
-    studentCount: roster.length,
-    groupSize: GROUP_SIZE_CAP,
-    expectedGroupCount: computeGroupSizes(roster.length).length,
-    roleCoverageTarget: ROLE_COVERAGE_TARGET,
-    metrics: result.metrics,
-    groups,
+    ok: true,
+    preview: {
+      strategy: options.strategy,
+      strategyLabel: groupingStrategyLabel(options.strategy),
+      variant: options.variant,
+      sources: sources.map((s) => ({ key: s.key, label: s.label, kind: s.kind, weight: s.weight })),
+      coverageBySource: coverageBySource(result.vectors, sources),
+      untestedCount: untestedAssessmentCount(result.vectors),
+      assessmentAvailable: loaded.available,
+      degraded: loaded.degraded,
+      studentCount: roster.length,
+      groupSize: GROUP_SIZE_CAP,
+      expectedGroupCount: computeGroupSizes(roster.length).length,
+      roleCoverageTarget: ROLE_COVERAGE_TARGET,
+      metrics,
+      groups,
+    },
   };
 }
 

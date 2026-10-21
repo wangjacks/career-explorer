@@ -822,8 +822,15 @@ export interface DbAdapter {
   insertGroupEntry(classId: number, groupNo: number): Promise<void> | void;
   /** 删除一个空的组（非空由调用方先校验；本方法只删组行，不动成员） */
   deleteGroupEntry(classId: number, groupNo: number): Promise<void> | void;
-  /** 把成员移到本班的另一个组（目标组必须已存在） */
-  moveGroupMember(classId: number, userId: number, toGroupNo: number): Promise<void> | void;
+  /**
+   * 把成员移到本班的另一个组（目标组必须已存在）。
+   * 被移走的人若是原组组长，同一事务内清空组长位，并返回是否发生回退（#345）。
+   */
+  moveGroupMember(
+    classId: number,
+    userId: number,
+    toGroupNo: number
+  ): Promise<{ leaderCleared: boolean }> | { leaderCleared: boolean };
   /**
    * 设置 / 取消某组组长（#345）。调用方负责校验「组长是本组成员」与写权限；
    * 数据层只做「本班 + 组号」定位，避免跨班误写。
@@ -1509,7 +1516,11 @@ export async function deleteGroupEntry(classId: number, groupNo: number): Promis
   return Promise.resolve(adapter.deleteGroupEntry(classId, groupNo));
 }
 
-export async function moveGroupMember(classId: number, userId: number, toGroupNo: number): Promise<void> {
+export async function moveGroupMember(
+  classId: number,
+  userId: number,
+  toGroupNo: number
+): Promise<{ leaderCleared: boolean }> {
   const adapter = await ensureInit();
   return Promise.resolve(adapter.moveGroupMember(classId, userId, toGroupNo));
 }

@@ -124,7 +124,7 @@ beforeEach(() => {
   ]);
   vi.mocked(applyGroupingResult).mockResolvedValue(99);
   // clearAllMocks 不清实现，逐条给默认值，避免上一条用例的 mockRejectedValue 泄漏
-  vi.mocked(moveGroupMember).mockResolvedValue(undefined);
+  vi.mocked(moveGroupMember).mockResolvedValue({ leaderCleared: false });
   vi.mocked(insertGroupEntry).mockResolvedValue(undefined);
   vi.mocked(deleteGroupEntry).mockResolvedValue(undefined);
   vi.mocked(getStudentGroupRef).mockResolvedValue(undefined);
@@ -404,17 +404,18 @@ describe("PATCH /api/manage/groups/members — 手工换人（#101）", () => {
     expect(JSON.parse(String(log.metadata))).toMatchObject({ classId: CLASS_A, userId: 3, fromGroupNo: 1, toGroupNo: 2 });
   });
 
-  it("被移走的人原是组长 → 组长自动回退（#345）", async () => {
+  it("被移走的人原是组长 → 数据层同事务回退组长，并回传 leaderCleared（#345）", async () => {
     const token = await signToken({ role: "admin", uid: 1, name: "管理员" });
     vi.mocked(getStudentGroupRef).mockResolvedValue({ class_id: CLASS_A, group_no: 1 });
-    currentGroupFixtures();
+    vi.mocked(moveGroupMember).mockResolvedValue({ leaderCleared: true });
     const res = await membersPatch(
       jsonRequest({ classId: CLASS_A, userId: 1, toGroupNo: 2 }, `auth_token=${token}`, "PATCH")
     );
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.leaderCleared).toBe(true);
-    expect(updateClassGroupLeader).toHaveBeenCalledWith(CLASS_A, 1, null);
+    // 组长的回退与移动在同一事务里完成，路由不再单独发第二次写
+    expect(updateClassGroupLeader).not.toHaveBeenCalled();
   });
 
   it("界面快照带学号且与库中不符 → 409，不落库（SQLite 删后会复用 id）", async () => {
@@ -663,6 +664,57 @@ describe("POST /api/manage/groups/preview — 智能分组预览（#345，不写
     const first = await (await previewPost(jsonRequest({ classId: CLASS_A, variant: 0 }, cookie))).json();
     const second = await (await previewPost(jsonRequest({ classId: CLASS_A, variant: 0 }, cookie))).json();
     expect(second.preview.groups).toEqual(first.preview.groups);
+  });
+
+  it("带 groups 预览：按提交的成员重算指标（换人后不沿用旧数字）", async () => {
+    const cookie = await OWNER_COOKIE();
+    const base = await (await previewPost(jsonRequest({ classId: CLASS_A }, cookie))).json();
+    const [groupA, groupB] = base.preview.groups as {
+      groupNo: number;
+      members: { userId: number; userCode: string }[];
+    }[];
+    // 跨组对调两名成员（与前端「换人」提交的形状一致）
+    const movedA = groupA.members[0];
+    const movedB = groupB.members[0];
+    const groups = [
+      { groupNo: groupA.groupNo, userIds: groupA.members.map((m) => (m.userId === movedA.userId ? movedB.userId : m.userId)), leaderUserId: null },
+      { groupNo: groupB.groupNo, userIds: groupB.members.map((m) => (m.userId === movedB.userId ? movedA.userId : m.userId)), leaderUserId: null },
+    ];
+
+    const res = await previewPost(jsonRequest({ classId: CLASS_A, groups }, cookie));
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    const returnedA = body.preview.groups.find((g: { groupNo: number }) => g.groupNo === groupA.groupNo);
+    expect(returnedA.members.map((m: { userId: number }) => m.userId)).toContain(movedB.userId);
+    // 指标是服务端按新成员算的：与换人前的候选不同，且仍是完整名单
+    expect(body.preview.metrics.overall).not.toBe(base.preview.metrics.overall);
+    expect(
+      body.preview.groups
+        .flatMap((g: { members: { userId: number }[] }) => g.members.map((m) => m.userId))
+        .sort((a: number, b: number) => a - b)
+    ).toEqual([1, 2, 3, 4, 5, 6]);
+    // 预览仍然不写库
+    expect(applyGroupingResult).not.toHaveBeenCalled();
+  });
+
+  it("带 groups 预览也走应用同一套校验：漏人 / 组长不在本组 → 400", async () => {
+    const cookie = await OWNER_COOKIE();
+    const missing = [
+      { groupNo: 1, userIds: [1, 2, 3], leaderUserId: null },
+      { groupNo: 2, userIds: [4, 5], leaderUserId: null },
+    ];
+    let res = await previewPost(jsonRequest({ classId: CLASS_A, groups: missing }, cookie));
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toContain("全部学生");
+
+    const badLeader = [
+      { groupNo: 1, userIds: [1, 2, 3], leaderUserId: 4 },
+      { groupNo: 2, userIds: [4, 5, 6], leaderUserId: null },
+    ];
+    res = await previewPost(jsonRequest({ classId: CLASS_A, groups: badLeader }, cookie));
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toContain("组长");
+    expect(applyGroupingResult).not.toHaveBeenCalled();
   });
 
   it("班级不存在 → 404；空班 → 400", async () => {

@@ -251,7 +251,8 @@ export class MysqlAdapter implements DbAdapter {
         created_at TEXT NOT NULL,
         UNIQUE KEY uniq_class_group_no (class_id, group_no),
         INDEX idx_class_groups_class (class_id),
-        CONSTRAINT fk_class_groups_class FOREIGN KEY (class_id) REFERENCES classes(id)
+        CONSTRAINT fk_class_groups_class FOREIGN KEY (class_id) REFERENCES classes(id),
+        CONSTRAINT fk_class_groups_leader FOREIGN KEY (leader_user_id) REFERENCES users(id) ON DELETE SET NULL
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
     `);
     // user_id 全局唯一：一个学生同时只能属于一个当前组（转班/删人时必须清理旧行）
@@ -321,10 +322,30 @@ export class MysqlAdapter implements DbAdapter {
         CONSTRAINT fk_batch_members_group FOREIGN KEY (group_id) REFERENCES group_batch_groups(id)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
     `);
-    // #345 补列：旧库（#101 时期创建）没有组长列，与 SQLite 侧同步补可空列
+    // #345 补列：旧库（#101 时期创建）没有组长列，与 SQLite 侧同步补可空列。
+    // 新库由 CREATE TABLE 直接带 users 外键（删学生时 SET NULL）；旧库一次 ALTER 同时补列与约束。
     if (!(await this.columnExists("class_groups", "leader_user_id"))) {
-      await this.pool.execute("ALTER TABLE class_groups ADD COLUMN leader_user_id INT NULL");
+      await this.pool.execute(
+        "ALTER TABLE class_groups ADD COLUMN leader_user_id INT NULL, " +
+          "ADD CONSTRAINT fk_class_groups_leader FOREIGN KEY (leader_user_id) REFERENCES users(id) ON DELETE SET NULL"
+      );
+    } else if (!(await this.constraintExists("class_groups", "fk_class_groups_leader"))) {
+      // 早期分支库已补列但没有外键：先清悬空引用，否则补约束会直接失败
+      await this.pool.execute(
+        "UPDATE class_groups g LEFT JOIN users u ON g.leader_user_id = u.id " +
+          "SET g.leader_user_id = NULL WHERE g.leader_user_id IS NOT NULL AND u.id IS NULL"
+      );
+      await this.pool.execute(
+        "ALTER TABLE class_groups ADD CONSTRAINT fk_class_groups_leader " +
+          "FOREIGN KEY (leader_user_id) REFERENCES users(id) ON DELETE SET NULL"
+      );
     }
+    // 组长必须在本组：旧库没有外键覆盖转班路径、早期数据也可能留下指向非成员的组长，启动时修掉
+    await this.pool.execute(
+      "UPDATE class_groups g LEFT JOIN class_group_members m " +
+        "ON m.group_id = g.id AND m.user_id = g.leader_user_id " +
+        "SET g.leader_user_id = NULL WHERE g.leader_user_id IS NOT NULL AND m.id IS NULL"
+    );
     if (!(await this.columnExists("group_batch_groups", "leader_user_id"))) {
       await this.pool.execute("ALTER TABLE group_batch_groups ADD COLUMN leader_user_id INT NULL");
     }
@@ -788,6 +809,15 @@ export class MysqlAdapter implements DbAdapter {
     return (rows as unknown[]).length > 0;
   }
 
+  private async constraintExists(table: string, constraint: string): Promise<boolean> {
+    const [rows] = await this.pool.execute(
+      "SELECT 1 FROM information_schema.table_constraints " +
+        "WHERE table_schema = ? AND table_name = ? AND constraint_name = ?",
+      [this.database, table, constraint]
+    );
+    return (rows as unknown[]).length > 0;
+  }
+
   private async migrateTagSchema(): Promise<void> {
     const hasCategory = await this.columnExists("tags", "category");
     const hasType = await this.columnExists("tags", "type");
@@ -1071,6 +1101,8 @@ export class MysqlAdapter implements DbAdapter {
         const [currentRows] = await conn.execute("SELECT class_id FROM users WHERE id = ?", [id]);
         const current = (currentRows as { class_id: number | null }[])[0];
         if (current && current.class_id !== fields.class_id) {
+          // #345：转班后组长必须仍是本组成员，先清组长位再摘成员行（同一事务）
+          await conn.execute("UPDATE class_groups SET leader_user_id = NULL WHERE leader_user_id = ?", [id]);
           await conn.execute("DELETE FROM class_group_members WHERE user_id = ?", [id]);
         }
       }
@@ -1108,6 +1140,12 @@ export class MysqlAdapter implements DbAdapter {
     try {
       await conn.beginTransaction();
       // 分组（#101）：只清「当前分组」的成员行；历史批次保留快照（姓名/学号冗余，账号删除后仍可读）
+      // #345：删学生时组长位一并清空（新库有外键 SET NULL，这里显式清是为了两库与旧库行为一致）
+      await conn.execute(
+        `UPDATE class_groups SET leader_user_id = NULL
+          WHERE leader_user_id IN (SELECT id FROM users WHERE user_code IN (${placeholders}))`,
+        userCodes
+      );
       await conn.execute(
         `DELETE FROM class_group_members WHERE user_id IN (SELECT id FROM users WHERE user_code IN (${placeholders}))`,
         userCodes
@@ -2076,8 +2114,12 @@ export class MysqlAdapter implements DbAdapter {
     }
   }
 
-  async moveGroupMember(classId: number, userId: number, toGroupNo: number): Promise<void> {
-    // 单连接事务：目标组校验与成员改写不能分属两条连接（Pool.execute 每次任取连接），
+  async moveGroupMember(
+    classId: number,
+    userId: number,
+    toGroupNo: number
+  ): Promise<{ leaderCleared: boolean }> {
+    // 单连接事务：目标组校验、成员改写与组长回退不能分属多条连接（Pool.execute 每次任取连接），
     // 否则「查到目标组 → 组被删 → 再写入」这个窗口会随机撞上外键报错，且改到一半无法回滚
     const conn = await this.pool.getConnection();
     try {
@@ -2091,11 +2133,20 @@ export class MysqlAdapter implements DbAdapter {
       // 按 user_id 找，**不限旧组属于哪个班**（同 SQLite 侧）：只查本班会查不到脏归属，
       // 转而 INSERT 就会撞全局 UNIQUE(user_id)，把「可修复」变成永久失败
       const [currentRows] = await conn.execute(
-        "SELECT id FROM class_group_members WHERE user_id = ?",
+        "SELECT id, group_id FROM class_group_members WHERE user_id = ?",
         [userId]
       );
-      const current = (currentRows as { id: number }[])[0];
+      const current = (currentRows as { id: number; group_id: number }[])[0];
+      let leaderCleared = false;
       if (current) {
+        // 被移走的是原组组长：组长位必须随人一起失效（#345）
+        if (current.group_id !== target.id) {
+          const [cleared] = await conn.execute(
+            "UPDATE class_groups SET leader_user_id = NULL WHERE id = ? AND leader_user_id = ?",
+            [current.group_id, userId]
+          );
+          leaderCleared = (cleared as mysql.ResultSetHeader).affectedRows > 0;
+        }
         await conn.execute("UPDATE class_group_members SET group_id = ? WHERE id = ?", [target.id, current.id]);
       } else {
         // 未在任何组（新转入的学生等）：直接插入目标组
@@ -2105,6 +2156,7 @@ export class MysqlAdapter implements DbAdapter {
         );
       }
       await conn.commit();
+      return { leaderCleared };
     } catch (err) {
       await conn.rollback();
       throw err;

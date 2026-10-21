@@ -521,6 +521,60 @@ describe("分组长持久化与备份（#345）", () => {
     adapter.close();
   });
 
+  it("moveGroupMember 在同一事务内清掉原组组长，并如实返回 leaderCleared", () => {
+    const adapter = makeAdapter();
+    const { classId, ids } = seedClass(adapter, "A", 3);
+    adapter.replaceClassGrouping(classId, [
+      { group_no: 1, user_ids: [ids[0], ids[1]], leader_user_id: ids[0] },
+      { group_no: 2, user_ids: [ids[2]] },
+    ]);
+
+    // 移走非组长：组长位不动
+    expect(adapter.moveGroupMember(classId, ids[1], 2)).toEqual({ leaderCleared: false });
+    expect(adapter.getClassGroups(classId).find((g) => g.group_no === 1)?.leader_user_id).toBe(ids[0]);
+
+    // 移走组长：同一次事务里回退为空
+    expect(adapter.moveGroupMember(classId, ids[0], 2)).toEqual({ leaderCleared: true });
+    expect(adapter.getClassGroups(classId).find((g) => g.group_no === 1)?.leader_user_id).toBeNull();
+    expect(adapter.getStudentGroupRef(ids[0])).toEqual({ class_id: classId, group_no: 2 });
+    adapter.close();
+  });
+
+  it("转班与删学生都会清空组长位，不留下指向非成员的组长", () => {
+    const adapter = makeAdapter();
+    const a = seedClass(adapter, "A", 2);
+    const b = seedClass(adapter, "B", 2);
+    adapter.replaceClassGrouping(a.classId, [{ group_no: 1, user_ids: a.ids, leader_user_id: a.ids[0] }]);
+    adapter.updateUser(a.ids[0], { class_id: b.classId });
+    expect(adapter.getClassGroups(a.classId)[0].leader_user_id).toBeNull();
+
+    adapter.replaceClassGrouping(b.classId, [{ group_no: 1, user_ids: b.ids, leader_user_id: b.ids[0] }]);
+    adapter.deleteStudents([b.codes[0]]);
+    expect(adapter.getClassGroups(b.classId)[0].leader_user_id).toBeNull();
+    adapter.close();
+  });
+
+  it("class_groups.leader_user_id 外键 users ON DELETE SET NULL", () => {
+    const adapter = makeAdapter();
+    const { classId, ids } = seedClass(adapter, "A", 2);
+    adapter.replaceClassGrouping(classId, [{ group_no: 1, user_ids: ids, leader_user_id: ids[0] }]);
+    const db = (adapter as unknown as { db: Database.Database }).db;
+    const fks = db.prepare("PRAGMA foreign_key_list(class_groups)").all() as {
+      table: string;
+      from: string;
+      on_delete: string;
+    }[];
+    expect(fks).toContainEqual(
+      expect.objectContaining({ table: "users", from: "leader_user_id", on_delete: "SET NULL" })
+    );
+
+    // 绕过 deleteStudents 直接删人：先删成员行，组长位由外键置空
+    db.prepare("DELETE FROM class_group_members WHERE user_id = ?").run(ids[0]);
+    db.prepare("DELETE FROM users WHERE id = ?").run(ids[0]);
+    expect(adapter.getClassGroups(classId)[0].leader_user_id).toBeNull();
+    adapter.close();
+  });
+
   it("applyGroupingResult 同时把组长写进当前分组与历史批次快照", () => {
     const adapter = makeAdapter();
     const { classId, ids, codes } = seedClass(adapter, "A", 2);
@@ -609,6 +663,15 @@ describe("分组长持久化与备份（#345）", () => {
       (check.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]).map((column) => column.name);
     expect(columns("class_groups")).toContain("leader_user_id");
     expect(columns("group_batch_groups")).toContain("leader_user_id");
+    // 旧库补列时也要带上 users 外键（新库由 CREATE TABLE 直接定义）
+    const fks = check.prepare("PRAGMA foreign_key_list(class_groups)").all() as {
+      table: string;
+      from: string;
+      on_delete: string;
+    }[];
+    expect(fks).toContainEqual(
+      expect.objectContaining({ table: "users", from: "leader_user_id", on_delete: "SET NULL" })
+    );
     check.close();
     adapter.close();
   });

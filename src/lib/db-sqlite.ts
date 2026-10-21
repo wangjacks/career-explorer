@@ -241,7 +241,7 @@ export class SqliteAdapter implements DbAdapter {
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         class_id INTEGER NOT NULL REFERENCES classes(id),
         group_no INTEGER NOT NULL,
-        leader_user_id INTEGER,
+        leader_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
         created_at TEXT NOT NULL,
         UNIQUE(class_id, group_no)
       )
@@ -305,8 +305,20 @@ export class SqliteAdapter implements DbAdapter {
     // 正好符合「组长可空」的语义；新库由上面的 CREATE TABLE 直接带列。
     const classGroupColumns = this.db.prepare("PRAGMA table_info(class_groups)").all() as { name: string }[];
     if (!classGroupColumns.some((column) => column.name === "leader_user_id")) {
-      this.db.exec("ALTER TABLE class_groups ADD COLUMN leader_user_id INTEGER");
+      this.db.exec(
+        "ALTER TABLE class_groups ADD COLUMN leader_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL"
+      );
     }
+    // 组长必须在本组：旧库没有外键覆盖转班路径、早期数据也可能留下指向非成员的组长，启动时修掉
+    this.db.exec(`
+      UPDATE class_groups
+         SET leader_user_id = NULL
+       WHERE leader_user_id IS NOT NULL
+         AND NOT EXISTS (
+           SELECT 1 FROM class_group_members m
+            WHERE m.group_id = class_groups.id AND m.user_id = class_groups.leader_user_id
+         )
+    `);
     const batchGroupColumns = this.db.prepare("PRAGMA table_info(group_batch_groups)").all() as { name: string }[];
     if (!batchGroupColumns.some((column) => column.name === "leader_user_id")) {
       this.db.exec("ALTER TABLE group_batch_groups ADD COLUMN leader_user_id INTEGER");
@@ -996,6 +1008,8 @@ export class SqliteAdapter implements DbAdapter {
           | { class_id: number | null }
           | undefined;
         if (current && current.class_id !== fields.class_id) {
+          // #345：转班后组长必须仍是本组成员，先清组长位再摘成员行（同一事务）
+          this.db.prepare("UPDATE class_groups SET leader_user_id = NULL WHERE leader_user_id = ?").run(id);
           this.db.prepare("DELETE FROM class_group_members WHERE user_id = ?").run(id);
         }
       }
@@ -1025,6 +1039,13 @@ export class SqliteAdapter implements DbAdapter {
     const placeholders = userCodes.map(() => "?").join(",");
     const tx = this.db.transaction(() => {
       // 分组（#101）：只清「当前分组」的成员行；历史批次保留快照（姓名/学号冗余，账号删除后仍可读）
+      // #345：删学生时组长位一并清空（新库有外键 SET NULL，这里显式清是为了两库与旧库行为一致）
+      this.db
+        .prepare(
+          `UPDATE class_groups SET leader_user_id = NULL
+            WHERE leader_user_id IN (SELECT id FROM users WHERE user_code IN (${placeholders}))`
+        )
+        .run(...userCodes);
       this.db
         .prepare(
           `DELETE FROM class_group_members WHERE user_id IN (SELECT id FROM users WHERE user_code IN (${placeholders}))`
@@ -1883,9 +1904,10 @@ export class SqliteAdapter implements DbAdapter {
     tx();
   }
 
-  moveGroupMember(classId: number, userId: number, toGroupNo: number): void {
-    // 目标组校验与成员改写同事务，避免「查到目标组 → 组被删 → 写入死 group_id」的窗口
-    const tx = this.db.transaction(() => {
+  moveGroupMember(classId: number, userId: number, toGroupNo: number): { leaderCleared: boolean } {
+    // 目标组校验、成员改写与组长回退同事务，避免「查到目标组 → 组被删 → 写入死 group_id」
+    // 以及「人已移走、组长位却没清掉」的半套状态
+    const tx = this.db.transaction((): { leaderCleared: boolean } => {
       const target = this.db
         .prepare("SELECT id FROM class_groups WHERE class_id = ? AND group_no = ?")
         .get(classId, toGroupNo) as { id: number } | undefined;
@@ -1894,18 +1916,27 @@ export class SqliteAdapter implements DbAdapter {
       // 若它的成员行还挂在别班的组上（转班遗留的脏归属），必须把它搬回来；
       // 只查本班就会查不到而行 → 走 INSERT → 撞全局 UNIQUE(user_id) → 「可修复」变成永久失败
       const current = this.db
-        .prepare("SELECT id FROM class_group_members WHERE user_id = ?")
-        .get(userId) as { id: number } | undefined;
+        .prepare("SELECT id, group_id FROM class_group_members WHERE user_id = ?")
+        .get(userId) as { id: number; group_id: number } | undefined;
+      let leaderCleared = false;
       if (current) {
+        // 被移走的是原组组长：组长位必须随人一起失效（#345）
+        if (current.group_id !== target.id) {
+          leaderCleared =
+            this.db
+              .prepare("UPDATE class_groups SET leader_user_id = NULL WHERE id = ? AND leader_user_id = ?")
+              .run(current.group_id, userId).changes > 0;
+        }
         this.db.prepare("UPDATE class_group_members SET group_id = ? WHERE id = ?").run(target.id, current.id);
-        return;
+        return { leaderCleared };
       }
       // 未在任何组（新转入的学生等）：直接插入目标组
       this.db
         .prepare("INSERT INTO class_group_members (group_id, user_id, created_at) VALUES (?, ?, ?)")
         .run(target.id, userId, getNow());
+      return { leaderCleared };
     });
-    tx();
+    return tx();
   }
 
   /**

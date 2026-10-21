@@ -1,11 +1,9 @@
 import { withDemoScope } from "@/lib/demo-scope";
 import { NextRequest, NextResponse } from "next/server";
 import {
-  getClassGroups,
   getStudentGroupRef,
   getUserById,
   moveGroupMember,
-  updateClassGroupLeader,
 } from "@/lib/db";
 import { getRequestContext, recordAudit } from "@/lib/audit";
 import { getSession, canModifyClass } from "../../classes/helpers";
@@ -74,18 +72,12 @@ async function PATCH_impl(request: NextRequest) {
     if (fromGroupNo === toGroupNo) {
       return NextResponse.json({ ok: true, moved: false, leaderCleared: false });
     }
-    // #345：被移走的人如果还是原组组长，组长位随人一起失效（自动回退为未设置），并如实告知界面
-    let leaderCleared = false;
-    if (fromGroupNo !== null) {
-      const sourceGroup = (await getClassGroups(classId)).find((group) => group.group_no === fromGroupNo);
-      leaderCleared = sourceGroup?.leader_user_id === userId;
-    }
 
+    // #345：被移走的人如果还是原组组长，数据层在同一事务里把组长位回退为未设置并告知界面
+    let leaderCleared = false;
     try {
-      await moveGroupMember(classId, userId, toGroupNo);
-      if (leaderCleared && fromGroupNo !== null) {
-        await updateClassGroupLeader(classId, fromGroupNo, null);
-      }
+      const moved = await moveGroupMember(classId, userId, toGroupNo);
+      leaderCleared = moved.leaderCleared;
     } catch (err) {
       // 可预期错误（目标组已被删）→ 400 而不是 500
       const raw = err instanceof Error ? err.message : "";

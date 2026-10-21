@@ -94,6 +94,28 @@ interface SwapSelection {
 }
 
 /**
+ * 合并组长选择：教师选过且仍是本组成员 → 保留；显式取消 → 保持 null；
+ * 其余（新组 / 原组长已被换走）→ 用服务端建议。否则重新生成后会把旧组长带进
+ * 他不在的组，应用时被服务端以「组长必须是本组成员」拒绝。
+ */
+function mergeLeaders(
+  next: GroupingPreview,
+  previous: Record<number, number | null>
+): Record<number, number | null> {
+  const merged: Record<number, number | null> = {};
+  for (const group of next.groups) {
+    if (!(group.groupNo in previous)) {
+      merged[group.groupNo] = group.suggestedLeaderUserId;
+      continue;
+    }
+    const prior = previous[group.groupNo];
+    const stillMember = prior != null && group.members.some((member) => member.userId === prior);
+    merged[group.groupNo] = stillMember ? prior : null;
+  }
+  return merged;
+}
+
+/**
  * 「智能分组」预览面板（#345）。
  *
  * 流程：选策略（可调权重）→ 生成预览（**不写库**）→ 预览里换人 / 设组长 / 重新生成 →
@@ -117,13 +139,17 @@ export default function GroupingPreviewPanel({
   const [error, setError] = useState<string | null>(null);
   const [leaders, setLeaders] = useState<Record<number, number | null>>({});
   const [swap, setSwap] = useState<SwapSelection | null>(null);
+  const [swapping, setSwapping] = useState(false);
   const [confirmApply, setConfirmApply] = useState(false);
   const [applying, setApplying] = useState(false);
 
-  const loadPreview = useCallback(
-    async (nextStrategy: string, nextVariant: number, nextWeights: Record<string, number>) => {
-      setLoading(true);
-      setError(null);
+  const fetchPreview = useCallback(
+    async (
+      nextStrategy: string,
+      nextVariant: number,
+      nextWeights: Record<string, number>,
+      groups?: unknown
+    ): Promise<{ ok: true; preview: GroupingPreview } | { ok: false; error: string }> => {
       try {
         const res = await fetch("/api/manage/groups/preview", {
           method: "POST",
@@ -133,34 +159,38 @@ export default function GroupingPreviewPanel({
             strategy: nextStrategy,
             variant: nextVariant,
             weights: nextStrategy === "idf-cosine" ? undefined : nextWeights,
+            groups,
           }),
         });
         const data = await res.json().catch(() => null);
         if (!res.ok) {
-          setPreview(null);
-          setError((data as { error?: string } | null)?.error ?? "生成预览失败");
-          return;
+          return { ok: false, error: (data as { error?: string } | null)?.error ?? "生成预览失败" };
         }
-        const next = (data as { preview: GroupingPreview }).preview;
-        setPreview(next);
-        // 建议组长只在首次生成时填入；重新生成 / 换人后保留教师已做的选择
-        setLeaders((previous) => {
-          const merged: Record<number, number | null> = {};
-          for (const group of next.groups) {
-            merged[group.groupNo] =
-              group.groupNo in previous ? previous[group.groupNo] : group.suggestedLeaderUserId;
-          }
-          return merged;
-        });
+        return { ok: true, preview: (data as { preview: GroupingPreview }).preview };
       } catch (err) {
         console.error("分组预览失败:", err);
-        setPreview(null);
-        setError("生成预览失败，请重试");
-      } finally {
-        setLoading(false);
+        return { ok: false, error: "生成预览失败，请重试" };
       }
     },
     [classId]
+  );
+
+  const loadPreview = useCallback(
+    async (nextStrategy: string, nextVariant: number, nextWeights: Record<string, number>) => {
+      setLoading(true);
+      setError(null);
+      const result = await fetchPreview(nextStrategy, nextVariant, nextWeights);
+      if (!result.ok) {
+        setPreview(null);
+        setError(result.error);
+      } else {
+        setPreview(result.preview);
+        // 建议组长只在首次生成时填入；重新生成后保留教师已做的选择（原组长已不在本组则回退为空）
+        setLeaders((previous) => mergeLeaders(result.preview, previous));
+      }
+      setLoading(false);
+    },
+    [fetchPreview]
   );
 
   /* eslint-disable react-hooks/set-state-in-effect -- 打开面板即生成一版默认预览 */
@@ -185,30 +215,47 @@ export default function GroupingPreviewPanel({
     void loadPreview(next, 0, weights);
   };
 
-  const swapMembers = (a: PreviewGroup, aUserId: number, b: PreviewGroup, bUserId: number) => {
-    if (!preview) return;
-    // 只在前端候选上对调（预览不落库）；人数不变，指标展示沿用服务端口径，应用后由服务端重算
-    const nextGroups = preview.groups.map((group) => ({ ...group, members: [...group.members] }));
-    const groupA = nextGroups.find((group) => group.groupNo === a.groupNo);
-    const groupB = nextGroups.find((group) => group.groupNo === b.groupNo);
-    if (!groupA || !groupB) return;
-    const indexA = groupA.members.findIndex((member) => member.userId === aUserId);
-    const indexB = groupB.members.findIndex((member) => member.userId === bUserId);
-    if (indexA < 0 || indexB < 0) return;
-    const memberA = groupA.members[indexA];
-    const memberB = groupB.members[indexB];
-    groupA.members[indexA] = memberB;
-    groupB.members[indexB] = memberA;
-    setLeaders((previous) => {
-      // 换人后组长失效则自动回退并提示（组长必须在本组）
-      const next = { ...previous };
-      if (next[groupA.groupNo] === aUserId) next[groupA.groupNo] = null;
-      if (next[groupB.groupNo] === bUserId) next[groupB.groupNo] = null;
-      return next;
+  const swapMembers = async (a: PreviewGroup, aUserId: number, b: PreviewGroup, bUserId: number) => {
+    if (!preview || swapping) return;
+    const memberA = a.members.find((member) => member.userId === aUserId);
+    const memberB = b.members.find((member) => member.userId === bUserId);
+    if (!memberA || !memberB) return;
+
+    // 换人不落库，但指标必须由服务端按新成员重算：客户端只提交成员与组长，不持有原始测评分
+    const payload = preview.groups.map((group) => {
+      const userIds = group.members.map((member) => member.userId);
+      if (group.groupNo === a.groupNo) {
+        const index = userIds.indexOf(aUserId);
+        if (index >= 0) userIds[index] = bUserId;
+      } else if (group.groupNo === b.groupNo) {
+        const index = userIds.indexOf(bUserId);
+        if (index >= 0) userIds[index] = aUserId;
+      }
+      const leader = leaders[group.groupNo] ?? null;
+      return {
+        groupNo: group.groupNo,
+        userIds,
+        leaderUserId: leader === aUserId || leader === bUserId ? null : leader,
+      };
     });
-    setPreview({ ...preview, groups: nextGroups });
+    const leaderCleared = leaders[a.groupNo] === aUserId || leaders[b.groupNo] === bUserId;
+
+    setSwapping(true);
     setSwap(null);
-    toast.info(`已把 ${memberA.name} 与 ${memberB.name} 对调（仅预览，未保存）`);
+    const result = await fetchPreview(strategy, variant, weights, payload);
+    if (!result.ok) {
+      toast.error(result.error);
+      setSwapping(false);
+      return;
+    }
+    setPreview(result.preview);
+    setLeaders((previous) => mergeLeaders(result.preview, previous));
+    setSwapping(false);
+    toast.info(
+      `已把 ${memberA.name} 与 ${memberB.name} 对调（仅预览，未保存）${
+        leaderCleared ? "；原组长已取消" : ""
+      }`
+    );
   };
 
   const setLeader = (group: PreviewGroup, userId: number) => {
@@ -296,7 +343,7 @@ export default function GroupingPreviewPanel({
                 role="radio"
                 aria-checked={active}
                 onClick={() => changeStrategy(item.key)}
-                disabled={loading || applying}
+                disabled={loading || applying || swapping}
                 className={`text-left rounded-lg border p-3 transition-colors disabled:opacity-50 ${
                   active
                     ? "border-green-300 bg-green-50 dark:border-green-700 dark:bg-green-900/30"
@@ -364,6 +411,7 @@ export default function GroupingPreviewPanel({
                 max={1}
                 step={0.1}
                 value={weights[source.key] ?? source.weight}
+                disabled={swapping}
                 onChange={(event) => {
                   const value = Number(event.target.value);
                   setWeights((previous) => ({ ...previous, [source.key]: Number.isFinite(value) ? value : 0 }));
@@ -380,7 +428,7 @@ export default function GroupingPreviewPanel({
                 setSwap(null);
                 void loadPreview(strategy, 0, weights);
               }}
-              disabled={loading}
+              disabled={loading || swapping}
               className={SECONDARY_BUTTON}
             >
               <RefreshCw size={14} className={loading ? "animate-spin" : ""} aria-hidden />
@@ -407,10 +455,10 @@ export default function GroupingPreviewPanel({
 
       {preview && !loading && (
         <>
-          {/* 指标卡：兴趣相似度 vs 基线 / 角色覆盖 / 组数 */}
+          {/* 指标卡：组内相似度 vs 基线 / 角色覆盖 / 组数 */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
             <PreviewMetric
-              label="兴趣相似度合计"
+              label="组内相似度合计"
               value={preview.metrics.overall.toFixed(2)}
               hint={`学号基线 ${preview.metrics.baselines.sequence.toFixed(2)} / 随机 ${preview.metrics.baselines.random.toFixed(2)}${
                 preview.metrics.overall > bestBaseline ? " · 高于基线" : ""
@@ -428,6 +476,12 @@ export default function GroupingPreviewPanel({
               hint={`未做任何测评 ${preview.untestedCount} 人`}
             />
           </div>
+
+          {swapping && (
+            <p className="text-xs text-muted" role="status">
+              正在按新成员重算指标...
+            </p>
+          )}
 
           {swap && (
             <div className="rounded-lg border border-green-200 bg-green-50 dark:border-green-800 dark:bg-green-900/20 px-3 py-2 text-xs text-green-800 dark:text-green-200">
@@ -501,7 +555,7 @@ export default function GroupingPreviewPanel({
                           <button
                             type="button"
                             onClick={() => setLeader(group, member.userId)}
-                            disabled={applying}
+                            disabled={applying || swapping}
                             aria-label={isLeader ? `取消 ${member.name} 的组长` : `设 ${member.name} 为第 ${group.groupNo} 组组长`}
                             aria-pressed={isLeader}
                             className={`rounded px-1.5 py-0.5 text-[10px] font-medium transition-colors disabled:opacity-40 ${
@@ -521,7 +575,7 @@ export default function GroupingPreviewPanel({
                                 group,
                                 member.userId
                               )}
-                              disabled={swapDisabled}
+                              disabled={swapDisabled || swapping}
                               title={swapDisabled ? "请选择另一组的成员" : `与 ${swap.name} 对调`}
                               className={SECONDARY_BUTTON}
                             >
@@ -531,7 +585,7 @@ export default function GroupingPreviewPanel({
                             <button
                               type="button"
                               onClick={() => setSwap({ groupNo: group.groupNo, userId: member.userId, name: member.name })}
-                              disabled={applying}
+                              disabled={applying || swapping}
                               className="rounded px-2 py-1 text-[10px] font-medium text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800 disabled:opacity-40"
                             >
                               换人
@@ -548,7 +602,7 @@ export default function GroupingPreviewPanel({
           </div>
 
           <div className="flex flex-wrap items-center gap-2 border-t border-border-soft pt-3">
-            <button type="button" onClick={regenerate} disabled={loading || applying} className={SECONDARY_BUTTON}>
+            <button type="button" onClick={regenerate} disabled={loading || applying || swapping} className={SECONDARY_BUTTON}>
               <RefreshCw size={14} className={loading ? "animate-spin" : ""} aria-hidden />
               换一版候选
             </button>
@@ -558,7 +612,7 @@ export default function GroupingPreviewPanel({
             <button
               type="button"
               onClick={() => setConfirmApply(true)}
-              disabled={!canModify || applying || groupsPayload.length === 0}
+              disabled={!canModify || applying || swapping || groupsPayload.length === 0}
               className={`${PRIMARY_BUTTON} ml-auto`}
             >
               {applying ? "应用中..." : "应用分组"}

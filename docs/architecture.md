@@ -161,7 +161,7 @@
 | `/api/manage/profiles/submissions` | GET | GET | 管理端查看学生提交历史（#95）：admin 全量、teacher 仅管辖班级 |
 | `/api/manage/profiles/submissions/exceeding` | GET | GET | 超出版本上限的学生列表（#95） |
 | `/api/manage/groups` | GET / POST | 全方法 | 课堂分组（#101 / #345）：GET 读该班当前分组 + 指标 + 组长 + 与最近一批的差异（读不限班级）；POST 应用分组（`groups` = 预览里换人/设组长后的那一份，服务端再校验并重算指标），**完全覆盖**当前分组并追加一份历史批次归档 |
-| `/api/manage/groups/preview` | POST | 全方法（只算不写库） | 智能分组预览（#345）：策略 / 权重 / variant → 分组候选 + 指标 + 覆盖率 + 角色与组长建议；不写任何表 |
+| `/api/manage/groups/preview` | POST | 全方法（只算不写库） | 智能分组预览（#345）：策略 / 权重 / variant → 分组候选 + 指标 + 覆盖率 + 角色与组长建议；带 `groups`（预览里换人后的那一份）时按新成员重算指标并返回；不写任何表 |
 | `/api/manage/groups/leader` | PATCH | 全方法 | 设置 / 取消组长（#345）：写限本人班级，组长必须是本组成员，越权 403 + 审计 `group:leader` |
 | `/api/manage/groups/members` | PATCH | 全方法 | 手工换人（#101 / #345）：把一个成员移到本班另一个组，允许移入超员组；原组长被移走时自动回退并回传 `leaderCleared` |
 | `/api/manage/groups/entries` | POST / DELETE | 全方法 | 手工建空组 / 删空组（#101）：非空组一律拒绝删除，先移人再删 |
@@ -251,7 +251,7 @@
 
 | 表 | 用途 | 纳入备份 |
 |---|---|---|
-| `class_groups` | **当前**分组的组：`class_id` + `group_no` + `leader_user_id`（#345 组长，可空；旧库 `init()` 自动补列），`UNIQUE(class_id, group_no)`；允许空组（教师手工建组先占位再移人） | ✅ |
+| `class_groups` | **当前**分组的组：`class_id` + `group_no` + `leader_user_id`（#345 组长，可空，外键 `users(id) ON DELETE SET NULL`；旧库 `init()` 自动补列并清掉指向非成员的组长），`UNIQUE(class_id, group_no)`；允许空组（教师手工建组先占位再移人） | ✅ |
 | `class_group_members` | **当前**分组的成员：`group_id` + `user_id`，`UNIQUE(user_id)` 全局——一个学生同时只能属于一个组，转班/删人必须清理旧行 | ✅ |
 | `group_batches` | 历史批次头（每次自动分组追加一条，永不覆盖）：`strategy`、`feature_sources`（本次用到的特征源 key/kind/weight）、`student_count` / `tagged_count`（覆盖率）、`metrics`（含两条基线）、操作者快照 | ✅ |
 | `group_batch_groups` | 批次内各组快照：`group_no` + `cohesion`（组内平均相似度）+ `member_count` + `leader_user_id`（#345 组长快照）；**内聚度与组长必须存快照**，标签/组长随时间变，事后算不出当时的状态 | ✅ |
@@ -284,11 +284,11 @@
 - **确定性**：输入先按 `user_code` 升序稳定排序，平局按 `user_code` / 下标，全流程无随机源；只有对比基线用固定种子（mulberry32，随机基线取 20 次均值）。输入顺序不影响结果
 - **特征源注册表与技术边界**：算法只认 `FeatureSourceDef {key,label,kind,weight,version,extract}`，**不碰 `users.tags`**；#345 注册 `tags` / `riasec` / `bigfive` 三个源，默认权重 `标签 0.2 / 兴趣 0.5 / 性格 0.3`（可调）。**大五 N（神经质）不注册、不参与任何权重与展示**（单测用「翻转 N 不改变分组」锁住）。测评数据不在 `users` 表：路由先按学号批查结果快照装进 `AssessmentFeatureContext`，某套量表读取失败只降级该源，不阻断分组；覆盖率按全部注册源如实统计（`coverageBySource`），「两套都没做」单列为 `untestedCount`
 - **指标**：`coveredCount` / `nonZeroPairs` / 两条基线给出信号强弱；#345 增 `roleCoverage`（每组 0–4，目标 ≥3）/ `roleCoverageAverage` / `coverageBySource` / `untestedCount` / `balance`（组间 RIASEC 均值标准差）。角色由大五高维映射（组织者=C、推进者=E、点子王=O、协调者=A，阈值 50），**只用于组合、不做能力评价、不在学生端展示**。`overall` 与内聚度只含已进组的人，覆盖率按全班算——界面对外分列标注
-- **预览与应用（#345）**：`POST /api/manage/groups/preview` 只算不写库（读权限，与 GET 一致）；`POST /api/manage/groups` 应用时若带 `groups`（预览里换人/设组长后的那一份）服务端**重新校验**（本班、不重不漏、≤5 人、组间差 ≤1、组长本组）并按当前数据重算指标，客户端传来的指标一律不信；不带 `groups` 则服务端按策略生成。应用 = **完全覆盖当前分组 + 追加历史归档**（同一事务）；覆盖式写入失败/被拒均记审计
-- **组长（#345）**：`class_groups.leader_user_id` + `group_batch_groups.leader_user_id`（批次快照）。`PATCH /api/manage/groups/leader` 写限本人班级（`canModifyClass`，越权 403 + 审计），组长必须是本组成员；成员被移组时若他是原组长则自动回退为空并回传 `leaderCleared`。**学生端小组工作区**（按批次隔离、公告/任务）由 #346 提供接口，本 issue 的应用接口先返回 `workspaceId: null`，等 #346 落地后接线
+- **预览与应用（#345）**：`POST /api/manage/groups/preview` 只算不写库（读权限，与 GET 一致）；预览里换人后把新分组回传同一端点，服务端按与应用相同的校验与指标口径**即时重算**（原始测评分不下发客户端）。`POST /api/manage/groups` 应用时若带 `groups`（预览里换人/设组长后的那一份）服务端**重新校验**（本班、不重不漏、≤5 人、组间差 ≤1、组长本组）并按当前数据重算指标，客户端传来的指标一律不信；不带 `groups` 则服务端按策略生成。应用 = **完全覆盖当前分组 + 追加历史归档**（同一事务）；覆盖式写入失败/被拒均记审计
+- **组长（#345）**：`class_groups.leader_user_id` + `group_batch_groups.leader_user_id`（批次快照）。`PATCH /api/manage/groups/leader` 写限本人班级（`canModifyClass`，越权 403 + 审计），组长必须是本组成员；成员被移组时若他是原组长，数据层**在同一事务内**回退为空并回传 `leaderCleared`；转班与删学生同样清空组长位。**学生端小组工作区**（按批次隔离、公告/任务）由 #346 提供接口，本 issue 的应用接口先返回 `workspaceId: null`，等 #346 落地后接线
 - **端点边界**：读不限班级（教师可看全校），写限自建班级；自动分组/应用之后追加一份历史归档；历史批次记录 `strategy` / `feature_sources`（含权重与版本）/ 覆盖率 / 指标 / **组长快照**，旧批次只读
 - **界面**：管理面板「用户管理 → 课堂分组」与教师面板「数据管理 → 课堂分组」为同一组件；班级选择器列全校，非本人创建的班级标注「只读」（列表没加载成功时不下这个判断，避免误标自建班）；「当前分组 / 历史批次」分段，历史是只读快照（成员取归档时的姓名与学号，账号删除后仍可读）；头像取不到图时回落为姓名首字（`TextAvatar`）
-- **手工调整**：主入口是「智能分组」预览面板——选策略（可调权重）→ 生成预览（不写库）→ 指标卡（兴趣相似度 vs 基线、角色覆盖、测评覆盖）→ 在组卡片里换人（等量对调）、★ 设组长、换一版候选 → 确认应用。当前分组卡片上也可直接设/取消组长；换人用底部抽屉（移动端）/ 居中弹窗（桌面），抽屉里显示该生标签与各目标组的人数、内聚度、标签概览，当前组置灰、已满组标注但仍可移入；只允许删空组；界面按 `GROUP_SIZE_CAP` 标「超员」，规则破坏可见而不阻断
+- **手工调整**：主入口是「智能分组」预览面板——选策略（可调权重）→ 生成预览（不写库）→ 指标卡（组内相似度 vs 基线、角色覆盖、测评覆盖）→ 在组卡片里换人（等量对调，指标由服务端即时重算）、★ 设组长、换一版候选 → 确认应用。当前分组卡片上也可直接设/取消组长；换人用底部抽屉（移动端）/ 居中弹窗（桌面），抽屉里显示该生标签与各目标组的人数、内聚度、标签概览，当前组置灰、已满组标注但仍可移入；只允许删空组；界面按 `GROUP_SIZE_CAP` 标「超员」，规则破坏可见而不阻断
 - **未进组名单**：视图返回 `ungrouped`（全班减去所有组里的学生）。自动分组之后转入、或导入漏填组号都会停在这里，不列出来就只能靠重新分组覆盖掉手工调整
 - **学生侧可见性**：`/api/shared/group` 只返回请求者所在组的名单（#346 起还会带分组依据与组长）；`/api/shared/storage-sign` 为学生放行**同组同学的头像**（仅此一项，词云不放行），同组判定用单条查询按 `group_id` 比对，避免两次读之间被原子重分组复用组号
 ## 职业测评数据层（#221）

@@ -8,16 +8,15 @@ import {
   parseStrategy,
   parseVariant,
   parseWeights,
-  rosterOf,
 } from "../helpers";
-import { getStudents } from "@/lib/db";
 
 
 /**
  * POST：生成分组**预览**（#345）——只算不写库。
  *
  * 读权限与现有 GET 一致（教师可预览全校班级、管理员全部）：预览不改任何数据。
- * 预览里的换人 / 设组长都只发生在客户端内存，应用时才提交给 `POST /api/manage/groups` 并再校验一次。
+ * 预览里的设组长只发生在客户端内存；换人会把新分组提交回来，由服务端按同一口径重算指标
+ * （原始测评分不下发客户端）。应用时 `POST /api/manage/groups` 会再校验一次。
  */
 async function POST_impl(request: NextRequest) {
   try {
@@ -29,6 +28,7 @@ async function POST_impl(request: NextRequest) {
       strategy?: unknown;
       weights?: unknown;
       variant?: unknown;
+      groups?: unknown;
     }>(request);
     if (!body) return NextResponse.json({ error: "请求体格式错误" }, { status: 400 });
 
@@ -48,13 +48,14 @@ async function POST_impl(request: NextRequest) {
       return NextResponse.json({ error: "variant 必须是非负整数" }, { status: 400 });
     }
 
-    const roster = rosterOf(await getStudents(), classId);
-    if (roster.length === 0) {
-      return NextResponse.json({ error: "该班没有学生，无法分组" }, { status: 400 });
-    }
-
-    const preview = await buildGroupingPreview(classId, { strategy, weights, variant });
-    return NextResponse.json({ ok: true, preview });
+    const result = await buildGroupingPreview(classId, {
+      strategy,
+      weights,
+      variant,
+      groups: body.groups,
+    });
+    if (!result.ok) return NextResponse.json({ error: result.error }, { status: 400 });
+    return NextResponse.json({ ok: true, preview: result.preview });
   } catch (err) {
     console.error("Groups preview POST error:", err);
     return NextResponse.json({ error: "生成预览失败" }, { status: 500 });
