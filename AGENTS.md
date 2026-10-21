@@ -28,7 +28,6 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 |---|---|
 | `src/app/` | App Router 页面 + API 路由 |
 | `src/app/dashboard/{admin,teacher,student}/` | 三角色面板，导航分组见 `docs/architecture.md`「面板导航结构」 |
-| `src/app/form/` | 表单列表（标准化测评入口 #168；分步向导与本地草稿已删除，当前数据源为页内空数组，仅渲染空态） |
 | `src/app/api/{auth,setup}/` | 认证与安装端点，天然在 proxy matcher 之外 |
 | `src/app/api/manage/` | 管理域 API，admin + teacher 共用，角色差异由 `proxy.ts` 声明式权限表控制 |
 | `src/app/api/shared/` | 共享域 API，不进 proxy，**路由自鉴权**（档案、提交历史、存储签名、本组名单） |
@@ -118,7 +117,7 @@ find src/app -name page.tsx && find src/app/api -name route.ts
 - 全局用户菜单：`UserMenu` 在根布局单点挂载（`fixed top-0 right-0 z-[45]`），认证页与安装页不渲染；z-index 层级见 `docs/ui-conventions.md`
 - 主题系统：`useTheme` 三态（浅色/深色/跟随系统）持久化 localStorage `theme`；`layout.tsx` 内联脚本在 hydration 前预设 `.dark` 防闪烁，`<html>` 加 `suppressHydrationWarning`；class-based dark
 - 品牌色系统：`globals.css` 语义 token（`--color-brand` 深绿 / `--color-accent` 琥珀等），`.dark` 下自动提亮；标签三色（兴趣绿/技能蓝/性格琥珀）；**新代码用语义 token，不用硬编码色值**，详见 `docs/ui-conventions.md`
-- 档案提交入口（#168 / #208）：分步向导与本地草稿已删除，提交与修改统一在学生面板内联完成；**标签必填、图片选填**（标签 / 虚拟形象 / 评价词云三项中标签为必填，两张图片可空；客户端与服务端同口径，空标签 400）；未提交学生在引导卡点「开始填写」直接进入编辑态；`/form` 仅为表单列表占位页，不承载提交
+- 档案提交入口（#168 / #208）：分步向导与本地草稿已删除，提交与修改统一在学生面板内联完成；**标签必填、图片选填**（标签 / 虚拟形象 / 评价词云三项中标签为必填，两张图片可空；客户端与服务端同口径，空标签 400）；未提交学生在引导卡点「开始填写」直接进入编辑态；旧的 `/form` 占位页已删除（#318），旧链接由 `next.config.ts` 的 `redirects()` 永久重定向回首页（`permanent: true` → 308），**不要再新增任何站内入口指向 `/form`**
 - 标签体系（#94）：标签名称文本直存；预设标签支持物理删除、批量导入/删除、恢复默认（均二次确认）；自定义上限存 `configs_profile`，学生面板经开放端点 `/api/tags` 读取
 - 提交时限（#96）：`submission_deadline` 超时后 `POST /api/shared/profile` 强制 403，学生面板入口禁用；截止状态由服务端按 Asia/Shanghai 计算后下发
 - 提交历史（#95）：每次保存生成新版本，学生可查看/恢复（恢复生成新版本，**不回写旧记录**）；超上限时删最旧版本，管理端可查超限学生并手动清理
