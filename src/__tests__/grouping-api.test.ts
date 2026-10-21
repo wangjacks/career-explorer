@@ -57,6 +57,7 @@ function student(id: number, classId: number, tags: string[] | null): UserRow {
     tags: tags ? JSON.stringify(tags) : null,
     avatar_url: null,
     evaluation_url: null,
+    evaluation_text: null,
     submitted_at: null,
     created_at: "2026-09-30 00:00:00",
     storage_id: 1,

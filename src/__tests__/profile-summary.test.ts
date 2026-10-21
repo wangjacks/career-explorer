@@ -191,7 +191,7 @@ describe("速览四卡：正常有结果", () => {
     expect(card.completion).toEqual([
       { label: "标签", done: true },
       { label: "头像", done: true },
-      { label: "评价词云", done: true },
+      { label: "他人评价", done: true },
     ]);
     expect(card.headline).toBe("已完成 3/3 项资料");
     expect(card.cta).toMatchObject({ action: "profile", targetId: PROFILE_INFO_ID });
@@ -251,7 +251,7 @@ describe("速览四卡：空态与降级", () => {
     expect(cardOf(summary, "profile").state).toBe("ready");
   });
 
-  it("资料卡：未归档 →「开始填写」；词云未传 →「补充评价词云」（都是编辑态）", () => {
+  it("资料卡：未归档 →「开始填写」；他人评价未填 →「补充他人评价」（都是编辑态）", () => {
     const unsubmitted = cardOf(
       build({ profile: { tags: [], avatarUrl: "", evaluationUrl: "", submitted: false } }),
       "profile"
@@ -264,7 +264,55 @@ describe("速览四卡：空态与降级", () => {
       build({ profile: { tags: ["摄影"], avatarUrl: "/a.jpg", evaluationUrl: "", submitted: true } }),
       "profile"
     );
-    expect(noEvaluation.cta).toMatchObject({ action: "edit", label: "补充评价词云" });
+    expect(noEvaluation.cta).toMatchObject({ action: "edit", label: "补充他人评价" });
+  });
+
+  it("资料卡完成度：#162 三条文字评价（无图片）算完成，与页面同一口径", () => {
+    const card = cardOf(
+      build({
+        profile: {
+          tags: ["摄影"],
+          avatarUrl: "/a.jpg",
+          evaluationUrl: "",
+          evaluationTexts: ["认真负责", "沟通清楚", "很有耐心"],
+          submitted: true,
+        },
+      }),
+      "profile"
+    );
+    expect(card.completion).toEqual([
+      { label: "标签", done: true },
+      { label: "头像", done: true },
+      { label: "他人评价", done: true },
+    ]);
+    expect(card.headline).toBe("已完成 3/3 项资料");
+    expect(card.cta).toMatchObject({ action: "profile", targetId: PROFILE_INFO_ID });
+  });
+
+  it("资料卡完成度：三条未填满且无存量图片 → 未完成；仅存量图片仍算完成", () => {
+    const partial = cardOf(
+      build({
+        profile: {
+          tags: ["摄影"],
+          avatarUrl: "/a.jpg",
+          evaluationUrl: "",
+          evaluationTexts: ["一", "二", ""],
+          submitted: true,
+        },
+      }),
+      "profile"
+    );
+    expect(partial.completion?.[2]).toEqual({ label: "他人评价", done: false });
+    expect(partial.cta).toMatchObject({ action: "edit", label: "补充他人评价" });
+
+    const legacy = cardOf(
+      build({
+        profile: { tags: ["摄影"], avatarUrl: "/a.jpg", evaluationUrl: "/legacy.jpg", submitted: true },
+      }),
+      "profile"
+    );
+    expect(legacy.completion?.[2]).toEqual({ label: "他人评价", done: true });
+    expect(legacy.cta).toMatchObject({ action: "profile", targetId: PROFILE_INFO_ID });
   });
 
   it("档案资料缺失（接口失败）时资料卡降级，其它卡照常", () => {

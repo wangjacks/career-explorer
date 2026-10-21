@@ -5,7 +5,8 @@
  * - 列是**有序的**，而 xlsx 的内嵌图片锚点由列下标算出来（`columnLetter`）——列定义和图片列
  *   必须来自同一份来源，插列才不会让图片错位；把这份顺序放在纯函数里，可以用单测锁住。
  * - 「六型得分」有两种输出形态（合成一列 / 拆成六列），它们共用同一份分数取整口径。
- * - 默认列集合必须与 #233 之前完全一致，这个集合也放在这里，避免路由里散落多处。
+ * - 默认列集合以 #233 的口径为基线；#162 新增三条他人评价列属于既有评价维度的替换，
+ *   因此默认集合同时保留历史图片列并追加三条文字列，避免新数据导出缺失评价内容。
  *
  * 口径说明：六型得分取结果快照里的 0–100 标准分并**取整**（例：`R42 I38 A20 S74 E31 C25`），
  * 方便教师在 Excel 里直接排序/画图；四舍五入只影响展示，不影响任何计算。
@@ -45,18 +46,42 @@ export const EXPORT_COLUMNS: readonly ExportColumnDef[] = [
   {
     key: "evaluation_url",
     group: "base",
-    label: "评价词云",
-    csvHeader: "评价词云URL",
-    xlsxHeader: "评价词云",
+    label: "评价词云图片（历史）",
+    csvHeader: "评价词云图片URL（历史）",
+    xlsxHeader: "评价词云图片（历史）",
     width: 35,
+  },
+  {
+    key: "evaluation_text_1",
+    group: "base",
+    label: "他人评价1",
+    csvHeader: "他人评价1",
+    xlsxHeader: "他人评价1",
+    width: 30,
+  },
+  {
+    key: "evaluation_text_2",
+    group: "base",
+    label: "他人评价2",
+    csvHeader: "他人评价2",
+    xlsxHeader: "他人评价2",
+    width: 30,
+  },
+  {
+    key: "evaluation_text_3",
+    group: "base",
+    label: "他人评价3",
+    csvHeader: "他人评价3",
+    xlsxHeader: "他人评价3",
+    width: 30,
   },
   { key: "avatar_link", group: "base", label: "头像 URL", csvHeader: "学生头像URL", xlsxHeader: "学生头像URL", width: 35 },
   {
     key: "evaluation_link",
     group: "base",
-    label: "评价词云 URL",
-    csvHeader: "评价词云URL",
-    xlsxHeader: "评价词云URL",
+    label: "评价词云图片 URL（历史）",
+    csvHeader: "评价词云图片URL（历史）",
+    xlsxHeader: "评价词云图片URL（历史）",
     width: 35,
   },
   { key: "created_at", group: "base", label: "提交时间", csvHeader: "提交时间", xlsxHeader: "提交时间", width: 22 },
@@ -116,13 +141,16 @@ export const EXPORT_COLUMNS: readonly ExportColumnDef[] = [
 /** 「六型得分 → 拆成六列」输出的列 key（顺序同 RIASEC） */
 export const SCORE_COLUMN_KEYS: readonly string[] = RIASEC_KEYS.map((key) => `score_${key}`);
 
-/** 默认勾选的列：**必须与 #233 之前一致**，本 Issue 只做增量 */
+/** 默认勾选的列：#233 基线 + #162 的三条他人评价（历史图片列保留以兼容存量） */
 export const DEFAULT_EXPORT_COLUMN_KEYS: readonly string[] = [
   "student_id",
   "name",
   "tags",
   "avatar_url",
   "evaluation_url",
+  "evaluation_text_1",
+  "evaluation_text_2",
+  "evaluation_text_3",
   "created_at",
 ];
 

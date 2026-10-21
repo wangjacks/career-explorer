@@ -12,6 +12,7 @@ import { getRequestContext, recordAudit } from "@/lib/audit";
 import { RIASEC_CODE } from "@/lib/assessment-data";
 import { parseScores } from "@/lib/assessment-flow";
 import { assessmentLeadOf } from "@/lib/profile-assessment";
+import { extractEvaluationWords, parseStoredEvaluationTexts } from "@/lib/evaluation-text";
 import { parseProfilesQuery } from "@/lib/profile-query";
 import { WriteGuard } from "../write-guard";
 
@@ -63,6 +64,7 @@ async function GET_impl(request: NextRequest) {
         const result = resultByCode.get(r.user_code);
         // 状态与徽章同源：三字码合法才算「已测」，避免接口说 completed、界面显示未测
         const assessed = assessmentLeadOf(result?.type_code) !== null;
+        const evaluationTexts = parseStoredEvaluationTexts(r.evaluation_text);
         return {
           // #95：补充数字 userId，供版本历史等关联查询使用
           userId: r.id,
@@ -73,6 +75,8 @@ async function GET_impl(request: NextRequest) {
           tags,
           avatarUrl: r.avatar_url,
           evaluationUrl: r.evaluation_url,
+          evaluationTexts,
+          evaluationWords: extractEvaluationWords(evaluationTexts),
           storageId: r.storage_id,
           createdAt: r.submitted_at,
           // #234：已测给三字码 + 完成时间 + 六型快照；未测统一为 none / null

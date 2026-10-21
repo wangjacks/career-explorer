@@ -25,6 +25,7 @@ import {
   type CareerCardView,
 } from "./assessment-view";
 import { quizHref, type AssessmentListItem } from "./assessment-list";
+import { buildProfileCompletion } from "./profile-completion";
 
 /** 摘要卡种类 */
 export type SummaryCardKind = "interest" | "personality" | "careers" | "profile";
@@ -87,7 +88,10 @@ export interface ProfileSummary {
 export interface SummaryProfileInput {
   tags: string[];
   avatarUrl: string;
+  /** 历史上传的评价词云图片；#162 起仅存量展示 */
   evaluationUrl: string;
+  /** #162：三条他人评价；填满三条与存量图片任一存在即算完成 */
+  evaluationTexts?: string[];
   submitted: boolean;
 }
 
@@ -388,25 +392,28 @@ function buildProfileCard(profile: SummaryProfileInput | null): SummaryCard {
     };
   }
 
-  const completion = [
-    { label: "标签", done: profile.tags.length > 0 },
-    { label: "头像", done: Boolean(profile.avatarUrl) },
-    { label: "评价词云", done: Boolean(profile.evaluationUrl) },
-  ];
+  // 完成度与页面 hero 环 / 资料卡共用同一实现（#162：文字三条或存量图片）
+  const completion = buildProfileCompletion({
+    tags: profile.tags,
+    avatarUrl: profile.avatarUrl,
+    evaluationUrl: profile.evaluationUrl,
+    evaluationTexts: profile.evaluationTexts,
+  });
   const doneCount = completion.filter((item) => item.done).length;
+  const evaluationDone = completion[2].done;
   const tokens = profile.tags.slice(0, MAX_SUMMARY_TAGS);
 
   return {
     ...base,
     state: "ready",
     headline: profile.submitted ? `已完成 ${doneCount}/3 项资料` : "档案还没提交",
-    caption: profile.submitted ? "标签 / 头像 / 评价词云" : "标签必填，头像与评价词云选填",
+    caption: profile.submitted ? "标签 / 头像 / 他人评价" : "标签必填，头像与他人评价选填",
     tokens,
     completion,
     cta: !profile.submitted
       ? { label: "开始填写", action: "edit" }
-      : !profile.evaluationUrl
-        ? { label: "补充评价词云", action: "edit" }
+      : !evaluationDone
+        ? { label: "补充他人评价", action: "edit" }
         : { label: "查看详情", action: "profile", targetId: PROFILE_INFO_ID },
   };
 }

@@ -46,6 +46,7 @@ function user(id: number, avatar: string | null, evaluation: string | null): Use
     tags: id % 2 === 0 ? JSON.stringify(["摄影"]) : JSON.stringify(["编程"]),
     avatar_url: avatar,
     evaluation_url: evaluation,
+    evaluation_text: null,
     submitted_at: "2026-09-30 00:00:00",
     created_at: "2026-09-30 00:00:00",
     storage_id: 1,

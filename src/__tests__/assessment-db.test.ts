@@ -581,7 +581,7 @@ describe("备份与恢复（#221：三表纳入备份 version 6）", () => {
     });
 
     const data = adapter.backup();
-    expect(data.version).toBe(6);
+    expect(data.version).toBe(7);
     expect(data.assessments).toHaveLength(2);
     expect(data.assessment_questions).toHaveLength(BANK_SIZE + IPIP_QUESTIONS.length);
     // #281：备份带 origin，往返后逐题一致

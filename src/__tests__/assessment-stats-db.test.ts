@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import path from "path";
 import { SqliteAdapter } from "../lib/db-sqlite";
-import { RIASEC_CODE } from "../lib/assessment-data";
+import { IPIP_NEO_FFI_CODE, RIASEC_CODE } from "../lib/assessment-data";
 
 function makeTmpDb(): string {
   const dir = mkdtempSync(path.join(tmpdir(), "career-assessment-stats-"));
@@ -271,6 +271,211 @@ describe("教师端测评名册（#229，真实 SQLite）", () => {
 
     // 教师范围（只带 A 班）同样生效
     expect(adapter.getAssessmentRoster(assessment.id, [classA], { code: "RIC" }).map((row) => row.name)).toEqual(["乙"]);
+
+    adapter.close();
+    cleanup(dbPath);
+  });
+});
+
+/**
+ * #310 完成矩阵的原始计数：档案提交 + 两套量表完成人数。
+ * 场景与上面相同，另加 IPIP 完成记录与档案提交状态；分组键必须是 class_id，
+ * 班名只用于展示（改名后仍归同一行）。
+ */
+function setupCompletion() {
+  const dbPath = makeTmpDb();
+  const adapter = new SqliteAdapter(dbPath);
+  adapter.init();
+  const classA = adapter.insertClass("2025级1班", "INV-C-A");
+  const classB = adapter.insertClass("2025级2班", "INV-C-B");
+  const riasec = adapter.getAssessmentByCode(RIASEC_CODE)!;
+  const ipip = adapter.getAssessmentByCode(IPIP_NEO_FFI_CODE)!;
+
+  const insert = (user_code: string, name: string, class_id: number | null, role = "student") =>
+    adapter.insertUser({ user_code, name, role, class_id });
+  const jia = insert("202505050101", "甲", classA);
+  const yi = insert("202505050102", "乙", classA);
+  const bing = insert("202505050103", "丙", classA);
+  const ding = insert("202505050201", "丁", classB);
+  const wu = insert("202505050202", "戊", classB);
+  const ji = insert("202505050301", "己", null);
+  const teacher = insert("20001001", "王老师", null, "teacher");
+
+  const storageId = adapter.getDefaultStorageBackend()!.id;
+  const submit = (userCode: string) =>
+    adapter.upsertSubmission(userCode, "[]", "", "", null, storageId);
+  submit("202505050101");
+  submit("202505050102");
+  submit("202505050201");
+
+  const complete = (userId: number, assessment: { id: number }, typeCode: string | null) =>
+    adapter.completeAssessmentResult({
+      userId,
+      assessmentId: assessment.id,
+      answersJson: "{}",
+      itemsJson: "[]",
+      scoresJson: SCORES,
+      typeCode,
+    });
+  complete(jia, riasec, "SIA");
+  complete(yi, riasec, "RIC");
+  complete(ding, riasec, "ASE");
+  complete(ji, riasec, "IAR");
+  complete(teacher, riasec, "RIA");
+  complete(jia, ipip, null);
+
+  return { dbPath, adapter, classA, classB, riasec, ipip, students: { jia, yi, bing, ding, wu, ji, teacher } };
+}
+
+describe("班级完成矩阵原始计数（#310，真实 SQLite）", () => {
+  it("按 class_id 分组：档案提交 + 两套量表完成人数；教师账号不计入", () => {
+    const { dbPath, adapter, classA, classB, riasec, ipip } = setupCompletion();
+    const stats = adapter.getCompletionStats([riasec.id, ipip.id], null);
+
+    expect(stats.profile).toHaveLength(3);
+    const profile = new Map(stats.profile.map((row) => [row.class_id, row]));
+    expect(profile.get(classA)).toEqual({
+      class_id: classA,
+      name: "2025级1班",
+      enrolled: 3,
+      submitted: 2,
+    });
+    expect(profile.get(classB)).toEqual({
+      class_id: classB,
+      name: "2025级2班",
+      enrolled: 2,
+      submitted: 1,
+    });
+    expect(profile.get(null)).toEqual({
+      class_id: null,
+      name: null,
+      enrolled: 1,
+      submitted: 0,
+    });
+
+    const assessed = new Map(
+      stats.assessments.map((row) => [`${row.assessment_id}:${row.class_id}`, row.assessed])
+    );
+    expect(assessed.get(`${riasec.id}:${classA}`)).toBe(2);
+    expect(assessed.get(`${riasec.id}:${classB}`)).toBe(1);
+    // 未分班只数学生「己」；教师本人的完成记录被 role 过滤掉
+    expect(assessed.get(`${riasec.id}:null`)).toBe(1);
+    expect(assessed.get(`${ipip.id}:${classA}`)).toBe(1);
+    expect(stats.assessments).toHaveLength(4);
+
+    adapter.close();
+    cleanup(dbPath);
+  });
+
+  it("classIds 收窄只返回这些班；空集合直接返回空计数", () => {
+    const { dbPath, adapter, classA, riasec, ipip } = setupCompletion();
+
+    const scoped = adapter.getCompletionStats([riasec.id, ipip.id], [classA]);
+    expect(scoped.profile).toEqual([
+      { class_id: classA, name: "2025级1班", enrolled: 3, submitted: 2 },
+    ]);
+    expect(
+      [...scoped.assessments].sort((a, b) => a.assessment_id - b.assessment_id)
+    ).toEqual([
+      { assessment_id: riasec.id, class_id: classA, assessed: 2 },
+      { assessment_id: ipip.id, class_id: classA, assessed: 1 },
+    ]);
+
+    expect(adapter.getCompletionStats([riasec.id], [])).toEqual({
+      profile: [],
+      assessments: [],
+    });
+
+    adapter.close();
+    cleanup(dbPath);
+  });
+
+  it("assessmentIds 为空时只返回档案段", () => {
+    const { dbPath, adapter } = setupCompletion();
+    const stats = adapter.getCompletionStats([], null);
+    expect(stats.profile).toHaveLength(3);
+    expect(stats.assessments).toEqual([]);
+    adapter.close();
+    cleanup(dbPath);
+  });
+
+  it("班级改名后仍按 class_id 归行，不串到同名/新名班级", () => {
+    const { dbPath, adapter, classA, riasec } = setupCompletion();
+    adapter.updateClass(classA, { name: "2025级1班（改名）" });
+
+    const stats = adapter.getCompletionStats([riasec.id], null);
+    expect(stats.profile).toHaveLength(3);
+    expect(stats.profile.find((row) => row.class_id === classA)?.name).toBe(
+      "2025级1班（改名）"
+    );
+    expect(
+      stats.assessments.find(
+        (row) => row.class_id === classA && row.assessment_id === riasec.id
+      )?.assessed
+    ).toBe(2);
+
+    adapter.close();
+    cleanup(dbPath);
+  });
+
+  it("只有草稿的学生不算已完成", () => {
+    const { dbPath, adapter, classA, riasec, students } = setupCompletion();
+    adapter.upsertAssessmentDraft(students.bing, riasec.id, "{}", "[]");
+
+    const stats = adapter.getCompletionStats([riasec.id], [classA]);
+    expect(stats.assessments[0]).toEqual({
+      assessment_id: riasec.id,
+      class_id: classA,
+      assessed: 2,
+    });
+
+    adapter.close();
+    cleanup(dbPath);
+  });
+});
+
+describe("教师端未完成名册（#313，真实 SQLite）", () => {
+  it("以在册学生为基准：只列没有当前有效完成记录的人，只有草稿的仍算未完成，教师账号不出现", () => {
+    const { dbPath, adapter, assessment, students } = setup();
+
+    // 甲/乙/丁/己已完成；丙、戊没交；教师自己也有一份完成结果
+    const before = adapter.getAssessmentMissingRoster(assessment.id, null);
+    expect(before.map((row) => row.user_code)).toEqual([
+      "202505050103", // 丙（2025级1班）
+      "202505050202", // 戊（2025级2班）
+    ]);
+    expect(before.every((row) => row.class_name !== null)).toBe(true);
+    expect(before.some((row) => row.name === "王老师")).toBe(false);
+    expect(before.some((row) => row.name === "己")).toBe(false); // 未分班但已测
+
+    // 只有草稿：NOT EXISTS 判的是 completed + is_current，草稿不能把人从名单里抹掉
+    adapter.upsertAssessmentDraft(students.bing, assessment.id, JSON.stringify({ 1: 5 }), "[]");
+    const after = adapter.getAssessmentMissingRoster(assessment.id, null);
+    expect(after.map((row) => row.user_code)).toEqual(before.map((row) => row.user_code));
+
+    // 完成过的学生不会因为「有草稿」重复出现在两个名单里
+    expect(
+      adapter.getAssessmentRoster(assessment.id, null).map((row) => row.user_code)
+    ).not.toContain("202505050103");
+
+    adapter.close();
+    cleanup(dbPath);
+  });
+
+  it("班级范围与 classId 收窄：教师空集合直接空名单，classId 只出该班未完成的人", () => {
+    const { dbPath, adapter, assessment, classA, classB } = setup();
+
+    expect(adapter.getAssessmentMissingRoster(assessment.id, [classA]).map((row) => row.name)).toEqual(["丙"]);
+    expect(adapter.getAssessmentMissingRoster(assessment.id, []).map((row) => row.name)).toEqual([]);
+
+    expect(
+      adapter.getAssessmentMissingRoster(assessment.id, null, { classId: classB }).map((row) => row.name)
+    ).toEqual(["戊"]);
+
+    // 已完成学生不会混进未完成名单（按结果表反证）
+    expect(adapter.getAssessmentMissingRoster(assessment.id, [classA]).map((row) => row.user_code)).toEqual([
+      "202505050103",
+    ]);
 
     adapter.close();
     cleanup(dbPath);
