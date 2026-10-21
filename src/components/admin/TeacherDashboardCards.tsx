@@ -9,6 +9,7 @@ import {
   buildClassSubmissionRows,
   type CompareItem,
 } from "@/lib/dashboard-utils";
+import type { ClassGroup } from "@/lib/class-identity";
 
 /**
  * 各班提交精简列表（#217）：替代教师端的提交趋势图。
@@ -21,7 +22,7 @@ export function ClassSubmissionCard({
   compare: CompareItem[];
   compareFailed: boolean;
 }) {
-  const [openClass, setOpenClass] = useState<string | null>(null);
+  const [openGroup, setOpenGroup] = useState<ClassGroup | null>(null);
   const rows = useMemo(() => buildClassSubmissionRows(compare), [compare]);
 
   return (
@@ -47,8 +48,8 @@ export function ClassSubmissionCard({
         <>
           <ul className="max-h-[280px] space-y-1 overflow-y-auto pr-1">
             {rows.map((row) => {
-              // 排序与接口仍认原值；「未分班」只在展示层换成教师口语
-              const label = TEACHER_DASHBOARD_COPY.classLabel(row.key);
+              // 排序与下钻认 key；未分班哨兵只在展示层换成教师口语
+              const label = TEACHER_DASHBOARD_COPY.classLabel(row.key, row.label);
               return (
                 <li
                   key={row.key}
@@ -83,7 +84,7 @@ export function ClassSubmissionCard({
                     </div>
                     <button
                       type="button"
-                      onClick={() => setOpenClass(row.key)}
+                      onClick={() => setOpenGroup({ key: row.key, label })}
                       aria-label={`查看${label}名册`}
                       className="shrink-0 rounded-lg border border-border-soft px-2.5 py-1 text-[11px] font-medium text-primary transition-colors hover:bg-primary/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
                     >
@@ -110,10 +111,10 @@ export function ClassSubmissionCard({
       )}
 
       <ClassRosterDialog
-        open={openClass !== null}
-        classKey={openClass ?? ""}
-        displayName={openClass ? TEACHER_DASHBOARD_COPY.classLabel(openClass) : ""}
-        onClose={() => setOpenClass(null)}
+        open={openGroup !== null}
+        classKey={openGroup?.key ?? ""}
+        displayName={openGroup?.label ?? ""}
+        onClose={() => setOpenGroup(null)}
       />
     </div>
   );
