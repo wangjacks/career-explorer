@@ -147,7 +147,7 @@
 
 1. **署名**：必须注明原始出处为「O*NET Career Exploration Tools, U.S. Department of Labor, Employment and Training Administration」，并链接到授权页；推荐格式：
    > 本测评题目改编自 O*NET Career Exploration Tools（美国劳工部就业与培训署），依据 O*NET Tools Developer License 使用。O*NET® 是 USDOL/ETA 的商标。本系统对原始材料进行了中文翻译与本土化修改，USDOL/ETA 未对这些修改进行审核、认可或测试。
-2. **自行验证**：Developer License 要求「validate all products incorporating content from the Tools」，即**中文版上线前需要做信效度验证**（小样本施测 + 与英文原版对照），这一点建议写进课程实践环节，正好可以作为学生的研究方法训练。
+2. **自行验证**：Developer License 要求「validate all products incorporating content from the Tools」，即**中文版上线前需要做信效度验证**（小样本施测 + 与英文原版对照），这一点建议写进课程实践环节，正好可以作为学生的研究方法训练。执行方案见 `docs/assessment-validation-plan.md`（整表信效度与常模）；120 题库新增题的专家评审与班级试测判据、逐题记录与放行结论见 `docs/assessment-validation.md`（#284；当前未放行原创题，抽题池只含 60 道 O\*NET 官方题）。
 
 **另外两点：**
 

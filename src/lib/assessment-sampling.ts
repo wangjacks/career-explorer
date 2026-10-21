@@ -1,4 +1,4 @@
-import { NEAR_DUPLICATE_GROUPS, type QuestionOrigin } from "./assessment-data";
+import { NEAR_DUPLICATE_GROUPS, SAMPLING_EXCLUDED_ORIGINS, type QuestionOrigin } from "./assessment-data";
 
 /**
  * 每次作答的分层确定性抽题（#282）：纯函数、无 I/O，rng 可注入。
@@ -7,9 +7,10 @@ import { NEAR_DUPLICATE_GROUPS, type QuestionOrigin } from "./assessment-data";
  * 任何路由（start / answer / submit / results）各自重算都得到同一张卷子，`GET /start` 因此保持只读、
  * 不建空草稿行（#223 不变量）；轮换由 `attemptNo`（completed 行数 + 1）承担，重测不复用上一轮。
  *
- * 分层规则（每张卷）：每维固定 `perDimension` 题；来源配比每维官方题（`onet-mini` + `onet-sf`）
- * 抽 2 或 3、原创题（`cn-original`）抽剩下 3 或 2（rng 决定，期望各半）；`NEAR_DUPLICATE_GROUPS`
- * 同卷至多一题；拼齐后整体洗牌，再按「避免 3 题及以上连续同维度」修整顺序。
+ * 分层规则（每张卷）：每维固定 `perDimension` 题。**#284 回退期间**原创题（`cn-original`）
+ * 整体不进抽题池（`SAMPLING_EXCLUDED_ORIGINS`），每维从 10 道官方题里抽 5 道；验证通过后
+ * 常量移除来源，恢复「官方 2-3 + 原创 2-3」配比。`NEAR_DUPLICATE_GROUPS` 同卷至多一题；
+ * 拼齐后整体洗牌，再按「避免 3 题及以上连续同维度」修整顺序。
  *
  * 降级阶梯（池子不够时按序放宽并打 warning，不抛错——后台删题不能让作答 500）：
  * 来源配比 → 排除集 → 近重复组。
@@ -44,25 +45,31 @@ export interface DrawOptions {
   excludeIndexes?: ReadonlySet<number>;
   /** 近重复题组：同卷至多抽到组内一题（默认取量表常量） */
   nearDuplicateGroups?: readonly (readonly number[])[];
+  /** 不参与抽题的来源；默认取全局放行开关（#284），仅测试需要显式传入 */
+  excludedOrigins?: ReadonlySet<QuestionOrigin>;
   rng?: () => number;
 }
 
 const NO_EXCLUDE: ReadonlySet<number> = new Set();
 
 /**
- * 题库指纹：排序后的「题号:版本」列表 + `scale_version` 的短哈希（FNV-1a 32 位 → base36）。
- * 题库一改（加题 / 题面版本自增 / 换量表版本）指纹就变，卷子自动重派，不会拿旧卷子配新题库。
+ * 题库指纹：排序后的「题号:版本」列表 + `scale_version` + 不参与抽题的来源
+ * 的短哈希（FNV-1a 32 位 → base36）。
+ * 题库一改（加题 / 题面版本自增 / 换量表版本 / 放行状态变化）指纹就变，
+ * 卷子自动重派，不会拿旧卷子配新题库。
  */
 export function poolFingerprint(
   questions: readonly { index: number; version: number }[],
-  scaleVersion: string
+  scaleVersion: string,
+  excludedOrigins: ReadonlySet<QuestionOrigin> = SAMPLING_EXCLUDED_ORIGINS
 ): string {
+  const exclusions = [...excludedOrigins].sort().join(",");
   const canonical =
     questions
       .slice()
       .sort((a, b) => a.index - b.index)
       .map((q) => `${q.index}:${q.version}`)
-      .join(",") + `|${scaleVersion}`;
+      .join(",") + `|${scaleVersion}|exclude:${exclusions}`;
   let hash = 0x811c9dc5;
   for (let i = 0; i < canonical.length; i += 1) {
     hash ^= canonical.charCodeAt(i);
@@ -118,6 +125,11 @@ function isOfficial(item: DrawItem): boolean {
   return item.origin !== "cn-original";
 }
 
+/** 题目是否进入抽题池（#284：未验证来源整体排除；题库本身不删题） */
+function isEligible(item: DrawItem, excludedOrigins: ReadonlySet<QuestionOrigin>): boolean {
+  return !excludedOrigins.has(item.origin);
+}
+
 /** 整维（已锁定题 + 本次补抽）允许的官方题数区间：两侧各不少于 2 题 */
 function officialBand(total: number): [number, number] {
   const low = Math.max(0, total - 3);
@@ -148,13 +160,15 @@ function selectDimension(options: SelectDimensionOptions): SelectDimensionResult
   const warnings: string[] = [];
 
   // 配比目标是「整维」口径：在途草稿的已答题来源分布改不了，补抽只凑差额，凑不平就记 warning。
+  // 池子里没有可抽的原创题时（#284 回退，或本量表本来就只用官方题），配比规则不适用：
+  // 整维都从官方题里抽，但仍走排除集 / 近重复组的同一套阶梯。
   const total = count + prefilled.length;
-  const [bandLow, bandHigh] = officialBand(total);
+  const mixEnabled = pool.some((item) => item.origin === "cn-original");
+  const [bandLow, bandHigh] = mixEnabled ? officialBand(total) : ([total, total] as const);
   const officialDone = prefilled.filter(isOfficial).length;
-  const mixOfficialCount = Math.max(
-    0,
-    Math.min(count, (rng() < 0.5 ? bandLow : bandHigh) - officialDone)
-  );
+  const mixOfficialCount = mixEnabled
+    ? Math.max(0, Math.min(count, (rng() < 0.5 ? bandLow : bandHigh) - officialDone))
+    : count;
 
   const pick = (
     candidates: readonly DrawItem[],
@@ -225,8 +239,8 @@ function selectDimension(options: SelectDimensionOptions): SelectDimensionResult
   let result = pick(base, true, true);
   if (result) return finish(result);
 
-  // 2) 放宽来源配比（排除集与近重复组仍严格）
-  warnings.push("来源配比放宽：该维度无法按官方 2-3 + 原创 2-3 抽取");
+  // 2) 放宽来源配比（排除集与近重复组仍严格）；池里没有原创题时配比本就不适用，不报这条
+  if (mixEnabled) warnings.push("来源配比放宽：该维度无法按官方 2-3 + 原创 2-3 抽取");
   result = pick(base, false, true);
   if (result) return finish(result);
 
@@ -287,6 +301,7 @@ function interleave(items: readonly DrawItem[]): DrawItem[] {
 export function drawItems(options: DrawOptions): DrawResult {
   const rng = options.rng ?? Math.random;
   const exclude = options.excludeIndexes ?? NO_EXCLUDE;
+  const excludedOrigins = options.excludedOrigins ?? SAMPLING_EXCLUDED_ORIGINS;
   const groups = options.nearDuplicateGroups ?? NEAR_DUPLICATE_GROUPS;
   const groupOf = new Map<number, number>();
   groups.forEach((group, groupId) => {
@@ -295,6 +310,7 @@ export function drawItems(options: DrawOptions): DrawResult {
 
   const byDimension = new Map<string, DrawItem[]>();
   for (const item of options.items) {
+    if (!isEligible(item, excludedOrigins)) continue;
     const list = byDimension.get(item.dimension);
     if (list) list.push(item);
     else byDimension.set(item.dimension, [item]);
@@ -390,6 +406,8 @@ export interface PlanAttemptOptions {
   answeredIndexes?: ReadonlySet<number>;
   /** 草稿 `items_json` 原文 */
   snapshotRaw?: string | null;
+  /** 不参与抽题的来源；默认取全局放行开关（#284），仅测试需要显式传入 */
+  excludedOrigins?: ReadonlySet<QuestionOrigin>;
   rng?: () => number;
 }
 
@@ -405,17 +423,20 @@ export interface PlanAttemptOptions {
  * 同一轮内任何路由各自重算都得同一张卷子，`GET /start` 因此保持只读。
  */
 export function planAttempt(options: PlanAttemptOptions): AttemptPlan {
-  const fingerprint = poolFingerprint(options.pool, options.scaleVersion);
+  const excludedOrigins = options.excludedOrigins ?? SAMPLING_EXCLUDED_ORIGINS;
+  const fingerprint = poolFingerprint(options.pool, options.scaleVersion, excludedOrigins);
+  // 只让「已放行来源」进卷：题库本身不删题，历史结果与种子校验仍按全量口径
+  const eligible = options.pool.filter((item) => isEligible(item, excludedOrigins));
   const fullBank = options.itemsPerAttempt <= 0;
-  const bankIndexes = options.pool.map((item) => item.index);
   if (fullBank) {
-    return { indexes: bankIndexes, poolFingerprint: fingerprint, warnings: [] };
+    return { indexes: eligible.map((item) => item.index), poolFingerprint: fingerprint, warnings: [] };
   }
 
   const perDimension = Math.floor(options.itemsPerAttempt / options.dimensions.length);
-  const poolSet = new Set(bankIndexes);
+  const poolSet = new Set(eligible.map((item) => item.index));
 
-  // 1) 快照路径：指纹一致 + 题号都在题库内才可信（题库改版后旧快照作废，走兼容路径）
+  // 1) 快照路径：指纹一致 + 题号都在**可抽题池**内才可信
+  //    （题库改版或放行状态变化后旧快照作废，走兼容路径）
   const snapshot = parseItemsSnapshot(options.snapshotRaw);
   if (snapshot && snapshot.pool === fingerprint && snapshot.indexes.every((index) => poolSet.has(index))) {
     return { indexes: snapshot.indexes, poolFingerprint: fingerprint, warnings: [] };
@@ -425,9 +446,10 @@ export function planAttempt(options: PlanAttemptOptions): AttemptPlan {
     options.rng ??
     mulberry32(deriveDrawSeed(options.userId, options.assessmentId, fingerprint, options.attemptNo));
 
-  // 2) 在途草稿兼容：已答 ∪ 补抽到每维 perDimension（已答超出的维度原样保留，一道不作废）
+  // 2) 在途草稿兼容：已答（且已放行）∪ 补抽到每维 perDimension
+  //    #284 回退会把草稿里原创题的作答移出本轮口径，缺口用官方题补上
   const answered = options.answeredIndexes ?? NO_EXCLUDE;
-  const answeredInPool = new Set(options.pool.filter((item) => answered.has(item.index)).map((item) => item.index));
+  const answeredInPool = new Set(eligible.filter((item) => answered.has(item.index)).map((item) => item.index));
   if (answeredInPool.size > 0) {
     const picked: DrawItem[] = [];
     const usedGroups = new Set<number>();
@@ -437,7 +459,7 @@ export function planAttempt(options: PlanAttemptOptions): AttemptPlan {
       for (const index of group) groupOf.set(index, groupId);
     });
     const byDimension = new Map<string, DrawItem[]>();
-    for (const item of options.pool) {
+    for (const item of eligible) {
       const list = byDimension.get(item.dimension);
       if (list) list.push(item);
       else byDimension.set(item.dimension, [item]);
@@ -479,10 +501,11 @@ export function planAttempt(options: PlanAttemptOptions): AttemptPlan {
 
   // 3) 全新一轮：按排除集分层抽题
   const draw = drawItems({
-    items: options.pool,
+    items: eligible,
     dimensions: options.dimensions,
     perDimension,
     excludeIndexes: options.excludedIndexes ?? NO_EXCLUDE,
+    excludedOrigins,
     rng,
   });
   return { indexes: draw.indexes, poolFingerprint: fingerprint, warnings: draw.warnings };

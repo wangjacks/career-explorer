@@ -8,6 +8,7 @@ import {
   RIASEC_CODE,
   RIASEC_DIMENSIONS,
   RIASEC_QUESTIONS,
+  SAMPLING_EXCLUDED_ORIGINS,
   normalizePrompt,
   promptHanLength,
   promptSimilarity,
@@ -228,8 +229,9 @@ describe("量表定义与校验入口", () => {
     expect(RIASEC_ASSESSMENT.licenseText).toContain("31–60 题同样出自");
     expect(RIASEC_ASSESSMENT.licenseText).toContain("61–120 题为本项目原创");
     expect(RIASEC_ASSESSMENT.licenseText).toContain("CC BY 4.0");
-    // 专家评审与班级试测是 #284 的上线判据，尚未发生：文案只能写「须完成」
+    // 专家评审与班级试测是 #284 的上线判据，尚未发生：文案只能写「须完成」，并说明原创题当前不参与抽题
     expect(RIASEC_ASSESSMENT.licenseText).toContain("正式启用前须完成专家评审与一个班级的试测");
+    expect(RIASEC_ASSESSMENT.licenseText).toContain("在完成上述验证前，61–120 题不参与抽题");
     expect(RIASEC_ASSESSMENT.licenseText).not.toMatch(/已完成[^\n]{0,12}试测/);
     expect(RIASEC_ASSESSMENT.disclaimer.length).toBeGreaterThan(0);
   });
@@ -237,6 +239,18 @@ describe("量表定义与校验入口", () => {
   it("真实题库能通过完整校验（含 anchor 查询），且不传查询函数也能过结构校验", () => {
     expect(() => validateAssessmentSeed(RIASEC_ASSESSMENT, RIASEC_QUESTIONS, onetInterestCodeOf)).not.toThrow();
     expect(() => validateAssessmentSeed(RIASEC_ASSESSMENT, RIASEC_QUESTIONS)).not.toThrow();
+  });
+
+  it("放行门（#284）：原创题整批排除在抽题池外，题库与种子校验不受影响", () => {
+    expect([...SAMPLING_EXCLUDED_ORIGINS]).toEqual(["cn-original"]);
+    const eligible = RIASEC_QUESTIONS.filter((question) => !SAMPLING_EXCLUDED_ORIGINS.has(question.origin));
+    expect(eligible).toHaveLength(60);
+    for (const key of DIMENSION_KEYS) {
+      expect(
+        eligible.filter((question) => question.dimension === key),
+        `维度 ${key} 的已放行题数`
+      ).toHaveLength(10);
+    }
   });
 
   it("每次作答题数（#282）：30 题且能被 6 个维度整除，每维正好 5 题", () => {
