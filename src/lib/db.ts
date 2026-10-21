@@ -364,6 +364,11 @@ export interface AssessmentBankUpgradeResult {
   originBackfilled: number;
   /** 是否因 scale_version 变化而整体更新了量表定义字段 */
   definitionUpdated: boolean;
+  /**
+   * 是否在同版本库上单独刷新了 `license_text`（#284）：授权与放行状态文案是合规生成内容，
+   * 与版本号无关；刷新只动这一列，不覆盖后台维护的 name 等字段
+   */
+  licenseTextUpdated: boolean;
   /** 是否回填了 `items_per_attempt`（#282：每次抽题数，与版本号无关） */
   itemsPerAttemptUpdated: boolean;
 }

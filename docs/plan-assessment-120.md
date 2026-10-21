@@ -284,6 +284,7 @@ export const NEAR_DUPLICATE_GROUPS: readonly (readonly number[])[] = [
 | 来源差异 | 官方题 vs 原创题的同维度均值差 | 差 > 0.5 分 → 该批原创题整体复评 |
 
 - 样本量门槛：单题累计作答 ≥ 50 次才纳入判定（否则噪声大于信号）。
+- #284 回退期原创题不进抽题池，单题分析只覆盖官方题；复评原创题前须先按 §4.4 恢复放行（否则全量作答也抽不到原创题）。
 - 落地形式：`scripts/assessment-item-stats.mjs`（只读脚本，输出 CSV）；要不要做管理端页面等数据量起来再议。
 - 换题走「新增题号 + 停用旧题」而不是改题面：`assessment_questions.version` 自增、旧题号保留，历史快照永远可解释。
 - 每次换题都要重跑 §3 的近重复扫描与 §4.3 的锚定校验（单测已覆盖）。
@@ -314,6 +315,8 @@ upgradeAssessmentBank()：
      license_text / disclaimer）仅在 scale_version 与种子不一致时整体更新
   3b. items_per_attempt（#282）单独补齐：它与 scale_version 无关，而生产库在 #281
       时就已是 RIASEC-CN 2.0，走 3 的门永远不触发，不回填就停在补列默认值 0（整库作答）
+  3c. license_text（#284）同版本库与种子不一致时只刷新这一列：授权/放行状态文案与版本号
+      无关，但不能连带覆盖后台维护的 name / attribution
   4. 落库前跑 validateAssessmentSeed（新版校验，见 8.3）
   5. 全程一个事务；SQLite / MySQL 两适配器行为一致，用同一组测试覆盖
 ```
