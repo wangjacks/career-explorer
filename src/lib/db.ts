@@ -447,15 +447,30 @@ export interface AssessmentStatsRaw {
   total: { enrolled: number; assessed: number; last_completed_at: string | null };
 }
 
-/** 测评名册行（#229）：**含个人信息**，只给教师端下钻用，读取必须记审计 */
+/**
+ * 测评名册行（#229）：**含个人信息**，只给教师端下钻用，读取必须记审计。
+ *
+ * #313 起支持多量表：`riasec` 看 `code`（三字码），`dimensional` 量表（如 `ipip-neo-ffi`）没有三字码，
+ * 需要 `includeScores` 一并取回 `scores_json` 才能算档位——但**接口只下发档位**，绝不外泄 raw / standard。
+ */
 export interface AssessmentRosterRow {
   class_id: number | null;
   class_name: string | null;
   name: string;
   user_code: string;
-  /** 三字码（首位即归型依据） */
-  code: string;
+  /** 三字码（首位即归型依据）；dimensional 量表恒为 null */
+  code: string | null;
   assessed_at: string;
+  /** 结果快照 JSON（仅 `filters.includeScores` 时取回）；dimensional 量表据此算档位 */
+  scores_json?: string | null;
+}
+
+/** 未完成名册行（#313）：在册学生里还没有该量表 `completed + is_current` 记录的人，只给定位信息、不含测评字段 */
+export interface AssessmentMissingRosterRow {
+  class_id: number | null;
+  class_name: string | null;
+  name: string;
+  user_code: string;
 }
 
 /**
@@ -692,6 +707,11 @@ export interface DbAdapter {
   getCompareByClass(): Promise<CompareStat[]> | CompareStat[];
   /** 按班名取学生名册（#217）；班名口径与 getCompareByClass 的 COALESCE(c.name, '未分班') 一致 */
   getClassRoster(className: string): Promise<ClassRosterRow[]> | ClassRosterRow[];
+  /**
+   * 按班级 id 取学生名册（#313）：与按班名同一排序与字段，班级改名后依然指向同一个班
+   * （按班名匹配在改名瞬间会命中不到或命中错班，`classId` 才是稳定键）。
+   */
+  getClassRosterById(classId: number): Promise<ClassRosterRow[]> | ClassRosterRow[];
 
   // tags & classes
   getTags(): Promise<TagRow[]> | TagRow[];
@@ -714,6 +734,8 @@ export interface DbAdapter {
   /** 重置为默认预设（标签管理页「恢复默认」，#94 补充） */
   resetTagsToDefaults(): Promise<void> | void;
   getClasses(): Promise<ClassRow[]> | ClassRow[];
+  /** 按 id 取班级（#313：`class-roster?classId=` 用它回显班级名并区分「不存在」与「参数非法」） */
+  getClassById(id: number): Promise<ClassRow | undefined> | ClassRow | undefined;
   getClassByName(name: string): Promise<ClassRow | undefined> | ClassRow | undefined;
   getClassByInviteCode(code: string): Promise<ClassRow | undefined> | ClassRow | undefined;
   insertClass(name: string, invitationCode: string): Promise<number> | number;
@@ -865,12 +887,27 @@ export interface DbAdapter {
    * 测评名册（**含姓名/学号，读取须记审计**）：只返回已完成且当前有效的结果。
    * `classIds` 收窄班级范围（教师归属班级），`filters.classId` 再收窄到单班，
    * `filters.lead` 按三字码首位过滤，`filters.code` 按完整三字码精确过滤（#232 三字码胶囊下钻）。
+   * `filters.includeScores` 额外取回结果快照（#313：dimensional 量表据此算档位），默认不取。
    */
   getAssessmentRoster(
     assessmentId: number,
     classIds: number[] | null,
-    filters?: { classId?: number | null; lead?: string | null; code?: string | null }
+    filters?: {
+      classId?: number | null;
+      lead?: string | null;
+      code?: string | null;
+      includeScores?: boolean;
+    }
   ): Promise<AssessmentRosterRow[]> | AssessmentRosterRow[];
+  /**
+   * 未完成名册（#313）：在册学生里**不存在**该量表 `completed + is_current` 记录的人，含只有草稿的学生。
+   * 主查询以 `users` 为基准 + `NOT EXISTS` 子查询——不能改成 LEFT JOIN 结果表判 NULL，否则草稿会被当成已完成。
+   */
+  getAssessmentMissingRoster(
+    assessmentId: number,
+    classIds: number[] | null,
+    filters?: { classId?: number | null }
+  ): Promise<AssessmentMissingRosterRow[]> | AssessmentMissingRosterRow[];
 
   backup(): Promise<BackupData> | BackupData;
   restore(data: BackupData): Promise<void> | void;
@@ -1131,6 +1168,12 @@ export async function getClassRoster(className: string): Promise<ClassRosterRow[
   return Promise.resolve(adapter.getClassRoster(className));
 }
 
+/** #313：按班级 id 取学生名册（班级改名后仍指向同一个班） */
+export async function getClassRosterById(classId: number): Promise<ClassRosterRow[]> {
+  const adapter = await ensureInit();
+  return Promise.resolve(adapter.getClassRosterById(classId));
+}
+
 export async function getTags(): Promise<TagRow[]> {
   const adapter = await ensureInit();
   return Promise.resolve(adapter.getTags());
@@ -1180,6 +1223,12 @@ export async function getClasses(): Promise<ClassRow[]> {
 export async function getClassByName(name: string): Promise<ClassRow | undefined> {
   const adapter = await ensureInit();
   return Promise.resolve(adapter.getClassByName(name));
+}
+
+/** #313：按 id 取班级（`class-roster?classId=` 回显班级名并区分「不存在」与「参数非法」） */
+export async function getClassById(id: number): Promise<ClassRow | undefined> {
+  const adapter = await ensureInit();
+  return Promise.resolve(adapter.getClassById(id));
 }
 
 export async function getClassByInviteCode(code: string): Promise<ClassRow | undefined> {
@@ -1540,10 +1589,25 @@ export async function getAssessmentStats(
 export async function getAssessmentRoster(
   assessmentId: number,
   classIds: number[] | null,
-  filters?: { classId?: number | null; lead?: string | null; code?: string | null }
+  filters?: {
+    classId?: number | null;
+    lead?: string | null;
+    code?: string | null;
+    includeScores?: boolean;
+  }
 ): Promise<AssessmentRosterRow[]> {
   const adapter = await ensureInit();
   return Promise.resolve(adapter.getAssessmentRoster(assessmentId, classIds, filters));
+}
+
+/** #313：未完成名册（含个人信息，调用方必须记审计并先收窄班级范围） */
+export async function getAssessmentMissingRoster(
+  assessmentId: number,
+  classIds: number[] | null,
+  filters?: { classId?: number | null }
+): Promise<AssessmentMissingRosterRow[]> {
+  const adapter = await ensureInit();
+  return Promise.resolve(adapter.getAssessmentMissingRoster(assessmentId, classIds, filters));
 }
 
 export async function backup(): Promise<BackupData> {
