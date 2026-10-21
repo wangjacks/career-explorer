@@ -46,7 +46,7 @@ const ACTIONS = [
   "media:query", "media:config-update", "media:cleanup", "media:thumbnail-backfill",
   "upload:rejected", "upload:failed",
   "group:generate", "group:move", "group:create", "group:delete", "group:import", "group:export",
-  "assessment:answer", "assessment:submit", "assessment:results", "assessment:roster",
+  "assessment:answer", "assessment:submit", "assessment:results", "assessment:list", "assessment:roster",
   "audit:query",
 ];
 
