@@ -165,7 +165,7 @@ export default function AssessmentResultCard() {
             </p>
             {inProgress && (
               <p className="mt-1 text-xs text-muted">
-                上次答到 {inProgress.answered}/{inProgress.total} 题，可以接着做。
+                上次答到 {assessmentView.answered}/{assessmentView.total} 题，可以接着做。
               </p>
             )}
           </div>

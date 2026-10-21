@@ -70,6 +70,12 @@ describe("题量口径来源守卫（#283）", () => {
     // 档案侧只关心本人作答量，不出现题库规模
     expect(card).not.toContain("poolSize");
   });
+
+  it("档案页的草稿进度复用归一视图，不再自己读接口的 answered / total（两处口径同一来源）", () => {
+    const card = readFileSync(new URL(SOURCES[2], import.meta.url), "utf8");
+    expect(card).toContain("上次答到 {assessmentView.answered}/{assessmentView.total} 题");
+    expect(card).not.toMatch(/inProgress\.\s*(answered|total)/);
+  });
 });
 
 const ASSESSMENT = { questionCount: 30, enabled: true };
