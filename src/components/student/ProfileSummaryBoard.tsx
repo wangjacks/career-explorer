@@ -1,7 +1,8 @@
 "use client";
 
-import { ArrowDown, Briefcase, Compass, Fingerprint, Loader2, Tags } from "lucide-react";
+import { ArrowDown, Briefcase, Compass, Fingerprint, Tags } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
+import Link from "next/link";
 import ProfileSectionHeader from "./ProfileSectionHeader";
 import type { SummaryCard, SummaryCardKind, ProfileSummary } from "@/lib/profile-summary";
 
@@ -180,26 +181,25 @@ function SummaryCardView({
         )}
       </div>
 
-      {!hasDetailButton && card.cta.action !== "none" && (
-        <button
-          type="button"
-          onClick={() => onAction(card)}
-          aria-controls={card.cta.targetId}
-          className="inline-flex items-center justify-center self-start rounded-lg bg-primary px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-primary-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
-        >
-          {card.cta.label}
-        </button>
-      )}
+      {!hasDetailButton && card.cta.action !== "none" &&
+        (card.cta.href ? (
+          // 「去测评 / 继续作答」是跳转：用原生链接，保留新标签页 / 预取等浏览器行为
+          <Link
+            href={card.cta.href}
+            className="inline-flex items-center justify-center self-start rounded-lg bg-primary px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-primary-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
+          >
+            {card.cta.label}
+          </Link>
+        ) : (
+          <button
+            type="button"
+            onClick={() => onAction(card)}
+            aria-controls={card.cta.targetId}
+            className="inline-flex items-center justify-center self-start rounded-lg bg-primary px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-primary-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
+          >
+            {card.cta.label}
+          </button>
+        ))}
     </section>
-  );
-}
-
-/** 结果区自己的 loading 文案（摘要卡只为结果区留位时用，避免两处各写一句） */
-export function SummaryLoadingHint() {
-  return (
-    <p className="flex items-center gap-2 text-sm text-muted">
-      <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
-      正在读取测评结果…
-    </p>
   );
 }

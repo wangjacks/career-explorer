@@ -22,7 +22,12 @@ import { safeImageUrl } from "@/lib/sanitize";
 import { submitProfile } from "@/lib/profile-submit";
 import { MAX_RESULT_VERSIONS } from "@/lib/assessment-flow";
 import { latestCompletedOf } from "@/lib/assessment-list";
-import { buildProfileSummary, PROFILE_INFO_ID, type SummaryCard } from "@/lib/profile-summary";
+import {
+  assessmentCodeFromDetailId,
+  buildProfileSummary,
+  PROFILE_INFO_ID,
+  type SummaryCard,
+} from "@/lib/profile-summary";
 import { toThumbnailUrl } from "@/lib/thumbnail-utils";
 
 interface MyProfile {
@@ -493,10 +498,21 @@ export default function StudentDashboardPage() {
 
   // 测评数据（#323）：页面统一拉取一次，速览卡与折叠详情卡共用（不再由结果区自己 fetch）
   const assessment = useAssessmentResults(session?.role === "student");
-  // 速览卡「查看详情」的联动状态：受控展开 + 定位后短暂高亮
-  const [expandedCard, setExpandedCard] = useState<string | null>(null);
+  // 速览卡「查看详情」的联动状态：受控展开 + 定位后短暂高亮。
+  // 展开态用集合而不是单个 code——期 1 每张折叠卡各自独立，两套结果可以同时展开，这里不能退化成手风琴。
+  const [expandedCodes, setExpandedCodes] = useState<string[]>([]);
   const [highlightId, setHighlightId] = useState<string | null>(null);
   const highlightTimer = useRef<number | null>(null);
+
+  // 折叠卡展开/收起（受控）：速览卡与卡片自身的折叠按钮改同一份状态
+  const setCardOpen = useCallback(
+    (code: string, open: boolean) => {
+      setExpandedCodes((prev) =>
+        open ? (prev.includes(code) ? prev : [...prev, code]) : prev.filter((item) => item !== code)
+      );
+    },
+    []
+  );
 
   // 历史提交版本（#95）：独立 Tab，首次切入时懒加载；恢复生成新版本不回写旧记录
   const [activeView, setActiveView] = useState<StudentViewKey>("profile");
@@ -609,6 +625,7 @@ export default function StudentDashboardPage() {
         results: assessment.data.payloads,
         careers: assessment.data.careers,
         listFailed: assessment.failed,
+        failedCodes: assessment.data.failedCodes,
         careersFailed: assessment.data.careersFailed,
       }),
     [profile, assessment.data, assessment.failed]
@@ -659,14 +676,10 @@ export default function StudentDashboardPage() {
     []
   );
 
-  // 摘要卡点击的总入口：去测评 / 进编辑态 / 展开并定位详情
+  // 摘要卡点击的总入口：进编辑态 / 展开并定位详情（「去测评」由速览卡直接渲染成链接，不经这里）
   const handleSummaryAction = useCallback(
     (card: SummaryCard) => {
       const { cta } = card;
-      if (cta.action === "quiz") {
-        if (cta.href) router.push(cta.href);
-        return;
-      }
       if (cta.action === "edit") {
         if (!editing) void startEdit();
         return;
@@ -676,13 +689,12 @@ export default function StudentDashboardPage() {
         toast("请先保存或取消当前编辑");
         return;
       }
-      if (cta.targetId.startsWith("assessment-card-")) {
-        setExpandedCard(cta.targetId.slice("assessment-card-".length));
-      }
+      const scaleCode = assessmentCodeFromDetailId(cta.targetId);
+      if (scaleCode) setCardOpen(scaleCode, true);
       setActiveView("profile");
       focusDetail(cta.targetId);
     },
-    [editing, startEdit, router, focusDetail]
+    [editing, startEdit, focusDetail, setCardOpen]
   );
 
   // #208：标签必填——标签是职业探索的核心数据，图片（虚拟形象 / 评价词云）可选填；与服务端同口径
@@ -964,8 +976,8 @@ export default function StudentDashboardPage() {
               loading={assessment.loading}
               failed={assessment.failed}
               onRetry={assessment.reload}
-              expandedCode={expandedCard}
-              onExpandedChange={setExpandedCard}
+              expandedCodes={expandedCodes}
+              onExpandedChange={setCardOpen}
               highlightId={highlightId}
             />
 

@@ -10,6 +10,9 @@
  * - `ready`：有数据，右上「查看详情」→ 展开并滚动到对应折叠卡；
  * - `empty`：没测过（或还没有结果）→ 给「去测评 / 继续作答」；
  * - `degraded`：接口失败或数据缺失 → 给一个指针（如「查看全部职业」），不报错。
+ *
+ * **失败绝不能说成「没测过」**：单套结果补拉失败（`failedCodes`）与清单失败（`listFailed`）
+ * 都走 `degraded`，只有确实取到「没有结果」才是 `empty`——与期 1 详情卡同一口径。
  */
 
 import {
@@ -95,6 +98,8 @@ export interface BuildProfileSummaryInput {
   careers: readonly CareerCardView[];
   /** 量表清单整体失败（摘要卡统一降级到结果区） */
   listFailed?: boolean;
+  /** 单套结果补拉失败的 code：那一张摘要卡降级，不能当成「没测过」 */
+  failedCodes?: readonly string[];
   /** 推荐职业接口失败（有霍兰德结果但没有推荐时区分「失败」与「为空」） */
   careersFailed?: boolean;
 }
@@ -107,6 +112,18 @@ export const PROFILE_INFO_ID = "profile-info";
 /** 折叠详情卡的 DOM id（与 `AssessmentResultsSection` 生成规则一致） */
 export function assessmentDetailId(code: string): string {
   return `assessment-card-${code}`;
+}
+
+const DETAIL_ID_PREFIX = "assessment-card-";
+
+/**
+ * 从摘要卡的锚点 id 反解量表 code（页面据此展开对应折叠卡）。
+ *
+ * id 规则只在这里定义一次：页面不再自己拼 `"assessment-card-"` 前缀，
+ * 改了命名也不会只改一半（非详情锚点如 `profile-info` / 结果区返回 null）。
+ */
+export function assessmentCodeFromDetailId(targetId: string): string | null {
+  return targetId.startsWith(DETAIL_ID_PREFIX) ? targetId.slice(DETAIL_ID_PREFIX.length) : null;
 }
 
 /** 摘要卡最多展示几个标签胶囊 */
@@ -134,29 +151,52 @@ function findScale(scales: readonly AssessmentListItem[], mode: "holland" | "big
  * 输入全部来自页面已经拿到的同一份数据（#323：数据只拉一次），本函数不发请求、不读 DOM。
  */
 export function buildProfileSummary(input: BuildProfileSummaryInput): ProfileSummary {
-  const { profile, scales, results, careers, listFailed = false, careersFailed = false } = input;
+  const {
+    profile,
+    scales,
+    results,
+    careers,
+    listFailed = false,
+    failedCodes = [],
+    careersFailed = false,
+  } = input;
   const hollandScale = findScale(scales, "holland");
   const bigFiveScale = findScale(scales, "big-five");
   const hollandPayload = hollandScale ? results[hollandScale.code] : undefined;
   const bigFivePayload = bigFiveScale ? results[bigFiveScale.code] : undefined;
   const hollandCurrent = hollandPayload?.current ?? null;
+  // 单套补拉失败时「有没有结果」是未知的：摘要卡必须降级，不能说成没测过
+  const hollandFailed = hollandScale !== null && failedCodes.includes(hollandScale.code);
+  const bigFiveFailed = bigFiveScale !== null && failedCodes.includes(bigFiveScale.code);
 
   return {
     cards: [
-      buildInterestCard({ hollandScale, hollandPayload, listFailed }),
-      buildPersonalityCard({ bigFiveScale, bigFivePayload, listFailed }),
-      buildCareersCard({ hollandScale, hollandCurrent, careers, listFailed, careersFailed }),
+      buildInterestCard({ hollandScale, hollandPayload, hollandFailed, listFailed }),
+      buildPersonalityCard({ bigFiveScale, bigFivePayload, bigFiveFailed, listFailed }),
+      buildCareersCard({ hollandScale, hollandCurrent, hollandFailed, careers, listFailed, careersFailed }),
       buildProfileCard(profile),
     ],
+  };
+}
+
+/** 单套结果读不到时的降级卡：指向那张带「重试」的详情卡，不误导学生重测 */
+function scaleFailedCard(base: Pick<SummaryCard, "kind" | "title">, code: string): SummaryCard {
+  return {
+    ...base,
+    state: "degraded",
+    headline: "暂时读不到这套测评的结果",
+    caption: "可以到下方详情里重试",
+    cta: { label: "查看详情", action: "detail", targetId: assessmentDetailId(code) },
   };
 }
 
 function buildInterestCard(input: {
   hollandScale: AssessmentListItem | null;
   hollandPayload: AssessmentResultsPayload | undefined;
+  hollandFailed: boolean;
   listFailed: boolean;
 }): SummaryCard {
-  const { hollandScale, hollandPayload, listFailed } = input;
+  const { hollandScale, hollandPayload, hollandFailed, listFailed } = input;
   const base = { kind: "interest" as const, title: "兴趣类型" };
 
   if (listFailed) {
@@ -176,6 +216,9 @@ function buildInterestCard(input: {
       caption: "开放后做完就能看到三字码与适合的职业方向",
       cta: { label: "查看测评区", action: "detail", targetId: ASSESSMENT_RESULTS_ID },
     };
+  }
+  if (hollandFailed) {
+    return scaleFailedCard(base, hollandScale.code);
   }
   if (!hollandPayload?.current) {
     const inProgress = hollandPayload?.inProgress ?? null;
@@ -209,9 +252,10 @@ function buildInterestCard(input: {
 function buildPersonalityCard(input: {
   bigFiveScale: AssessmentListItem | null;
   bigFivePayload: AssessmentResultsPayload | undefined;
+  bigFiveFailed: boolean;
   listFailed: boolean;
 }): SummaryCard {
-  const { bigFiveScale, bigFivePayload, listFailed } = input;
+  const { bigFiveScale, bigFivePayload, bigFiveFailed, listFailed } = input;
   const base = { kind: "personality" as const, title: "人格特质" };
 
   if (listFailed) {
@@ -231,6 +275,9 @@ function buildPersonalityCard(input: {
       caption: "开放后做完就能看到五维画像与主要特质",
       cta: { label: "查看测评区", action: "detail", targetId: ASSESSMENT_RESULTS_ID },
     };
+  }
+  if (bigFiveFailed) {
+    return scaleFailedCard(base, bigFiveScale.code);
   }
   if (!bigFivePayload?.current) {
     const inProgress = bigFivePayload?.inProgress ?? null;
@@ -264,11 +311,12 @@ function buildPersonalityCard(input: {
 function buildCareersCard(input: {
   hollandScale: AssessmentListItem | null;
   hollandCurrent: AssessmentResultsPayload["current"];
+  hollandFailed: boolean;
   careers: readonly CareerCardView[];
   listFailed: boolean;
   careersFailed: boolean;
 }): SummaryCard {
-  const { hollandScale, hollandCurrent, careers, listFailed, careersFailed } = input;
+  const { hollandScale, hollandCurrent, hollandFailed, careers, listFailed, careersFailed } = input;
   const base = { kind: "careers" as const, title: "推荐职业" };
   const detailTarget = hollandScale
     ? { label: "查看全部职业", action: "detail" as const, targetId: assessmentDetailId(hollandScale.code) }
@@ -281,6 +329,16 @@ function buildCareersCard(input: {
       headline: "暂时读不到推荐职业",
       caption: "可以到下方测评区重试",
       cta: RESULTS_FALLBACK_CTA,
+    };
+  }
+  // 兴趣结果这次没取到：推荐职业无从算起，但不能说成「还没测兴趣」
+  if (hollandScale && hollandFailed) {
+    return {
+      ...base,
+      state: "degraded",
+      headline: "暂时读不到推荐职业",
+      caption: "兴趣结果这次没取到，可以到详情里重试",
+      cta: { label: "查看详情", action: "detail", targetId: assessmentDetailId(hollandScale.code) },
     };
   }
   if (!hollandScale || !hollandCurrent) {

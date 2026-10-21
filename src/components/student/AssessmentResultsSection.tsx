@@ -15,9 +15,9 @@ export interface AssessmentResultsSectionProps {
   /** 量表清单失败（整个结果区不可用）；单套失败在 `data.failedCodes` 里 */
   failed: boolean;
   onRetry: () => void;
-  /** 受控展开的卡（#323：摘要卡「查看详情」时由页面指定） */
-  expandedCode: string | null;
-  onExpandedChange: (code: string | null) => void;
+  /** 当前展开的卡（#323：摘要卡「查看详情」时由页面加入；多张可同开） */
+  expandedCodes: readonly string[];
+  onExpandedChange: (code: string, open: boolean) => void;
   /** 被摘要卡定位时短暂高亮的元素 id（卡片 id 或结果区容器） */
   highlightId?: string | null;
 }
@@ -38,7 +38,7 @@ export default function AssessmentResultsSection({
   loading,
   failed,
   onRetry,
-  expandedCode,
+  expandedCodes,
   onExpandedChange,
   highlightId = null,
 }: AssessmentResultsSectionProps) {
@@ -129,8 +129,8 @@ export default function AssessmentResultsSection({
             code={item.code}
             data={payload}
             careers={resultCardMode(item) === "holland" ? careers : []}
-            open={expandedCode === item.code}
-            onOpenChange={(next) => onExpandedChange(next ? item.code : null)}
+            open={expandedCodes.includes(item.code)}
+            onOpenChange={(next) => onExpandedChange(item.code, next)}
             highlight={highlightId === cardId}
           />
         );

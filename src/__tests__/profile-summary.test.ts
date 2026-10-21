@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   ASSESSMENT_RESULTS_ID,
   PROFILE_INFO_ID,
+  assessmentCodeFromDetailId,
   assessmentDetailId,
   buildProfileSummary,
   type BuildProfileSummaryInput,
@@ -270,5 +271,41 @@ describe("速览四卡：空态与降级", () => {
     const summary = build({ profile: null });
     expect(cardOf(summary, "profile").state).toBe("degraded");
     expect(cardOf(summary, "interest").state).toBe("ready");
+  });
+});
+
+describe("速览四卡：单套结果补拉失败（不能说成没测过）", () => {
+  it("兴趣结果读不到：降级并指向那张带「重试」的详情卡", () => {
+    const card = cardOf(
+      build({ results: { "ipip-neo-ffi": BIG_FIVE_RESULT }, failedCodes: ["riasec"] }),
+      "interest"
+    );
+    expect(card.state).toBe("degraded");
+    expect(card.headline).toBe("暂时读不到这套测评的结果");
+    expect(card.cta).toMatchObject({ action: "detail", label: "查看详情", targetId: assessmentDetailId("riasec") });
+  });
+
+  it("兴趣结果读不到：推荐职业卡同样降级，不催学生重测", () => {
+    const card = cardOf(
+      build({ results: { "ipip-neo-ffi": BIG_FIVE_RESULT }, failedCodes: ["riasec"] }),
+      "careers"
+    );
+    expect(card.state).toBe("degraded");
+    expect(card.headline).toBe("暂时读不到推荐职业");
+    expect(card.cta).toMatchObject({ action: "detail", targetId: assessmentDetailId("riasec") });
+  });
+
+  it("人格结果读不到：只有人格卡降级，兴趣卡照常展示", () => {
+    const summary = build({ results: { riasec: HOLLAND_RESULT }, failedCodes: ["ipip-neo-ffi"] });
+    const personality = cardOf(summary, "personality");
+    expect(personality.state).toBe("degraded");
+    expect(personality.cta.targetId).toBe(assessmentDetailId("ipip-neo-ffi"));
+    expect(cardOf(summary, "interest").state).toBe("ready");
+  });
+
+  it("详情锚点 id 与量表 code 可互推（页面据此展开对应折叠卡）", () => {
+    expect(assessmentCodeFromDetailId(assessmentDetailId("riasec"))).toBe("riasec");
+    expect(assessmentCodeFromDetailId(PROFILE_INFO_ID)).toBeNull();
+    expect(assessmentCodeFromDetailId(ASSESSMENT_RESULTS_ID)).toBeNull();
   });
 });
