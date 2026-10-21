@@ -99,9 +99,9 @@
 | `/api/setup/status` | GET | 安装状态检查 |
 | `/api/setup/test` | POST | 数据库连接测试 |
 
-### 管理域 `/api/manage/*`（proxy 拦截：admin 全放行，teacher 按声明式权限表）
+### 管理域 `/api/manage/*`（proxy 拦截：生产 admin 全放行；demo-admin 按 `DEMO_ALLOWED` 收敛；teacher 按声明式权限表）
 
-<!-- 对账：路由清单 `find src/app/api/manage -name route.ts`（共 50 条）；teacher 权限列须与 src/proxy.ts 的 TEACHER_ALLOWED 逐条一致 -->
+<!-- 对账：路由清单 `find src/app/api/manage -name route.ts`（共 50 条）；teacher 权限列须与 src/proxy.ts 的 TEACHER_ALLOWED 逐条一致，demo-admin 允许列须与 DEMO_ALLOWED 逐条一致 -->
 
 **教师禁止（不在 `TEACHER_ALLOWED`，一律 403）**
 
@@ -176,6 +176,25 @@
 > 数据范围：`/api/manage/stats/*` 只做角色放行，不按班级裁剪，教师与管理员读到同一份全校数据（#165 的决策，界面已在面板标题与各卡片标注，非缺陷）。
 >
 > **#229 测评统计的两层范围**：聚合 `/stats/assessment` 沿用上面这条口径（默认全校，`scope=mine` 才收窄到本人归属班级）；**个人明细 `/assessment/roster` 例外**——它是唯一**专用的**「测评结果 + 姓名学号」下钻端点，教师恒为本人归属班级（`classId` 越权直接 403），并每次读取记审计。注意「唯一」只指**专用测评端点**：档案数据列表 `/api/manage/profiles` GET 自 #234 起也在每行附带三字码/完成时间/六型分，它沿用档案列表既有权限（教师可见全校已提交档案学生、GET 无班级收窄且不记审计；DELETE 按 #243 记审计），不是第二套测评权限。两者的取舍见「教师端测评统计（#229）」与「教师端数据列表测评列（#234）」。
+
+**演示管理员（demo-admin，#274）**
+
+演示会话（token `demo:true` 且 `role=admin`）不再享受生产 admin 的全放行，由 `DEMO_ALLOWED` 收敛；生产 admin 不受影响。demo-teacher 仍按上表 `TEACHER_ALLOWED`（演示库内），demo-student 一律 403。
+
+| 允许（`DEMO_ALLOWED`） | 方法 |
+|---|---|
+| `/api/manage/classes`（含 `[id]` 的 GET 与 poster） | GET |
+| `/api/manage/students` | GET（只读名册） |
+| `/api/manage/tags` | GET |
+| `/api/manage/profile-config` | GET |
+| `/api/manage/profiles`（含 submissions 子路由的 GET） | GET / DELETE |
+| `/api/manage/groups`（含 members/entries/batches/export/import） | 全方法 |
+| `/api/manage/export`（含 export-images） | 全方法 |
+| `/api/manage/stats` | GET |
+| `/api/manage/assessment` | GET |
+| `/api/manage/audit-logs` | GET |
+
+**显式拒绝**：`/api/manage/test-db`（唯一绕过演示作用域、可按请求体打开任意 SQLite/MySQL 的端点，**含生产库**）、`settings`、`storage*`、`backup`、`media*`、`teachers*`、`demo/*`，以及 `students` / `tags` / `classes` / `profile-config` 的写与 `profiles/submissions/cleanup`。拒绝由 proxy 直接 403、不进入路由；演示管理员仍可打开 `/dashboard/admin` 页面，对应 Tab 会显示接口 403（UI 收敛归 #258）。
 
 ### 共享域 `/api/shared/*`（不进 proxy，路由自鉴权）
 
