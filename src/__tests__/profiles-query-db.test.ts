@@ -4,7 +4,7 @@ import { tmpdir } from "os";
 import path from "path";
 import Database from "better-sqlite3";
 import { SqliteAdapter } from "../lib/db-sqlite";
-import { RIASEC_CODE } from "../lib/assessment-data";
+import { IPIP_NEO_FFI_CODE, RIASEC_CODE } from "../lib/assessment-data";
 
 /**
  * 数据列表的**服务端**筛选 / 排序 / 分页（#295）。
@@ -27,8 +27,14 @@ interface Seeded {
   dbPath: string;
   adapter: SqliteAdapter;
   assessmentId: number;
+  ipipAssessmentId: number;
   /** 学号 → 用户 id */
   ids: Map<string, number>;
+}
+
+/** IPIP 大五维度顺序（N,E,O,A,C）的得分快照：`[key, standard]` 简写 */
+function ipipScores(entries: [string, number][]) {
+  return JSON.stringify(entries.map(([key, standard]) => ({ key, standard })));
 }
 
 /**
@@ -37,6 +43,9 @@ interface Seeded {
  * - 24 号学生三字码 `SIA`（用来验证 I / A 也能命中非首字母）；
  * - 23 号学生未测；22 号学生只有草稿（也算未测）；21 号学生旧版本被替换（只认当前版本）；
  * - 标签：1–3 号有 ["运动","游戏"]，4–6 号有 ["阅读"]，其余无标签。
+ *
+ * #330 追加的人格结果（IPIP，dimensional，无三字码）：25 号 C 偏低、24 号 C 偏高、
+ * 1 号快照顺序与 dimensions_json 不一致（用来验证「同时校验 key」不会误筛）、2 号只有草稿。
  */
 function seed(): Seeded {
   const dbPath = makeTmpDb();
@@ -44,6 +53,7 @@ function seed(): Seeded {
   adapter.init();
   const classId = adapter.insertClass("2025级1班", "INV-295-001");
   const assessmentId = adapter.getAssessmentByCode(RIASEC_CODE)!.id;
+  const ipipAssessmentId = adapter.getAssessmentByCode(IPIP_NEO_FFI_CODE)!.id;
 
   const ids = new Map<string, number>();
   const submittedAt = new Map<string, string>();
@@ -89,9 +99,28 @@ function seed(): Seeded {
   complete("202505051021", "ECS");
   // 20 号：三字码非法（null）→ 按「未测」处理
   complete("202505051020", null);
+
+  const completeIpip = (userCode: string, scoresJson: string) =>
+    adapter.completeAssessmentResult({
+      userId: ids.get(userCode)!,
+      assessmentId: ipipAssessmentId,
+      answersJson: "{}",
+      itemsJson: "[]",
+      scoresJson,
+      typeCode: null,
+    });
+  // 24 号：尽责性偏高（C=80，第 5 维，index 4）
+  completeIpip("202505051024", ipipScores([["N", 20], ["E", 40], ["O", 55], ["A", 60], ["C", 80]]));
+  // 25 号：尽责性偏低（C=30）
+  completeIpip("202505051025", ipipScores([["N", 70], ["E", 45], ["O", 50], ["A", 62], ["C", 30]]));
+  // 1 号：快照顺序与 dimensions_json 不一致（C 在 index 0）→ 按 index 4 取到 A，
+  // key 校验失败 → 不应被「C 偏高」筛到（旧快照不按位置误判）
+  completeIpip("202505051001", ipipScores([["C", 85], ["N", 25], ["E", 35], ["O", 45], ["A", 55]]));
+  // 2 号：只有人格草稿
+  adapter.upsertAssessmentDraft(ids.get("202505051002")!, ipipAssessmentId, JSON.stringify({ 1: 4 }), "[]");
   raw.close();
 
-  return { dbPath, adapter, assessmentId, ids };
+  return { dbPath, adapter, assessmentId, ipipAssessmentId, ids };
 }
 
 const CODE_25 = "202505051025";
@@ -271,6 +300,100 @@ describe("getSubmittedProfiles 服务端筛选（#295）", () => {
       "202505051002",
       "202505051003",
     ]);
+    adapter.close();
+    cleanup(dbPath);
+  });
+});
+
+describe("getSubmittedProfiles 双测评筛选（#330）", () => {
+  const IPIP_SCALE = IPIP_NEO_FFI_CODE;
+  /** my IPIP 维度顺序：N,E,O,A,C → 尽责性 C 是第 5 维（index 4） */
+  const C_INDEX = 4;
+
+  it("兴趣多选 = 同时包含：S+A+I 只命中 SIA，不会命中 IAR（缺 S）", () => {
+    const { dbPath, adapter } = seed();
+    const result = adapter.getSubmittedProfiles(1, 25, { interest: { mode: "letters", keys: ["S", "A", "I"] } });
+    expect(result.total).toBe(1);
+    expect(result.rows.map((row) => row.user_code)).toEqual([CODE_24]);
+
+    const sa = adapter.getSubmittedProfiles(1, 25, { interest: { mode: "letters", keys: ["S", "A"] } });
+    expect(sa.rows.map((row) => row.user_code)).toEqual([CODE_24]);
+    adapter.close();
+    cleanup(dbPath);
+  });
+
+  it("兴趣多选跨页生效：第 2 页的行在第 1 页就能筛到（total 为过滤后命中数）", () => {
+    const { dbPath, adapter } = seed();
+    const firstPage = adapter.getSubmittedProfiles(1, 20, {
+      interest: { mode: "letters", keys: ["A", "I"] },
+      sortKey: "studentId",
+      sortDir: "asc",
+    });
+    // 24 号 SIA / 25 号 IAR（都在默认第 2 页）；21 号当前码 ECS 不含 A/I
+    expect(firstPage.total).toBe(2);
+    expect(firstPage.rows.map((row) => row.user_code)).toEqual([CODE_24, CODE_25]);
+    adapter.close();
+    cleanup(dbPath);
+  });
+
+  it("人格已测 / 未测：只认当前结果（草稿与他人量表结果都不算）", () => {
+    const { dbPath, adapter } = seed();
+    const assessed = adapter.getSubmittedProfiles(1, 25, {
+      personality: { mode: "any" },
+      personalitySql: { scaleCode: IPIP_SCALE },
+    });
+    // 1 / 24 / 25 号有 IPIP 结果；2 号只有草稿，其余没测
+    expect(assessed.total).toBe(3);
+    expect(new Set(assessed.rows.map((row) => row.user_code))).toEqual(
+      new Set(["202505051001", CODE_24, CODE_25])
+    );
+
+    const missing = adapter.getSubmittedProfiles(1, 25, {
+      personality: { mode: "none" },
+      personalitySql: { scaleCode: IPIP_SCALE },
+    });
+    expect(missing.total).toBe(22);
+    expect(missing.rows.map((row) => row.user_code)).not.toContain(CODE_24);
+    adapter.close();
+    cleanup(dbPath);
+  });
+
+  it("人格单维度偏高：按维度下标 + key 双重校验（旧快照顺序不一致不误筛）", () => {
+    const { dbPath, adapter } = seed();
+    const high = adapter.getSubmittedProfiles(1, 25, {
+      personality: { mode: "dimension", key: "C", dir: "high" },
+      personalitySql: { scaleCode: IPIP_SCALE, dimensionIndex: C_INDEX },
+    });
+    // 24 号 C=80 命中；1 号快照顺序不一致（index 4 实际是 A）不应命中
+    expect(high.total).toBe(1);
+    expect(high.rows.map((row) => row.user_code)).toEqual([CODE_24]);
+
+    const low = adapter.getSubmittedProfiles(1, 25, {
+      personality: { mode: "dimension", key: "C", dir: "low" },
+      personalitySql: { scaleCode: IPIP_SCALE, dimensionIndex: C_INDEX },
+    });
+    expect(low.total).toBe(1);
+    expect(low.rows.map((row) => row.user_code)).toEqual([CODE_25]);
+    adapter.close();
+    cleanup(dbPath);
+  });
+
+  it("人格维度 + 搜索 / 标签可叠加，筛选与分页组合按过滤后结果算", () => {
+    const { dbPath, adapter } = seed();
+    const combined = adapter.getSubmittedProfiles(1, 1, {
+      personality: { mode: "dimension", key: "C", dir: "high" },
+      personalitySql: { scaleCode: IPIP_SCALE, dimensionIndex: C_INDEX },
+      q: "学生24",
+    });
+    expect(combined.total).toBe(1);
+    expect(combined.rows.map((row) => row.user_code)).toEqual([CODE_24]);
+
+    // 21 号（档案）与 24 号同班但兴趣不同：兴趣 + 标签组合仍按 AND 叠加
+    const interestAndTag = adapter.getSubmittedProfiles(1, 20, {
+      interest: { mode: "letters", keys: ["S", "I"] },
+      tags: ["阅读"],
+    });
+    expect(interestAndTag.total).toBe(0); // 24 号没有「阅读」标签
     adapter.close();
     cleanup(dbPath);
   });

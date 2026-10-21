@@ -3,13 +3,13 @@ import { MysqlAdapter } from "./db-mysql";
 import { SqliteAdapter } from "./db-sqlite";
 import { isDemoScope, isDemoEnabled, getDemoDbPath } from "./demo-scope";
 import type { QuestionOrigin } from "./assessment-data";
-import type { ProfileListQuery } from "./profile-query";
+import type { ResolvedProfileListQuery } from "./profile-query";
 import type { ClassTrendSeries, CompareStat } from "./stats-utils";
 
 export type { ClassTrendSeries, CompareStat };
 
 /** 数据列表筛选与排序入参（#295）：与前端 / API 共用同一形状，避免三处各定义一遍 */
-export type SubmittedProfileFilters = ProfileListQuery;
+export type SubmittedProfileFilters = ResolvedProfileListQuery;
 
 /**
  * 批查分片大小（#193）：单条 SQL 的绑定参数数量有引擎上限——SQLite 旧构建为

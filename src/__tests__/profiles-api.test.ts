@@ -4,7 +4,7 @@ import { NextRequest } from "next/server";
 vi.mock("@/lib/db", () => ({
   getSubmittedProfiles: vi.fn(),
   clearSubmissions: vi.fn(),
-  getAssessmentByCode: vi.fn(),
+  getEnabledAssessments: vi.fn(),
   getCurrentAssessmentResultsByUserCodes: vi.fn(),
   // #243：DELETE 的 WriteGuard 依赖（GET 用例不会调用，但模块导入需要完整导出）
   getStudents: vi.fn(async () => []),
@@ -16,16 +16,14 @@ vi.mock("@/lib/db", () => ({
 import { GET } from "@/app/api/manage/profiles/route";
 import {
   getSubmittedProfiles,
-  getAssessmentByCode,
+  getEnabledAssessments,
   getCurrentAssessmentResultsByUserCodes,
 } from "@/lib/db";
-import type {
-  AssessmentRow,
-  AssessmentResultSummary,
-  UserRow,
-} from "@/lib/db";
+import type { AssessmentRow, AssessmentResultSummary, UserRow } from "@/lib/db";
 
 const URL_BASE = "http://localhost:3000/api/manage/profiles";
+const RIASEC_ID = 1;
+const IPIP_ID = 2;
 
 function makeRequest(query = ""): NextRequest {
   return new NextRequest(new URL(`${URL_BASE}${query}`));
@@ -48,7 +46,45 @@ function student(overrides: Partial<UserRow> = {}): UserRow {
   } as UserRow;
 }
 
-const ASSESSMENT = { id: 1, code: "riasec" } as AssessmentRow;
+const RIASEC_SCALE = {
+  id: RIASEC_ID,
+  code: "riasec",
+  name: "霍兰德职业兴趣测评",
+  question_count: 30,
+  dimensions_json: JSON.stringify([
+    { key: "R", label: "现实型" },
+    { key: "I", label: "研究型" },
+    { key: "A", label: "艺术型" },
+    { key: "S", label: "社会型" },
+    { key: "E", label: "企业型" },
+    { key: "C", label: "常规型" },
+  ]),
+  scoring_mode: "typological",
+  scale_version: "Mini-IP-CN 1.0",
+  attribution: "",
+  license_text: "",
+  disclaimer: "",
+  enabled: 1,
+  created_at: "",
+  updated_at: "",
+} as AssessmentRow;
+
+const IPIP_SCALE = {
+  ...RIASEC_SCALE,
+  id: IPIP_ID,
+  code: "ipip-neo-ffi",
+  name: "五大人格测评",
+  question_count: 50,
+  dimensions_json: JSON.stringify([
+    { key: "N", label: "神经质" },
+    { key: "E", label: "外向性" },
+    { key: "O", label: "开放性" },
+    { key: "A", label: "宜人性" },
+    { key: "C", label: "尽责性" },
+  ]),
+  scoring_mode: "dimensional",
+  scale_version: "IPIP NEO-FFI 1.0",
+} as AssessmentRow;
 
 function result(overrides: Partial<AssessmentResultSummary> = {}): AssessmentResultSummary {
   return {
@@ -67,6 +103,22 @@ function result(overrides: Partial<AssessmentResultSummary> = {}): AssessmentRes
   };
 }
 
+function ipipResult(overrides: Partial<AssessmentResultSummary> = {}): AssessmentResultSummary {
+  return {
+    user_code: "202505050101",
+    type_code: null,
+    completed_at: "2026-10-19 08:00:00",
+    scores_json: JSON.stringify([
+      { key: "N", standard: 25 },
+      { key: "E", standard: 78.5 },
+      { key: "O", standard: 60 },
+      { key: "A", standard: 55 },
+      { key: "C", standard: 88 },
+    ]),
+    ...overrides,
+  };
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
   vi.mocked(getSubmittedProfiles).mockResolvedValue({
@@ -76,17 +128,64 @@ beforeEach(() => {
     ],
     total: 42,
   });
-  vi.mocked(getAssessmentByCode).mockResolvedValue(ASSESSMENT);
-  vi.mocked(getCurrentAssessmentResultsByUserCodes).mockResolvedValue([result()]);
+  vi.mocked(getEnabledAssessments).mockResolvedValue([RIASEC_SCALE, IPIP_SCALE]);
+  vi.mocked(getCurrentAssessmentResultsByUserCodes).mockImplementation(async (assessmentId: number) => {
+    if (assessmentId === RIASEC_ID) return [result()];
+    if (assessmentId === IPIP_ID) return [ipipResult()];
+    return [];
+  });
 });
 
-describe("GET /api/manage/profiles — 兴趣测评字段（#234）", () => {
-  it("已测行给三字码 / completed / 完成时间 / 六型快照，未测行为 null + none", async () => {
+describe("GET /api/manage/profiles — 双测评列（#330）", () => {
+  it("下发启用中的量表清单（列定义/维度标签唯一来源）与每行的分量表结果", async () => {
     const res = await GET(makeRequest());
     expect(res.status).toBe(200);
     const body = await res.json();
 
-    expect(body.data).toHaveLength(2);
+    expect(body.assessmentScales.map((scale: { code: string }) => scale.code)).toEqual([
+      "riasec",
+      "ipip-neo-ffi",
+    ]);
+    expect(body.assessmentScales[1]).toMatchObject({
+      name: "五大人格测评",
+      scoringMode: "dimensional",
+    });
+    expect(body.assessmentScales[1].dimensions.map((d: { label: string }) => d.label)).toEqual([
+      "神经质",
+      "外向性",
+      "开放性",
+      "宜人性",
+      "尽责性",
+    ]);
+
+    const first = body.data[0];
+    expect(first.assessmentResults.riasec).toMatchObject({
+      status: "completed",
+      typeCode: "SIA",
+      completedAt: "2026-10-18 09:30:00",
+    });
+    expect(first.assessmentResults.riasec.scores[0]).toEqual({ key: "S", standard: 92.5 });
+    expect(first.assessmentResults["ipip-neo-ffi"]).toMatchObject({
+      status: "completed",
+      typeCode: null,
+      completedAt: "2026-10-19 08:00:00",
+    });
+    expect(first.assessmentResults["ipip-neo-ffi"].scores.map((s: { key: string }) => s.key)).toEqual([
+      "N",
+      "E",
+      "O",
+      "A",
+      "C",
+    ]);
+
+    // 未测行两列都为 none
+    const second = body.data[1];
+    expect(second.assessmentResults.riasec.status).toBe("none");
+    expect(second.assessmentResults["ipip-neo-ffi"].status).toBe("none");
+  });
+
+  it("兼容字段（#234）仍按霍兰德结果下发，旧前端/导出不受影响", async () => {
+    const body = await (await GET(makeRequest())).json();
     expect(body.data[0]).toMatchObject({
       userId: 21,
       studentId: "202505050101",
@@ -96,7 +195,6 @@ describe("GET /api/manage/profiles — 兴趣测评字段（#234）", () => {
       assessmentStatus: "completed",
       assessmentAt: "2026-10-18 09:30:00",
     });
-    // 六型快照按原顺序透传（详情弹窗条形用），与学生端结果页同一份数据
     expect(body.data[0].assessmentScores.map((s: { key: string }) => s.key)).toEqual([
       "S",
       "I",
@@ -105,8 +203,6 @@ describe("GET /api/manage/profiles — 兴趣测评字段（#234）", () => {
       "E",
       "R",
     ]);
-    expect(body.data[0].assessmentScores[0].standard).toBe(92.5);
-
     expect(body.data[1]).toMatchObject({
       assessmentCode: null,
       assessmentStatus: "none",
@@ -130,164 +226,161 @@ describe("GET /api/manage/profiles — 兴趣测评字段（#234）", () => {
 
   it("按当前页学号批查（不是全校扫表），并把分页与默认筛选一起传给列表查询", async () => {
     await GET(makeRequest("?page=3&pageSize=10"));
-
-    // 不传筛选参数时给默认值（与改造前行为一致），#295 起第三个入参是服务端筛选
     expect(getSubmittedProfiles).toHaveBeenCalledWith(3, 10, {
       lead: "all",
       sortKey: "createdAt",
       sortDir: "desc",
     });
-    expect(getCurrentAssessmentResultsByUserCodes).toHaveBeenCalledWith(1, [
+    expect(getCurrentAssessmentResultsByUserCodes).toHaveBeenCalledWith(RIASEC_ID, [
+      "202505050101",
+      "202505050102",
+    ]);
+    expect(getCurrentAssessmentResultsByUserCodes).toHaveBeenCalledWith(IPIP_ID, [
       "202505050101",
       "202505050102",
     ]);
   });
 
-  it("六型快照只下发「维度 + 标准分」（不把 raw / band / 作答计数带到教师端）", async () => {
-    const res = await GET(makeRequest());
-    const body = await res.json();
-
-    for (const score of body.data[0].assessmentScores) {
-      expect(Object.keys(score).sort()).toEqual(["key", "standard"]);
-    }
-  });
-
-  it("分页字段与既有字段不回归（total 来自列表查询，服务端过滤后的命中数）", async () => {
-    const res = await GET(makeRequest("?page=2&pageSize=20"));
-    const body = await res.json();
-
-    expect(body.total).toBe(42);
-    expect(body.page).toBe(2);
-    expect(body.pageSize).toBe(20);
-    expect(body.totalPages).toBe(3);
-    expect(body.data[0].tags).toEqual(["兴趣", "技能"]);
-    expect(body.data[0].createdAt).toBe("2026-10-19 10:00:00");
-    // 旧数据 tags 为 null 时容忍为 []
-    expect(body.data[1].tags).toEqual([]);
-  });
-
-  it("空页不查量表也不查测评结果（一次多余查询都不发）", async () => {
+  it("空页不逐量表查结果（列表主功能不发多余查询）", async () => {
     vi.mocked(getSubmittedProfiles).mockResolvedValue({ rows: [], total: 0 });
-
     const res = await GET(makeRequest());
     const body = await res.json();
-
     expect(res.status).toBe(200);
     expect(body.data).toEqual([]);
-    expect(getAssessmentByCode).not.toHaveBeenCalled();
+    expect(body.assessmentScales).toHaveLength(2);
     expect(getCurrentAssessmentResultsByUserCodes).not.toHaveBeenCalled();
   });
 
-  it("量表缺失（未安装/被删）时全部按未测返回，不抛错", async () => {
-    vi.mocked(getAssessmentByCode).mockResolvedValue(undefined);
-
+  it("量表清单查询失败：列表照常返回，双列降级为未测（不整页 500）", async () => {
+    vi.mocked(getEnabledAssessments).mockRejectedValue(new Error("assessments table missing"));
     const res = await GET(makeRequest());
     const body = await res.json();
-
     expect(res.status).toBe(200);
-    expect(body.data.every((row: { assessmentStatus: string }) => row.assessmentStatus === "none")).toBe(true);
+    expect(body.data).toHaveLength(2);
+    expect(body.assessmentScales).toEqual([]);
+    expect(body.data[0].assessmentResults).toEqual({});
+    expect(body.data[0].assessmentStatus).toBe("none");
     expect(getCurrentAssessmentResultsByUserCodes).not.toHaveBeenCalled();
   });
 
-  it("分数快照损坏时仍返回列表（scores 降级为空数组，不 500）", async () => {
-    vi.mocked(getCurrentAssessmentResultsByUserCodes).mockResolvedValue([
-      result({ scores_json: "{not-json" }),
-    ]);
-
+  it("某套量表批查失败只让该列降级，另一列与列表不受影响", async () => {
+    vi.mocked(getCurrentAssessmentResultsByUserCodes).mockImplementation(async (assessmentId: number) => {
+      if (assessmentId === RIASEC_ID) return [result()];
+      throw new Error("ipip results broken");
+    });
     const res = await GET(makeRequest());
     const body = await res.json();
-
     expect(res.status).toBe(200);
-    expect(body.data[0].assessmentCode).toBe("SIA");
-    expect(body.data[0].assessmentScores).toEqual([]);
+    expect(body.data[0].assessmentResults.riasec.status).toBe("completed");
+    expect(body.data[0].assessmentResults["ipip-neo-ffi"].status).toBe("none");
   });
 
-  it("完成记录但三字码为 NULL 时按未测返回（状态与徽章同源，不出现「已测但没码」）", async () => {
-    vi.mocked(getCurrentAssessmentResultsByUserCodes).mockResolvedValue([
-      result({ type_code: null, scores_json: null }),
-    ]);
-
+  it("人格快照损坏时结果仍为 completed（界面降级为「已测·分数缺失」），不 500", async () => {
+    vi.mocked(getCurrentAssessmentResultsByUserCodes).mockImplementation(async (assessmentId: number) => {
+      if (assessmentId === RIASEC_ID) return [result()];
+      return [ipipResult({ scores_json: "{not-json" })];
+    });
     const res = await GET(makeRequest());
     const body = await res.json();
-
     expect(res.status).toBe(200);
-    expect(body.data[0]).toMatchObject({
-      assessmentCode: null,
-      assessmentStatus: "none",
-      assessmentAt: null,
-      assessmentScores: null,
+    expect(body.data[0].assessmentResults["ipip-neo-ffi"]).toMatchObject({
+      status: "completed",
+      scores: null,
     });
   });
 
-  it("测评数据层故障时整页降级为全部未测，不影响档案列表", async () => {
-    vi.mocked(getAssessmentByCode).mockRejectedValue(new Error("assessment table missing"));
-
-    const res = await GET(makeRequest());
-    const body = await res.json();
-
-    expect(res.status).toBe(200);
-    expect(body.data).toHaveLength(2);
-    expect(body.data[0].studentName).toBe("张三");
-    expect(body.data.every((row: { assessmentStatus: string }) => row.assessmentStatus === "none")).toBe(true);
+  it("完成记录但三字码为 NULL 时按未测返回（状态与徽章同源）", async () => {
+    vi.mocked(getCurrentAssessmentResultsByUserCodes).mockImplementation(async (assessmentId: number) =>
+      assessmentId === RIASEC_ID ? [result({ type_code: null, scores_json: null })] : []
+    );
+    const body = await (await GET(makeRequest())).json();
+    expect(body.data[0].assessmentResults.riasec.status).toBe("none");
+    expect(body.data[0].assessmentCode).toBeNull();
   });
 });
 
-describe("GET /api/manage/profiles — 服务端筛选参数（#295）", () => {
-  it("把 q / 标签 / 兴趣测评 / 排序透传给列表查询（筛选下推服务端，跨页生效）", async () => {
-    await GET(
-      makeRequest(
-        "?page=1&q=%E5%BC%A0%E4%B8%89&tag=%E8%BF%90%E5%8A%A8&tag=%E6%B8%B8%E6%88%8F&lead=I&sortKey=studentId&sortDir=asc"
-      )
-    );
-
+describe("GET /api/manage/profiles — 测评筛选参数（#330）", () => {
+  it("兴趣多选透传（AND 语义在数据层），并与搜索/标签叠加", async () => {
+    await GET(makeRequest("?q=%E5%BC%A0&tag=%E8%BF%90%E5%8A%A8&interest=S,A,I"));
     expect(getSubmittedProfiles).toHaveBeenCalledWith(1, 20, {
-      q: "张三",
-      tags: ["运动", "游戏"],
-      lead: "I",
-      sortKey: "studentId",
-      sortDir: "asc",
+      q: "张",
+      tags: ["运动"],
+      lead: "all",
+      interest: { mode: "letters", keys: ["S", "A", "I"] },
+      sortKey: "createdAt",
+      sortDir: "desc",
     });
   });
 
-  it("标签名里的逗号按字面量处理：一个 tag 参数就是一个标签，不切分（#295 review 修复）", async () => {
-    await GET(makeRequest("?tag=%E7%AF%AE%E7%90%83%2C%E8%B6%B3%E7%90%83&tag=%E8%BF%90%E5%8A%A8"));
-    const call = vi.mocked(getSubmittedProfiles).mock.calls.at(-1)!;
-    expect(call[2]).toMatchObject({ tags: ["篮球,足球", "运动"] });
+  it("人格单维度：路由把维度映射成量表 code + 数组下标（不给客户端传下标的机会）", async () => {
+    await GET(makeRequest("?personality=C:high"));
+    expect(getSubmittedProfiles).toHaveBeenCalledWith(1, 20, {
+      lead: "all",
+      personality: { mode: "dimension", key: "C", dir: "high" },
+      personalitySql: { scaleCode: "ipip-neo-ffi", dimensionIndex: 4 },
+      sortKey: "createdAt",
+      sortDir: "desc",
+    });
   });
 
-  it("lead=none 与 sortKey=createdAt 显式传递时保持原样", async () => {
-    await GET(makeRequest("?lead=none&sortKey=createdAt&sortDir=asc"));
-    const call = vi.mocked(getSubmittedProfiles).mock.calls.at(-1)!;
-    expect(call[2]).toEqual({ lead: "none", sortKey: "createdAt", sortDir: "asc" });
+  it("人格已测 / 未测：只解析量表 code，不需要维度下标", async () => {
+    await GET(makeRequest("?personality=any"));
+    expect(getSubmittedProfiles).toHaveBeenLastCalledWith(
+      1,
+      20,
+      expect.objectContaining({
+        personality: { mode: "any" },
+        personalitySql: { scaleCode: "ipip-neo-ffi" },
+      })
+    );
+    await GET(makeRequest("?personality=none"));
+    expect(getSubmittedProfiles).toHaveBeenLastCalledWith(
+      1,
+      20,
+      expect.objectContaining({ personality: { mode: "none" } })
+    );
   });
 
-  it.each([
-    ["lead=Z", "lead 只支持"],
-    ["sortKey=score", "sortKey 只支持"],
-    ["sortDir=up", "sortDir 只支持"],
-    ["page=0", "page 必须是正整数"],
-    ["page=abc", "page 必须是正整数"],
-    ["pageSize=0", "pageSize 必须是"],
-    ["pageSize=101", "pageSize 必须是"],
-  ])("非法参数 %s → 400（显式报错，不静默忽略筛选条件）", async (query, message) => {
-    const res = await GET(makeRequest(`?${query}`));
+  it("互斥：同时传 interest 与 personality → 400，不查库", async () => {
+    const res = await GET(makeRequest("?interest=S&personality=C:high"));
     expect(res.status).toBe(400);
-    expect((await res.json()).error).toContain(message);
+    expect((await res.json()).error).toContain("同一时间只按一种测评筛选");
+    expect(getSubmittedProfiles).not.toHaveBeenCalled();
   });
 
-  it("超长关键字 / 超量标签 → 400", async () => {
-    const longQuery = encodeURIComponent("字".repeat(51));
-    expect((await GET(makeRequest(`?q=${longQuery}`))).status).toBe(400);
-
-    const manyTags = Array.from({ length: 21 }, (_, index) => `tag=tag${index}`).join("&");
-    expect((await GET(makeRequest(`?${manyTags}`))).status).toBe(400);
+  it("量表清单读取失败 + 人格筛选 → 503（服务端故障不误报 400），且不查列表", async () => {
+    vi.mocked(getEnabledAssessments).mockRejectedValue(new Error("assessments table missing"));
+    for (const query of ["?personality=any", "?personality=none", "?personality=C:high"]) {
+      const res = await GET(makeRequest(query));
+      expect(res.status).toBe(503);
+      expect((await res.json()).error).toContain("暂时读取失败");
+    }
+    expect(getSubmittedProfiles).not.toHaveBeenCalled();
   });
 
-  it("筛选态 total 直接用服务端返回值（不再被当页过滤后的行数覆盖）", async () => {
-    vi.mocked(getSubmittedProfiles).mockResolvedValue({ rows: [student()], total: 7 });
-    const res = await GET(makeRequest("?q=张"));
-    const body = await res.json();
-    expect(body.total).toBe(7);
-    expect(body.totalPages).toBe(1);
+  it("维度不存在 / 人格量表未启用 → 400（显式报错，不返回空列表）", async () => {
+    const unknown = await GET(makeRequest("?personality=Z:high"));
+    expect(unknown.status).toBe(400);
+    expect((await unknown.json()).error).toContain("人格量表没有维度");
+
+    vi.mocked(getEnabledAssessments).mockResolvedValue([RIASEC_SCALE]);
+    const noScale = await GET(makeRequest("?personality=C:high"));
+    expect(noScale.status).toBe(400);
+    expect((await noScale.json()).error).toContain("人格量表");
+
+    const noScaleAny = await GET(makeRequest("?personality=any"));
+    expect(noScaleAny.status).toBe(400);
+  });
+
+  it("旧 lead 参数仍然可用（兼容旧前端），新参数非法值 400", async () => {
+    await GET(makeRequest("?lead=none"));
+    expect(getSubmittedProfiles).toHaveBeenLastCalledWith(
+      1,
+      20,
+      expect.objectContaining({ lead: "none" })
+    );
+
+    expect((await GET(makeRequest("?interest=Z"))).status).toBe(400);
+    expect((await GET(makeRequest("?personality=C"))).status).toBe(400);
   });
 });
