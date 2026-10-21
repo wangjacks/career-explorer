@@ -37,6 +37,7 @@ import {
 } from "@/lib/profile-summary";
 import { toThumbnailUrl } from "@/lib/thumbnail-utils";
 import { buildProfileCompletion } from "@/lib/profile-completion";
+import { heroCompletionText, profileStickyAction } from "@/lib/profile-ui";
 import type { WordCloudItem } from "@/types";
 
 interface MyProfile {
@@ -530,7 +531,7 @@ function ProfileOverviewCard({
         修改数据
       </button>
       {submissionClosed && (
-        <p className="text-xs text-amber-600 dark:text-amber-400">
+        <p className="text-xs text-warning-text">
           {submissionDeadline ? `档案提交已于 ${submissionDeadline} 截止，无法再修改` : "档案提交已截止，无法再修改"}
         </p>
       )}
@@ -957,6 +958,14 @@ export default function StudentDashboardPage() {
 
   // 档案完成度：兴趣标签 / 头像 / 他人评价（进度环 x/3；#322 与资料卡共用同一实现）
   const completion = profileCompletion(profile).filter((item) => item.done).length;
+  // #324：移动端底部 sticky「修改数据」（已归档 + 非编辑 + 我的档案视图；截止后置灰并给提示）
+  const stickyAction = profileStickyAction({
+    hasSubmitted,
+    editing,
+    activeView,
+    submissionClosed,
+    submissionDeadline,
+  });
 
   return (
     <div className="min-h-screen bg-background">
@@ -973,26 +982,30 @@ export default function StudentDashboardPage() {
           onSelect={switchView}
         />
 
-        <main className="flex-1 min-w-0 px-4 sm:px-6 py-6 animate-[fade-in_0.2s_ease-out]">
+        <main
+          className={`flex-1 min-w-0 px-4 sm:px-6 pt-6 animate-[fade-in_0.2s_ease-out] ${
+            stickyAction.visible ? "pb-28 sm:pb-6" : "pb-6"
+          }`}
+        >
           <div className="max-w-3xl mx-auto space-y-5">
             {/* Hero：深绿品牌区——头像 + 身份 + 状态印章 + 完成度环 + 就地修改（#322 精简） */}
-            <section className="bg-brand rounded-2xl p-5 sm:p-6 shadow-sm">
-              <div className="flex items-start gap-4 sm:gap-5">
+            <section className="bg-brand rounded-2xl p-4 sm:p-6 shadow-sm">
+              <div className="flex items-start gap-3 sm:gap-5">
                 {avatarPreview ? (
                   <img
                     src={avatarPreview}
                     alt="头像"
                     onClick={() => setLightbox(avatarPreview)}
-                    className="w-16 h-16 sm:w-20 sm:h-20 rounded-full object-cover border-2 border-accent/70 cursor-zoom-in flex-shrink-0"
+                    className="w-14 h-14 sm:w-20 sm:h-20 rounded-full object-cover border-2 border-accent/70 cursor-zoom-in flex-shrink-0"
                   />
                 ) : (
-                  <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-full bg-white/15 border-2 border-white/20 flex items-center justify-center text-white font-bold text-2xl flex-shrink-0">
+                  <div className="w-14 h-14 sm:w-20 sm:h-20 rounded-full bg-white/15 border-2 border-white/20 flex items-center justify-center text-white font-bold text-xl sm:text-2xl flex-shrink-0">
                     {profile.name.slice(0, 1)}
                   </div>
                 )}
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2.5 flex-wrap">
-                    <h1 className="text-2xl font-extrabold text-white leading-tight">{profile.name}</h1>
+                    <h1 className="min-w-0 break-words text-xl sm:text-2xl font-extrabold text-white leading-tight">{profile.name}</h1>
                     <span
                       className={`px-2.5 py-0.5 rounded-full text-xs font-medium border ${
                         hasSubmitted
@@ -1005,9 +1018,30 @@ export default function StudentDashboardPage() {
                   </div>
                   <p className="text-sm text-white/70 font-mono mt-1">{profile.user_code}</p>
                   <div className="flex items-center gap-2 mt-2 flex-wrap">
-                    <span className="px-2.5 py-0.5 bg-white/15 text-white/90 rounded-full text-xs">
+                    <span className="max-w-full truncate rounded-full bg-white/15 px-2.5 py-0.5 text-xs text-white/90">
                       {profile.class_name}
                     </span>
+                  </div>
+                  {/* 移动端：右侧完整度环收纳成一行（不占横向空间，长姓名/班级也不被挤） */}
+                  <div className="mt-2 flex items-center gap-2 sm:hidden">
+                    <span className="h-1.5 w-24 overflow-hidden rounded-full bg-white/20" aria-hidden>
+                      <span
+                        className="block h-full rounded-full bg-accent"
+                        style={{ width: `${(completion / 3) * 100}%` }}
+                      />
+                    </span>
+                    <span className="text-[11px] text-white/75">{heroCompletionText(completion)}</span>
+                    {!hasSubmitted && !editing && (
+                      <button
+                        type="button"
+                        onClick={startEdit}
+                        disabled={submissionClosed}
+                        className="ml-auto inline-flex flex-shrink-0 items-center gap-1 rounded-lg border border-white/30 px-2.5 py-1 text-xs font-medium text-white transition-colors hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
+                      >
+                        <SquarePen className="h-3.5 w-3.5" aria-hidden />
+                        开始填写
+                      </button>
+                    )}
                   </div>
                   {latestAssessment && (
                     <p className="mt-1.5 text-[11px] sm:text-xs text-white/60 truncate">
@@ -1026,7 +1060,8 @@ export default function StudentDashboardPage() {
                     </p>
                   )}
                 </div>
-                <div className="flex flex-shrink-0 flex-col items-end gap-2">
+                {/* 桌面：完整度环 + 修改入口；移动端收纳为下方一行完整度文案（#324） */}
+                <div className="hidden flex-shrink-0 flex-col items-end gap-2 sm:flex">
                   <div
                     className="group relative rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
                     tabIndex={0}
@@ -1171,7 +1206,7 @@ export default function StudentDashboardPage() {
                     开始填写
                   </button>
                   {submissionClosed && (
-                    <p className="text-xs text-amber-600 dark:text-amber-400">
+                    <p className="text-xs text-warning-text">
                       档案提交已于 {submissionDeadline} 截止
                     </p>
                   )}
@@ -1296,7 +1331,7 @@ export default function StudentDashboardPage() {
                   </button>
                 </div>
                 {submissionClosed && (
-                  <p className="text-xs text-amber-600 dark:text-amber-400 text-center">
+                  <p className="text-xs text-warning-text text-center">
                     档案提交已于 {submissionDeadline} 截止，无法保存
                   </p>
                 )}
@@ -1314,6 +1349,29 @@ export default function StudentDashboardPage() {
           </div>
         </main>
       </div>
+
+      {/* 移动端底部 sticky「修改数据」（#324）：始终可达、不遮挡内容（主区已留 pb-28），
+          截止后置灰并显示截止时间；桌面端仍用 hero / 资料卡内的入口 */}
+      {stickyAction.visible && (
+        <div
+          className="fixed inset-x-0 bottom-0 z-40 border-t border-border-soft bg-card/95 px-4 pt-3 backdrop-blur sm:hidden"
+          style={{ paddingBottom: "calc(0.75rem + env(safe-area-inset-bottom))" }}
+        >
+          <button
+            type="button"
+            onClick={startEdit}
+            disabled={stickyAction.disabled}
+            className="w-full rounded-xl bg-primary py-3 font-medium text-white transition-colors hover:bg-primary-strong disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
+          >
+            {stickyAction.disabled ? "提交已截止" : "修改数据"}
+          </button>
+          {stickyAction.hint && (
+            <p className="mt-1 text-center text-[11px] leading-snug text-warning-text">
+              {stickyAction.hint}
+            </p>
+          )}
+        </div>
+      )}
 
       {/* 图片放大预览（点击遮罩 / × / Esc 关闭）；z-[100] 高于全局 UserMenu，避免关闭按钮被遮挡 */}
       {lightbox && (
