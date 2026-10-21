@@ -8,6 +8,7 @@ import {
   buildBigFiveBars,
   buildBigFiveHeadline,
   buildBigFiveInterpretations,
+  buildAttributionGroups,
   buildCareerCards,
   buildRadarPoints,
   buildResultTrailing,
@@ -16,6 +17,7 @@ import {
   describeTypeCode,
   parseTypeCodeParts,
   resultCardMode,
+  resultCardStatus,
 } from "../lib/assessment-view";
 
 function score(key: string, standard: number, label?: string): DimensionScore {
@@ -236,7 +238,7 @@ describe("结果卡分流与口径行（#292）", () => {
 });
 
 describe("推荐职业卡片", () => {
-  it("中文名优先；无译名时回退英文名且不重复展示副标题", () => {
+  it("中文名优先；无译名时用职业群 + 学历兜底，英文只作小字（#322）", () => {
     const cards = buildCareerCards([
       {
         code: "15-1252.00",
@@ -254,10 +256,16 @@ describe("推荐职业卡片", () => {
       hasChineseName: true,
       meta: "计算机与数学 · 本科",
     });
-    expect(cards[1]).toMatchObject({ displayName: "Chief Executives", hasChineseName: false });
+    expect(cards[1]).toEqual({
+      code: "11-1011.00",
+      displayName: "管理 · 研究生",
+      englishName: "Chief Executives",
+      hasChineseName: false,
+      meta: "",
+    });
   });
 
-  it("缺字段的脏行整行丢弃；meta 只拼有值的部分", () => {
+  it("缺字段的脏行整行丢弃；无中文且无职业群 / 学历时退回「职业方向」", () => {
     const cards = buildCareerCards([
       { code: "  ", name: "No Code" },
       { code: "99-0001.00", name: "  " },
@@ -266,12 +274,94 @@ describe("推荐职业卡片", () => {
       null as never,
     ]);
     expect(cards).toHaveLength(1);
-    expect(cards[0]).toMatchObject({ code: "99-0002.00", displayName: "Only Name", meta: "" });
+    expect(cards[0]).toMatchObject({ code: "99-0002.00", displayName: "职业方向", meta: "" });
+    expect(cards[0].englishName).toBe("Only Name");
   });
 
   it("空/非数组入参返回空列表（推荐区块据此整块不渲染）", () => {
     expect(buildCareerCards([])).toEqual([]);
     expect(buildCareerCards(null)).toEqual([]);
     expect(buildCareerCards(undefined)).toEqual([]);
+  });
+});
+
+describe("结果卡折叠状态（#322）", () => {
+  const current = {
+    id: 1,
+    typeCode: "SIA",
+    scores: [],
+    completedAt: "2026-10-01 12:00",
+    isCurrent: true,
+  };
+
+  it("有当前结果 → 已测；只有草稿 → 进行中；都没有 → 未测", () => {
+    expect(resultCardStatus({ current, inProgress: null })).toBe("completed");
+    expect(
+      resultCardStatus({ current: null, inProgress: { answered: 3, total: 60, updatedAt: "2026-10-01 12:00" } })
+    ).toBe("in-progress");
+    expect(resultCardStatus({ current: null, inProgress: null })).toBe("not-started");
+  });
+
+  it("有当前结果时忽略草稿（完成态优先，与 deriveAssessmentCenter 同口径）", () => {
+    expect(
+      resultCardStatus({ current, inProgress: { answered: 3, total: 60, updatedAt: "2026-10-01 12:00" } })
+    ).toBe("completed");
+  });
+});
+
+describe("页尾授权分组（#322）", () => {
+  const riasec = {
+    code: "riasec",
+    name: "霍兰德职业兴趣测评",
+    attribution: "O*NET 署名",
+    licenseText: "USDOL/ETA 未审核这些修改",
+    disclaimer: "结果用于生涯探索",
+  };
+  const ipip = {
+    code: "ipip-neo-ffi",
+    name: "五大人格测评",
+    attribution: "IPIP 条目属于公有领域",
+    licenseText: "IPIP 条目可自由使用",
+    disclaimer: "结果用于生涯探索",
+  };
+
+  it("两套量表免责声明相同 → 只出一条，并记录适用量表", () => {
+    const model = buildAttributionGroups({ scales: [riasec, ipip] });
+    expect(model.disclaimers).toEqual([
+      { text: "结果用于生涯探索", scaleNames: ["霍兰德职业兴趣测评", "五大人格测评"] },
+    ]);
+    expect(model.groups.map((group) => group.code)).toEqual(["riasec", "ipip-neo-ffi"]);
+  });
+
+  it("免责声明不同 → 各自带量表归属，不糊成一段", () => {
+    const model = buildAttributionGroups({
+      scales: [riasec, { ...ipip, disclaimer: "IPIP 专属声明" }],
+    });
+    expect(model.disclaimers).toEqual([
+      { text: "结果用于生涯探索", scaleNames: ["霍兰德职业兴趣测评"] },
+      { text: "IPIP 专属声明", scaleNames: ["五大人格测评"] },
+    ]);
+  });
+
+  it("真正启用的量表缺 attribution 时不套 O*NET 兜底；legacy 占位才兜底", () => {
+    const real = buildAttributionGroups({ scales: [{ code: "ipip-neo-ffi", name: "五大人格测评" }] });
+    expect(real.groups[0]).toMatchObject({ attribution: "", licenseText: "", onetFallback: false });
+
+    const legacy = buildAttributionGroups({});
+    expect(legacy.groups[0]).toMatchObject({ code: "legacy", attribution: "", onetFallback: true });
+
+    const legacyWithText = buildAttributionGroups({ attribution: "O*NET 署名" });
+    expect(legacyWithText.groups[0].onetFallback).toBe(false);
+  });
+
+  it("文本字段统一 trim；careers 署名去空白，空入参返回空串", () => {
+    const model = buildAttributionGroups({
+      scales: [{ code: "riasec", name: " 霍兰德 ", attribution: " 署名 ", disclaimer: "  声明  " }],
+      careersAttribution: "  CC BY 4.0  ",
+    });
+    expect(model.groups[0]).toMatchObject({ name: "霍兰德", attribution: "署名", licenseText: "" });
+    expect(model.disclaimers).toEqual([{ text: "声明", scaleNames: ["霍兰德"] }]);
+    expect(model.careersAttribution).toBe("CC BY 4.0");
+    expect(buildAttributionGroups({}).careersAttribution).toBe("");
   });
 });
