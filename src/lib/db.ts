@@ -319,6 +319,8 @@ export interface AssessmentRow {
   code: string;
   name: string;
   question_count: number;
+  /** 每次作答题数（#282）：0 = 全量作答（题库即本轮），>0 时分层抽题（`assessment-sampling.ts`） */
+  items_per_attempt: number;
   /** 维度定义 JSON 文本 `[{ key, label }]`，顺序即展示与计分顺序 */
   dimensions_json: string;
   /** `typological`（取类型码，如霍兰德三字码）/ `dimensional`（多维高低分档） */
@@ -362,6 +364,8 @@ export interface AssessmentBankUpgradeResult {
   originBackfilled: number;
   /** 是否因 scale_version 变化而整体更新了量表定义字段 */
   definitionUpdated: boolean;
+  /** 是否回填了 `items_per_attempt`（#282：每次抽题数，与版本号无关） */
+  itemsPerAttemptUpdated: boolean;
 }
 
 /** assessment_results 行：一次作答 + 结果快照（快照而非实时计算，学生回看仍是当时的结论） */
@@ -373,6 +377,11 @@ export interface AssessmentResultRow {
   status: "in_progress" | "completed";
   /** 作答 JSON 文本：题号 → 1-5 作答值；草稿即未答全 */
   answers_json: string;
+  /**
+   * 本轮抽题快照（#282）：`{"v":1,"pool":"<题库指纹>","indexes":[…按呈现顺序]}`，
+   * 默认 `'[]'`（旧数据读作「全库即本轮」）。解析/序列化只在 `assessment-sampling.ts` 一处。
+   */
+  items_json: string;
   /** 得分 JSON 文本：完成时写入（维度得分快照），草稿为 NULL */
   scores_json: string | null;
   /** 类型码（`typological` 模式的三字码，如 `SIA`）；`dimensional` 量表为 NULL */
@@ -409,6 +418,8 @@ export interface CompleteAssessmentInput {
   userId: number;
   assessmentId: number;
   answersJson: string;
+  /** 本轮抽题快照（#282）：完成记录沿用草稿行时一并落库，`assessment-sampling.ts` 负责序列化 */
+  itemsJson: string;
   scoresJson: string | null;
   typeCode: string | null;
 }
@@ -660,7 +671,9 @@ export interface DbAdapter {
     tagsJson: string,
     avatarUrl: string,
     evaluationUrl: string,
-    storageId: number
+    storageId: number,
+    /** 演示播种用：显式提交时间（与 getNow 同格式 `YYYY-MM-DD HH:mm:ss`）；生产提交省略→取当前 */
+    submittedAt?: string
   ): Promise<{ version: number }> | { version: number };
 
   // stats
@@ -791,9 +804,15 @@ export interface DbAdapter {
   upgradeAssessmentBank(): Promise<AssessmentBankUpgradeResult> | AssessmentBankUpgradeResult;
   /**
    * 草稿 upsert：同一 (user_id, assessment_id) 至多一条 `in_progress` 记录，返回该行 id。
-   * 幂等——续答只覆盖作答内容，不新增行；唯一性由 `draft_slot` 唯一约束兜住（并发自动保存不会插出第二条）。
+   * 幂等——续答只覆盖作答内容与抽题快照，不新增行；唯一性由 `draft_slot` 唯一约束兜住（并发自动保存不会插出第二条）。
+   * `itemsJson`（#282）：本轮抽题快照，第一次作答时随草稿写入（`GET /start` 仍不落库）。
    */
-  upsertAssessmentDraft(userId: number, assessmentId: number, answersJson: string): Promise<number> | number;
+  upsertAssessmentDraft(
+    userId: number,
+    assessmentId: number,
+    answersJson: string,
+    itemsJson: string
+  ): Promise<number> | number;
   /** 读草稿（续答）；没有草稿返回 undefined */
   getAssessmentDraft(userId: number, assessmentId: number): Promise<AssessmentResultRow | undefined> | AssessmentResultRow | undefined;
   /**
@@ -1069,10 +1088,11 @@ export async function submitProfileWithVersion(
   tagsJson: string,
   avatarUrl: string,
   evaluationUrl: string,
-  storageId: number
+  storageId: number,
+  submittedAt?: string
 ): Promise<{ version: number }> {
   const adapter = await ensureInit();
-  return Promise.resolve(adapter.submitProfileWithVersion(userCode, tagsJson, avatarUrl, evaluationUrl, storageId));
+  return Promise.resolve(adapter.submitProfileWithVersion(userCode, tagsJson, avatarUrl, evaluationUrl, storageId, submittedAt));
 }
 
 export async function getStats(): Promise<Stats> {
@@ -1438,10 +1458,11 @@ export async function upgradeAssessmentBank(): Promise<AssessmentBankUpgradeResu
 export async function upsertAssessmentDraft(
   userId: number,
   assessmentId: number,
-  answersJson: string
+  answersJson: string,
+  itemsJson: string
 ): Promise<number> {
   const adapter = await ensureInit();
-  return Promise.resolve(adapter.upsertAssessmentDraft(userId, assessmentId, answersJson));
+  return Promise.resolve(adapter.upsertAssessmentDraft(userId, assessmentId, answersJson, itemsJson));
 }
 
 export async function getAssessmentDraft(

@@ -1,24 +1,17 @@
 import { withDemoScope } from "@/lib/demo-scope";
 import { NextRequest, NextResponse } from "next/server";
-import {
-  getAssessmentByCode,
-  getAssessmentDraft,
-  getAssessmentQuestionsByCode,
-  getAssessmentResults,
-  getCurrentAssessmentResult,
-  getUserById,
-  normalizeAssessmentCode,
-} from "@/lib/db";
+import { getAssessmentByCode, getUserById, normalizeAssessmentCode, type AssessmentResultRow } from "@/lib/db";
 import { RIASEC_CODE } from "@/lib/assessment-data";
 import {
   MAX_RESULT_VERSIONS,
   answerProgress,
-  filterAnswersToBank,
   formatResultTime,
   parseAnswers,
   parseDimensions,
   parseScores,
 } from "@/lib/assessment-flow";
+import { loadAttemptContext } from "@/lib/assessment-attempt";
+import { parseItemsSnapshot } from "@/lib/assessment-sampling";
 import { verifyToken } from "@/lib/token";
 import { getRequestContext, recordAudit } from "@/lib/audit";
 
@@ -26,10 +19,12 @@ import { getRequestContext, recordAudit } from "@/lib/audit";
 const MAX_HISTORY = MAX_RESULT_VERSIONS;
 
 /**
- * 结果查询（#223）：当前有效结果 + 历史版本 + 进行中的作答进度，供「我的档案」测评区（#224）消费。
+ * 结果查询（#223 + #282）：当前有效结果 + 历史版本 + 进行中的作答进度，供「我的档案」测评区（#224）消费。
  *
  * 自鉴权：只按会话 uid 读取本人结果，**不提供任何 userId 参数**，因此不存在越权读他人结果的路径。
  * 结果里的得分是**快照**（当时算出的六维分 + 三字码），不随题库/换算改动重算。
+ * #282 后每条记录另带 `questionCount`：优先取该记录自己的抽题快照长度，
+ * 旧记录（无快照）取当轮作答数——整库作答的年代就是 120，不会谎报成新的 30。
  */
 async function GET_impl(request: NextRequest) {
   const { ip, user_agent } = getRequestContext(request);
@@ -48,25 +43,25 @@ async function GET_impl(request: NextRequest) {
     const assessment = await getAssessmentByCode(code);
     if (!assessment) return NextResponse.json({ error: "测评不存在" }, { status: 404 });
 
-    const [questions, current, all, draft] = await Promise.all([
-      getAssessmentQuestionsByCode(code),
-      getCurrentAssessmentResult(user.id, assessment.id),
-      getAssessmentResults(user.id, assessment.id),
-      getAssessmentDraft(user.id, assessment.id),
-    ]);
+    // 一次读取即得本轮口径 + 草稿 + 全部完成记录（current 也从这里挑，不再单独查一次）
+    const context = await loadAttemptContext(assessment, user.id);
+    const current = context.completed.find((row) => row.is_current === 1);
+    const draftProgress = answerProgress(context.answers, context.roundIndexes);
 
-    const bankIndexes = questions.map((q) => q.question_index);
-    const draftAnswers = filterAnswersToBank(parseAnswers(draft?.answers_json), bankIndexes);
-    const draftProgress = answerProgress(draftAnswers, bankIndexes);
-
-    const toView = (row: (typeof all)[number]) => ({
+    const questionCountOf = (row: AssessmentResultRow) => {
+      const snapshot = parseItemsSnapshot(row.items_json);
+      if (snapshot) return snapshot.indexes.length;
+      return Object.keys(parseAnswers(row.answers_json)).length;
+    };
+    const toView = (row: AssessmentResultRow) => ({
       id: row.id,
       typeCode: row.type_code,
       scores: parseScores(row.scores_json),
       completedAt: formatResultTime(row.completed_at),
       isCurrent: row.is_current === 1,
+      questionCount: questionCountOf(row),
     });
-    const history = all.slice(0, MAX_HISTORY).map(toView);
+    const history = context.completed.slice(0, MAX_HISTORY).map(toView);
 
     await recordAudit({
       actor_id: user.id,
@@ -89,7 +84,10 @@ async function GET_impl(request: NextRequest) {
       assessment: {
         code: assessment.code,
         name: assessment.name,
-        questionCount: bankIndexes.length,
+        /** 新一轮的题量（#282）：启用抽题时是每次抽题数，未启用时是题库总量 */
+        questionCount: context.roundIndexes.length,
+        poolSize: context.bankIndexes.length,
+        itemsPerAttempt: assessment.items_per_attempt,
         /** 是否开放（#222 测评中心据此决定给不给「开始 / 继续作答」入口；停用后历史结果仍可读） */
         enabled: assessment.enabled === 1,
         scaleVersion: assessment.scale_version,
@@ -102,8 +100,8 @@ async function GET_impl(request: NextRequest) {
       history,
       // 进行中的作答进度（未完成过或正在重测时给「继续作答」用）；没有草稿时为 null
       inProgress:
-        draft && draftProgress.answered > 0
-          ? { answered: draftProgress.answered, total: draftProgress.total, updatedAt: draft.updated_at }
+        context.draft && draftProgress.answered > 0
+          ? { answered: draftProgress.answered, total: draftProgress.total, updatedAt: context.draft.updated_at }
           : null,
     });
   } catch (err) {

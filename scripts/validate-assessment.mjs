@@ -136,6 +136,8 @@ function loadFromDb(dbPath, code) {
         code: assessment.code,
         name: assessment.name,
         scaleVersion: assessment.scale_version,
+        // #282：每次作答题数（0 = 全量作答）。库里没有这一列（旧库）时按全量作答处理
+        itemsPerAttempt: Number(assessment.items_per_attempt ?? 0),
         dimensions: parseDimensions(assessment.dimensions_json),
         questions,
       },
@@ -169,6 +171,7 @@ function loadFromExport(filePath) {
       code: assessment.code ?? DEFAULT_CODE,
       name: assessment.name ?? "",
       scaleVersion: assessment.scaleVersion ?? "",
+      itemsPerAttempt: Number(assessment.itemsPerAttempt ?? assessment.items_per_attempt ?? 0),
       dimensions: dimensions
         .filter((item) => item && typeof item.key === "string")
         .map((item) => ({ key: item.key, label: typeof item.label === "string" ? item.label : item.key })),
@@ -316,6 +319,11 @@ function renderMarkdown(analysis, meta, options) {
   lines.push("## 1. 样本");
   lines.push("");
   lines.push(`- 量表：\`${meta.code}\`${meta.scaleVersion ? `（量表版本 ${meta.scaleVersion}）` : ""}，${meta.questions.length} 题 / ${meta.dimensions.length} 维`);
+  lines.push(
+    meta.itemsPerAttempt > 0 && meta.itemsPerAttempt < meta.questions.length
+      ? `- 施测口径：每次作答 **${meta.itemsPerAttempt}** 题（#282 分层抽题，每人只答到题库的一部分）`
+      : "- 施测口径：全量作答（`items_per_attempt = 0`，题库即本轮）"
+  );
   lines.push(`- 完成记录数：**${analysis.completedCount}**；去重后的匿名被试数：**${analysis.studentCount}**`);
   lines.push(`- 参与维度相关与常模分析的样本（六维齐全）：**${analysis.correlationSampleSize}**`);
   lines.push(`- 常模最小样本量要求：${NORM_MIN_SAMPLE}（推荐 ${NORM_RECOMMENDED_SAMPLE}）`);
@@ -324,12 +332,23 @@ function renderMarkdown(analysis, meta, options) {
   lines.push("");
   lines.push(`判定线：α ≥ 0.7 可接受、≥ 0.8 良好；校正题总相关（CITC）建议 ≥ ${CITC_MIN}。`);
   lines.push("");
-  lines.push("| 维度 | 题数 | 有效样本 | α | 判定 | CITC 低于阈值或无法计算的题号 |");
-  lines.push("|---|---|---|---|---|---|");
-  for (const item of analysis.reliability) {
+  // #282 之后每次只答题库的一部分，逐题一致性统计要求同一套题目在被试间可比，抽样卷直接算必然全为 0 样本
+  const sampled = meta.itemsPerAttempt > 0 && meta.itemsPerAttempt < meta.questions.length;
+  if (sampled && analysis.reliability.every((item) => item.sampleSize === 0)) {
     lines.push(
-      `| ${labelOf(item.dimension)}（${item.dimension}） | ${item.itemCount} | ${item.sampleSize} | ${fmt(item.alpha)} | ${item.band ? BAND_LABELS[item.band] : "无法计算"} | ${item.lowCitc.length > 0 ? item.lowCitc.join("、") : "—"} |`
+      `本次数据是分层抽题口径（每人 ${meta.itemsPerAttempt} 题 / 题库 ${meta.questions.length} 题），` +
+        "没有人答满某一维的全部题目，α 与 CITC **在这批数据上不可计算**——这是口径限制，不是题库缺陷。"
     );
+    lines.push("");
+    lines.push("题目质量回收请改用**全量作答**的试测数据（把 `assessments.items_per_attempt` 临时置 0 施测，或按 #284 班级试测方案取全量卷）。");
+  } else {
+    lines.push("| 维度 | 题数 | 有效样本 | α | 判定 | CITC 低于阈值或无法计算的题号 |");
+    lines.push("|---|---|---|---|---|---|");
+    for (const item of analysis.reliability) {
+      lines.push(
+        `| ${labelOf(item.dimension)}（${item.dimension}） | ${item.itemCount} | ${item.sampleSize} | ${fmt(item.alpha)} | ${item.band ? BAND_LABELS[item.band] : "无法计算"} | ${item.lowCitc.length > 0 ? item.lowCitc.join("、") : "—"} |`
+      );
+    }
   }
   lines.push("");
   lines.push("## 3. 维度间相关（区分效度参考）");

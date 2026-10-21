@@ -29,7 +29,8 @@ function downgradeToLegacyBank(dbPath: string, assessmentId: number): void {
     "UPDATE assessment_questions SET origin = 'cn-original' WHERE assessment_id = ? AND question_index <= 30"
   ).run(assessmentId);
   raw.prepare(
-    "UPDATE assessments SET question_count = 30, scale_version = 'Mini-IP-CN 1.0', name = '霍兰德职业兴趣测评（Mini-IP 精简版）' WHERE id = ?"
+    // items_per_attempt = 0 是「#282 之前建的库补列后」的真实形态：列默认值 0 = 整库作答
+    "UPDATE assessments SET question_count = 30, items_per_attempt = 0, scale_version = 'Mini-IP-CN 1.0', name = '霍兰德职业兴趣测评（Mini-IP 精简版）' WHERE id = ?"
   ).run(assessmentId);
   raw.close();
 }
@@ -66,8 +67,11 @@ describe("RIASEC 题库种子（#221 / #281 扩容到 120 题）", () => {
     expect(riasec.scale_version).toBe(RIASEC_ASSESSMENT.scaleVersion);
     expect(RIASEC_ASSESSMENT.scaleVersion).toBe(RIASEC_SCALE_VERSION);
     expect(riasec.name).toContain("120 题库");
-    // 分层抽题（#282）未落地前作答的就是全库，名字不能预告「每次 30 题」
+    // 「每次 30 题」属于学生侧题量文案，归 #283（抽题口径已落地，但量表名不预告题量）
     expect(riasec.name).not.toContain("每次 30 题");
+    // #282：每次作答题数落库（0 = 整库作答）
+    expect(riasec.items_per_attempt).toBe(RIASEC_ASSESSMENT.itemsPerAttempt);
+    expect(riasec.items_per_attempt).toBe(30);
 
     // 维度定义 JSON：供计分引擎直接消费的 { key, label } 数组
     const dimensions = JSON.parse(assessment.dimensions_json) as { key: string; label: string }[];
@@ -261,7 +265,12 @@ describe("题库只增不改升级（#281）", () => {
     expect(adapter.getAssessmentByCode(RIASEC_CODE)?.question_count).toBe(30);
 
     const result = adapter.upgradeAssessmentBank();
-    expect(result).toEqual({ inserted: 90, originBackfilled: 30, definitionUpdated: true });
+    expect(result).toEqual({
+      inserted: 90,
+      originBackfilled: 30,
+      definitionUpdated: true,
+      itemsPerAttemptUpdated: true,
+    });
 
     const questions = adapter.getAssessmentQuestions(assessment.id);
     expect(questions).toHaveLength(BANK_SIZE);
@@ -278,6 +287,8 @@ describe("题库只增不改升级（#281）", () => {
     expect(definition.question_count).toBe(BANK_SIZE);
     expect(definition.scale_version).toBe(RIASEC_SCALE_VERSION);
     expect(definition.name).toContain("120 题库");
+    // #282：每次抽题数与 scale_version 无关也要补齐（旧库补列后读作 0 = 整库作答）
+    expect(definition.items_per_attempt).toBe(RIASEC_ASSESSMENT.itemsPerAttempt);
 
     adapter.close();
     cleanup(dbPath);
@@ -310,7 +321,7 @@ describe("题库只增不改升级（#281）", () => {
     const definitionBefore = adapter.getAssessmentByCode(RIASEC_CODE)!;
 
     const second = adapter.upgradeAssessmentBank();
-    expect(second).toEqual({ inserted: 0, originBackfilled: 0, definitionUpdated: false });
+    expect(second).toEqual({ inserted: 0, originBackfilled: 0, definitionUpdated: false, itemsPerAttemptUpdated: false });
     expect(adapter.getAssessmentQuestions(assessment.id)).toEqual(before);
     expect(adapter.getAssessmentByCode(RIASEC_CODE)).toEqual(definitionBefore);
 
@@ -337,8 +348,8 @@ describe("草稿与结果（#221）", () => {
   it("草稿 upsert 幂等：同一学生同一量表只有一条 in_progress，作答内容被覆盖", () => {
     const { dbPath, adapter, studentId, assessment } = setup();
 
-    const first = adapter.upsertAssessmentDraft(studentId, assessment.id, JSON.stringify({ 1: 4, 2: 5 }));
-    const second = adapter.upsertAssessmentDraft(studentId, assessment.id, JSON.stringify({ 1: 2 }));
+    const first = adapter.upsertAssessmentDraft(studentId, assessment.id, JSON.stringify({ 1: 4, 2: 5 }), "[]");
+    const second = adapter.upsertAssessmentDraft(studentId, assessment.id, JSON.stringify({ 1: 2 }), "[]");
     expect(second).toBe(first);
 
     const draft = adapter.getAssessmentDraft(studentId, assessment.id);
@@ -355,7 +366,7 @@ describe("草稿与结果（#221）", () => {
   it("草稿唯一性由唯一约束兜住：绕过适配器也插不进第二条草稿", () => {
     const { dbPath, adapter, studentId, assessment } = setup();
 
-    adapter.upsertAssessmentDraft(studentId, assessment.id, JSON.stringify({ 1: 4 }));
+    adapter.upsertAssessmentDraft(studentId, assessment.id, JSON.stringify({ 1: 4 }), "[]");
 
     // draft_slot = 1 是草稿位；唯一约束 (user_id, assessment_id, draft_slot) 让并发自动保存也插不出第二条
     const raw = new Database(dbPath);
@@ -377,18 +388,19 @@ describe("草稿与结果（#221）", () => {
   it("完成时释放草稿位：完成后可再开新草稿，不覆盖已完成的版本", () => {
     const { dbPath, adapter, studentId, assessment } = setup();
 
-    adapter.upsertAssessmentDraft(studentId, assessment.id, JSON.stringify({ 1: 4 }));
+    adapter.upsertAssessmentDraft(studentId, assessment.id, JSON.stringify({ 1: 4 }), "[]");
     const completedId = adapter.completeAssessmentResult({
       userId: studentId,
       assessmentId: assessment.id,
       answersJson: JSON.stringify({ 1: 4 }),
+      itemsJson: "[]",
       scoresJson: null,
       typeCode: "RIA",
     });
     expect(adapter.getAssessmentDraft(studentId, assessment.id)).toBeUndefined();
 
     // 再开新一轮：新草稿占回草稿位，已完成版本不受影响
-    const newDraftId = adapter.upsertAssessmentDraft(studentId, assessment.id, JSON.stringify({ 1: 5 }));
+    const newDraftId = adapter.upsertAssessmentDraft(studentId, assessment.id, JSON.stringify({ 1: 5 }), "[]");
     expect(newDraftId).not.toBe(completedId);
     expect(adapter.getAssessmentDraft(studentId, assessment.id)?.answers_json).toBe(JSON.stringify({ 1: 5 }));
     expect(adapter.getCurrentAssessmentResult(studentId, assessment.id)?.id).toBe(completedId);
@@ -401,11 +413,12 @@ describe("草稿与结果（#221）", () => {
   it("完成结果沿用草稿行；再完成一次生成新版本，is_current 唯一且历史可查", () => {
     const { dbPath, adapter, studentId, assessment } = setup();
 
-    const draftId = adapter.upsertAssessmentDraft(studentId, assessment.id, JSON.stringify({ 1: 4 }));
+    const draftId = adapter.upsertAssessmentDraft(studentId, assessment.id, JSON.stringify({ 1: 4 }), "[]");
     const firstId = adapter.completeAssessmentResult({
       userId: studentId,
       assessmentId: assessment.id,
       answersJson: JSON.stringify({ 1: 4 }),
+      itemsJson: "[]",
       scoresJson: JSON.stringify([{ key: "R", standard: 75 }]),
       typeCode: "RIA",
     });
@@ -424,6 +437,7 @@ describe("草稿与结果（#221）", () => {
       userId: studentId,
       assessmentId: assessment.id,
       answersJson: JSON.stringify({ 1: 5 }),
+      itemsJson: "[]",
       scoresJson: JSON.stringify([{ key: "R", standard: 100 }]),
       typeCode: "RIC",
     });
@@ -442,6 +456,35 @@ describe("草稿与结果（#221）", () => {
     cleanup(dbPath);
   });
 
+  it("抽题快照随草稿与完成记录落库（#282）：沿用同一行，不改写也不丢", () => {
+    const { dbPath, adapter, studentId, assessment } = setup();
+    const snapshot = JSON.stringify({ v: 1, pool: "abc123", indexes: [7, 21, 55] });
+
+    adapter.upsertAssessmentDraft(studentId, assessment.id, JSON.stringify({ 7: 4 }), snapshot);
+    expect(adapter.getAssessmentDraft(studentId, assessment.id)!.items_json).toBe(snapshot);
+
+    // 第二次作答覆盖快照字段（值本来就来自这条快照，重复写同一个值）
+    const snapshot2 = JSON.stringify({ v: 1, pool: "abc123", indexes: [7, 21] });
+    adapter.upsertAssessmentDraft(studentId, assessment.id, JSON.stringify({ 7: 4, 21: 3 }), snapshot2);
+    const draft = adapter.getAssessmentDraft(studentId, assessment.id)!;
+    expect(draft.items_json).toBe(snapshot2);
+
+    // 完成时沿用草稿行：快照原样带过去，读回来的还是当轮那份题号清单
+    const completedId = adapter.completeAssessmentResult({
+      userId: studentId,
+      assessmentId: assessment.id,
+      answersJson: JSON.stringify({ 7: 4, 21: 3 }),
+      itemsJson: snapshot2,
+      scoresJson: null,
+      typeCode: "RIA",
+    });
+    expect(completedId).toBe(draft.id);
+    expect(adapter.getCurrentAssessmentResult(studentId, assessment.id)!.items_json).toBe(snapshot2);
+
+    adapter.close();
+    cleanup(dbPath);
+  });
+
   it("学生之间互不可见；维度与计分类型可共存（dimensional 量表无三字码）", () => {
     const { dbPath, adapter, studentId, assessment } = setup();
     const otherId = adapter.insertUser({ user_code: "202505050102", role: "student", name: "李四" });
@@ -450,6 +493,7 @@ describe("草稿与结果（#221）", () => {
       userId: studentId,
       assessmentId: assessment.id,
       answersJson: "{}",
+      itemsJson: "[]",
       scoresJson: null,
       typeCode: null,
     });
@@ -470,6 +514,7 @@ describe("草稿与结果（#221）", () => {
       userId: studentId,
       assessmentId: assessment.id,
       answersJson: "{}",
+      itemsJson: "[]",
       scoresJson: null,
       typeCode: "RIA",
     });
@@ -493,6 +538,7 @@ describe("备份与恢复（#221：三表纳入备份 version 6）", () => {
       userId: studentId,
       assessmentId: assessment.id,
       answersJson: JSON.stringify({ 1: 4 }),
+      itemsJson: "[]",
       scoresJson: JSON.stringify([{ key: "R", standard: 75 }]),
       typeCode: "RIA",
     });
@@ -529,6 +575,7 @@ describe("备份与恢复（#221：三表纳入备份 version 6）", () => {
       userId: studentId,
       assessmentId: assessment.id,
       answersJson: "{}",
+      itemsJson: "[]",
       scoresJson: null,
       typeCode: "RIA",
     });
@@ -582,6 +629,41 @@ describe("备份与恢复（#221：三表纳入备份 version 6）", () => {
     const restored = adapter.getAssessmentQuestionsByCode(RIASEC_CODE);
     expect(restored).toHaveLength(BANK_SIZE);
     expect(restored.every((q) => q.origin === "cn-original")).toBe(true);
+
+    adapter.close();
+    cleanup(dbPath);
+  });
+
+  it("旧备份缺 items_per_attempt / items_json：恢复补默认值而不是拒绝，升级再补齐（#282）", () => {
+    const { dbPath, adapter, studentId, assessment } = setup();
+    const snapshot = JSON.stringify({ v: 1, pool: "abc123", indexes: [3, 88] });
+    adapter.completeAssessmentResult({
+      userId: studentId,
+      assessmentId: assessment.id,
+      answersJson: JSON.stringify({ 3: 4, 88: 2 }),
+      itemsJson: snapshot,
+      scoresJson: null,
+      typeCode: "RIA",
+    });
+
+    const data = adapter.backup();
+    expect(data.assessments![0].items_per_attempt).toBe(30);
+    expect(data.assessment_results![0].items_json).toBe(snapshot);
+
+    // 模拟 #282 之前的备份：逐行去掉两个新列
+    const drop = (row: object, key: string) =>
+      Object.fromEntries(Object.entries(row).filter(([name]) => name !== key));
+    adapter.restore({
+      ...data,
+      assessments: data.assessments!.map((a) => drop(a, "items_per_attempt")) as never,
+      assessment_results: data.assessment_results!.map((r) => drop(r, "items_json")) as never,
+    });
+    expect(adapter.getAssessmentByCode(RIASEC_CODE)?.items_per_attempt).toBe(0);
+    expect(adapter.getCurrentAssessmentResult(studentId, assessment.id)!.items_json).toBe("[]");
+
+    // 旧库形态（0 = 整库作答）由 upgradeAssessmentBank 按种子补齐，不需要人工改库
+    expect(adapter.upgradeAssessmentBank().itemsPerAttemptUpdated).toBe(true);
+    expect(adapter.getAssessmentByCode(RIASEC_CODE)?.items_per_attempt).toBe(30);
 
     adapter.close();
     cleanup(dbPath);
@@ -658,13 +740,14 @@ describe("两适配器 Schema 对账（#221）", () => {
     expect(tableBlock(read("db-mysql.ts"), "assessments")).toMatch(/code VARCHAR\(\d+\) COLLATE utf8mb4_bin/i);
   });
 
-  it("三表覆盖 issue #221 要求的字段", () => {
+  it("三表覆盖 issue #221 / #282 要求的字段", () => {
     const sqlite = read("db-sqlite.ts");
     expect(columnNames(sqlite, "assessments")).toEqual(
       expect.arrayContaining([
         "code",
         "name",
         "question_count",
+        "items_per_attempt",
         "dimensions_json",
         "scoring_mode",
         "scale_version",
@@ -690,6 +773,7 @@ describe("两适配器 Schema 对账（#221）", () => {
         "assessment_id",
         "status",
         "answers_json",
+        "items_json",
         "scores_json",
         "type_code",
         "is_current",
@@ -725,6 +809,7 @@ describe("与计分引擎的对接契约（#220 / #221）", () => {
       userId: studentId,
       assessmentId: assessment.id,
       answersJson: JSON.stringify(answers),
+      itemsJson: "[]",
       scoresJson: JSON.stringify(result.scores),
       typeCode: result.code ?? null,
     });
@@ -756,13 +841,14 @@ describe("按学号批量取当前测评结果快照（#233 教师导出 / #234 
     const otherId = adapter.insertUser({ user_code: "202505050102", role: "student", name: "李四" });
     expect(otherId).toBeGreaterThan(0);
     // 李四只有草稿：草稿不算「测过」，不应出现在结果里（#234 列表徽章同口径）
-    adapter.upsertAssessmentDraft(otherId, assessment.id, JSON.stringify({ 1: 3 }));
+    adapter.upsertAssessmentDraft(otherId, assessment.id, JSON.stringify({ 1: 3 }), "[]");
 
     // 同一学生两次完成：只应返回 is_current 的那条（最新）
     adapter.completeAssessmentResult({
       userId: studentId,
       assessmentId: assessment.id,
       answersJson: JSON.stringify({ 1: 4 }),
+      itemsJson: "[]",
       scoresJson: JSON.stringify([{ key: "R", standard: 75 }]),
       typeCode: "RIA",
     });
@@ -770,6 +856,7 @@ describe("按学号批量取当前测评结果快照（#233 教师导出 / #234 
       userId: studentId,
       assessmentId: assessment.id,
       answersJson: JSON.stringify({ 1: 5 }),
+      itemsJson: "[]",
       scoresJson: JSON.stringify([{ key: "R", standard: 100 }]),
       typeCode: "RIC",
     });
@@ -799,6 +886,7 @@ describe("按学号批量取当前测评结果快照（#233 教师导出 / #234 
       userId: studentId,
       assessmentId: assessment.id,
       answersJson: "{}",
+      itemsJson: "[]",
       scoresJson: JSON.stringify([{ key: "S", standard: 80 }]),
       typeCode: "SIA",
     });
