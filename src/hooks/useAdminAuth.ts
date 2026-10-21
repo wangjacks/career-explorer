@@ -10,6 +10,8 @@ export interface Profile {
   userId?: number;
   studentId: string;
   studentName: string;
+  /** 学生当前所在班级（#243）；未分班或旧接口响应可能为 null / undefined */
+  classId?: number | null;
   tags: string[];
   avatarUrl: string;
   evaluationUrl: string;
