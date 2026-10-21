@@ -2,6 +2,8 @@ import { describe, it, expect } from "vitest";
 import {
   ASSESSMENT_TYPE_COLORS,
   ASSESSMENT_TYPE_FALLBACK_COLOR,
+  BIG_FIVE_BAND_CLASSES,
+  BIG_FIVE_BAND_COLORS,
   NOT_ASSESSED_PILL_COLORS,
   typeColorOf,
 } from "@/lib/assessment-colors";
@@ -71,6 +73,24 @@ describe("typeColorOf（三字码 / 单字母取色）", () => {
     for (const scheme of ["light", "dark"] as const) {
       const { bg, fg } = NOT_ASSESSED_PILL_COLORS[scheme];
       expect(contrastRatio(fg, bg), `${scheme} 主题未测胶囊对比度不足`).toBeGreaterThanOrEqual(4.5);
+    }
+  });
+});
+
+describe("大五三档配色（#315 单一靛蓝族）", () => {
+  const BANDS = ["low", "medium", "high"] as const;
+
+  it("浅色 / 深色主题下三档对卡片底色的非文本对比度都 ≥ 3:1", () => {
+    for (const band of BANDS) {
+      expect(contrastRatio(BIG_FIVE_BAND_COLORS.light[band], "#ffffff"), `${band} 浅色对比度不足`).toBeGreaterThanOrEqual(3);
+      expect(contrastRatio(BIG_FIVE_BAND_COLORS.dark[band], "#111827"), `${band} 深色对比度不足`).toBeGreaterThanOrEqual(3);
+    }
+  });
+
+  it("堆叠条的 Tailwind 类与颜色常量一一对应（只改常量不改类会在这里失败）", () => {
+    for (const band of BANDS) {
+      expect(BIG_FIVE_BAND_CLASSES[band]).toContain(BIG_FIVE_BAND_COLORS.light[band]);
+      expect(BIG_FIVE_BAND_CLASSES[band]).toContain(BIG_FIVE_BAND_COLORS.dark[band]);
     }
   });
 });

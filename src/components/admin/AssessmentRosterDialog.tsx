@@ -6,6 +6,7 @@ import { useEscapeKey } from "@/hooks/useEscapeKey";
 import { ASSESSMENT_DASHBOARD_COPY, TEACHER_BOARD_COPY } from "@/lib/dashboard-copy";
 import { typeColorOf } from "@/lib/assessment-colors";
 import { maskStudentCode } from "@/lib/dashboard-utils";
+import { describeTypeCode } from "@/lib/assessment-view";
 import { formatSubmittedAt } from "@/lib/student-status";
 import type { RosterRequest, RosterScaleOption } from "@/lib/teacher-board";
 
@@ -108,6 +109,8 @@ export default function AssessmentRosterDialog({
     const controller = new AbortController();
     const params = new URLSearchParams({ scale, status: request.status });
     if (request.classId !== null) params.set("classId", String(request.classId));
+    // 三字码过滤（#315）：兴趣结构的 Top-6 胶囊下钻，与 lead 一样只对「兴趣型 + 已完成」成立
+    if (typeof request.code === "string" && request.code !== "") params.set("code", request.code);
 
     setRows(null);
     setLoading(true);
@@ -187,13 +190,19 @@ export default function AssessmentRosterDialog({
   const activeLabel = scales.find((option) => option.code === activeScale)?.label ?? request.scaleLabel;
   const status = request.status;
   const allClasses = request.classId === null;
-  const title = allClasses
-    ? status === "missing"
-      ? board.rosterTitleAllMissing(activeLabel)
-      : board.rosterTitleAllDone(activeLabel)
-    : status === "missing"
-      ? board.rosterTitleMissing(request.className, activeLabel)
-      : board.rosterTitleDone(request.className, activeLabel);
+  const codeLabels = typeof request.code === "string" ? describeTypeCode(request.code) : "";
+  const title =
+    typeof request.code === "string" && request.code !== ""
+      ? request.className !== ""
+        ? board.rosterTitleCodeClass(request.className, request.code, codeLabels)
+        : board.rosterTitleCode(request.code, codeLabels)
+      : allClasses
+        ? status === "missing"
+          ? board.rosterTitleAllMissing(activeLabel)
+          : board.rosterTitleAllDone(activeLabel)
+        : status === "missing"
+          ? board.rosterTitleMissing(request.className, activeLabel)
+          : board.rosterTitleDone(request.className, activeLabel);
 
   return (
     <div

@@ -390,5 +390,74 @@ export const TEACHER_BOARD_COPY = {
     band === "high" ? "偏高" : band === "low" ? "偏低" : "中等",
   rosterCountLabel: (count: number) => `${count} 人`,
   rosterMissingHint: "只列还没交这套量表的学生；有草稿也算没交。",
+  rosterTitleCode: (code: string, labels: string) => `三字码 ${code}（${labels}）· 已完成名单`,
+  rosterTitleCodeClass: (className: string, code: string, labels: string) =>
+    `${className} · 三字码 ${code}（${labels}）· 已完成名单`,
+
+  /* 结构卡（#315）：两卡共用一个班级选择器 */
+  structureClassLabel: "看的班级",
+  structureAllClassesLabel: "全部班级",
+  structureHelpButton: "怎么看这份数据",
+  structureDisabledTitle: "这个测评还没开放",
+  structureDisabledHint: "开放后学生就能在面板里作答，这里会显示分布。",
+
+  /* 兴趣结构卡（#315） */
+  interestTitle: "兴趣结构",
+  interestNote: "按第一兴趣归型，只看已测学生",
+  interestCenterLabel: "已测学生",
+  interestLegendAria: (label: string, letter: string, count: number) =>
+    `${label}（${letter}）${count} 人`,
+  interestSampleHint: "已测人数少于 5，分布仅供参考",
+  interestCodeTitle: "常见兴趣组合",
+  interestCodeHint: "三字码从左到右读，第一位最重要",
+  interestCodeLabel: (code: string, labels: string) => `${code}（${labels}）`,
+  interestCodeAria: (code: string, labels: string, count: number) =>
+    `${code}（${labels}）· ${count} 人 · 查看名单`,
+  interestCodeAllOnlyHint: "选「全部班级」时显示常见组合",
+  interestEmptyTitle: "还没有学生完成兴趣测评",
+  interestEmptyHint: "提醒学生到「职业测评」里答完题，这里会出现六型结构和常见组合。",
+  interestFailedTitle: "兴趣结构没取到",
+  interestHelpLabel: "六型怎么看？",
+
+  /* 人格轮廓卡（#315） */
+  bigFiveTitle: "人格轮廓",
+  bigFiveNote: "只看倾向，不贴类型",
+  bigFiveLegendLow: "偏低",
+  bigFiveLegendMedium: "中等",
+  bigFiveLegendHigh: "偏高",
+  bigFiveRowAria: (label: string, low: number, medium: number, high: number) =>
+    `${label}：偏低 ${low} 人、中等 ${medium} 人、偏高 ${high} 人`,
+  bigFiveCountLabel: (low: number, medium: number, high: number) =>
+    `偏低 ${low} · 中等 ${medium} · 偏高 ${high}`,
+  bigFiveInvalidNote: (count: number) => `另有 ${count} 人快照不完整，不计入分布`,
+  bigFiveDisabledTitle: "人格测评未开放",
+  bigFiveDisabledHint: "开放后学生就能在面板里作答，这里会显示五项的分布。",
+  bigFiveEmptyTitle: "还没有学生完成人格测评",
+  bigFiveEmptyHint: "提醒学生到「职业测评」里答完题，这里会出现五项分布。",
+  bigFiveFailedTitle: "人格轮廓没取到",
+  bigFiveHelpLabel: "五项怎么看？",
+  bigFiveRosterButton: (count: number) => `看这 ${count} 人是谁`,
+  bigFiveRosterAria: (count: number) => `查看完成人格测评的 ${count} 人名单`,
+
+  /* 说明抽屉（#315） */
+  helpEyebrow: "结果说明",
+  helpTitle: "老师怎么看这些结果",
+  helpSubtitle: "先看完成度，再看结构；用来理解学生，不用来贴标签。",
+  helpTabsAria: "说明分类",
+  helpTabRiasec: "兴趣六型",
+  helpTabBigFive: "人格五项",
+  helpTabHow: "怎么用",
+  helpClose: "知道了",
+  helpCloseAria: "关闭说明",
+  helpFooterNote: "结果用于生涯探索与教学参考，不构成心理诊断。",
+  helpRiasecLead: "兴趣没有好坏，只说明学生更愿意把精力放在哪类事情上。先看哪些型更集中，再看具体是谁。",
+  helpBigFiveLead: "大五不是五种类型。每个人五项都有分数，只看偏高 / 中等 / 偏低；没有好坏，也不预测成绩。",
+  helpHowLead: "这些结果最适合用来开启谈话、设计分组和调整任务，不适合用来评价学生。",
+  helpCodeExampleTitle: "三字码怎么读",
+  helpExampleCode: "SIA",
+  helpClassroomLabel: "课堂上",
+  helpConversationTitle: "可以这样和学生聊",
+  helpHighLabel: "偏高",
+  helpLowLabel: "偏低",
 } as const;
 

@@ -13,6 +13,7 @@
 import { RIASEC_LABELS, RIASEC_KEYS, type RiasecKey } from "./assessment-match";
 import { typeColorOf } from "./assessment-colors";
 import type { AssessmentClassTypeComposition } from "./assessment-stats";
+import { describeTypeCode } from "./assessment-view";
 
 /** 档案列固定 key（与 `/api/manage/stats/completion` 的 `COMPLETION_PROFILE_KEY` 一致） */
 export const PROFILE_COLUMN_KEY = "profile";
@@ -522,6 +523,8 @@ export interface RosterRequest {
   scale: string;
   scaleLabel: string;
   status: "done" | "missing";
+  /** 三字码过滤（#315：兴趣结构 Top-6 胶囊下钻；只有 scale=riasec + status=done 时合法） */
+  code?: string;
 }
 
 /** 名册弹窗可切换的量表 Tab */
@@ -541,4 +544,314 @@ export function scaleLabelOf(
     if (typeof mapped === "string" && mapped.trim() !== "") return mapped;
   }
   return fallback;
+}
+
+/* ------------------------------------------------------------------ */
+/* 结构卡（#315）：兴趣结构 / 人格轮廓                                    */
+/* ------------------------------------------------------------------ */
+
+/** 兴趣结构的样本门槛：已测人数少于 5 时只给「仅供参考」提示（#315 §2） */
+export const INTEREST_SAMPLE_THRESHOLD = 5;
+
+/**
+ * 量表 code：与 `assessment-data.ts` 的 `RIASEC_CODE` / `IPIP_NEO_FFI_CODE` 一致。
+ * 不直接 import 种子数据——那份文件带着整份题库，教师端 bundle 不该为两个常量买单。
+ */
+export const RIASEC_SCALE_CODE = "riasec";
+export const BIG_FIVE_SCALE_CODE = "ipip-neo-ffi";
+
+/** 两卡共用的班级选择项：`classId=null` 表示「全部班级」（展示名由文案表给） */
+export interface StructureClassOption {
+  classId: number | null;
+  name: string;
+}
+
+/** 班级选择项：全部班级在前，其余沿用矩阵的行顺序（服务端已按班名升序） */
+export function buildStructureClassOptions(
+  rows: readonly Pick<CompletionRowView, "classId" | "enrolled" | "name">[]
+): StructureClassOption[] {
+  return [
+    { classId: null, name: "" },
+    ...rows
+      .filter((row) => row.enrolled > 0)
+      .map((row) => ({ classId: row.classId, name: row.name })),
+  ];
+}
+
+/** 六型计数的一项（恒六条，计数为 0 也保留） */
+export interface InterestTypeCountView {
+  key: RiasecKey;
+  label: string;
+  count: number;
+}
+
+/** 三字码组合的一项（兴趣结构卡 Top-6 胶囊） */
+export interface InterestCodeCountView {
+  code: string;
+  count: number;
+}
+
+/** `/api/manage/stats/assessment` 里结构卡要用的部分（防御式归一后的形状） */
+export interface InterestStatsView {
+  scaleCode: string;
+  scaleName: string;
+  enabled: boolean;
+  types: InterestTypeCountView[];
+  byClass: AssessmentClassTypeComposition[];
+  codes: InterestCodeCountView[];
+  total: {
+    enrolled: number;
+    assessed: number;
+    rate: number;
+    lastSubmittedAt: string | null;
+  };
+}
+
+function toNullableTime(value: unknown): string | null {
+  return typeof value === "string" && value.trim() !== "" ? value.trim() : null;
+}
+
+function toRatePercent(value: unknown): number {
+  return typeof value === "number" && Number.isFinite(value)
+    ? Math.round(Math.min(100, Math.max(0, value)) * 10) / 10
+    : 0;
+}
+
+/**
+ * 防御式解析兴趣聚合响应（#229/#311）：六型恒补齐为 RIASEC 顺序；脏计数按 0；
+ * 形状不对返回 null（页面走失败态）。三个字码组合按人数降序、同数按 code 升序。
+ */
+export function normalizeInterestStats(payload: unknown): InterestStatsView | null {
+  if (payload === null || typeof payload !== "object") return null;
+  const raw = payload as Record<string, unknown>;
+  const assessment =
+    raw.assessment !== null && typeof raw.assessment === "object"
+      ? (raw.assessment as Record<string, unknown>)
+      : null;
+
+  const rawTypes = Array.isArray(raw.types) ? raw.types : [];
+  const counts = new Map<string, number>();
+  const labels = new Map<string, string>();
+  for (const entry of rawTypes) {
+    if (entry === null || typeof entry !== "object") continue;
+    const record = entry as Record<string, unknown>;
+    const key = typeof record.key === "string" ? record.key.trim().toUpperCase() : "";
+    if (!(RIASEC_KEYS as readonly string[]).includes(key)) continue;
+    counts.set(key, toCount(record.count));
+    const label = typeof record.label === "string" ? record.label.trim() : "";
+    if (label !== "") labels.set(key, label);
+  }
+  const types: InterestTypeCountView[] = RIASEC_KEYS.map((key) => ({
+    key,
+    label: labels.get(key) ?? RIASEC_LABELS[key],
+    count: counts.get(key) ?? 0,
+  }));
+
+  const rawCodes = Array.isArray(raw.codes) ? raw.codes : [];
+  const codes: InterestCodeCountView[] = [];
+  const seenCodes = new Set<string>();
+  for (const entry of rawCodes) {
+    if (entry === null || typeof entry !== "object") continue;
+    const record = entry as Record<string, unknown>;
+    const code = typeof record.code === "string" ? record.code.trim().toUpperCase() : "";
+    if (code === "" || seenCodes.has(code)) continue;
+    seenCodes.add(code);
+    codes.push({ code, count: toCount(record.count) });
+  }
+  codes.sort((a, b) => b.count - a.count || a.code.localeCompare(b.code));
+
+  const total = raw.total !== null && typeof raw.total === "object" ? (raw.total as Record<string, unknown>) : {};
+  return {
+    scaleCode: typeof assessment?.code === "string" ? assessment.code.trim() : RIASEC_SCALE_CODE,
+    scaleName: typeof assessment?.name === "string" ? assessment.name.trim() : "",
+    enabled: assessment?.enabled !== false,
+    types,
+    byClass: normalizeInterestByClass(payload),
+    codes,
+    total: {
+      enrolled: toCount(total.enrolled),
+      assessed: toCount(total.assessed),
+      rate: toRatePercent(total.rate),
+      lastSubmittedAt: toNullableTime(total.lastSubmittedAt),
+    },
+  };
+}
+
+/** 兴趣结构图例的一条（恒六条） */
+export interface InterestStructureSlice {
+  key: RiasecKey;
+  label: string;
+  count: number;
+  /** 0–100，一位小数（分母 = 已归型人数） */
+  percent: number;
+  color: string;
+  chipFg: string;
+}
+
+export interface InterestStructureView {
+  /** 已归型人数（六型计数之和，环图中心数字） */
+  assessed: number;
+  slices: InterestStructureSlice[];
+  /** Top-6 三字码组合；选具体某个班时为空（班级维度没有组合聚合数据） */
+  codes: InterestCodeCountView[];
+  /** 已测人数少于 5（含 0 时为空态，由页面单独判定） */
+  sampleTooSmall: boolean;
+}
+
+/** 六型计数 → 环图切片；`selectedClassId` 为 null 时用全部班级的合计 */
+export function buildInterestStructure(
+  stats: InterestStatsView | null,
+  selectedClassId: number | null
+): InterestStructureView {
+  const counts = new Map<string, number>();
+  if (stats) {
+    if (selectedClassId === null) {
+      for (const type of stats.types) counts.set(type.key, type.count);
+    } else {
+      const composition = stats.byClass.find((item) => item.classId === selectedClassId);
+      for (const entry of composition?.types ?? []) {
+        const key = entry.key.trim().toUpperCase();
+        counts.set(key, (counts.get(key) ?? 0) + Math.max(0, Math.trunc(Number(entry.count) || 0)));
+      }
+    }
+  }
+  const assessed = Array.from(counts.values()).reduce((sum, value) => sum + value, 0);
+  const slices: InterestStructureSlice[] = RIASEC_KEYS.map((key) => {
+    const count = counts.get(key) ?? 0;
+    const color = typeColorOf(key);
+    return {
+      key,
+      label: stats?.types.find((type) => type.key === key)?.label ?? RIASEC_LABELS[key],
+      count,
+      percent: assessed > 0 ? Math.round((count / assessed) * 1000) / 10 : 0,
+      color: color.bar,
+      chipFg: color.chipFg,
+    };
+  });
+  return {
+    assessed,
+    slices,
+    codes: selectedClassId === null ? (stats?.codes ?? []).slice(0, 6) : [],
+    sampleTooSmall: assessed > 0 && assessed < INTEREST_SAMPLE_THRESHOLD,
+  };
+}
+
+/** 三字码胶囊的展示名：`SIA` + 中文展开（复用学生端同一份 `describeTypeCode`） */
+export function interestCodeLabel(code: string): string {
+  return describeTypeCode(code);
+}
+
+/** 人格三档（与计分引擎的 `ScoreBand` 一致） */
+export type BigFiveBand = "low" | "medium" | "high";
+
+export interface BigFiveDimensionRaw {
+  key: string;
+  label: string;
+  low: number;
+  medium: number;
+  high: number;
+}
+
+export interface BigFiveRowView extends BigFiveDimensionRaw {
+  /** 三档合计（= 已测人数 - 快照不完整人数） */
+  total: number;
+  /** 各档占本行合计的百分比（0–100，一位小数；合计为 0 时全 0） */
+  percents: Record<BigFiveBand, number>;
+}
+
+/** `/api/manage/stats/big-five` 防御式归一后的形状（#312） */
+export interface BigFiveStatsView {
+  scaleCode: string;
+  scaleName: string;
+  enabled: boolean;
+  /** 恒为接口下发的五项顺序（不按分值排序） */
+  dimensions: BigFiveRowView[];
+  total: {
+    enrolled: number;
+    assessed: number;
+    rate: number;
+    invalidCount: number;
+    lastSubmittedAt: string | null;
+  };
+}
+
+function buildBigFiveRow(raw: BigFiveDimensionRaw): BigFiveRowView {
+  const total = raw.low + raw.medium + raw.high;
+  const percentOf = (count: number) => (total > 0 ? Math.round((count / total) * 1000) / 10 : 0);
+  return {
+    ...raw,
+    total,
+    percents: {
+      low: percentOf(raw.low),
+      medium: percentOf(raw.medium),
+      high: percentOf(raw.high),
+    },
+  };
+}
+
+/**
+ * 防御式解析人格分布响应：五项顺序恒为接口下发的量表定义顺序；脏计数按 0；
+ * 形状不对返回 null（页面走失败态）。停用量表返回 `enabled=false`，页面显示「未开放」。
+ */
+export function normalizeBigFiveStats(payload: unknown): BigFiveStatsView | null {
+  if (payload === null || typeof payload !== "object") return null;
+  const raw = payload as Record<string, unknown>;
+  const assessment =
+    raw.assessment !== null && typeof raw.assessment === "object"
+      ? (raw.assessment as Record<string, unknown>)
+      : null;
+  const rawDimensions = Array.isArray(raw.dimensions) ? raw.dimensions : [];
+  const dimensions: BigFiveRowView[] = [];
+  const seen = new Set<string>();
+  for (const entry of rawDimensions) {
+    if (entry === null || typeof entry !== "object") continue;
+    const record = entry as Record<string, unknown>;
+    const key = typeof record.key === "string" ? record.key.trim() : "";
+    if (key === "" || seen.has(key)) continue;
+    seen.add(key);
+    dimensions.push(
+      buildBigFiveRow({
+        key,
+        label: typeof record.label === "string" ? record.label.trim() : "",
+        low: toCount(record.low),
+        medium: toCount(record.medium),
+        high: toCount(record.high),
+      })
+    );
+  }
+  if (dimensions.length === 0 && !Array.isArray(raw.dimensions)) return null;
+
+  const total = raw.total !== null && typeof raw.total === "object" ? (raw.total as Record<string, unknown>) : {};
+  const assessed = toCount(total.assessed);
+  return {
+    scaleCode: typeof assessment?.code === "string" ? assessment.code.trim() : BIG_FIVE_SCALE_CODE,
+    scaleName: typeof assessment?.name === "string" ? assessment.name.trim() : "",
+    enabled: assessment?.enabled !== false,
+    dimensions,
+    total: {
+      enrolled: toCount(total.enrolled),
+      assessed,
+      rate: toRatePercent(total.rate),
+      // 不完整人数不可能超过已测人数：脏数据下钳住，界面不会出现「2 人已测、3 人不完整」
+      invalidCount: Math.min(assessed, toCount(total.invalidCount)),
+      lastSubmittedAt: toNullableTime(total.lastSubmittedAt),
+    },
+  };
+}
+
+/** 人格轮廓卡的一行：教师显示名 + 三档人数 */
+export interface BigFiveTeacherRow extends BigFiveRowView {
+  /** 教师侧显示名（`N` → 「情绪敏感度（神经质 N）」；由文案/内容层给） */
+  teacherLabel: string;
+}
+
+/** 把归一后的五项转成卡片行；标签映射由调用方注入（内容层持有教师叫法） */
+export function buildBigFiveTeacherRows(
+  stats: BigFiveStatsView,
+  labelOf: (key: string, fallback: string) => string
+): BigFiveTeacherRow[] {
+  return stats.dimensions.map((dimension) => ({
+    ...dimension,
+    teacherLabel: labelOf(dimension.key, dimension.label),
+  }));
 }
