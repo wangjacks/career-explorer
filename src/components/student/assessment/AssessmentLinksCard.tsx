@@ -1,5 +1,5 @@
 import { ExternalLink, Link2 } from "lucide-react";
-import SectionCard from "./SectionCard";
+import SectionCard from "@/components/assessment/SectionCard";
 import { ASSESSMENT_HELP_LINKS, EXTERNAL_LINK_REL } from "@/lib/assessment-center-content";
 
 /**

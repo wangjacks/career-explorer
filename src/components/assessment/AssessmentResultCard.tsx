@@ -54,6 +54,7 @@ export default function AssessmentResultCard({
   code,
   data,
   careers,
+  viewer = "student",
   id,
   open,
   onOpenChange,
@@ -61,6 +62,8 @@ export default function AssessmentResultCard({
 }: {
   code: string;
   data: AssessmentResultsPayload;
+  /** 展示受众（#332）：teacher 时不出现答题入口与「见页尾」合规指针（教师不能替学生作答） */
+  viewer?: "student" | "teacher";
   careers: readonly CareerCardView[];
   /** 页面锚点（#323：速览卡定位到这里） */
   id?: string;
@@ -96,19 +99,23 @@ export default function AssessmentResultCard({
         onOpenChange={onOpenChange}
         highlight={highlight}
         action={
-          <Link
-            href={quizHref(code)}
-            className="inline-flex items-center justify-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-primary-strong"
-          >
-            <Compass className="h-3.5 w-3.5" aria-hidden />
-            {data.inProgress ? "继续作答" : "去测评"}
-          </Link>
+          viewer === "teacher" ? undefined : (
+            <Link
+              href={quizHref(code)}
+              className="inline-flex items-center justify-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-primary-strong"
+            >
+              <Compass className="h-3.5 w-3.5" aria-hidden />
+              {data.inProgress ? "继续作答" : "去测评"}
+            </Link>
+          )
         }
       >
         <p className="text-sm text-muted leading-relaxed">
-          {mode === "big-five"
-            ? "做完可以看到你的五大人格画像，了解自己在哪些方面更有优势。"
-            : "做完可以看到你的兴趣类型，以及可能适合你的职业方向。"}
+          {viewer === "teacher"
+            ? "该生还没有完成这套测评。需要补测时，请该生登录后进入「职业测评」重新作答；每次提交都会生成新版本，旧版本保留可查。"
+            : mode === "big-five"
+              ? "做完可以看到你的五大人格画像，了解自己在哪些方面更有优势。"
+              : "做完可以看到你的兴趣类型，以及可能适合你的职业方向。"}
         </p>
         {data.inProgress && (
           <p className="text-xs text-muted">上次答到 {assessmentView.answered}/{assessmentView.total} 题，可以接着做。</p>
@@ -152,12 +159,14 @@ export default function AssessmentResultCard({
     >
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <HollandCodeBadge typeCode={current.typeCode} />
-        <Link
-          href={quizHref(code)}
-          className="inline-flex items-center justify-center px-3 py-1.5 bg-gray-100 hover:bg-gray-200 dark:bg-gray-800 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-200 text-sm rounded-lg transition-colors flex-shrink-0"
-        >
-          {data.inProgress ? "继续作答" : "重新测评"}
-        </Link>
+        {viewer === "student" && (
+          <Link
+            href={quizHref(code)}
+            className="inline-flex items-center justify-center px-3 py-1.5 bg-gray-100 hover:bg-gray-200 dark:bg-gray-800 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-200 text-sm rounded-lg transition-colors flex-shrink-0"
+          >
+            {data.inProgress ? "继续作答" : "重新测评"}
+          </Link>
+        )}
       </div>
 
       {/* 两种视图并列：雷达看整体形状，条状排名看具体高低；窄屏上下堆叠 */}
@@ -221,7 +230,7 @@ export default function AssessmentResultCard({
         </div>
       )}
 
-      <CompliancePointer />
+      {viewer === "student" && <CompliancePointer />}
     </CollapsibleCard>
   );
 }

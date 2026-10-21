@@ -11,6 +11,8 @@ import { ASSESSMENT_RESULTS_ID, assessmentDetailId } from "@/lib/profile-summary
 export interface AssessmentResultsSectionProps {
   /** 页面统一拉取的数据（#323：摘要与详情共用一份，本组件不再自己 fetch） */
   data: AssessmentResultsData;
+  /** 展示受众（#332）：教师详情弹窗用 teacher——隐藏答题入口/合规指针与跨量表提示 */
+  viewer?: "student" | "teacher";
   loading: boolean;
   /** 量表清单失败（整个结果区不可用）；单套失败在 `data.failedCodes` 里 */
   failed: boolean;
@@ -35,6 +37,7 @@ export interface AssessmentResultsSectionProps {
  */
 export default function AssessmentResultsSection({
   data,
+  viewer = "student",
   loading,
   failed,
   onRetry,
@@ -128,7 +131,9 @@ export default function AssessmentResultsSection({
             id={cardId}
             code={item.code}
             data={payload}
-            careers={resultCardMode(item) === "holland" ? careers : []}
+            viewer={viewer}
+            // 教师弹窗：推荐职业只在速览卡展示 Top3，详情卡里不再重复
+            careers={viewer === "student" && resultCardMode(item) === "holland" ? careers : []}
             open={expandedCodes.includes(item.code)}
             onOpenChange={(next) => onExpandedChange(item.code, next)}
             highlight={highlightId === cardId}
@@ -136,7 +141,8 @@ export default function AssessmentResultsSection({
         );
       })}
 
-      {hasHollandResult && hasBigFiveResult && <CrossScaleTipCard />}
+      {/* 「人格与兴趣一起看」是学生侧科普；教师弹窗只保留两套测评详情（#332 结构） */}
+      {viewer === "student" && hasHollandResult && hasBigFiveResult && <CrossScaleTipCard />}
     </div>
   );
 }

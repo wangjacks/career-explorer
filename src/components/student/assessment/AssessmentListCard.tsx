@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { ListChecks, Play, Timer } from "lucide-react";
-import SectionCard from "./SectionCard";
+import SectionCard from "@/components/assessment/SectionCard";
 import type { AssessmentListRow } from "@/lib/assessment-list";
 
 const STATUS_META = {

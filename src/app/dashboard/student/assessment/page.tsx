@@ -8,7 +8,7 @@ import NavigationBar from "@/components/NavigationBar";
 import StudentSidebar from "@/components/student/StudentSidebar";
 import AssessmentListCard from "@/components/student/assessment/AssessmentListCard";
 import AssessmentLinksCard from "@/components/student/assessment/AssessmentLinksCard";
-import AssessmentAttributionCard from "@/components/student/assessment/AssessmentAttributionCard";
+import AssessmentAttributionCard from "@/components/assessment/AssessmentAttributionCard";
 import RiasecGuideCard from "@/components/student/assessment/RiasecGuideCard";
 import BigFiveGuideCard from "@/components/student/assessment/BigFiveGuideCard";
 import { useSession } from "@/hooks/useSession";
@@ -97,7 +97,7 @@ function ProgressTrack({ view }: { view: AssessmentCenterView }) {
  * 「最近活跃」与逐行状态是纯函数（`src/lib/assessment-list.ts`），三态口径仍复用
  * `src/lib/assessment-center.ts`，本页不缓存作答内容，也不做任何计分。
  * 内容卡（清单 / 六型科普 / 大五科普 / 权威渠道 / 授权免责）的文案与结构在
- * `src/lib/assessment-center-content.ts` + `src/components/student/assessment/`；
+ * `src/lib/assessment-center-content.ts` + `src/components/assessment/`；
  * 六型科普、外链与授权卡在接口不可用时也常驻，清单与大五科普随列表结果渲染。
  */
 export default function AssessmentCenterPage() {

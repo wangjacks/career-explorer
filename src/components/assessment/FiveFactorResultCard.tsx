@@ -26,6 +26,7 @@ const QUIZ_HREF = "/dashboard/student/assessment/quiz";
 export default function FiveFactorResultCard({
   data,
   code,
+  viewer = "student",
   id,
   open,
   onOpenChange,
@@ -33,6 +34,8 @@ export default function FiveFactorResultCard({
 }: {
   data: AssessmentResultsPayload;
   code: string;
+  /** 展示受众（#332）：teacher 时不出现「重新测评」入口与合规指针 */
+  viewer?: "student" | "teacher";
   /** 页面锚点（#323：速览卡定位到这里） */
   id?: string;
   /** 受控展开（#323）；不传则由折叠卡自管 */
@@ -71,12 +74,14 @@ export default function FiveFactorResultCard({
           <p className="text-[11px] text-white/70">你的主要特质</p>
           <p className="mt-1 text-lg sm:text-xl font-extrabold tracking-wide">{headline || "—"}</p>
         </div>
-        <Link
-          href={`${QUIZ_HREF}?code=${encodeURIComponent(code)}`}
-          className="inline-flex items-center justify-center px-3 py-1.5 bg-gray-100 hover:bg-gray-200 dark:bg-gray-800 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-200 text-sm rounded-lg transition-colors flex-shrink-0"
-        >
-          {data.inProgress ? "继续作答" : "重新测评"}
-        </Link>
+        {viewer === "student" && (
+          <Link
+            href={`${QUIZ_HREF}?code=${encodeURIComponent(code)}`}
+            className="inline-flex items-center justify-center px-3 py-1.5 bg-gray-100 hover:bg-gray-200 dark:bg-gray-800 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-200 text-sm rounded-lg transition-colors flex-shrink-0"
+          >
+            {data.inProgress ? "继续作答" : "重新测评"}
+          </Link>
+        )}
       </div>
 
       {/* 两种视图并列：雷达看整体形状，条状排名看具体高低；窄屏上下堆叠 */}
@@ -125,16 +130,18 @@ export default function FiveFactorResultCard({
         </ul>
       </div>
 
-      <p className="text-xs leading-relaxed text-muted">
-        本测评的署名、授权与免责声明见页尾
-        <a
-          href="#assessment-attribution"
-          className="ml-1 text-primary-strong underline underline-offset-2 hover:no-underline"
-        >
-          「关于这些测评」
-        </a>
-        。
-      </p>
+      {viewer === "student" && (
+        <p className="text-xs leading-relaxed text-muted">
+          本测评的署名、授权与免责声明见页尾
+          <a
+            href="#assessment-attribution"
+            className="ml-1 text-primary-strong underline underline-offset-2 hover:no-underline"
+          >
+            「关于这些测评」
+          </a>
+          。
+        </p>
+      )}
     </CollapsibleCard>
   );
 }
