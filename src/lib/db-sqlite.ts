@@ -52,6 +52,7 @@ import type {
   AssessmentStatsRaw,
   CompletionStatsRaw,
   AssessmentRosterRow,
+  AssessmentMissingRosterRow,
   AssessmentBankUpgradeResult,
   SubmittedProfileFilters,
 } from "./db";
@@ -1430,6 +1431,10 @@ export class SqliteAdapter implements DbAdapter {
     return this.getClasses().find((c) => c.name === name);
   }
 
+  getClassById(id: number): ClassRow | undefined {
+    return this.db.prepare("SELECT * FROM classes WHERE id = ?").get(id) as ClassRow | undefined;
+  }
+
   getClassByInviteCode(code: string): ClassRow | undefined {
     return this.db.prepare("SELECT * FROM classes WHERE invitation_code = ?").get(code) as ClassRow | undefined;
   }
@@ -2202,7 +2207,12 @@ export class SqliteAdapter implements DbAdapter {
   getAssessmentRoster(
     assessmentId: number,
     classIds: number[] | null,
-    filters: { classId?: number | null; lead?: string | null; code?: string | null } = {}
+    filters: {
+      classId?: number | null;
+      lead?: string | null;
+      code?: string | null;
+      includeScores?: boolean;
+    } = {}
   ): AssessmentRosterRow[] {
     if (classIds !== null && classIds.length === 0) return [];
     const conditions = [
@@ -2229,11 +2239,14 @@ export class SqliteAdapter implements DbAdapter {
       conditions.push("r.type_code = ?");
       params.push(filters.code);
     }
+    // dimensional 量表（#313）没有三字码、要看档位，才需要多取一份结果快照；
+    // 默认仍只取展示所需的六列，不让个人分数进入不必要的数据搬运面
+    const scoresColumn = filters.includeScores ? ", r.scores_json AS scores_json" : "";
     // 班级名 + 学号排序：下钻列表要稳定（库内 collation 差异不影响，因为教师只按单班看）
     return this.db
       .prepare(
         `SELECT u.class_id AS class_id, c.name AS class_name, u.name AS name, u.user_code AS user_code,
-                r.type_code AS code, r.completed_at AS assessed_at
+                r.type_code AS code, r.completed_at AS assessed_at${scoresColumn}
          FROM assessment_results r
          JOIN users u ON u.id = r.user_id
          LEFT JOIN classes c ON c.id = u.class_id
@@ -2241,6 +2254,42 @@ export class SqliteAdapter implements DbAdapter {
          ORDER BY COALESCE(c.name, ''), u.user_code`
       )
       .all(...params) as AssessmentRosterRow[];
+  }
+
+  getAssessmentMissingRoster(
+    assessmentId: number,
+    classIds: number[] | null,
+    filters: { classId?: number | null } = {}
+  ): AssessmentMissingRosterRow[] {
+    if (classIds !== null && classIds.length === 0) return [];
+    // 基准是「在册学生」而不是结果表：只有 NOT EXISTS 才能把「只有草稿」算作未完成，
+    // 写成 LEFT JOIN 结果表再判 NULL 会把草稿行当成已完成（#313 明确要求）
+    const conditions = [
+      "u.role = 'student'",
+      `NOT EXISTS (
+         SELECT 1 FROM assessment_results r
+         WHERE r.user_id = u.id AND r.assessment_id = ? AND r.status = 'completed' AND r.is_current = 1
+       )`,
+    ];
+    const params: (string | number)[] = [assessmentId];
+    if (classIds !== null) {
+      conditions.push(`u.class_id IN (${classIds.map(() => "?").join(",")})`);
+      params.push(...classIds);
+    }
+    if (filters.classId != null) {
+      conditions.push("u.class_id = ?");
+      params.push(filters.classId);
+    }
+    // 排序沿用名册既有约定（班级名 → 学号），两适配器逐列一致
+    return this.db
+      .prepare(
+        `SELECT u.class_id AS class_id, c.name AS class_name, u.name AS name, u.user_code AS user_code
+         FROM users u
+         LEFT JOIN classes c ON c.id = u.class_id
+         WHERE ${conditions.join(" AND ")}
+         ORDER BY COALESCE(c.name, ''), u.user_code`
+      )
+      .all(...params) as AssessmentMissingRosterRow[];
   }
 
   backup(): BackupData {

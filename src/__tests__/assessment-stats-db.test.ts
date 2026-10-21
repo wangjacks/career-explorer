@@ -433,3 +433,51 @@ describe("班级完成矩阵原始计数（#310，真实 SQLite）", () => {
     cleanup(dbPath);
   });
 });
+
+describe("教师端未完成名册（#313，真实 SQLite）", () => {
+  it("以在册学生为基准：只列没有当前有效完成记录的人，只有草稿的仍算未完成，教师账号不出现", () => {
+    const { dbPath, adapter, assessment, students } = setup();
+
+    // 甲/乙/丁/己已完成；丙、戊没交；教师自己也有一份完成结果
+    const before = adapter.getAssessmentMissingRoster(assessment.id, null);
+    expect(before.map((row) => row.user_code)).toEqual([
+      "202505050103", // 丙（2025级1班）
+      "202505050202", // 戊（2025级2班）
+    ]);
+    expect(before.every((row) => row.class_name !== null)).toBe(true);
+    expect(before.some((row) => row.name === "王老师")).toBe(false);
+    expect(before.some((row) => row.name === "己")).toBe(false); // 未分班但已测
+
+    // 只有草稿：NOT EXISTS 判的是 completed + is_current，草稿不能把人从名单里抹掉
+    adapter.upsertAssessmentDraft(students.bing, assessment.id, JSON.stringify({ 1: 5 }), "[]");
+    const after = adapter.getAssessmentMissingRoster(assessment.id, null);
+    expect(after.map((row) => row.user_code)).toEqual(before.map((row) => row.user_code));
+
+    // 完成过的学生不会因为「有草稿」重复出现在两个名单里
+    expect(
+      adapter.getAssessmentRoster(assessment.id, null).map((row) => row.user_code)
+    ).not.toContain("202505050103");
+
+    adapter.close();
+    cleanup(dbPath);
+  });
+
+  it("班级范围与 classId 收窄：教师空集合直接空名单，classId 只出该班未完成的人", () => {
+    const { dbPath, adapter, assessment, classA, classB } = setup();
+
+    expect(adapter.getAssessmentMissingRoster(assessment.id, [classA]).map((row) => row.name)).toEqual(["丙"]);
+    expect(adapter.getAssessmentMissingRoster(assessment.id, []).map((row) => row.name)).toEqual([]);
+
+    expect(
+      adapter.getAssessmentMissingRoster(assessment.id, null, { classId: classB }).map((row) => row.name)
+    ).toEqual(["戊"]);
+
+    // 已完成学生不会混进未完成名单（按结果表反证）
+    expect(adapter.getAssessmentMissingRoster(assessment.id, [classA]).map((row) => row.user_code)).toEqual([
+      "202505050103",
+    ]);
+
+    adapter.close();
+    cleanup(dbPath);
+  });
+});

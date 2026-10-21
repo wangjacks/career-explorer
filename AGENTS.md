@@ -90,6 +90,7 @@ find src/app -name page.tsx && find src/app/api -name route.ts
 - 权限模型：`/api/manage/*` admin 全放行；teacher 按 `TEACHER_ALLOWED`（前缀 + 方法，**改代码必须同步改 `docs/architecture.md` 权限表**）；`/api/shared/*` 路由自鉴权；其余 `/api/*` 不拦截
 - 例外：分组（`/api/manage/groups*`）前缀整体放行，**班级归属在路由内判定**——读不限（教师可看全校分组），写限自建班（`canModifyClass`），被拒的写同样落审计
 - 例外：学生写入（`/api/manage/students*`）前缀整体放行，**归属由路由内 `WriteGuard` 判定**（#171）——学生以其 `class_id` 在教师关联班级内为准，未分班学生只有管理员可写，批量操作任一行越界即整批拒绝；读不限（教师可看全校名单）
+- 例外：档案清除（`/api/manage/profiles` DELETE）沿用同一 `WriteGuard`（#243）——教师只能清除本人管辖班级学生的档案，未分班 / 他班 / 不在册 id 整批 403 且不落任何写入；成功与被拒均记审计 `profile:clear`，读列表仍不限班级
 - 边界：全站生效的配置写入只归管理员（#171）——预设标签（`/api/manage/tags*`）与 `profile-config` 对教师收敛为仅 GET，教师面板相应 Tab 以 `readOnly` 呈现
 - 路由设计原则：API 面向资源组织 + 业务域前缀（manage/shared），角色差异收敛于 proxy 权限表，**权限演化不搬路径**（否决过按角色拆分路由的设计）
 - 激活（#93 两步单页）：`POST /api/auth/activate/verify` 核验学号 + 姓名 + 本班邀请码三要素并取回名单姓名 → `POST /api/auth/activate` 设置密码并自动登录；账户须先由教师导入名单预建（无密码）
