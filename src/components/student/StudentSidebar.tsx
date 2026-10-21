@@ -3,10 +3,10 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Compass, FileText, Users, UsersRound, Sprout, type LucideIcon } from "lucide-react";
-import { STUDENT_NAV_ITEMS, isStudentNavActive, type StudentNavItem, type StudentNavKey, type StudentViewKey } from "@/lib/student-nav";
+import { STUDENT_NAV_ITEMS, isStudentNavActive, type StudentNavItem, type StudentNavKey } from "@/lib/student-nav";
 
-/** 学生面板内的可切换视图（权威定义在 `student-nav.ts`；这里 re-export 保持既有 import 路径不变） */
-export type { StudentViewKey };
+/** 学生面板内的可切换视图：`group` 由侧边栏进入，`profile` / `history` 另有页内分段控件 */
+export type StudentViewKey = "profile" | "history" | "group";
 
 /** 图标只在渲染层映射，导航数据本身保持纯数据（`src/lib/student-nav.ts`） */
 const NAV_ICONS: Record<StudentNavKey, LucideIcon> = {

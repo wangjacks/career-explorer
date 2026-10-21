@@ -169,8 +169,8 @@ export const TEACHER_DASHBOARD_COPY: DashboardCopy = {
   trendEyebrow: (days, byClass) => (byClass ? `最近 ${days} 天 · 分班级` : `最近 ${days} 天`),
   trendTitle: (byClass) => (byClass ? "各班提交趋势" : "提交趋势"),
   trendScopeNote: "上面两个按钮只改这张图",
-  trendGroupAriaLabel: "怎么看（全校 · 分班级）",
-  trendGroupTotalLabel: "全校",
+  trendGroupAriaLabel: "怎么看（所有班级 · 分班级）",
+  trendGroupTotalLabel: "所有班级",
   trendGroupClassLabel: "分班级",
   trendDaysAriaLabel: "看几天",
   trendDaysOptionLabel: (days) => `${days}天`,
@@ -216,7 +216,7 @@ export const ASSESSMENT_DASHBOARD_COPY = {
 
   /* 范围切换 */
   scopeAriaLabel: "测评统计范围",
-  scopeAllLabel: "全校",
+  scopeAllLabel: "所有班级",
   scopeMineLabel: "只看我的班",
 
   /* 视图切换 */
@@ -280,4 +280,115 @@ export const ASSESSMENT_DASHBOARD_COPY = {
 
   footerNote: "点班级、类型条或三字码，都能下钻到具体学生",
 };
+
+/**
+ * 教师端「测评看板」（#314）的文案。
+ *
+ * 与 #232 的 `ASSESSMENT_DASHBOARD_COPY` 分开：那套是「卡内切三视图」形态的文案，
+ * 新看板是「页头 + hero + 完成矩阵 + 行动条」，措辞与字段都不同，混在一张表里会让两张表的
+ * 失效字段互相掩护。禁词与 `TEACHER_DASHBOARD_COPY` 完全一致（不出现
+ * 「在册 / 口径 / 提交率 / 已提交 / 未提交 / 还差 / 维度 / 学生名单 / 全校 / 全班 / 本班」…）。
+ */
+export const TEACHER_BOARD_COPY = {
+  /* 页头 */
+  eyebrow: "数据中心 / 数据大屏",
+  title: "测评看板",
+  subtitle: "看各班做到哪、兴趣偏哪、性格什么样。",
+  scopeAriaLabel: "看的范围",
+  scopeMineLabel: "我带的班",
+  scopeAllLabel: "所有班级",
+  refreshLabel: "刷新",
+  pageLoading: "加载中...",
+
+  /**
+   * 量表口语短名（#314 §9）：前端按 `code` 映射，接口只给 code 与正式名；
+   * 找不到映射时回退接口下发的正式名（`scaleLabelOf`）。
+   */
+  scaleLabels: {
+    riasec: "兴趣测评",
+    "ipip-neo-ffi": "人格测评",
+  } as Readonly<Record<string, string>>,
+
+  /* 通用失败 / 重试 */
+  bannerPartialFailure: "有些数据没取到，图表可能不完整",
+  retryButton: "重试",
+  failedTitle: "数据没取到",
+  failedHint: "点「重试」再来一次。",
+
+  /* hero：档案完成进度 */
+  heroProfileLabel: "档案提交",
+  heroRateLabel: "完成情况",
+  heroMissing: (count: number) => `还有 ${count} 人没交`,
+  heroAllDone: "所有学生都交齐了",
+  heroNoStudents: "还没有学生，导入名单后这里会显示完成情况。",
+  heroFailedTitle: "完成情况没取到",
+  heroFailedHint: "点「重试」再来一次。",
+
+  /* hero：点阵 */
+  heroGridCaption: "每格 1 人 · 按班排列",
+  heroGridLegendDone: "已交",
+  heroGridLegendMissing: "没交",
+  heroGridAria: (done: number, total: number) =>
+    `已交 ${done} 人，学生共 ${total} 人，按班分组示意`,
+  heroGridGroup: (name: string, done: number, total: number) => `${name} ${done}/${total}`,
+  heroGridOverflow: "人数较多，这里按比例显示",
+
+  /* hero：各量表进度 */
+  heroScaleEyebrow: "测评进度",
+  heroScaleNote: "与档案提交分开计算",
+  heroScaleEmpty: "还没有学生开始",
+
+  /* 班级完成矩阵 */
+  matrixTitle: "班级进度",
+  matrixNote: "一行一个班，按档案完成从低到高排；点格子看名单",
+  matrixEnrolledNote: "统计全部学生",
+  matrixColumnClass: "班级",
+  matrixColumnProfile: "档案提交",
+  matrixColumnComposition: "兴趣构成",
+  matrixColumnActions: "操作",
+  matrixEnrolledSub: (enrolled: number) => `${enrolled} 人`,
+  matrixCellEmpty: "还没开始",
+  matrixCellRate: (rate: string) => rate,
+  matrixProfileCellLabel: (className: string, done: number, enrolled: number) =>
+    `${className} · 档案提交 · 已交 ${done} / ${enrolled} 人`,
+  matrixScaleCellAria: (className: string, scaleLabel: string, done: number, enrolled: number) =>
+    `${className} · ${scaleLabel} · 已测 ${done} / ${enrolled} 人 · 查看名单`,
+  matrixMissingAction: "看未完成",
+  matrixMissingAria: (className: string, scaleLabel: string, missing: number) =>
+    `${className} · ${scaleLabel} · 还有 ${missing} 人没交 · 查看没交名单`,
+  matrixCompositionTooltip: "一人只按三字码首位计一次",
+  matrixCompositionEmpty: "还没人完成",
+  matrixCompositionSummary: (assessed: number, detail: string) => `${assessed} 人已测 · ${detail}`,
+  matrixCompositionSegmentAria: (label: string, count: number) => `${label} ${count} 人`,
+  matrixNoDrilldownHint: "切到「所有班级」时不能看个人名单",
+  matrixEmptyTitle: "还没有可看的班",
+  matrixEmptyHint:
+    "先去「班级管理」建班、到「学生管理」导入名单，这里会按班列出完成情况。",
+  matrixFailedTitle: "班级进度没取到",
+  matrixFailedHint: "点「重试」再来一次。",
+
+  /* 行动条 */
+  actionTitle: "下一步",
+  actionNotStarted: (classes: string) => `${classes}还没开始`,
+  actionMissing: (scaleLabel: string, count: number) => `${scaleLabel}还有 ${count} 人没交`,
+  actionHint: "建议留出 10 分钟统一作答，完成后这条提醒会自动消失。",
+  actionAllDone: "这轮该做的都做完了，做得不错。",
+  actionSeeMissing: "看未完成名单",
+  actionCopyReminder: "复制提醒话术",
+  actionCopySuccess: "已复制提醒话术",
+  actionCopyFailed: "复制没成功，请手动复制",
+
+  /* 名册弹窗（个人明细；与 #232 的公共字段共用 ASSESSMENT_DASHBOARD_COPY） */
+  rosterTitleDone: (className: string, scaleLabel: string) => `${className} · ${scaleLabel} · 已完成名单`,
+  rosterTitleMissing: (className: string, scaleLabel: string) => `${className} · ${scaleLabel} · 没交名单`,
+  rosterTitleAllDone: (scaleLabel: string) => `${scaleLabel} · 已完成名单`,
+  rosterTitleAllMissing: (scaleLabel: string) => `${scaleLabel} · 没交名单`,
+  rosterColumnClass: "班级",
+  rosterScaleTabsAria: "换一套量表",
+  rosterColumnBands: "五项档位",
+  rosterBandLabel: (band: string) =>
+    band === "high" ? "偏高" : band === "low" ? "偏低" : "中等",
+  rosterCountLabel: (count: number) => `${count} 人`,
+  rosterMissingHint: "只列还没交这套量表的学生；有草稿也算没交。",
+} as const;
 

@@ -7,12 +7,6 @@
 
 export type StudentNavKey = "profile" | "group" | "assessment" | "class" | "growth";
 
-/**
- * 学生面板内的可切换视图（**唯一权威定义**）：`group` 由侧边栏进入，`profile` / `history` 另有页内分段控件。
- * `StudentSidebar` 只做 re-export，页面与纯函数都从这里取——避免组件层与 lib 层各写一份联合类型慢慢漂移。
- */
-export type StudentViewKey = "profile" | "history" | "group";
-
 export interface StudentNavItem {
   key: StudentNavKey;
   label: string;
