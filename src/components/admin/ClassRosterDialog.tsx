@@ -189,7 +189,12 @@ export default function ClassRosterDialog({ open, classKey, displayName, onClose
 
             <label className="relative block w-full sm:w-56">
               <span className="sr-only">按姓名或学号搜索</span>
-              <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted/60" />
+              <span
+                aria-hidden="true"
+                className="pointer-events-none absolute inset-y-0 left-2.5 flex items-center text-muted/60"
+              >
+                <Search className="h-3.5 w-3.5" />
+              </span>
               <input
                 type="search"
                 value={query}
