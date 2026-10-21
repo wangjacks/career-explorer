@@ -14,19 +14,24 @@ import {
   ASSESSMENT_LEAD_FILTERS,
   hasAssessmentScores,
   isAssessed,
-  matchesAssessmentLead,
   type AssessmentLeadFilter,
 } from "@/lib/profile-assessment";
+import {
+  DEFAULT_PROFILE_SORT,
+  PROFILE_QUERY_MAX_LENGTH,
+  buildProfilesQueryString,
+  hasActiveProfileFilters,
+  type ProfileListQuery,
+  type ProfileSortKey,
+  type SortDir,
+} from "@/lib/profile-query";
 import type { Stats, PagedData, Profile } from "@/hooks/useAdminAuth";
 
 interface Props {
   /** 可选：由页面/OverviewTab 透传的加载实现（admin 端删除后统计卡联动）；未传时组件内部自 fetch */
-  loadProfiles?: (p: number) => Promise<PagedData | null>;
+  loadProfiles?: (p: number, query?: ProfileListQuery) => Promise<PagedData | null>;
   loadStats?: () => Promise<Stats | null>;
 }
-
-type ProfilesSortKey = "studentId" | "studentName" | "createdAt";
-type SortDir = "asc" | "desc";
 
 /** 版本历史行（#95）：详情弹窗内展示 */
 interface SubmissionHistoryRow {
@@ -82,11 +87,13 @@ export default function ProfilesTab({ loadProfiles, loadStats }: Props) {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [detail, setDetail] = useState<Profile | null>(null);
   const [search, setSearch] = useState("");
+  // 搜索防抖（#295）：输入值即时回显，300ms 后才作为服务端查询条件发出
+  const [appliedSearch, setAppliedSearch] = useState("");
   const [selectedTags, setSelectedTags] = useState<Set<string>>(new Set());
   const [confirmDelete, setConfirmDelete] = useState<string[] | null>(null);
-  const [sortKey, setSortKey] = useState<ProfilesSortKey>("createdAt");
-  const [sortDir, setSortDir] = useState<SortDir>("desc");
-  // 主导型筛选（#234）：与搜索/标签筛选同为「当前页内客户端过滤」，不引入新分页协议
+  const [sortKey, setSortKey] = useState<ProfileSortKey>(DEFAULT_PROFILE_SORT.sortKey);
+  const [sortDir, setSortDir] = useState<SortDir>(DEFAULT_PROFILE_SORT.sortDir);
+  // 主导型筛选（#234 / #295）：语义 = 三字码首位；与搜索、标签一起下推服务端，跨页生效
   const [leadFilter, setLeadFilter] = useState<AssessmentLeadFilter>("all");
   const [tagDropdownOpen, setTagDropdownOpen] = useState(false);
   const [tagSearch, setTagSearch] = useState("");
@@ -97,6 +104,8 @@ export default function ProfilesTab({ loadProfiles, loadStats }: Props) {
   const [historyLoading, setHistoryLoading] = useState(false);
   // 历史请求序号（review 修复）：快速切换学生时丢弃过期响应
   const historySeqRef = useRef(0);
+  // 列表请求序号（#295）：快速切换筛选/排序/翻页时丢弃过期响应，见 `refreshProfiles`
+  const profilesSeqRef = useRef(0);
 
   // 弹窗 Escape 关闭（键盘可达性）
   useEscapeKey(!!detail, () => setDetail(null));
@@ -110,10 +119,14 @@ export default function ProfilesTab({ loadProfiles, loadStats }: Props) {
     loadStatsRef.current = loadStats;
   }, [loadProfiles, loadStats]);
 
-  const defaultLoadProfiles = useCallback(async (p: number): Promise<PagedData | null> => {
+  const defaultLoadProfiles = useCallback(async (p: number, query?: ProfileListQuery): Promise<PagedData | null> => {
     try {
-      const res = await fetch(`/api/manage/profiles?page=${p}`);
+      const res = await fetch(`/api/manage/profiles?${buildProfilesQueryString(p, query)}`);
       if (res.ok) return await res.json();
+      // 非 2xx（服务端 400 拒参、500 故障）必须提示：静默返回 null 时表格保留上一次结果，
+      // 老师会以为筛选已生效。`maxLength` 只挡住了搜索框超长，其余入参仍需这一层。
+      const data = (await res.json().catch(() => null)) as { error?: string } | null;
+      toast.error(data?.error ?? "档案列表加载失败，请调整筛选条件后重试");
     } catch (err) {
       console.error("Failed to load profiles:", err);
       toast.error("加载档案列表失败");
@@ -131,7 +144,7 @@ export default function ProfilesTab({ loadProfiles, loadStats }: Props) {
     return null;
   }, []);
 
-  const handleSort = (key: ProfilesSortKey) => {
+  const handleSort = (key: ProfileSortKey) => {
     if (sortKey === key) {
       setSortDir((d) => (d === "asc" ? "desc" : "asc"));
     } else {
@@ -146,57 +159,76 @@ export default function ProfilesTab({ loadProfiles, loadStats }: Props) {
     if (s) setStats(s);
   }, [defaultLoadStats]);
 
-  const refreshProfiles = useCallback(async (p: number) => {
-    const fn = loadProfilesRef.current ?? defaultLoadProfiles;
-    const d = await fn(p);
-    if (d) setPaged(d);
-  }, [defaultLoadProfiles]);
+  const refreshProfiles = useCallback(
+    async (p: number, query?: ProfileListQuery) => {
+      // 请求序号（#295 review 修复）：筛选/排序/翻页每次都发服务端请求，慢的旧响应后到时
+      // 必须丢弃，否则表格显示旧条件的行与 total、chip 却是新条件（快速连点 I 再点 S 即可触发）
+      const seq = ++profilesSeqRef.current;
+      const fn = loadProfilesRef.current ?? defaultLoadProfiles;
+      const d = await fn(p, query);
+      if (!d || seq !== profilesSeqRef.current) return;
+      setPaged(d);
+    },
+    [defaultLoadProfiles]
+  );
 
-  /* eslint-disable react-hooks/set-state-in-effect -- reset selection + load page data on page change */
+  // 查询条件（#295）：搜索 / 标签 / 主导型 / 排序；条件变化时回到第 1 页，避免停留在空页
+  const query = useMemo<ProfileListQuery>(
+    () => ({
+      ...(appliedSearch.trim() ? { q: appliedSearch.trim() } : {}),
+      ...(selectedTags.size > 0 ? { tags: Array.from(selectedTags).sort() } : {}),
+      lead: leadFilter,
+      sortKey,
+      sortDir,
+    }),
+    [appliedSearch, selectedTags, leadFilter, sortKey, sortDir]
+  );
+  const queryKey = useMemo(() => JSON.stringify(query), [query]);
+  const lastQueryKeyRef = useRef(queryKey);
+
+  /* eslint-disable react-hooks/set-state-in-effect -- reset selection + load page data on page/query change */
   useEffect(() => {
+    const queryChanged = lastQueryKeyRef.current !== queryKey;
+    if (queryChanged) {
+      lastQueryKeyRef.current = queryKey;
+      // 条件变化先回到第 1 页：下一次 effect 用新条件 + 第 1 页拉取，不发两次请求
+      if (page !== 1) {
+        setPage(1);
+        return;
+      }
+    }
     setSelected(new Set());
-    refreshProfiles(page);
-  }, [page, refreshProfiles]);
+    void refreshProfiles(page, query);
+  }, [page, query, queryKey, refreshProfiles]);
   /* eslint-enable react-hooks/set-state-in-effect */
+
+  // 搜索防抖：输入停止 300ms 后才改生效值（避免每敲一个字打一次接口）
+  useEffect(() => {
+    const timer = setTimeout(() => setAppliedSearch(search), 300);
+    return () => clearTimeout(timer);
+  }, [search]);
 
   useEffect(() => {
     refreshStats();
     // eslint-disable-next-line react-hooks/exhaustive-deps -- only on mount
   }, []);
 
-  // Client-side search filter + sort
-  const filteredData = useMemo(() => {
-    if (!paged) return null;
-    const q = search.trim().toLowerCase();
-    let list = paged.data;
-    if (q) {
-      list = list.filter((p) =>
-        p.studentId.toLowerCase().includes(q) ||
-        (p.studentName || "").toLowerCase().includes(q)
-      );
+  // 筛选 / 排序 / 分页都由服务端完成（#295）：当页数据即最终结果，total 是**过滤后**的全校命中数
+  const rows = paged?.data ?? [];
+  const hasFilter = hasActiveProfileFilters(query);
+
+  // 页码越界自愈（#295）：筛选后结果变少、或删掉最后一页的最后一行时，别把老师留在空页上
+  /* eslint-disable react-hooks/set-state-in-effect -- 越界页码只能在拿到服务端 totalPages 后修正 */
+  useEffect(() => {
+    if (paged && page > 1 && paged.totalPages >= 1 && page > paged.totalPages) {
+      setPage(paged.totalPages);
     }
-    if (selectedTags.size > 0) {
-      list = list.filter((p) =>
-        Array.from(selectedTags).every((tag) => p.tags.includes(tag))
-      );
-    }
-    // 主导型筛选（#234）：与上面两种筛选同为当前页内过滤，可叠加
-    if (leadFilter !== "all") {
-      list = list.filter((p) => matchesAssessmentLead(p, leadFilter));
-    }
-    const sorted = [...list].sort((a, b) => {
-      const va = (a[sortKey as keyof Profile] || "") as string;
-      const vb = (b[sortKey as keyof Profile] || "") as string;
-      const cmp = va.localeCompare(vb, "zh-CN");
-      return sortDir === "asc" ? cmp : -cmp;
-    });
-    const hasFilter = !!q || selectedTags.size > 0 || leadFilter !== "all";
-    return { ...paged, data: sorted, total: hasFilter ? sorted.length : paged.total };
-  }, [paged, search, selectedTags, leadFilter, sortKey, sortDir]);
+  }, [paged, page]);
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   // 表头全选态：按「当前可见行是否全部已选」判定（只比数量在筛选后会误判）
   const allVisibleSelected =
-    !!filteredData && filteredData.data.length > 0 && filteredData.data.every((p) => selected.has(p.studentId));
+    rows.length > 0 && rows.every((p) => selected.has(p.studentId));
 
   // Close tag dropdown on outside click
   useEffect(() => {
@@ -237,7 +269,7 @@ export default function ProfilesTab({ loadProfiles, loadStats }: Props) {
       toast.success(`已删除 ${deleted} 条记录`);
       setSelected(new Set());
       refreshStats();
-      refreshProfiles(page);
+      void refreshProfiles(page, query);
     } catch {
       toast.error("删除失败");
     }
@@ -253,8 +285,7 @@ export default function ProfilesTab({ loadProfiles, loadStats }: Props) {
   };
 
   const toggleSelectAll = () => {
-    if (!filteredData) return;
-    const visible = filteredData.data;
+    const visible = rows;
     // 以「当前可见行是否全部已选」为准：只按数量比较会在筛选后把别人的选择误判成全选
     const allVisibleSelected =
       visible.length > 0 && visible.every((p) => selected.has(p.studentId));
@@ -297,7 +328,7 @@ export default function ProfilesTab({ loadProfiles, loadStats }: Props) {
       <div className="px-5 py-4 border-b border-border-soft flex flex-col gap-3">
         <div className="flex items-center justify-between">
           <h2 className="font-semibold text-foreground">
-            数据列表 {paged && `(${paged.total} 条)`}
+            数据列表 {paged && `(${paged.total} 条${hasFilter ? " · 已筛选" : ""})`}
           </h2>
           {selected.size > 0 && (
             <button
@@ -314,6 +345,7 @@ export default function ProfilesTab({ loadProfiles, loadStats }: Props) {
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="搜索学号/姓名..."
+            maxLength={PROFILE_QUERY_MAX_LENGTH}
             className="px-3 py-1.5 border border-gray-200 dark:border-gray-700 bg-card text-foreground rounded-lg text-sm w-48 focus:outline-none focus:ring-2 focus:ring-focus-ring"
           />
           {/* Tag dropdown */}
@@ -382,7 +414,7 @@ export default function ProfilesTab({ loadProfiles, loadStats }: Props) {
               <button onClick={() => toggleTag(tag)} className="hover:text-green-900 leading-none">×</button>
             </span>
           ))}
-          {/* 主导型筛选（#234）：全部 / R I A S E C / 未测；与搜索、标签筛选同为当前页内过滤，可叠加 */}
+          {/* 主导型筛选（#234 / #295）：语义 = 三字码首位（如 SIA 只在 S 下命中），与搜索、标签一起跨页生效 */}
           <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label="主导型筛选">
             {ASSESSMENT_LEAD_FILTERS.map(({ value, label }) => {
               const active = leadFilter === value;
@@ -393,6 +425,15 @@ export default function ProfilesTab({ loadProfiles, loadStats }: Props) {
                   aria-pressed={active}
                   // 可见文本只有单字母，读屏需要更完整的名字（R 型之类不出现「型」字）
                   aria-label={value === "all" ? "全部测评状态" : value === "none" ? "未测" : `主导型 ${label}`}
+                  // #295 定稿：主导型 = 三字码首位（与数据大屏按首位归型的口径一致），
+                  // 不是「包含该字母」，用 tooltip 把这个语义讲清楚
+                  title={
+                    value === "all"
+                      ? "不按兴趣类型筛选"
+                      : value === "none"
+                        ? "未完成测评（或三字码无效）"
+                        : `按三字码首位（主导型）筛选 ${label}，如 SIA 只在 S 下命中`
+                  }
                   onClick={() => setLeadFilter(value)}
                   className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-medium transition-colors ${
                     active
@@ -412,9 +453,9 @@ export default function ProfilesTab({ loadProfiles, loadStats }: Props) {
               );
             })}
           </div>
-          {(selectedTags.size > 0 || search || leadFilter !== "all") && (
+          {(selectedTags.size > 0 || search || leadFilter !== "all" || hasFilter) && (
             <button
-              onClick={() => { setSelectedTags(new Set()); setSearch(""); setLeadFilter("all"); }}
+              onClick={() => { setSelectedTags(new Set()); setSearch(""); setAppliedSearch(""); setLeadFilter("all"); }}
               className="text-xs text-gray-400 hover:text-gray-600 ml-1 transition-colors"
             >
               清除筛选
@@ -452,7 +493,7 @@ export default function ProfilesTab({ loadProfiles, loadStats }: Props) {
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-50 dark:divide-gray-700/50">
-            {filteredData?.data.map((p) => (
+            {rows.map((p) => (
               <tr
                 key={p.studentId}
                 className={`hover:bg-gray-50/50 dark:hover:bg-gray-800/40 ${selected.has(p.studentId) ? "bg-blue-50/30 dark:bg-blue-900/20" : ""}`}
@@ -512,10 +553,11 @@ export default function ProfilesTab({ loadProfiles, loadStats }: Props) {
                 </td>
               </tr>
             ))}
-            {filteredData?.data.length === 0 && (
+            {/* 首屏加载中 / 加载失败（paged 仍为 null）不渲染空态提示，避免把「还没取到」说成「没有数据」 */}
+            {paged && rows.length === 0 && (
               <tr>
                 <td colSpan={9} className="px-5 py-12 text-center text-gray-400">
-                  {paged?.data.length === 0 ? "暂无数据" : "无匹配结果"}
+                  {hasFilter ? "没有匹配的档案（筛选已跨页生效）" : "暂无数据"}
                 </td>
               </tr>
             )}
@@ -706,7 +748,9 @@ export default function ProfilesTab({ loadProfiles, loadStats }: Props) {
       <ConfirmDialog
         open={!!confirmDelete}
         title="确认删除"
-        message={`确定删除 ${confirmDelete?.length} 条档案记录？此操作不可恢复。`}
+        message={`确定删除选中的 ${confirmDelete?.length} 条档案记录？勾选只覆盖当前页可见的行（不是${
+            hasFilter ? "筛选结果的全部" : "全部档案"
+          }），此操作不可恢复。`}
         variant="danger"
         confirmText="删除"
         onConfirm={() => { if (confirmDelete) { handleDeleteProfiles(confirmDelete); setConfirmDelete(null); } }}
