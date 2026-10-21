@@ -481,3 +481,66 @@ describe("教师端未完成名册（#313，真实 SQLite）", () => {
     cleanup(dbPath);
   });
 });
+
+describe("人格分布逐人快照（#312，真实 SQLite）", () => {
+  function completeBigFive(adapter: SqliteAdapter, userId: number, assessmentId: number, scoresJson: string) {
+    adapter.completeAssessmentResult({
+      userId,
+      assessmentId,
+      answersJson: "{}",
+      itemsJson: "[]",
+      scoresJson,
+      typeCode: null,
+    });
+  }
+
+  it("只取三列、只含 completed + is_current 的学生，并按班级收窄", () => {
+    const { dbPath, adapter, classA, students } = setup();
+    const ipip = adapter.getAssessmentByCode(IPIP_NEO_FFI_CODE)!;
+    const scores = JSON.stringify(
+      ["N", "E", "O", "A", "C"].map((key) => ({ key, label: key, standard: 50, band: "medium" }))
+    );
+
+    completeBigFive(adapter, students.jia, ipip.id, scores);
+    completeBigFive(adapter, students.yi, ipip.id, scores);
+    completeBigFive(adapter, students.ji, ipip.id, scores);
+    // 教师账号也有结果，但教师不是学生，不能计入班级分布
+    completeBigFive(adapter, students.teacher, ipip.id, scores);
+    // 只有草稿的学生仍算未完成
+    adapter.upsertAssessmentDraft(students.bing, ipip.id, JSON.stringify({ 1: 5 }), "[]");
+
+    const all = adapter.getDimensionalResultScores(ipip.id, null);
+    expect(all.map((row) => row.user_id)).toEqual([students.jia, students.yi, students.ji].sort((a, b) => a - b));
+    expect(all.map((row) => Object.keys(row).sort())).toEqual([
+      ["completed_at", "scores_json", "user_id"],
+      ["completed_at", "scores_json", "user_id"],
+      ["completed_at", "scores_json", "user_id"],
+    ]);
+    expect(all.every((row) => row.scores_json === scores)).toBe(true);
+
+    expect(adapter.getDimensionalResultScores(ipip.id, [classA]).map((row) => row.user_id)).toEqual(
+      [students.jia, students.yi].sort((a, b) => a - b)
+    );
+    expect(adapter.getDimensionalResultScores(ipip.id, [])).toEqual([]);
+
+    adapter.close();
+    cleanup(dbPath);
+  });
+
+  it("重测后只取当前有效版本（旧版本 is_current=0 不出现）", () => {
+    const { dbPath, adapter, students } = setup();
+    const ipip = adapter.getAssessmentByCode(IPIP_NEO_FFI_CODE)!;
+    const first = JSON.stringify([{ key: "N", standard: 10, band: "low" }]);
+    const second = JSON.stringify([{ key: "N", standard: 90, band: "high" }]);
+
+    completeBigFive(adapter, students.jia, ipip.id, first);
+    completeBigFive(adapter, students.jia, ipip.id, second);
+
+    const rows = adapter.getDimensionalResultScores(ipip.id, null);
+    expect(rows).toHaveLength(1);
+    expect(rows[0].scores_json).toBe(second);
+
+    adapter.close();
+    cleanup(dbPath);
+  });
+});

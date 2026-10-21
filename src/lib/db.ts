@@ -438,6 +438,18 @@ export interface AssessmentStatsRaw {
 }
 
 /**
+ * dimensional 量表的逐人结果快照（#312）：只取三列，供纯函数解析档位。
+ *
+ * 刻意不取姓名/学号：人格分布是**纯聚合**，个人分数与身份都不离开数据层；
+ * 原始分数（`raw` / `standard`）由纯函数解析后只留下三档计数，响应里不出现。
+ */
+export interface DimensionalResultScoreRow {
+  user_id: number;
+  scores_json: string | null;
+  completed_at: string | null;
+}
+
+/**
  * 班级完成矩阵的**原始计数**（#310）：档案提交与各量表已完成人数都按 `class_id` 分组，
  * `class_id = null` 表示未分班；`name` 只用于展示，**绝不作为分组键**（改名/重名会串数据）。
  * 完成率、列顺序、排序、空班剔除与总计统一由 `src/lib/completion-stats.ts` 的纯函数算。
@@ -896,6 +908,15 @@ export interface DbAdapter {
     assessmentIds: number[],
     classIds: number[] | null
   ): Promise<CompletionStatsRaw> | CompletionStatsRaw;
+  /**
+   * dimensional 量表逐人结果快照（#312）：`completed + is_current` 的学生各一行，
+   * 只返回 `user_id / scores_json / completed_at`，班级范围按 `classIds` 收窄
+   * （`null` = 全校，空集合直接返回空数组）。解析与三档归并统一在纯函数里做。
+   */
+  getDimensionalResultScores(
+    assessmentId: number,
+    classIds: number[] | null
+  ): Promise<DimensionalResultScoreRow[]> | DimensionalResultScoreRow[];
   /**
    * 测评名册（**含姓名/学号，读取须记审计**）：只返回已完成且当前有效的结果。
    * `classIds` 收窄班级范围（教师归属班级），`filters.classId` 再收窄到单班，
@@ -1599,6 +1620,15 @@ export async function getCompletionStats(
 ): Promise<CompletionStatsRaw> {
   const adapter = await ensureInit();
   return Promise.resolve(adapter.getCompletionStats(assessmentIds, classIds));
+}
+
+/** #312：dimensional 量表逐人结果快照（不含身份字段，解析在纯函数） */
+export async function getDimensionalResultScores(
+  assessmentId: number,
+  classIds: number[] | null
+): Promise<DimensionalResultScoreRow[]> {
+  const adapter = await ensureInit();
+  return Promise.resolve(adapter.getDimensionalResultScores(assessmentId, classIds));
 }
 
 /** #229：教师端测评名册（含个人信息，调用方必须记审计并先收窄班级范围） */

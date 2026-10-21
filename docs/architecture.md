@@ -153,6 +153,7 @@
 | `/api/manage/stats/class-trends` | GET | 仅 GET | 按班级分层的提交趋势（#165，时间 × 班级交叉维度）；响应 `{ series: [{ key, label }], points: [{ date, counts }] }`，`counts` 以 `key` 索引、未分班固定最后（#260） |
 | `/api/manage/stats/assessment` | GET | 仅 GET | 测评聚合统计（#229/#311）：班级完成度 / 六型计数 / 三字码排行 / 总数小结 / 逐班六型构成，**不含任何个人标识**；`?scope=all`（默认，全校）或 `scope=mine`（仅本人归属班级）；`?code` 默认 `riasec` 且只接受 `typological` 量表；`?classId` 收窄到单班；`assessment.enabled` 供大屏区分「还没开放」与「还没人做」（#232） |
 | `/api/manage/stats/completion` | GET | 仅 GET | 班级 × 事项完成矩阵（#310）：档案提交 + 各启用量表各一列，**不含姓名/学号**；`?scope=all`（默认，所有班级）或 `scope=mine`（教师仅本人归属班级）；`unassigned` 与 `total` 含未分班学生（scope=all 时）；教师看所有班级时行 `canDrilldown=false`；纯聚合不记审计 |
+| `/api/manage/stats/big-five` | GET | 仅 GET | 大五人格班级分布（#312）：五维各按低/中/高三档计数，**响应不含姓名/学号/逐人分数**；`?scope=all`（默认，全校）或 `scope=mine`（教师仅本人班级）；`?classId` 收窄单班、教师非本人班级 403；量表元信息只从 `assessments` 表读，停用返回 `enabled:false` + 全 0；未安装/量表缺失返回 `assessment:null` 空态；纯聚合不记审计 |
 | `/api/manage/assessment/roster` | GET | 仅 GET | 测评名册（#229）：已完测学生的姓名 / 学号 / 三字码 / 完成时间，供下钻；过滤参数 `classId` / `lead`（三字码首位，与 #305 后 `/profiles` 的任意位置包含筛选口径不同）/ `code`（完整三字码，#232）+ `scope`；**#313 增** `scale`（默认 `riasec`，白名单 = 启用量表的完整 `code`，非法 400）与 `status`（`done` 默认 / `missing` 未完成名单）：`lead` / `code` 与非 `riasec` 或与 `missing` 组合一律 400；`missing` 只回姓名 / 学号 / 班级；dimensional 量表（如 `ipip-neo-ffi`）已测名册以 `bands` 取代三字码、不含 raw / standard；教师恒收窄到本人归属班级（越权 403），每次读取记审计 `assessment:roster` |
 | `/api/manage/profiles` | GET / DELETE | GET + DELETE | 档案列表 / 清除档案字段。GET 支持**服务端筛选与排序**（#295：`q` / `tag`（可重复，**一个参数就是一个标签、不按逗号切分**——标签名允许含逗号，切分会把下拉里选中的那一项筛成别的条件）/ `lead`（兴趣测评三字码任意位置包含所选六型字母（#305）或 `none`）/ `sortKey` / `sortDir`，分页在过滤后执行、`total` 为过滤后命中数）。GET 每行另带 `classId`（#243：教师面板据此隐藏越界行的删除入口）与兴趣测评字段（#234：`assessmentCode` / `assessmentStatus` / `assessmentAt` + 详情条形用的六型快照 `assessmentScores`），取「`completed` 且 `is_current=1`」的当前有效结果，未测行为 `none` / `null`；分页、总数与既有排序口径不变。DELETE 由 `WriteGuard` 在路由内判定班级归属（#243）：教师只能清除本人管辖班级学生的档案，未分班 / 他班 / 不在册 id 整批 403、不落任何写入；管理员仍可清除任意在册学生，不在册 id 显式 404；成功与被拒均记审计 `profile:clear`（metadata 只含学号与条数，不含档案内容） |
 | `/api/manage/profiles/submissions` | GET | GET | 管理端查看学生提交历史（#95）：admin 全量、teacher 仅管辖班级 |
@@ -174,7 +175,7 @@
 
 > 前缀匹配特性：`/api/manage/export` 覆盖 `export-images`；`/api/manage/profiles` 的 GET+DELETE 覆盖 submissions 子路由的 GET，但 `submissions/cleanup` 是 POST，教师被拒。
 >
-> 数据范围：`/api/manage/stats/*` 只做角色放行，不按班级裁剪，教师与管理员读到同一份全校数据（#165 的决策，界面已在面板标题与各卡片标注，非缺陷）。
+> 数据范围：`/api/manage/stats/*` 默认全校（#165 的决策：教师与管理员读到同一份聚合数据）；需要按教师归属收窄的端点走显式参数——`scope=mine` 收窄到本人班级（#310/#312），`classId` 再收窄单班，其中 #312 对教师传非本人班级直接 403。聚合端点本身不含个人信息。
 >
 > **#229 测评统计的两层范围**：聚合 `/stats/assessment` 沿用上面这条口径（默认全校，`scope=mine` 才收窄到本人归属班级）；**个人明细 `/assessment/roster` 例外**——它是唯一**专用的**「测评结果 + 姓名学号」下钻端点，教师恒为本人归属班级（`classId` 越权直接 403），并每次读取记审计。注意「唯一」只指**专用测评端点**：档案数据列表 `/api/manage/profiles` GET 自 #234 起也在每行附带三字码/完成时间/六型分，它沿用档案列表既有权限（教师可见全校已提交档案学生、GET 无班级收窄且不记审计；DELETE 按 #243 记审计），不是第二套测评权限。两者的取舍见「教师端测评统计（#229）」与「教师端数据列表测评列（#234）」。
 
@@ -355,6 +356,17 @@
 - **展示口径**：行按档案提交率升序（最该催的在前），同率按班名 `zh-CN`、再按 `classId` 破平；完成率复用 #229 的 `completionRate`（一位小数、钳到 100%）；`total` 用同一分母重算，不平均行完成率。
 - **范围与下钻**：`scope=all` 默认看所有班级；教师 `scope=mine` 收窄到 `teacher_classes`，管理员 `scope=mine` 等同所有班级。教师看「所有班级」时响应行 `canDrilldown=false`（只读聚合），教师「我带的班」与管理员为 true；未分班不提供下钻。
 - **降级与审计**：量表读取失败退化为只有档案列；未安装返回空矩阵，均不 500。响应无个人信息，与 `/stats/assessment` 同口径**不记审计**；个人明细仍走 `/assessment/roster`（单独记审计）。
+
+## 人格轮廓统计（#312）
+
+<!-- 对账：纯函数 `src/lib/big-five-stats.ts`（测试 `big-five-stats.test.ts`）；SQL 在两适配器的 getDimensionalResultScores（`stats-db-parity.test.ts` 锁同构，真实 SQLite 行为在 `assessment-stats-db.test.ts`）；接口行为测试 `big-five-stats-api.test.ts` -->
+
+- **端点与响应**：`GET /api/manage/stats/big-five` 是「人格轮廓」卡的唯一数据源；`assessment` 带量表 `code` / `name` / `scaleVersion` / `enabled` / `scoringMode` / `dimensions`，**只从 `assessments` 表读、不返回任何题目内容**；`total` 复用 #310 完成矩阵的 `enrolled / assessed / rate` 分母口径，另带 `invalidCount` 与 `lastSubmittedAt`；`dimensions` 为五维三档计数，维度顺序恒为量表定义顺序（N/E/O/A/C），**不按分值排序**。
+- **三档口径**：只读结果快照里已落库的 `band`（`completed + is_current=1 + role='student'`），**不重算分数**；旧快照缺 `band` 时用 `bandOf(standard)` 兜底（阈值 66.7 / 33.3，与计分引擎同一口径）。整条 JSON 解析失败、缺维度或 `standard` 非有限数值都整行计入 `invalidCount`、不进分布，因此 `low + medium + high` 恒等于 `assessed - invalidCount`，响应不会出现 `NaN`。
+- **数据层**：`getDimensionalResultScores(assessmentId, classIds)` 只返回 `{ user_id, scores_json, completed_at }` 三列（不取姓名学号/作答内容）；两个适配器执行同一条 SQL，班级范围 `classIds=null` 为全校、空集合直接空数组。
+- **范围与权限**：`scope=all`（默认，全校）或 `scope=mine`（教师收窄到 `teacher_classes`）；`classId` 再收窄单班。教师**任何** `classId` 都先过归属判定（非本人班级 403，不因 `scope=all` 放宽），管理员可查任意范围且 `scope=mine` 等同全校；非法 `scope` / `classId` → 400。
+- **停用与缺失**：量表停用返回 `enabled:false` + 五维全 0（界面渲染「未开放」而非 0%）；未安装或量表未种子化返回 `assessment:null` 的空态，均不 500。
+- **隐私边界**：响应只有聚合计数与维度标签，没有 `raw` / `standard` / 逐人明细 / 平均分 / 排名；与 `/stats/assessment`、`/stats/completion` 同口径**不记审计**，个人明细仍走 `/assessment/roster`（那里单独记审计）。
 
 ## 数据大屏测评栏（#232）
 
