@@ -244,7 +244,7 @@ describe("提交流程", () => {
 
     adapter.insertUser({ user_code: "202505050101", role: "student", name: "张三" });
     const localBackendId = adapter.getDefaultStorageBackend()!.id;
-    adapter.upsertSubmission("202505050101", JSON.stringify(["音乐", "设计"]), "/a.png", "/w.png", localBackendId);
+    adapter.upsertSubmission("202505050101", JSON.stringify(["音乐", "设计"]), "/a.png", "/w.png", null, localBackendId);
 
     const { rows, total } = adapter.getSubmittedProfiles(1, 20);
     expect(total).toBe(1);
@@ -269,7 +269,7 @@ describe("提交流程", () => {
 
     // 备份 / 恢复
     const data = adapter.backup();
-    expect(data.version).toBe(6); // #221 起含测评三表
+    expect(data.version).toBe(7); // #162 起含评价文字列
     adapter.clearSubmissions(["202505050101"]);
     expect(adapter.getStats().total).toBe(0);
     adapter.restore(data);
@@ -321,7 +321,7 @@ describe("班级管理与教师账户", () => {
 
     const classId = adapter.insertClass("一班", "BBBB2222");
     adapter.insertUser({ user_code: "202505050102", role: "student", name: "李四", class_id: classId });
-    adapter.upsertSubmission("202505050102", "[]", "/a.png", "/w.png", adapter.getDefaultStorageBackend()!.id);
+    adapter.upsertSubmission("202505050102", "[]", "/a.png", "/w.png", null, adapter.getDefaultStorageBackend()!.id);
     expect(adapter.getCompareByClass()).toEqual([
       { key: "一班", label: "一班", total: 1, submitted: 1 },
     ]);
@@ -344,7 +344,7 @@ describe("班级管理与教师账户", () => {
     adapter.insertUser({ user_code: "202505050101", role: "student", name: "张三", class_id: classId });
     adapter.insertUser({ user_code: "202505050102", role: "student", name: "李四", class_id: classId });
     adapter.insertUser({ user_code: "202505050103", role: "student", name: "王五" });
-    adapter.upsertSubmission("202505050101", "[]", "/a.png", "/w.png", adapter.getDefaultStorageBackend()!.id);
+    adapter.upsertSubmission("202505050101", "[]", "/a.png", "/w.png", null, adapter.getDefaultStorageBackend()!.id);
 
     expect(adapter.getCompareByClass()).toEqual(
       expect.arrayContaining([
@@ -371,6 +371,7 @@ describe("班级管理与教师账户", () => {
       JSON.stringify(["阅读", "编程"]),
       "/a.png",
       "/w.png",
+      null,
       adapter.getDefaultStorageBackend()!.id
     );
 
@@ -401,8 +402,8 @@ describe("班级管理与教师账户", () => {
     adapter.insertUser({ user_code: "202505050102", role: "student", name: "李四", class_id: classId });
     adapter.insertUser({ user_code: "202505050103", role: "student", name: "王五" });
     const backendId = adapter.getDefaultStorageBackend()!.id;
-    adapter.upsertSubmission("202505050101", "[]", "/a.png", "/w.png", backendId);
-    adapter.upsertSubmission("202505050102", "[]", "/b.png", "/w.png", backendId);
+    adapter.upsertSubmission("202505050101", "[]", "/a.png", "/w.png", null, backendId);
+    adapter.upsertSubmission("202505050102", "[]", "/b.png", "/w.png", null, backendId);
 
     const series = adapter.getTrendsByClass(3);
     const today = new Date().toLocaleDateString("sv-SE", { timeZone: "Asia/Shanghai" });
@@ -428,8 +429,8 @@ describe("班级管理与教师账户", () => {
     adapter.insertUser({ user_code: "202505050104", role: "student", name: "赵六" });
 
     const backendId = adapter.getDefaultStorageBackend()!.id;
-    adapter.upsertSubmission("202505050101", "[]", "/a.png", "/w.png", backendId);
-    adapter.upsertSubmission("202505050103", "[]", "/b.png", "/w.png", backendId);
+    adapter.upsertSubmission("202505050101", "[]", "/a.png", "/w.png", null, backendId);
+    adapter.upsertSubmission("202505050103", "[]", "/b.png", "/w.png", null, backendId);
 
     expect(adapter.getCompareByClass()).toEqual([
       { key: "未分班", label: "未分班", total: 2, submitted: 1 },

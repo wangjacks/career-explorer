@@ -145,6 +145,7 @@ export class SqliteAdapter implements DbAdapter {
         tags TEXT,
         avatar_url TEXT,
         evaluation_url TEXT,
+        evaluation_text TEXT,
         submitted_at TEXT,
         created_at TEXT DEFAULT (datetime('now', 'localtime'))
       )
@@ -693,6 +694,9 @@ export class SqliteAdapter implements DbAdapter {
     if (!columns.some((c) => c.name === "storage_id")) {
       this.db.exec("ALTER TABLE users ADD COLUMN storage_id INTEGER NOT NULL DEFAULT 1");
     }
+    if (!columns.some((c) => c.name === "evaluation_text")) {
+      this.db.exec("ALTER TABLE users ADD COLUMN evaluation_text TEXT");
+    }
     this.db.exec(`CREATE INDEX IF NOT EXISTS idx_users_storage_id ON users(storage_id)`);
     // 回填：存量行统一指向本地后端（防御后端 id 非 1 的场景）
     this.db.exec(
@@ -820,16 +824,21 @@ export class SqliteAdapter implements DbAdapter {
         tags TEXT,
         avatar_url TEXT,
         evaluation_url TEXT,
+        evaluation_text TEXT,
         storage_id INTEGER NOT NULL DEFAULT 1,
         submitted_at TEXT NOT NULL,
         is_current INTEGER NOT NULL DEFAULT 0
       )
     `);
+    const columns = this.db.prepare("PRAGMA table_info(profile_submissions)").all() as { name: string }[];
+    if (!columns.some((c) => c.name === "evaluation_text")) {
+      this.db.exec("ALTER TABLE profile_submissions ADD COLUMN evaluation_text TEXT");
+    }
     this.db.exec(`CREATE INDEX IF NOT EXISTS idx_ps_user_version ON profile_submissions(user_id, version)`);
     this.db.exec(`CREATE INDEX IF NOT EXISTS idx_ps_user_current ON profile_submissions(user_id, is_current)`);
     this.db.exec(`
-      INSERT OR IGNORE INTO profile_submissions (user_id, version, tags, avatar_url, evaluation_url, storage_id, submitted_at, is_current)
-      SELECT u.id, 1, u.tags, u.avatar_url, u.evaluation_url, u.storage_id, u.submitted_at, 1
+      INSERT OR IGNORE INTO profile_submissions (user_id, version, tags, avatar_url, evaluation_url, evaluation_text, storage_id, submitted_at, is_current)
+      SELECT u.id, 1, u.tags, u.avatar_url, u.evaluation_url, u.evaluation_text, u.storage_id, u.submitted_at, 1
       FROM users u
       WHERE u.role = 'student' AND u.submitted_at IS NOT NULL
         AND u.id NOT IN (SELECT user_id FROM profile_submissions)
@@ -1033,13 +1042,13 @@ export class SqliteAdapter implements DbAdapter {
   }
 
   // submissions
-  upsertSubmission(userCode: string, tagsJson: string, avatarUrl: string, evaluationUrl: string, storageId: number): void {
+  upsertSubmission(userCode: string, tagsJson: string, avatarUrl: string, evaluationUrl: string, evaluationText: string | null, storageId: number): void {
     this.db
       .prepare(
-        `UPDATE users SET tags = ?, avatar_url = ?, evaluation_url = ?, submitted_at = ?, storage_id = ?
+        `UPDATE users SET tags = ?, avatar_url = ?, evaluation_url = ?, evaluation_text = ?, submitted_at = ?, storage_id = ?
          WHERE role = 'student' AND user_code = ?`
       )
-      .run(tagsJson, avatarUrl, evaluationUrl, getNow(), storageId, userCode);
+      .run(tagsJson, avatarUrl, evaluationUrl, evaluationText, getNow(), storageId, userCode);
   }
 
   getSubmittedProfiles(
@@ -1075,7 +1084,7 @@ export class SqliteAdapter implements DbAdapter {
     const tx = this.db.transaction(() => {
       const result = this.db
         .prepare(
-          `UPDATE users SET tags = NULL, avatar_url = NULL, evaluation_url = NULL, submitted_at = NULL
+          `UPDATE users SET tags = NULL, avatar_url = NULL, evaluation_url = NULL, evaluation_text = NULL, submitted_at = NULL
            WHERE role = 'student' AND user_code IN (${placeholders})`
         )
         .run(...userCodes);
@@ -1096,8 +1105,8 @@ export class SqliteAdapter implements DbAdapter {
   insertProfileSubmission(userId: number, version: number, data: ProfileSubmissionData): number {
     const result = this.db
       .prepare(
-        `INSERT INTO profile_submissions (user_id, version, tags, avatar_url, evaluation_url, storage_id, submitted_at, is_current)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+        `INSERT INTO profile_submissions (user_id, version, tags, avatar_url, evaluation_url, evaluation_text, storage_id, submitted_at, is_current)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         userId,
@@ -1105,6 +1114,7 @@ export class SqliteAdapter implements DbAdapter {
         data.tags,
         data.avatar_url,
         data.evaluation_url,
+        data.evaluation_text,
         data.storage_id,
         data.submitted_at,
         data.is_current
@@ -1197,7 +1207,7 @@ export class SqliteAdapter implements DbAdapter {
       .all() as MediaFileRef[];
   }
 
-  submitProfileWithVersion(userCode: string, tagsJson: string, avatarUrl: string, evaluationUrl: string, storageId: number, submittedAt?: string): { version: number } {
+  submitProfileWithVersion(userCode: string, tagsJson: string, avatarUrl: string, evaluationUrl: string, evaluationText: string | null, storageId: number, submittedAt?: string): { version: number } {
     const tx = this.db.transaction(() => {
       const user = this.db
         .prepare("SELECT id FROM users WHERE role = 'student' AND user_code = ?")
@@ -1205,8 +1215,8 @@ export class SqliteAdapter implements DbAdapter {
       if (!user) throw new Error("学生不存在：" + userCode);
       // 1) UPDATE users（不变）
       this.db
-        .prepare("UPDATE users SET tags = ?, avatar_url = ?, evaluation_url = ?, submitted_at = ?, storage_id = ? WHERE id = ?")
-        .run(tagsJson, avatarUrl, evaluationUrl, submittedAt ?? getNow(), storageId, user.id);
+        .prepare("UPDATE users SET tags = ?, avatar_url = ?, evaluation_url = ?, evaluation_text = ?, submitted_at = ?, storage_id = ? WHERE id = ?")
+        .run(tagsJson, avatarUrl, evaluationUrl, evaluationText, submittedAt ?? getNow(), storageId, user.id);
       // 2) 旧 is_current → 0
       this.db.prepare("UPDATE profile_submissions SET is_current = 0 WHERE user_id = ?").run(user.id);
       // 3) 计算 nextVersion = MAX(version) + 1
@@ -1217,10 +1227,10 @@ export class SqliteAdapter implements DbAdapter {
       // 4) INSERT 新版本（is_current=1）
       this.db
         .prepare(
-          `INSERT INTO profile_submissions (user_id, version, tags, avatar_url, evaluation_url, storage_id, submitted_at, is_current)
-           VALUES (?, ?, ?, ?, ?, ?, ?, 1)`
+          `INSERT INTO profile_submissions (user_id, version, tags, avatar_url, evaluation_url, evaluation_text, storage_id, submitted_at, is_current)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)`
         )
-        .run(user.id, nextVersion, tagsJson, avatarUrl, evaluationUrl, storageId, submittedAt ?? getNow());
+        .run(user.id, nextVersion, tagsJson, avatarUrl, evaluationUrl, evaluationText, storageId, submittedAt ?? getNow());
       // 5) 超限检查 → 删除最旧版本（仅删 DB 记录，文件保留，#111 旧文件不自动删除）
       const config = this.db
         .prepare("SELECT value FROM configs_profile WHERE key = ?")
@@ -2361,7 +2371,7 @@ export class SqliteAdapter implements DbAdapter {
       .prepare("SELECT * FROM assessment_results ORDER BY id")
       .all() as AssessmentResultRow[];
     return {
-      version: 6,
+      version: 7,
       sourceType: "sqlite",
       createdAt: new Date().toISOString(),
       users,
@@ -2468,8 +2478,8 @@ export class SqliteAdapter implements DbAdapter {
       }
       if (d.users.length > 0) {
         const stmt = this.db.prepare(
-          `INSERT INTO users (id, user_code, password_hash, role, name, class_id, tags, avatar_url, evaluation_url, submitted_at, created_at, storage_id)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+          `INSERT INTO users (id, user_code, password_hash, role, name, class_id, tags, avatar_url, evaluation_url, evaluation_text, submitted_at, created_at, storage_id)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
         );
         for (const u of d.users) {
           stmt.run(
@@ -2482,6 +2492,7 @@ export class SqliteAdapter implements DbAdapter {
             u.tags,
             u.avatar_url,
             u.evaluation_url,
+            u.evaluation_text ?? null,
             u.submitted_at,
             u.created_at,
             // 旧备份无 storage_id → 回填本地后端（旧部署均为本地存储）
@@ -2538,8 +2549,8 @@ export class SqliteAdapter implements DbAdapter {
       if (Array.isArray(d.profile_submissions)) {
         if (d.profile_submissions.length > 0) {
           const stmt = this.db.prepare(
-            `INSERT INTO profile_submissions (id, user_id, version, tags, avatar_url, evaluation_url, storage_id, submitted_at, is_current)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+            `INSERT INTO profile_submissions (id, user_id, version, tags, avatar_url, evaluation_url, evaluation_text, storage_id, submitted_at, is_current)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
           );
           for (const p of d.profile_submissions) {
             stmt.run(
@@ -2549,6 +2560,7 @@ export class SqliteAdapter implements DbAdapter {
               p.tags,
               p.avatar_url,
               p.evaluation_url,
+              p.evaluation_text ?? null,
               p.storage_id ?? 1,
               p.submitted_at,
               p.is_current ?? 0

@@ -42,6 +42,7 @@ const STUDENTS = [
     tags: null,
     avatar_url: null,
     evaluation_url: null,
+    evaluation_text: null,
     submitted_at: null,
     created_at: "2026-08-01 10:00:00",
   },
@@ -58,6 +59,7 @@ const SUBMITTED = [
     tags: JSON.stringify(["阅读", "编程"]),
     avatar_url: "/api/uploads/avatar_S001.jpg",
     evaluation_url: "/api/uploads/eval_S001.jpg",
+    evaluation_text: null,
     submitted_at: "2026-08-20 10:00:00",
     created_at: "2026-08-01 10:00:00",
   },
@@ -97,6 +99,26 @@ describe("GET /api/manage/export — 参数校验与安全（#97）", () => {
 });
 
 describe("GET /api/manage/export — CSV", () => {
+  it("三条他人评价按列输出，单行化并防公式注入（#162）", async () => {
+    const withText = [
+      {
+        ...SUBMITTED[0],
+        evaluation_text: JSON.stringify(["=SUM(1,1)\n第二行", "普通评价", ""]),
+      },
+    ];
+    vi.mocked(getAllSubmitted).mockResolvedValue(withText as never);
+
+    const res = await GET(
+      createGetRequest(
+        "/api/manage/export?format=csv&scope=all&columns=evaluation_text_1,evaluation_text_2,evaluation_text_3"
+      )
+    );
+    const text = await res.text();
+    expect(text).toContain('"他人评价1","他人评价2","他人评价3"');
+    expect(text).toContain("\"'=SUM(1,1) 第二行\"");
+    expect(text).toContain('"普通评价"');
+  });
+
   it("CSV 继续输出图片 URL，且不含服务器路径或凭据", async () => {
     const res = await GET(createGetRequest("/api/manage/export?format=csv&scope=all"));
     expect(res.status).toBe(200);
@@ -174,11 +196,12 @@ describe("GET /api/manage/export — 新增列（#233）", () => {
     {
       id: 1, user_code: "S001", name: "学生甲", password_hash: "x", role: "student", class_id: 1,
       tags: JSON.stringify(["阅读"]), avatar_url: "/api/uploads/avatar_S001.jpg", evaluation_url: null,
+      evaluation_text: null,
       submitted_at: "2026-08-20 10:00:00", created_at: "2026-08-01 10:00:00", storage_id: 1,
     },
     {
       id: 2, user_code: "S002", name: "学生乙", password_hash: "x", role: "student", class_id: null,
-      tags: JSON.stringify(["编程"]), avatar_url: null, evaluation_url: null, submitted_at: "2026-08-21 10:00:00",
+      tags: JSON.stringify(["编程"]), avatar_url: null, evaluation_url: null, evaluation_text: null, submitted_at: "2026-08-21 10:00:00",
       created_at: "2026-08-02 10:00:00", storage_id: 1,
     },
   ];
@@ -299,7 +322,7 @@ describe("GET /api/manage/export — 新增列（#233）", () => {
   it("默认列集合与 #233 之前一致（不因新增列改变默认导出）", async () => {
     const res = await GET(createGetRequest("/api/manage/export?format=csv&scope=all"));
     const header = (await res.text()).split("\n")[0];
-    expect(header).toBe('"学号","姓名","标签","学生头像URL","评价词云URL","提交时间"');
+    expect(header).toBe('"学号","姓名","标签","学生头像URL","评价词云图片URL（历史）","他人评价1","他人评价2","他人评价3","提交时间"');
     expect(header).not.toContain("班级");
     expect(header).not.toContain("测评");
   });

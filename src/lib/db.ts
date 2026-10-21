@@ -43,7 +43,10 @@ export interface UserRow {
   class_id: number | null;
   tags: string | null; // JSON 数组（标签名称），如 '["阅读","编程"]'
   avatar_url: string | null;
+  /** 历史上传的评价词云图片；#162 起仅用于存量兼容，新数据写 evaluation_text */
   evaluation_url: string | null;
+  /** 三条他人评价的 JSON 数组（#162），如 '["评价一","评价二","评价三"]' */
+  evaluation_text: string | null;
   submitted_at: string | null;
   created_at: string;
   /** 文件所在存储后端（#111；旧备份可能缺失，恢复时回填本地后端） */
@@ -69,6 +72,7 @@ export interface ProfileSubmissionRow {
   tags: string | null;
   avatar_url: string | null;
   evaluation_url: string | null;
+  evaluation_text: string | null;
   storage_id: number;
   submitted_at: string;
   is_current: number;
@@ -79,6 +83,7 @@ export interface ProfileSubmissionData {
   tags: string | null;
   avatar_url: string | null;
   evaluation_url: string | null;
+  evaluation_text: string | null;
   storage_id: number;
   submitted_at: string;
   is_current: number;
@@ -679,7 +684,7 @@ export interface DbAdapter {
   getStudentByCode(userCode: string): Promise<UserRow | undefined> | UserRow | undefined;
 
   // submissions
-  upsertSubmission(userCode: string, tagsJson: string, avatarUrl: string, evaluationUrl: string, storageId: number): Promise<void> | void;
+  upsertSubmission(userCode: string, tagsJson: string, avatarUrl: string, evaluationUrl: string, evaluationText: string | null, storageId: number): Promise<void> | void;
   /**
    * 已提交档案的学生分页列表（#295）：筛选 / 排序 / 分页**全部在数据库里完成**，
    * 因此跨页数据也能被搜到；`filters` 缺省时行为与改造前一致（按提交时间倒序、无过滤）。
@@ -714,6 +719,7 @@ export interface DbAdapter {
     tagsJson: string,
     avatarUrl: string,
     evaluationUrl: string,
+    evaluationText: string | null,
     storageId: number,
     /** 演示播种用：显式提交时间（与 getNow 同格式 `YYYY-MM-DD HH:mm:ss`）；生产提交省略→取当前 */
     submittedAt?: string
@@ -1092,9 +1098,9 @@ export async function getStudentByCode(userCode: string): Promise<UserRow | unde
   return Promise.resolve(adapter.getStudentByCode(userCode));
 }
 
-export async function upsertSubmission(userCode: string, tagsJson: string, avatarUrl: string, evaluationUrl: string, storageId: number): Promise<void> {
+export async function upsertSubmission(userCode: string, tagsJson: string, avatarUrl: string, evaluationUrl: string, evaluationText: string | null, storageId: number): Promise<void> {
   const adapter = await ensureInit();
-  return Promise.resolve(adapter.upsertSubmission(userCode, tagsJson, avatarUrl, evaluationUrl, storageId));
+  return Promise.resolve(adapter.upsertSubmission(userCode, tagsJson, avatarUrl, evaluationUrl, evaluationText, storageId));
 }
 
 export async function getSubmittedProfiles(
@@ -1170,11 +1176,12 @@ export async function submitProfileWithVersion(
   tagsJson: string,
   avatarUrl: string,
   evaluationUrl: string,
+  evaluationText: string | null,
   storageId: number,
   submittedAt?: string
 ): Promise<{ version: number }> {
   const adapter = await ensureInit();
-  return Promise.resolve(adapter.submitProfileWithVersion(userCode, tagsJson, avatarUrl, evaluationUrl, storageId, submittedAt));
+  return Promise.resolve(adapter.submitProfileWithVersion(userCode, tagsJson, avatarUrl, evaluationUrl, evaluationText, storageId, submittedAt));
 }
 
 export async function getStats(): Promise<Stats> {

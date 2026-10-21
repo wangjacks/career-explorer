@@ -4,6 +4,7 @@ import { UPLOAD_NETWORK_ERROR_MESSAGE } from "@/lib/upload-utils";
 
 const STUDENT_ID = "202505050101";
 const FILE = new File([new Uint8Array([1, 2, 3])], "a.jpg", { type: "image/jpeg" });
+const EVALUATIONS = ["评价一", "评价二", "评价三"];
 
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -39,35 +40,35 @@ describe("submitProfile — 上传失败原因透传（#206）", () => {
   it("代理 413（HTML 正文）给出可行动文案，不再是笼统的「图片上传失败」", async () => {
     stubFetch(htmlResponse(413));
     await expect(
-      submitProfile({ studentId: STUDENT_ID, tags: [], avatarFile: FILE })
+      submitProfile({ studentId: STUDENT_ID, tags: [], avatarFile: FILE, evaluationTexts: EVALUATIONS })
     ).rejects.toThrow("图片过大，服务器拒绝接收，请压缩后重试");
   });
 
   it("服务端 JSON 的 error 原文透传", async () => {
     stubFetch(jsonResponse({ error: "图片大小不能超过 5MB" }, 400));
     await expect(
-      submitProfile({ studentId: STUDENT_ID, tags: [], avatarFile: FILE })
+      submitProfile({ studentId: STUDENT_ID, tags: [], avatarFile: FILE, evaluationTexts: EVALUATIONS })
     ).rejects.toThrow("图片大小不能超过 5MB");
   });
 
   it("网关 504 提示稍后重试", async () => {
     stubFetch(htmlResponse(504));
     await expect(
-      submitProfile({ studentId: STUDENT_ID, tags: [], avatarFile: FILE })
+      submitProfile({ studentId: STUDENT_ID, tags: [], avatarFile: FILE, evaluationTexts: EVALUATIONS })
     ).rejects.toThrow("上传服务暂时不可用，请稍后重试");
   });
 
   it("网络层失败（fetch 抛错）给出网络文案，而非 TypeError 原文", async () => {
     stubFetch(new TypeError("Failed to fetch"));
     await expect(
-      submitProfile({ studentId: STUDENT_ID, tags: [], avatarFile: FILE })
+      submitProfile({ studentId: STUDENT_ID, tags: [], avatarFile: FILE, evaluationTexts: EVALUATIONS })
     ).rejects.toThrow(UPLOAD_NETWORK_ERROR_MESSAGE);
   });
 
   it("200 但响应体不是 JSON（代理拦截页）时给出兜底文案", async () => {
     stubFetch(htmlResponse(200));
     await expect(
-      submitProfile({ studentId: STUDENT_ID, tags: [], avatarFile: FILE })
+      submitProfile({ studentId: STUDENT_ID, tags: [], avatarFile: FILE, evaluationTexts: EVALUATIONS })
     ).rejects.toThrow("上传返回异常，请稍后重试");
   });
 });
@@ -79,7 +80,7 @@ describe("submitProfile — 上传与保存的拼装", () => {
       jsonResponse({ message: "保存成功", version: 1 })
     );
 
-    await submitProfile({ studentId: STUDENT_ID, tags: ["阅读"], avatarFile: FILE });
+    await submitProfile({ studentId: STUDENT_ID, tags: ["阅读"], avatarFile: FILE, evaluationTexts: EVALUATIONS });
 
     const [uploadUrl, uploadInit] = mock.mock.calls[0] as [string, RequestInit];
     expect(uploadUrl).toBe("/api/upload");
@@ -93,25 +94,27 @@ describe("submitProfile — 上传与保存的拼装", () => {
     const body = JSON.parse(String(saveInit.body));
     expect(body.tags).toEqual(["阅读"]);
     expect(body.avatarUrl).toMatch(/^avatar_202505050101_x\.jpg\?t=\d+$/);
-    expect(body.evaluationUrl).toBe("");
+    expect(body.evaluationTexts).toEqual(EVALUATIONS);
+    expect(body.evaluationUrl).toBeUndefined();
     expect(body.storageId).toBe(2);
     expect(body.studentId).toBeUndefined();
   });
 
-  it("未重选图片时沿用既有 URL，且不发起上传请求", async () => {
+  it("未重选头像时沿用既有 URL，且不发起上传请求；评价文字直接随保存提交", async () => {
     const mock = stubFetch(jsonResponse({ message: "保存成功", version: 2 }));
 
     await submitProfile({
       studentId: STUDENT_ID,
       tags: [],
       existingAvatarUrl: "avatar_old.jpg?t=1",
-      existingEvaluationUrl: "evaluation_old.jpg?t=2",
+      evaluationTexts: EVALUATIONS,
     });
 
     expect(mock).toHaveBeenCalledTimes(1);
     const body = JSON.parse(String((mock.mock.calls[0][1] as RequestInit).body));
     expect(body.avatarUrl).toBe("avatar_old.jpg?t=1");
-    expect(body.evaluationUrl).toBe("evaluation_old.jpg?t=2");
+    expect(body.evaluationTexts).toEqual(EVALUATIONS);
+    expect(body.evaluationUrl).toBeUndefined();
     // 未重选不传 storageId：服务端保留记录中的原值
     expect(body.storageId).toBeNull();
   });
@@ -122,7 +125,7 @@ describe("submitProfile — 上传与保存的拼装", () => {
       jsonResponse({ error: "档案提交已截止，无法保存" }, 403)
     );
     await expect(
-      submitProfile({ studentId: STUDENT_ID, tags: [], avatarFile: FILE })
+      submitProfile({ studentId: STUDENT_ID, tags: [], avatarFile: FILE, evaluationTexts: EVALUATIONS })
     ).rejects.toThrow("档案提交已截止，无法保存");
   });
 });
