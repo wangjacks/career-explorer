@@ -2167,11 +2167,19 @@ export class MysqlAdapter implements DbAdapter {
 
   /** 设置 / 取消某组组长（#345）：定位带 class_id，避免组号跨班误写；成员归属由路由校验 */
   async updateClassGroupLeader(classId: number, groupNo: number, leaderUserId: number | null): Promise<void> {
-    const [result] = await this.pool.execute(
+    // 存在性用 SELECT 判，不拿 affectedRows 当存在性：那个数字的含义由连接标志决定。
+    // mysql2 默认带 CLIENT_FOUND_ROWS（实机 8.0.46 实测「首次写值 / 重复写同值 / 首次置空 / 重复置空」
+    // 都是 1，所以旧写法在默认配置下并未误报），但去掉该标志后同值 UPDATE 就返回 0
+    // （同一实例用 mysql CLI 实测 ROW_COUNT 1 → 0）——判存在属于业务语义，不该跟着驱动配置漂。
+    const [existing] = await this.pool.execute(
+      "SELECT 1 AS one FROM class_groups WHERE class_id = ? AND group_no = ? LIMIT 1",
+      [classId, groupNo]
+    );
+    if ((existing as unknown[]).length === 0) throw new Error("该组不存在");
+    await this.pool.execute(
       "UPDATE class_groups SET leader_user_id = ? WHERE class_id = ? AND group_no = ?",
       [leaderUserId, classId, groupNo]
     );
-    if ((result as { affectedRows: number }).affectedRows === 0) throw new Error("该组不存在");
   }
   async getGroupBatches(classId: number): Promise<GroupBatchRow[]> {
     const [rows] = await this.pool.execute(

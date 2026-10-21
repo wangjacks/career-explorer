@@ -521,6 +521,32 @@ describe("分组长持久化与备份（#345）", () => {
     adapter.close();
   });
 
+  /**
+   * 幂等用例（#352 评审 #4）：重复设置同一组长 / 取消本来就为空的组长位都必须静默成功，
+   * 「组不存在」则仍要报错。存在性判据若落在「影响行数」上就跟着驱动的连接标志漂：
+   * 本机 MySQL 8.0.46 上 mysql2 默认带 CLIENT_FOUND_ROWS（四种写入 affectedRows 实测都是 1，
+   * 故旧写法在默认配置下并未误报），但同一实例用 mysql CLI（无该标志）实测 ROW_COUNT 为 1 / 0。
+   * 这条用例锁的是「值没变也不报错」的行为，不依赖任何驱动默认值。
+   */
+  it("updateClassGroupLeader 重复写同一值幂等：值没变也不得报错", () => {
+    const adapter = makeAdapter();
+    const { classId, ids } = seedClass(adapter, "A", 2);
+    adapter.replaceClassGrouping(classId, [{ group_no: 1, user_ids: ids, leader_user_id: ids[0] }]);
+
+    // 重复设置同一个组长（值没变）
+    adapter.updateClassGroupLeader(classId, 1, ids[0]);
+    expect(adapter.getClassGroups(classId)[0].leader_user_id).toBe(ids[0]);
+
+    // 取消已经是空的组长（值没变）
+    adapter.updateClassGroupLeader(classId, 1, null);
+    adapter.updateClassGroupLeader(classId, 1, null);
+    expect(adapter.getClassGroups(classId)[0].leader_user_id).toBeNull();
+
+    // 组不存在仍然报可读错误（与「值没变」区分开）
+    expect(() => adapter.updateClassGroupLeader(classId, 9, null)).toThrow("该组不存在");
+    adapter.close();
+  });
+
   it("moveGroupMember 在同一事务内清掉原组组长，并如实返回 leaderCleared", () => {
     const adapter = makeAdapter();
     const { classId, ids } = seedClass(adapter, "A", 3);

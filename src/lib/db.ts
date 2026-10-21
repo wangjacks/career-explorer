@@ -834,6 +834,9 @@ export interface DbAdapter {
   /**
    * 设置 / 取消某组组长（#345）。调用方负责校验「组长是本组成员」与写权限；
    * 数据层只做「本班 + 组号」定位，避免跨班误写。
+   * **重复写入同一个值必须幂等**（重试 / 双击 / 取消本来就空的组长位都不能报错）：
+   * 组存在与否用 SELECT 判，不拿受影响行数当存在性——那个数字取决于驱动的连接标志
+   * （mysql2 默认开 CLIENT_FOUND_ROWS 时同值 UPDATE 报 1，关掉就报 0），两库口径不该跟着配置漂。
    */
   updateClassGroupLeader(
     classId: number,

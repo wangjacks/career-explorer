@@ -1944,10 +1944,16 @@ export class SqliteAdapter implements DbAdapter {
    * 「组长是否本组成员」由路由校验（这里不查成员表，保持单条 UPDATE）。
    */
   updateClassGroupLeader(classId: number, groupNo: number, leaderUserId: number | null): void {
-    const info = this.db
+    // 存在性用 SELECT 判，不靠 `.changes`：`.changes` 的语义由驱动/连接标志决定（MySQL 侧
+    // mysql2 默认带 CLIENT_FOUND_ROWS 才与 SQLite 一致，一旦去掉该标志同值 UPDATE 就返回 0），
+    // 判存在属于业务语义，不该跟着驱动配置漂。
+    const existing = this.db
+      .prepare("SELECT 1 AS one FROM class_groups WHERE class_id = ? AND group_no = ? LIMIT 1")
+      .get(classId, groupNo);
+    if (!existing) throw new Error("该组不存在");
+    this.db
       .prepare("UPDATE class_groups SET leader_user_id = ? WHERE class_id = ? AND group_no = ?")
       .run(leaderUserId, classId, groupNo);
-    if (info.changes === 0) throw new Error("该组不存在");
   }
 
   getGroupBatches(classId: number): GroupBatchRow[] {

@@ -81,7 +81,7 @@
 
 ## API 路由
 
-<!-- 对账：`find src/app/api -name route.ts | wc -l`（当前 72 条 = manage 50 + auth 5 + setup 3 + shared 11 + tags/upload/uploads 各 1） -->
+<!-- 对账：`find src/app/api -name route.ts | wc -l`（当前 76 条 = manage 54 + auth 5 + setup 3 + shared 11 + tags/upload/uploads 各 1） -->
 
 ### 认证层（proxy 之外，公开）
 
@@ -103,7 +103,7 @@
 
 ### 管理域 `/api/manage/*`（proxy 拦截：生产 admin 全放行；demo-admin 按 `DEMO_ALLOWED` 收敛；teacher 按声明式权限表）
 
-<!-- 对账：路由清单 `find src/app/api/manage -name route.ts`（共 50 条）；teacher 权限列须与 src/proxy.ts 的 TEACHER_ALLOWED 逐条一致，demo-admin 允许列须与 DEMO_ALLOWED 逐条一致 -->
+<!-- 对账：路由清单 `find src/app/api/manage -name route.ts`（共 54 条）；teacher 权限列须与 src/proxy.ts 的 TEACHER_ALLOWED 逐条一致，demo-admin 允许列须与 DEMO_ALLOWED 逐条一致 -->
 
 **教师禁止（不在 `TEACHER_ALLOWED`，一律 403）**
 
@@ -194,7 +194,7 @@
 | `/api/manage/tags` | GET |
 | `/api/manage/profile-config` | GET |
 | `/api/manage/profiles`（含 submissions 子路由的 GET） | GET / DELETE |
-| `/api/manage/groups`（含 members/entries/batches/export/import） | 全方法 |
+| `/api/manage/groups`（含 preview/leader/members/entries/batches/export/import） | 全方法 |
 | `/api/manage/export`（含 export-images） | 全方法 |
 | `/api/manage/stats` | GET |
 | `/api/manage/assessment` | GET |
