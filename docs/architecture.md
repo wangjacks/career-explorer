@@ -146,12 +146,12 @@
 | `/api/manage/export-images` | GET | 全方法 | 图片打包导出（ZIP） |
 | `/api/manage/stats` | GET | 仅 GET | 统计汇总 |
 | `/api/manage/stats/compare` | GET | 仅 GET | 班级对比：每班在册 / 已提交 / 提交率（#165） |
-| `/api/manage/stats/class-roster` | GET | 仅 GET | 班级名册明细（#217）：按班名过滤，返回姓名 / 完整学号（前端脱敏展示）/ 提交状态 / 提交时间 / 标签数；每次查询记审计 |
+| `/api/manage/stats/class-roster` | GET | 仅 GET | 班级名册明细（#217）：按班名过滤，返回姓名 / 完整学号（前端脱敏展示）/ 提交状态 / 提交时间 / 标签数；每次查询记审计。`?classId`（#313，正整数）**优先于** `?class`，按稳定主键定位（班级改名后仍正确）；非法 id → 400，库里没有该班 → 404 |
 | `/api/manage/stats/distribution` | GET | 仅 GET | 标签分布 |
 | `/api/manage/stats/trends` | GET | 仅 GET | 提交趋势（全校合计，缺日补 0） |
 | `/api/manage/stats/class-trends` | GET | 仅 GET | 按班级分层的提交趋势（#165，时间 × 班级交叉维度） |
 | `/api/manage/stats/assessment` | GET | 仅 GET | 测评聚合统计（#229/#311）：班级完成度 / 六型计数 / 三字码排行 / 总数小结 / 逐班六型构成，**不含任何个人标识**；`?scope=all`（默认，全校）或 `scope=mine`（仅本人归属班级）；`?code` 默认 `riasec` 且只接受 `typological` 量表；`?classId` 收窄到单班；`assessment.enabled` 供大屏区分「还没开放」与「还没人做」（#232） |
-| `/api/manage/assessment/roster` | GET | 仅 GET | 测评名册（#229）：已完测学生的姓名 / 学号 / 三字码 / 完成时间，供下钻；过滤参数 `classId` / `lead`（三字码首位，与 #305 后 `/profiles` 的任意位置包含筛选口径不同）/ `code`（完整三字码，#232）+ `scope`；教师恒收窄到本人归属班级（越权 403），每次读取记审计 `assessment:roster` |
+| `/api/manage/assessment/roster` | GET | 仅 GET | 测评名册（#229）：已完测学生的姓名 / 学号 / 三字码 / 完成时间，供下钻；过滤参数 `classId` / `lead`（三字码首位，与 #305 后 `/profiles` 的任意位置包含筛选口径不同）/ `code`（完整三字码，#232）+ `scope`；**#313 增** `scale`（默认 `riasec`，白名单 = 启用量表的完整 `code`，非法 400）与 `status`（`done` 默认 / `missing` 未完成名单）：`lead` / `code` 与非 `riasec` 或与 `missing` 组合一律 400；`missing` 只回姓名 / 学号 / 班级；dimensional 量表（如 `ipip-neo-ffi`）已测名册以 `bands` 取代三字码、不含 raw / standard；教师恒收窄到本人归属班级（越权 403），每次读取记审计 `assessment:roster` |
 | `/api/manage/profiles` | GET / DELETE | GET + DELETE | 档案列表 / 清除档案字段。GET 支持**服务端筛选与排序**（#295：`q` / `tag`（可重复，**一个参数就是一个标签、不按逗号切分**——标签名允许含逗号，切分会把下拉里选中的那一项筛成别的条件）/ `lead`（兴趣测评三字码任意位置包含所选六型字母（#305）或 `none`）/ `sortKey` / `sortDir`，分页在过滤后执行、`total` 为过滤后命中数）。GET 每行另带兴趣测评字段（#234：`assessmentCode` / `assessmentStatus` / `assessmentAt` + 详情条形用的六型快照 `assessmentScores`），取「`completed` 且 `is_current=1`」的当前有效结果，未测行为 `none` / `null`；分页、总数与既有排序口径不变 |
 | `/api/manage/profiles/submissions` | GET | GET | 管理端查看学生提交历史（#95）：admin 全量、teacher 仅管辖班级 |
 | `/api/manage/profiles/submissions/exceeding` | GET | GET | 超出版本上限的学生列表（#95） |
@@ -316,7 +316,8 @@
 - **六型归型依据是结果快照的三字码首位**（`type_code[0]`）：计分引擎（#220）产码时已按「标准分降序 + RIASEC 破平序」选维度，统计层**不重算分数**，因此聚合计数与学生端逐人展示必然一致（单测逐人核对）。六型输出以量表 `dimensions_json` 的顺序为准、计数为 0 也返回，前端画图不用自己补零
 - **班级六型构成**（#311）：`byClass` 复用同一批原始计数组装，班级按名称 `zh-CN` 排序、同名按 `classId` 破平；每班六型按量表维度顺序补齐 0，无人完成的班仍返回六项 0。未分班学生只进总计，不生成虚构班级
 - **量表与范围参数**（#311）：`code` 默认 `riasec` 并做小写归一化；不存在量表返回 404，`dimensional` 量表返回 400，避免被误读为「没有六型结果」。聚合沿用 `/stats/*` 的全校口径（`scope=all` 默认，教师与管理员同数据，#165 的决策），`scope=mine` 才按 `teacher_classes` 收窄到本人班级；`classId` 可把整个聚合再收窄到单班。教师 `scope=all` 可看任意班聚合，`scope=mine` 传非本人班则 403；管理员没有班级归属，`scope=mine` 等同全校。**明细接口例外：教师恒为本人归属班级**（`scope=all/mine` 都不放大范围，显式传别的班 `classId` 直接 403）；管理员不受限
-- **审计**：名册接口每次读取都记 `assessment:roster`（成功/失败都记：被拒的越权请求、非法参数、量表未配置各记一条 failed，含 `classId` / `lead` / `code` / 教师可查班级集合），便于回答「谁查过谁」；聚合接口不记（无个人信息，与既有 stats 同口径）
+- **审计**：名册接口每次读取都记 `assessment:roster`（成功/失败都记：被拒的越权请求、非法参数、量表未配置各记一条 failed，含 `classId` / `lead` / `code` / 教师可查班级集合；#313 起另记 `scale` / `status`，`resource_id` 随量表变化），便于回答「谁查过谁」；聚合接口不记（无个人信息，与既有 stats 同口径）
+- **多量表与未完成名单**（#313）：`scale` 白名单 = **启用量表**的完整 `code`（`ipip` 这类缩写一律 400，不让调用方以为查了另一套量表；默认不传时仍按 `riasec`、保持旧响应）；`status=done|missing`。`missing` 的基准是 `users`（`role='student'` + 班级收窄）配 `NOT EXISTS` 子查询匹配 `completed + is_current`——因此**含只有草稿的学生**、排除教师/管理员账号，且不能改写成 LEFT JOIN 结果表判 NULL（草稿会被误当成已完成）；响应只有姓名 / 学号 / 班级。`lead` / `code` 只对 `riasec + done` 成立，其余组合明确 400，不静默忽略。dimensional 量表（大五）的已测名册以 `bands: [{key,label,band}]` 取代三字码，**不下发 raw / standard**，`band` 缺失时按 `bandOf` 兜底（纯函数 `rosterBands`，`assessment-dashboard.ts`）
 - **双适配器一致性**：适配器只做 SQL 计数（同一套 SQL 语义，表 `idx_assessment_results_assessment` 支撑），完成率、排序破平、Top-N 截断与中文标签统一在 `assessment-stats.ts` 的纯函数里算——口径不落在两个适配器上，避免 SQLite / MySQL 慢慢分叉；班级排序也在纯函数里做，不依赖两库的排序规则
 - **性能**：按全表聚合（一所学校几百到几千行结果），走 `assessment_id` 索引即可，不额外建索引；逐班六型构成用一次 `GROUP BY class_id, key` 查询，不逐班循环查询；高频轮询投屏时才需要考虑缓存，当前不做
 
