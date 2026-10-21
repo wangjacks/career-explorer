@@ -303,7 +303,7 @@ function setupCompletion() {
 
   const storageId = adapter.getDefaultStorageBackend()!.id;
   const submit = (userCode: string) =>
-    adapter.upsertSubmission(userCode, "[]", "", "", storageId);
+    adapter.upsertSubmission(userCode, "[]", "", "", null, storageId);
   submit("202505050101");
   submit("202505050102");
   submit("202505050201");
