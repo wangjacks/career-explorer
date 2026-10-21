@@ -1,7 +1,7 @@
 import { withDemoScope } from "@/lib/demo-scope";
 import { NextRequest, NextResponse } from "next/server";
 import { getAssessmentByCode, getUserById, normalizeAssessmentCode } from "@/lib/db";
-import { RIASEC_CODE } from "@/lib/assessment-data";
+import { getAssessmentAnchors, RIASEC_CODE } from "@/lib/assessment-data";
 import { answerProgress, parseDimensions, resumeIndex } from "@/lib/assessment-flow";
 import { loadAttemptContext } from "@/lib/assessment-attempt";
 import { verifyToken } from "@/lib/token";
@@ -51,6 +51,8 @@ async function GET_impl(request: NextRequest) {
         itemsPerAttempt: assessment.items_per_attempt,
         scaleVersion: assessment.scale_version,
         scoringMode: assessment.scoring_mode,
+        /** 作答锚点随量表下发（#289）：兴趣=意愿、人格=同意度，页面不再写死 */
+        anchors: getAssessmentAnchors(assessment.code),
         dimensions: parseDimensions(assessment.dimensions_json),
         attribution: assessment.attribution,
         licenseText: assessment.license_text,

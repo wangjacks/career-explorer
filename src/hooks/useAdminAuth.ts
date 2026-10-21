@@ -3,6 +3,7 @@
 import { useState, useCallback, useEffect } from "react";
 import { toast } from "sonner";
 import type { RiasecScoreSnapshot } from "@/lib/assessment-view";
+import { buildProfilesQueryString, type ProfileListQuery } from "@/lib/profile-query";
 
 export interface Profile {
   /** 数字用户 id（#95）：版本历史等关联查询使用；旧接口响应可能缺失，容忍 undefined */
@@ -93,10 +94,13 @@ export function useAdminAuth() {
   }, []);
 
   const loadProfiles = useCallback(
-    async (p: number): Promise<PagedData | null> => {
+    async (p: number, query?: ProfileListQuery): Promise<PagedData | null> => {
       try {
-        const res = await fetch(`/api/manage/profiles?page=${p}`);
+        const res = await fetch(`/api/manage/profiles?${buildProfilesQueryString(p, query)}`);
         if (res.ok) return await res.json();
+        // #295：非 2xx 必须提示，否则表格停留在上一次结果，教师会以为筛选已生效
+        const data = (await res.json().catch(() => null)) as { error?: string } | null;
+        toast.error(data?.error ?? "档案列表加载失败，请调整筛选条件后重试");
       } catch (err) {
         console.error("Failed to load profiles:", err);
         toast.error("加载档案列表失败");

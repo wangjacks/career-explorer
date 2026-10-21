@@ -1,6 +1,5 @@
 import { describe, it, expect } from "vitest";
 import {
-  LIKERT_ANCHORS,
   answerProgress,
   filterAnswersToBank,
   firstUnansweredIndex,
@@ -12,6 +11,7 @@ import {
   parseDimensions,
   parseScores,
   resumeIndex,
+  resultSummaryCopy,
 } from "../lib/assessment-flow";
 
 describe("作答值校验", () => {
@@ -27,9 +27,36 @@ describe("作答值校验", () => {
     expect(isValidQuestionIndex(1.5)).toBe(false);
   });
 
-  it("五个 Likert 锚点与计分引擎的 1-5 量程对齐", () => {
-    expect(LIKERT_ANCHORS.map((a) => a.value)).toEqual([1, 2, 3, 4, 5]);
-    expect(LIKERT_ANCHORS.map((a) => a.label)).toEqual(["非常不愿意", "不愿意", "一般", "愿意", "非常愿意"]);
+  it("作答值仍与计分引擎的 1-5 量程对齐", () => {
+    expect(isValidAnswerValue(1)).toBe(true);
+    expect(isValidAnswerValue(5)).toBe(true);
+    expect(isValidAnswerValue(0)).toBe(false);
+    expect(isValidAnswerValue(6)).toBe(false);
+  });
+});
+
+describe("结果摘要按计分模式分流（#289）", () => {
+  it("typological：三字码 + 六型得分，提交文案讲三字码", () => {
+    const copy = resultSummaryCopy("typological");
+    expect(copy.showTypeCode).toBe(true);
+    expect(copy.headline).toBe("你的职业兴趣三字码");
+    expect(copy.scoresTitle).toBe("六型兴趣得分");
+    expect(copy.answerGroupLabel).toBe("选择你对这个活动的意愿");
+    expect(copy.submitHint).toContain("三字码");
+    expect(copy.confirmMessage(30)).toContain("全部 30 题");
+  });
+
+  it("dimensional：五大画像 + 五维得分，任何文案都不出现三字码", () => {
+    const copy = resultSummaryCopy("dimensional");
+    expect(copy.showTypeCode).toBe(false);
+    expect(copy.headline).toBe("五大人格画像");
+    expect(copy.scoresTitle).toBe("五维人格得分");
+    expect(copy.answerGroupLabel).toBe("选择这句话与你的符合程度");
+    expect(copy.submitHint).toContain("五大人格得分");
+    expect(copy.submitHint).not.toContain("三字码");
+    expect(copy.confirmMessage(50)).toContain("全部 50 题");
+    expect(copy.confirmMessage(50)).toContain("五大人格得分");
+    expect(copy.confirmMessage(50)).not.toContain("三字码");
   });
 });
 

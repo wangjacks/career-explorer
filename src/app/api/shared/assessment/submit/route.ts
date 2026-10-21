@@ -150,6 +150,8 @@ async function POST_impl(request: NextRequest) {
         poolSize: context.bankIndexes.length,
         attemptNo: context.attemptNo,
         scaleVersion: assessment.scale_version,
+        /** 计分模式随结果下发（#289）：dimensional 的 typeCode 是 null，不能靠 null 反推模式 */
+        scoringMode: assessment.scoring_mode,
         disclaimer: assessment.disclaimer,
       },
     });

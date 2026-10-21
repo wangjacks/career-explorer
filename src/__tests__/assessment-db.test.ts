@@ -269,6 +269,7 @@ describe("题库只增不改升级（#281）", () => {
       inserted: 90,
       originBackfilled: 30,
       definitionUpdated: true,
+      licenseTextUpdated: false,
       itemsPerAttemptUpdated: true,
     });
 
@@ -321,7 +322,13 @@ describe("题库只增不改升级（#281）", () => {
     const definitionBefore = adapter.getAssessmentByCode(RIASEC_CODE)!;
 
     const second = adapter.upgradeAssessmentBank();
-    expect(second).toEqual({ inserted: 0, originBackfilled: 0, definitionUpdated: false, itemsPerAttemptUpdated: false });
+    expect(second).toEqual({
+      inserted: 0,
+      originBackfilled: 0,
+      definitionUpdated: false,
+      licenseTextUpdated: false,
+      itemsPerAttemptUpdated: false,
+    });
     expect(adapter.getAssessmentQuestions(assessment.id)).toEqual(before);
     expect(adapter.getAssessmentByCode(RIASEC_CODE)).toEqual(definitionBefore);
 
@@ -338,6 +345,36 @@ describe("题库只增不改升级（#281）", () => {
     const result = adapter.upgradeAssessmentBank();
     expect(result.definitionUpdated).toBe(false);
     expect(adapter.getAssessmentByCode(RIASEC_CODE)?.name).toBe("（后台改过的名字）");
+
+    adapter.close();
+    cleanup(dbPath);
+  });
+
+  it("同版本库的 license_text 与种子不一致时只刷新这一列（#284），不动后台维护的名字", () => {
+    const { dbPath, adapter, assessment } = setup();
+    const raw = new Database(dbPath);
+    raw.prepare("UPDATE assessments SET license_text = ?, name = ? WHERE id = ?").run(
+      "（旧授权文案）",
+      "（后台改过的名字）",
+      assessment.id
+    );
+    raw.close();
+
+    const result = adapter.upgradeAssessmentBank();
+    expect(result.definitionUpdated).toBe(false);
+    expect(result.licenseTextUpdated).toBe(true);
+    const definition = adapter.getAssessmentByCode(RIASEC_CODE)!;
+    expect(definition.name).toBe("（后台改过的名字）");
+    expect(definition.license_text).toBe(RIASEC_ASSESSMENT.licenseText);
+
+    // 幂等：第二次不再刷新
+    expect(adapter.upgradeAssessmentBank()).toEqual({
+      inserted: 0,
+      originBackfilled: 0,
+      definitionUpdated: false,
+      licenseTextUpdated: false,
+      itemsPerAttemptUpdated: false,
+    });
 
     adapter.close();
     cleanup(dbPath);

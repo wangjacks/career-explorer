@@ -3,7 +3,8 @@ import { mkdirSync, readFileSync, existsSync } from "fs";
 import { tmpdir } from "os";
 import path from "path";
 import { tagCategories } from "./tagData";
-import { ASSESSMENT_SEEDS, getQuestionSeeds, validateAssessmentSeed } from "./assessment-data";
+import { ASSESSMENT_SEEDS, RIASEC_CODE, getQuestionSeeds, validateAssessmentSeed } from "./assessment-data";
+import { buildSubmittedProfilesSql } from "./profile-query";
 import type { QuestionSeed } from "./assessment-data";
 import { getOnetOccupationSeeds, needsOnetReseed, ONET_SEED_MARKER_KEY, onetInterestCodeOf } from "./onet";
 import { ONET_DATASET_VERSION } from "./onet-data";
@@ -51,6 +52,7 @@ import type {
   AssessmentStatsRaw,
   AssessmentRosterRow,
   AssessmentBankUpgradeResult,
+  SubmittedProfileFilters,
 } from "./db";
 import { fillGroupedTrend, fillTrendSeries, shiftDate } from "./stats-utils";
 
@@ -469,21 +471,23 @@ export class SqliteAdapter implements DbAdapter {
 
   /**
    * 题库**只增不改**升级（#281）：生产库已有的题库由 `seedAssessments` 的「非空一律不碰」保护，
-   * 所以扩库必须另走这里，且**只允许四种写动作**：
+   * 所以扩库必须另走这里，且**只允许五种写动作**：
    * 1. 缺失的题号 → INSERT；
    * 2. 已存在的题号 → **只回填 `origin`**（`prompt` / `dimension` / `version` 一个字节都不动，
    *    后台维护过的题面神圣不可侵犯）；
    * 3. 量表定义字段 → 仅当 `scale_version` 与种子不一致时整体更新（名字/题数/署名/授权/免责）；
-   * 4. `items_per_attempt`（#282）→ 与版本号无关，只要与种子不一致就只回填这一列。
+   * 4. `items_per_attempt`（#282）→ 与版本号无关，只要与种子不一致就只回填这一列；
+   * 5. `license_text`（#284）→ 合规文案与版本号无关，同版本库与种子不一致时只刷新这一列。
    *
    * 写之前跑新版 `validateAssessmentSeed`（含 anchor 与近重复校验）；全程单事务。
-   * 重复执行幂等：第二次没有缺题、origin 已一致、版本号与每次题量都已一致，什么都不改。
+   * 重复执行幂等：第二次没有缺题、origin 已一致、版本号 / 每次题量 / 授权文案都已一致，什么都不改。
    */
   upgradeAssessmentBank(): AssessmentBankUpgradeResult {
     const result: AssessmentBankUpgradeResult = {
       inserted: 0,
       originBackfilled: 0,
       definitionUpdated: false,
+      licenseTextUpdated: false,
       itemsPerAttemptUpdated: false,
     };
     const findAssessment = this.db.prepare("SELECT * FROM assessments WHERE code = ?");
@@ -507,6 +511,11 @@ export class SqliteAdapter implements DbAdapter {
     // （不并入上面整条定义 UPDATE——同版本库里后台改过的名字/署名不能被顺带覆盖）
     const updateItemsPerAttempt = this.db.prepare(
       "UPDATE assessments SET items_per_attempt = ?, updated_at = ? WHERE id = ?"
+    );
+    // #284：授权与放行状态文案随合规要求变化，与 scale_version 无关；同版本库只刷新这一列，
+    // 避免整条定义 UPDATE 把后台维护的 name / attribution 顺带覆盖
+    const updateLicenseText = this.db.prepare(
+      "UPDATE assessments SET license_text = ?, updated_at = ? WHERE id = ?"
     );
 
     const upgrade = this.db.transaction(() => {
@@ -559,6 +568,9 @@ export class SqliteAdapter implements DbAdapter {
             existing.id
           );
           result.definitionUpdated = true;
+        } else if (existing.license_text !== definition.licenseText) {
+          updateLicenseText.run(definition.licenseText, now, existing.id);
+          result.licenseTextUpdated = true;
         }
 
         // #282：`items_per_attempt` 与 scale_version 无关也要补齐——生产库在 #281 时已是
@@ -1015,17 +1027,21 @@ export class SqliteAdapter implements DbAdapter {
       .run(tagsJson, avatarUrl, evaluationUrl, getNow(), storageId, userCode);
   }
 
-  getSubmittedProfiles(page: number = 1, pageSize: number = 20): { rows: UserRow[]; total: number } {
-    const total = (
-      this.db.prepare("SELECT COUNT(*) as c FROM users WHERE role = 'student' AND submitted_at IS NOT NULL").get() as { c: number }
-    ).c;
+  getSubmittedProfiles(
+    page: number = 1,
+    pageSize: number = 20,
+    filters?: SubmittedProfileFilters
+  ): { rows: UserRow[]; total: number } {
+    // #295：筛选 / 排序 / 分页全部下推数据库（跨页数据也能被筛到）；不传 filters 时与改造前等价。
+    // WHERE / ORDER BY 由 `buildSubmittedProfilesSql` 统一生成，两适配器口径不会分叉。
+    const { whereSql, params, orderBySql } = buildSubmittedProfilesSql("sqlite", filters, RIASEC_CODE);
     const offset = (page - 1) * pageSize;
+    const total = (
+      this.db.prepare(`SELECT COUNT(*) as c FROM users u WHERE ${whereSql}`).get(...params) as { c: number }
+    ).c;
     const rows = this.db
-      .prepare(
-        `SELECT * FROM users WHERE role = 'student' AND submitted_at IS NOT NULL
-         ORDER BY submitted_at DESC LIMIT ? OFFSET ?`
-      )
-      .all(pageSize, offset) as UserRow[];
+      .prepare(`SELECT u.* FROM users u WHERE ${whereSql} ORDER BY ${orderBySql} LIMIT ? OFFSET ?`)
+      .all(...params, pageSize, offset) as UserRow[];
     return { rows, total };
   }
 

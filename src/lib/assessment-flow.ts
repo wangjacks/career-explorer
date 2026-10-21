@@ -1,4 +1,10 @@
-import { LIKERT_MAX, LIKERT_MIN, type DimensionConfig, type DimensionScore } from "./assessment-scoring";
+import {
+  LIKERT_MAX,
+  LIKERT_MIN,
+  type DimensionConfig,
+  type DimensionScore,
+  type ScoringMode,
+} from "./assessment-scoring";
 
 /**
  * 职业测评作答流程的共享纯函数（#223）：作答值校验、草稿合并、续答落点、结果视图解析。
@@ -14,17 +20,54 @@ import { LIKERT_MAX, LIKERT_MIN, type DimensionConfig, type DimensionScore } fro
  */
 export const MAX_RESULT_VERSIONS = 10;
 
-/** 作答值的中文锚点：RIASEC 兴趣量表问的是「愿不愿意做」，不是「准不准确」（1-5 与计分引擎同一量程） */
-export const LIKERT_ANCHORS: { value: number; label: string }[] = [
-  { value: 1, label: "非常不愿意" },
-  { value: 2, label: "不愿意" },
-  { value: 3, label: "一般" },
-  { value: 4, label: "愿意" },
-  { value: 5, label: "非常愿意" },
-];
-
 /** 题号 → 作答值（题号与值都是整数） */
 export type AssessmentAnswers = Record<number, number>;
+
+/**
+ * 结果摘要与提交文案按计分模式分流（#289）。
+ *
+ * `typological` 讲三字码与六型得分；`dimensional`（如大五人格）只讲维度画像与标准分——
+ * 大五没有三字码，且提交结果里 `typeCode` 本来就是 null，不能拿 null 反推模式。
+ * 文案集中在这里而不是组件内，仓库没有 DOM 测试环境，分流逻辑用纯函数单测覆盖。
+ */
+export interface ResultSummaryCopy {
+  /** 结果页主标题（typological 下方配三字码；dimensional 直接作为大字标题） */
+  headline: string;
+  /** 是否渲染三字码（dimensional 为 false） */
+  showTypeCode: boolean;
+  /** 得分列表标题 */
+  scoresTitle: string;
+  /** 作答区语义标题：兴趣问意愿，人格问符合程度 */
+  answerGroupLabel: string;
+  /** 答题页提交区说明 */
+  submitHint: string;
+  /** 提交确认弹窗正文（本轮题量随卷子变化） */
+  confirmMessage: (total: number) => string;
+}
+
+export function resultSummaryCopy(mode: ScoringMode): ResultSummaryCopy {
+  if (mode === "dimensional") {
+    return {
+      headline: "五大人格画像",
+      showTypeCode: false,
+      scoresTitle: "五维人格得分",
+      answerGroupLabel: "选择这句话与你的符合程度",
+      submitHint:
+        "提交后会立刻算出你的五大人格得分并保存这一份结果；之后想重测可以再来一次（会生成新的一次结果）。",
+      confirmMessage: (total) =>
+        `你已完成全部 ${total} 题。提交后立即算出你的五大人格得分并保存，本次结果记为当前版本；之后可以重新测评（历史结果保留）。`,
+    };
+  }
+  return {
+    headline: "你的职业兴趣三字码",
+    showTypeCode: true,
+    scoresTitle: "六型兴趣得分",
+    answerGroupLabel: "选择你对这个活动的意愿",
+    submitHint: "提交后会立刻算出你的职业兴趣三字码并保存这一份结果；之后想重测可以再来一次（会生成新的一次结果）。",
+    confirmMessage: (total) =>
+      `你已完成全部 ${total} 题。提交后立即算出结果并保存，本次结果记为当前版本；之后可以重新测评（历史结果保留）。`,
+  };
+}
 
 /** 作答值是否合法：1-5 的整数（字符串数字不接受，草稿 JSON 的解析由 parseAnswers 负责） */
 export function isValidAnswerValue(value: unknown): value is number {

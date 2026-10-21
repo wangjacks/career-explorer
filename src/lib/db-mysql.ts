@@ -2,7 +2,8 @@ import mysql from "mysql2/promise";
 import { readFileSync, existsSync } from "fs";
 import path from "path";
 import { tagCategories } from "./tagData";
-import { ASSESSMENT_SEEDS, getQuestionSeeds, validateAssessmentSeed } from "./assessment-data";
+import { ASSESSMENT_SEEDS, RIASEC_CODE, getQuestionSeeds, validateAssessmentSeed } from "./assessment-data";
+import { buildSubmittedProfilesSql } from "./profile-query";
 import { ONET_DATASET_VERSION } from "./onet-data";
 import { getOnetOccupationSeeds, needsOnetReseed, ONET_SEED_MARKER_KEY, onetInterestCodeOf } from "./onet";
 import { normalizeBackupTags, normalizeAssessmentCode, DEFAULT_MAX_CUSTOM_TAGS, DEFAULT_MAX_PROFILE_SUBMISSIONS, MAX_PROFILE_SUBMISSIONS_KEY, DEFAULT_MEDIA_ORPHAN_RETENTION_DAYS, MEDIA_ORPHAN_RETENTION_KEY, chunkArray } from "./db";
@@ -49,6 +50,7 @@ import type {
   AssessmentStatsRaw,
   AssessmentRosterRow,
   AssessmentBankUpgradeResult,
+  SubmittedProfileFilters,
 } from "./db";
 import { fillGroupedTrend, fillTrendSeries, shiftDate } from "./stats-utils";
 
@@ -511,8 +513,8 @@ export class MysqlAdapter implements DbAdapter {
   /**
    * 题库**只增不改**升级（#281）：与 sqlite 适配器同构（同一套写动作与判据），差异只在方言与事务写法。
    *
-   * 只允许四种写动作：缺题 INSERT、已存在题号只回填 `origin`、`scale_version` 变化时整体更新量表定义、
-   * `items_per_attempt`（#282）与种子不一致时只回填这一列；
+   * 只允许五种写动作：缺题 INSERT、已存在题号只回填 `origin`、`scale_version` 变化时整体更新量表定义、
+   * `items_per_attempt`（#282）与种子不一致时只回填这一列、`license_text`（#284）同版本库不一致时只刷新这一列；
    * 写之前跑新版校验，全程单事务；重复执行幂等（第二次不改任何字段）。
    */
   async upgradeAssessmentBank(): Promise<AssessmentBankUpgradeResult> {
@@ -520,6 +522,7 @@ export class MysqlAdapter implements DbAdapter {
       inserted: 0,
       originBackfilled: 0,
       definitionUpdated: false,
+      licenseTextUpdated: false,
       itemsPerAttemptUpdated: false,
     };
     const conn = await this.pool.getConnection();
@@ -592,6 +595,14 @@ export class MysqlAdapter implements DbAdapter {
             ]
           );
           result.definitionUpdated = true;
+        } else if (existing.license_text !== definition.licenseText) {
+          // #284：同版本库只刷新合规文案这一列，不覆盖后台维护的 name / attribution
+          await conn.execute("UPDATE assessments SET license_text = ?, updated_at = ? WHERE id = ?", [
+            definition.licenseText,
+            now,
+            existing.id,
+          ]);
+          result.licenseTextUpdated = true;
         }
 
         // #282：`items_per_attempt` 与 scale_version 无关也要补齐——生产库在 #281 时已是
@@ -1114,17 +1125,17 @@ export class MysqlAdapter implements DbAdapter {
 
   async getSubmittedProfiles(
     page: number = 1,
-    pageSize: number = 20
+    pageSize: number = 20,
+    filters?: SubmittedProfileFilters
   ): Promise<{ rows: UserRow[]; total: number }> {
-    const [countResult] = await this.pool.execute(
-      "SELECT COUNT(*) as c FROM users WHERE role = 'student' AND submitted_at IS NOT NULL"
-    );
-    const total = Number((countResult as { c: number }[])[0].c);
+    // #295：与 sqlite 适配器共用同一份 WHERE / ORDER BY 生成逻辑，差异只在方言
+    const { whereSql, params, orderBySql } = buildSubmittedProfilesSql("mysql", filters, RIASEC_CODE);
     const offset = (page - 1) * pageSize;
+    const [countResult] = await this.pool.execute(`SELECT COUNT(*) as c FROM users u WHERE ${whereSql}`, params);
+    const total = Number((countResult as { c: number }[])[0].c);
     const [rows] = await this.pool.query(
-      `SELECT * FROM users WHERE role = 'student' AND submitted_at IS NOT NULL
-       ORDER BY submitted_at DESC LIMIT ? OFFSET ?`,
-      [pageSize, offset]
+      `SELECT u.* FROM users u WHERE ${whereSql} ORDER BY ${orderBySql} LIMIT ? OFFSET ?`,
+      [...params, pageSize, offset]
     );
     return { rows: rows as UserRow[], total };
   }
