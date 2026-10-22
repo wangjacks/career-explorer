@@ -2,9 +2,14 @@ import mysql from "mysql2/promise";
 import { readFileSync, existsSync } from "fs";
 import path from "path";
 import { tagCategories } from "./tagData";
-import { normalizeBackupTags, DEFAULT_MAX_CUSTOM_TAGS, DEFAULT_MAX_PROFILE_SUBMISSIONS, MAX_PROFILE_SUBMISSIONS_KEY, DEFAULT_MEDIA_ORPHAN_RETENTION_DAYS, MEDIA_ORPHAN_RETENTION_KEY } from "./db";
+import { ASSESSMENT_SEEDS, RIASEC_CODE, getQuestionSeeds, validateAssessmentSeed } from "./assessment-data";
+import { buildSubmittedProfilesSql } from "./profile-query";
+import { ONET_DATASET_VERSION } from "./onet-data";
+import { getOnetOccupationSeeds, needsOnetReseed, ONET_SEED_MARKER_KEY, onetInterestCodeOf } from "./onet";
+import { normalizeBackupTags, normalizeAssessmentCode, DEFAULT_MAX_CUSTOM_TAGS, DEFAULT_MAX_PROFILE_SUBMISSIONS, MAX_PROFILE_SUBMISSIONS_KEY, DEFAULT_MEDIA_ORPHAN_RETENTION_DAYS, MEDIA_ORPHAN_RETENTION_KEY, chunkArray } from "./db";
 import type {
   UserRow,
+  UserCodeRef,
   TagRow,
   ClassRow,
   TeacherClassRow,
@@ -25,7 +30,54 @@ import type {
   ProfileSubmissionExceedRow,
   ProfileSubmissionFileOwner,
   MediaFileRef,
+  ClassGroupRow,
+  ClassGroupMemberRow,
+  ClassGroupingInput,
+  GroupBatchRow,
+  GroupBatchGroupRow,
+  GroupBatchMemberRow,
+  NewGroupBatchInput,
+  GroupWorkspaceRow,
+  GroupPostRow,
+  GroupTaskRow,
+  GroupWorkspaceReadRow,
+  GroupWorkspaceContext,
+  StudentWorkspaceSummary,
+  NewGroupPostInput,
+  NewGroupTaskInput,
+  GroupPostUpdateFields,
+  GroupTaskUpdateFields,
+  TrendPoint,
+  CompareStat,
+  ClassTrendSeries,
+  ClassRosterRow,
+  AssessmentRow,
+  AssessmentQuestionRow,
+  AssessmentResultRow,
+  AssessmentResultSummary,
+  CompleteAssessmentInput,
+  OnetOccupationRow,
+  AssessmentStatsRaw,
+  CompletionStatsRaw,
+  DimensionalResultScoreRow,
+  AssessmentRosterRow,
+  AssessmentMissingRosterRow,
+  AssessmentBankUpgradeResult,
+  SubmittedProfileFilters,
 } from "./db";
+import {
+  fillClassTrend,
+  fillTrendSeries,
+  mapCompareRows,
+  shiftDate,
+  type RawClassTrendRow,
+  type RawCompareRow,
+} from "./stats-utils";
+import {
+  buildCompletionStatsSql,
+  mapCompletionStatsRows,
+  type CompletionStatsRow,
+} from "./completion-query";
 
 function getNow(): string {
   return new Date().toLocaleString("sv-SE", { timeZone: "Asia/Shanghai" });
@@ -105,6 +157,7 @@ export class MysqlAdapter implements DbAdapter {
         tags TEXT,
         avatar_url VARCHAR(500),
         evaluation_url VARCHAR(500),
+        evaluation_text TEXT,
         submitted_at TEXT,
         created_at TEXT,
         INDEX idx_users_role (role)
@@ -178,6 +231,607 @@ export class MysqlAdapter implements DbAdapter {
     await this.seedTags();
     await this.migrateLegacy();
     await this.migrateProfileSubmissions();
+    await this.migrateGroupSchema();
+    await this.migrateAssessmentSchema();
+    await this.seedAssessments();
+    // #281：旧库补题 + 只回填 origin + 定义级字段随 scale_version 更新（只增不改）
+    await this.upgradeAssessmentBank();
+    await this.migrateOnetSchema();
+    try {
+      await this.seedOnetOccupations();
+    } catch (err) {
+      // 只读参考数据灌库失败不应拖垮全站启动：职业库为空时推荐接口返回 503，
+      // 下次 init() 会重试（判据仍是版本标记 + 行数）。推荐是渐进功能，降级可见即可。
+      console.error("O*NET occupations seed failed (career recommendations degraded):", err);
+    }
+  }
+
+  /**
+   * 分组五表（#101）：当前分组（可写）与历史批次（只追加）物理分离。
+   * 与 sqlite 适配器保持同构（列名/约束/索引一致），差异仅在方言：
+   * AUTO_INCREMENT、VARCHAR 定长、REAL → DOUBLE、外键需显式 ENGINE=InnoDB。
+   */
+  private async migrateGroupSchema(): Promise<void> {
+    await this.pool.execute(`
+      CREATE TABLE IF NOT EXISTS class_groups (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        class_id INT NOT NULL,
+        group_no INT NOT NULL,
+        leader_user_id INT NULL,
+        created_at TEXT NOT NULL,
+        UNIQUE KEY uniq_class_group_no (class_id, group_no),
+        INDEX idx_class_groups_class (class_id),
+        CONSTRAINT fk_class_groups_class FOREIGN KEY (class_id) REFERENCES classes(id),
+        CONSTRAINT fk_class_groups_leader FOREIGN KEY (leader_user_id) REFERENCES users(id) ON DELETE SET NULL
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    `);
+    // user_id 全局唯一：一个学生同时只能属于一个当前组（转班/删人时必须清理旧行）
+    await this.pool.execute(`
+      CREATE TABLE IF NOT EXISTS class_group_members (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        group_id INT NOT NULL,
+        user_id INT NOT NULL,
+        created_at TEXT NOT NULL,
+        UNIQUE KEY uniq_member_user (user_id),
+        UNIQUE KEY uniq_member_group_user (group_id, user_id),
+        INDEX idx_class_group_members_group (group_id),
+        INDEX idx_class_group_members_user (user_id),
+        CONSTRAINT fk_members_group FOREIGN KEY (group_id) REFERENCES class_groups(id),
+        CONSTRAINT fk_members_user FOREIGN KEY (user_id) REFERENCES users(id)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    `);
+    // feature_sources：本次用到的特征源（key/kind/weight）。新增数据源只需扩充这一列
+    await this.pool.execute(`
+      CREATE TABLE IF NOT EXISTS group_batches (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        class_id INT NOT NULL,
+        strategy VARCHAR(64) NOT NULL,
+        feature_sources TEXT,
+        group_size INT NOT NULL,
+        student_count INT NOT NULL,
+        tagged_count INT NOT NULL,
+        metrics TEXT,
+        created_by_id INT,
+        created_by_name VARCHAR(100),
+        created_by_role VARCHAR(20),
+        created_at TEXT NOT NULL,
+        INDEX idx_group_batches_class (class_id, created_at(19)),
+        CONSTRAINT fk_group_batches_class FOREIGN KEY (class_id) REFERENCES classes(id)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    `);
+    // cohesion 为组内平均相似度的快照：标签会随时间变，事后算不出当时的质量
+    await this.pool.execute(`
+      CREATE TABLE IF NOT EXISTS group_batch_groups (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        batch_id INT NOT NULL,
+        group_no INT NOT NULL,
+        cohesion DOUBLE,
+        member_count INT NOT NULL,
+        leader_user_id INT NULL,
+        created_at TEXT NOT NULL,
+        UNIQUE KEY uniq_batch_group_no (batch_id, group_no),
+        INDEX idx_group_batch_groups_batch (batch_id),
+        CONSTRAINT fk_batch_groups_batch FOREIGN KEY (batch_id) REFERENCES group_batches(id)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    `);
+    // 刻意**不加** user_id 外键：历史批次要保留已删/已转出学生的快照（姓名/学号），
+    // 加外键会让删除学生失败，与「历史只追加、永久保留」冲突
+    await this.pool.execute(`
+      CREATE TABLE IF NOT EXISTS group_batch_members (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        batch_id INT NOT NULL,
+        group_id INT NOT NULL,
+        user_id INT NOT NULL,
+        user_code VARCHAR(32),
+        name VARCHAR(100),
+        created_at TEXT NOT NULL,
+        UNIQUE KEY uniq_batch_member_user (batch_id, user_id),
+        INDEX idx_group_batch_members_batch (batch_id),
+        INDEX idx_group_batch_members_user (user_id),
+        CONSTRAINT fk_batch_members_batch FOREIGN KEY (batch_id) REFERENCES group_batches(id),
+        CONSTRAINT fk_batch_members_group FOREIGN KEY (group_id) REFERENCES group_batch_groups(id)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    `);
+    // 小组工作区（#346）：锚定批次内的组（同批各组内容隔离），重分组追加新批次 → 新工作区
+    await this.pool.execute(`
+      CREATE TABLE IF NOT EXISTS group_workspaces (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        class_id INT NOT NULL,
+        batch_id INT NOT NULL,
+        batch_group_id INT NOT NULL,
+        group_no INT NOT NULL,
+        title VARCHAR(100) NOT NULL,
+        created_at TEXT NOT NULL,
+        UNIQUE KEY uniq_workspace_batch_group (batch_group_id),
+        INDEX idx_group_workspaces_class (class_id),
+        INDEX idx_group_workspaces_batch (batch_id),
+        CONSTRAINT fk_workspaces_class FOREIGN KEY (class_id) REFERENCES classes(id),
+        CONSTRAINT fk_workspaces_batch FOREIGN KEY (batch_id) REFERENCES group_batches(id),
+        CONSTRAINT fk_workspaces_batch_group FOREIGN KEY (batch_group_id) REFERENCES group_batch_groups(id)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    `);
+    await this.pool.execute(`
+      CREATE TABLE IF NOT EXISTS group_posts (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        workspace_id INT NOT NULL,
+        author_id INT NULL,
+        author_name VARCHAR(100) NULL,
+        author_role VARCHAR(20) NULL,
+        title VARCHAR(200) NOT NULL,
+        content TEXT NOT NULL,
+        pinned TINYINT NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL,
+        deleted_at TEXT NULL,
+        INDEX idx_group_posts_workspace (workspace_id, created_at(19)),
+        CONSTRAINT fk_posts_workspace FOREIGN KEY (workspace_id) REFERENCES group_workspaces(id)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    `);
+    await this.pool.execute(`
+      CREATE TABLE IF NOT EXISTS group_tasks (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        workspace_id INT NOT NULL,
+        title VARCHAR(200) NOT NULL,
+        description TEXT NULL,
+        assignee_id INT NULL,
+        assignee_name VARCHAR(100) NULL,
+        status VARCHAR(20) NOT NULL DEFAULT 'open',
+        due_at TEXT NULL,
+        created_by_id INT NULL,
+        created_by_name VARCHAR(100) NULL,
+        created_by_role VARCHAR(20) NULL,
+        created_at TEXT NOT NULL,
+        completed_at TEXT NULL,
+        deleted_at TEXT NULL,
+        INDEX idx_group_tasks_workspace (workspace_id, status),
+        CONSTRAINT fk_tasks_workspace FOREIGN KEY (workspace_id) REFERENCES group_workspaces(id)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    `);
+    await this.pool.execute(`
+      CREATE TABLE IF NOT EXISTS group_workspace_reads (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        workspace_id INT NOT NULL,
+        user_id INT NOT NULL,
+        last_read_at TEXT NOT NULL,
+        last_read_post_id INT NOT NULL DEFAULT 0,
+        UNIQUE KEY uniq_workspace_read (workspace_id, user_id),
+        CONSTRAINT fk_reads_workspace FOREIGN KEY (workspace_id) REFERENCES group_workspaces(id),
+        CONSTRAINT fk_reads_user FOREIGN KEY (user_id) REFERENCES users(id)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    `);
+    // 增量补列（#346 首版只有 last_read_at）：旧库缺列时补上，水位从 0 起算
+    if (!(await this.columnExists("group_workspace_reads", "last_read_post_id"))) {
+      await this.pool.execute(
+        "ALTER TABLE group_workspace_reads ADD COLUMN last_read_post_id INT NOT NULL DEFAULT 0"
+      );
+    }
+    // #345 补列：旧库（#101 时期创建）没有组长列，与 SQLite 侧同步补可空列。
+    // 新库由 CREATE TABLE 直接带 users 外键（删学生时 SET NULL）；旧库一次 ALTER 同时补列与约束。
+    if (!(await this.columnExists("class_groups", "leader_user_id"))) {
+      await this.pool.execute(
+        "ALTER TABLE class_groups ADD COLUMN leader_user_id INT NULL, " +
+          "ADD CONSTRAINT fk_class_groups_leader FOREIGN KEY (leader_user_id) REFERENCES users(id) ON DELETE SET NULL"
+      );
+    } else if (!(await this.constraintExists("class_groups", "fk_class_groups_leader"))) {
+      // 早期分支库已补列但没有外键：先清悬空引用，否则补约束会直接失败
+      await this.pool.execute(
+        "UPDATE class_groups g LEFT JOIN users u ON g.leader_user_id = u.id " +
+          "SET g.leader_user_id = NULL WHERE g.leader_user_id IS NOT NULL AND u.id IS NULL"
+      );
+      await this.pool.execute(
+        "ALTER TABLE class_groups ADD CONSTRAINT fk_class_groups_leader " +
+          "FOREIGN KEY (leader_user_id) REFERENCES users(id) ON DELETE SET NULL"
+      );
+    }
+    // 组长必须在本组：旧库没有外键覆盖转班路径、早期数据也可能留下指向非成员的组长，启动时修掉
+    await this.pool.execute(
+      "UPDATE class_groups g LEFT JOIN class_group_members m " +
+        "ON m.group_id = g.id AND m.user_id = g.leader_user_id " +
+        "SET g.leader_user_id = NULL WHERE g.leader_user_id IS NOT NULL AND m.id IS NULL"
+    );
+    if (!(await this.columnExists("group_batch_groups", "leader_user_id"))) {
+      await this.pool.execute("ALTER TABLE group_batch_groups ADD COLUMN leader_user_id INT NULL");
+    }
+    // 旧库升级（#346 之前已有批次）：为存量批次组补建工作区，幂等（仅补 NOT EXISTS 的组）
+    await this.pool.execute(`
+      INSERT INTO group_workspaces (class_id, batch_id, batch_group_id, group_no, title, created_at)
+      SELECT b.class_id, bg.batch_id, bg.id, bg.group_no,
+             CONCAT('第 ', bg.group_no, ' 组工作区'),
+             COALESCE(b.created_at, DATE_FORMAT(NOW(), '%Y-%m-%d %H:%i:%s'))
+        FROM group_batch_groups bg
+        JOIN group_batches b ON b.id = bg.batch_id
+       WHERE NOT EXISTS (SELECT 1 FROM group_workspaces w WHERE w.batch_group_id = bg.id)
+    `);
+  }
+
+  /**
+   * 职业测评三表（#221）：与 sqlite 适配器同构——列名、可空性、唯一约束、外键、索引集合一致，
+   * 差异只在方言：`INT AUTO_INCREMENT`、定长 VARCHAR、`TINYINT`（语义与取舍见 sqlite 侧同名方法注释）。
+   * `UNIQUE(user_id, assessment_id, draft_slot)` 在 MySQL 里同样允许多个 NULL，
+   * 故草稿位只有草稿占 1、完成记录全为 NULL，与 SQLite 行为一致。
+   *
+   * 两处必须显式对齐，否则两库行为分叉：
+   * 1) `code` 用 `utf8mb4_bin`：默认 collation 不区分大小写，会让 `riasec` / `RIASEC` 在 MySQL 里撞唯一键、
+   *    在 SQLite 里共存（跨库备份迁移直接失败）；
+   * 2) 外键：SQLite 侧三处 REFERENCES 在本机 better-sqlite3 下是**实际生效**的（foreign_keys 默认 ON），
+   *    MySQL 不建外键就会在「孤儿题 / 已删学生的结果」上接受与 SQLite 不同的库状态。删除仍在事务内显式清理
+   *    （不依赖 ON DELETE CASCADE）。
+   */
+  private async migrateAssessmentSchema(): Promise<void> {
+    await this.pool.execute(`
+      CREATE TABLE IF NOT EXISTS assessments (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        code VARCHAR(32) COLLATE utf8mb4_bin NOT NULL UNIQUE,
+        name VARCHAR(100) NOT NULL,
+        question_count INT NOT NULL,
+        items_per_attempt INT NOT NULL DEFAULT 0,
+        dimensions_json TEXT NOT NULL,
+        scoring_mode VARCHAR(20) NOT NULL DEFAULT 'typological',
+        scale_version VARCHAR(50) NOT NULL,
+        attribution TEXT NOT NULL,
+        license_text TEXT NOT NULL,
+        disclaimer TEXT NOT NULL,
+        enabled TINYINT NOT NULL DEFAULT 1,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    `);
+    await this.pool.execute(`
+      CREATE TABLE IF NOT EXISTS assessment_questions (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        assessment_id INT NOT NULL,
+        question_index INT NOT NULL,
+        prompt TEXT NOT NULL,
+        dimension VARCHAR(20) NOT NULL,
+        origin VARCHAR(16) NOT NULL DEFAULT 'cn-original',
+        reverse_scored TINYINT NOT NULL DEFAULT 0,
+        version INT NOT NULL DEFAULT 1,
+        created_at TEXT NOT NULL,
+        UNIQUE KEY uq_assessment_question_index (assessment_id, question_index),
+        CONSTRAINT fk_assessment_questions_assessment FOREIGN KEY (assessment_id) REFERENCES assessments(id)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    `);
+    await this.pool.execute(`
+      CREATE TABLE IF NOT EXISTS assessment_results (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        user_id INT NOT NULL,
+        assessment_id INT NOT NULL,
+        status VARCHAR(20) NOT NULL DEFAULT 'in_progress',
+        answers_json TEXT NOT NULL,
+        items_json TEXT NOT NULL,
+        scores_json TEXT,
+        type_code VARCHAR(16),
+        is_current TINYINT NOT NULL DEFAULT 0,
+        draft_slot INT,
+        started_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        completed_at TEXT,
+        UNIQUE KEY uq_assessment_draft (user_id, assessment_id, draft_slot),
+        CONSTRAINT fk_assessment_results_user FOREIGN KEY (user_id) REFERENCES users(id),
+        CONSTRAINT fk_assessment_results_assessment FOREIGN KEY (assessment_id) REFERENCES assessments(id),
+        INDEX idx_assessment_results_user (user_id, assessment_id, status),
+        INDEX idx_assessment_results_current (user_id, assessment_id, is_current),
+        INDEX idx_assessment_results_assessment (assessment_id)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    `);
+    // #281 补列：旧库（#221 时期创建）没有 origin
+    if (!(await this.columnExists("assessment_questions", "origin"))) {
+      await this.pool.execute(
+        "ALTER TABLE assessment_questions ADD COLUMN origin VARCHAR(16) NOT NULL DEFAULT 'cn-original'"
+      );
+    }
+    // #282 补列：每次抽题数。MySQL 的 TEXT 不能带 DEFAULT，所以旧库补列走
+    // 「可空 → 回填 → 改 NOT NULL」三步，落库结果与 SQLite 的 `TEXT NOT NULL DEFAULT '[]'` 一致。
+    if (!(await this.columnExists("assessments", "items_per_attempt"))) {
+      await this.pool.execute("ALTER TABLE assessments ADD COLUMN items_per_attempt INT NOT NULL DEFAULT 0");
+    }
+    if (!(await this.columnExists("assessment_results", "items_json"))) {
+      await this.pool.execute("ALTER TABLE assessment_results ADD COLUMN items_json TEXT NULL");
+      await this.pool.execute("UPDATE assessment_results SET items_json = '[]' WHERE items_json IS NULL");
+      await this.pool.execute("ALTER TABLE assessment_results MODIFY COLUMN items_json TEXT NOT NULL");
+    }
+  }
+
+  /**
+   * 量表种子（#221）：以 `code` 存在性 + 题库题数判定——题面被后台维护过（非空）就完全不碰；
+   * 只补两种残缺态：量表行缺失，或量表行存在但题库为空（例如恢复了一份 `assessment_questions: []` 的备份）。
+   * 落库前用同一个 `validateAssessmentSeed` 自检，坏种子在安装时报错。
+   */
+  private async seedAssessments(): Promise<void> {
+    for (const definition of ASSESSMENT_SEEDS) {
+      const questions = getQuestionSeeds(definition.code);
+      if (!questions) throw new Error(`量表 ${definition.code} 缺少题库种子`);
+      validateAssessmentSeed(definition, questions, onetInterestCodeOf);
+
+      const [existingRows] = await this.pool.execute("SELECT id FROM assessments WHERE code = ?", [
+        definition.code,
+      ]);
+      const existing = (existingRows as { id: number }[])[0];
+      if (existing) {
+        const [countRows] = await this.pool.execute(
+          "SELECT COUNT(*) as c FROM assessment_questions WHERE assessment_id = ?",
+          [existing.id]
+        );
+        if (Number((countRows as { c: number }[])[0].c) > 0) continue;
+        // 题库为空：只补种题库并校正题数，不动其它字段（题面/署名等可能已被后台改过）
+        await this.insertSeedQuestions(existing.id, questions, definition.questionCount);
+        continue;
+      }
+
+      const conn = await this.pool.getConnection();
+      try {
+        await conn.beginTransaction();
+        const now = getNow();
+        const [result] = await conn.execute(
+          `INSERT INTO assessments
+             (code, name, question_count, items_per_attempt, dimensions_json, scoring_mode, scale_version,
+              attribution, license_text, disclaimer, enabled, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`,
+          [
+            definition.code,
+            definition.name,
+            definition.questionCount,
+            definition.itemsPerAttempt,
+            JSON.stringify(definition.dimensions),
+            definition.scoringMode,
+            definition.scaleVersion,
+            definition.attribution,
+            definition.licenseText,
+            definition.disclaimer,
+            now,
+            now,
+          ]
+        );
+        const assessmentId = (result as mysql.ResultSetHeader).insertId;
+        const values = questions.map((question) => [
+          assessmentId,
+          question.index,
+          question.prompt,
+          question.dimension,
+          question.origin,
+          question.reverseScored ? 1 : 0,
+          1,
+          now,
+        ]);
+        await conn.query(
+          `INSERT INTO assessment_questions
+             (assessment_id, question_index, prompt, dimension, origin, reverse_scored, version, created_at)
+           VALUES ?`,
+          [values]
+        );
+        await conn.commit();
+      } catch (err) {
+        await conn.rollback();
+        throw err;
+      } finally {
+        conn.release();
+      }
+    }
+  }
+
+  /** 给已存在的量表补种题库（仅用于「题库为空」的残缺态），事务内校正 question_count 与题号 */
+  private async insertSeedQuestions(
+    assessmentId: number,
+    questions: { index: number; prompt: string; dimension: string; origin: string; reverseScored: boolean }[],
+    questionCount: number
+  ): Promise<void> {
+    const conn = await this.pool.getConnection();
+    try {
+      await conn.beginTransaction();
+      const now = getNow();
+      await conn.execute("UPDATE assessments SET question_count = ?, updated_at = ? WHERE id = ?", [
+        questionCount,
+        now,
+        assessmentId,
+      ]);
+      const values = questions.map((question) => [
+        assessmentId,
+        question.index,
+        question.prompt,
+        question.dimension,
+        question.origin,
+        question.reverseScored ? 1 : 0,
+        1,
+        now,
+      ]);
+      await conn.query(
+        `INSERT INTO assessment_questions
+           (assessment_id, question_index, prompt, dimension, origin, reverse_scored, version, created_at)
+         VALUES ?`,
+        [values]
+      );
+      await conn.commit();
+    } catch (err) {
+      await conn.rollback();
+      throw err;
+    } finally {
+      conn.release();
+    }
+  }
+
+  /**
+   * 题库**只增不改**升级（#281）：与 sqlite 适配器同构（同一套写动作与判据），差异只在方言与事务写法。
+   *
+   * 只允许五种写动作：缺题 INSERT、已存在题号只回填 `origin`、`scale_version` 变化时整体更新量表定义、
+   * `items_per_attempt`（#282）与种子不一致时只回填这一列、`license_text`（#284）同版本库不一致时只刷新这一列；
+   * 写之前跑新版校验，全程单事务；重复执行幂等（第二次不改任何字段）。
+   */
+  async upgradeAssessmentBank(): Promise<AssessmentBankUpgradeResult> {
+    const result: AssessmentBankUpgradeResult = {
+      inserted: 0,
+      originBackfilled: 0,
+      definitionUpdated: false,
+      licenseTextUpdated: false,
+      itemsPerAttemptUpdated: false,
+    };
+    const conn = await this.pool.getConnection();
+    try {
+      await conn.beginTransaction();
+      for (const definition of ASSESSMENT_SEEDS) {
+        const questions = getQuestionSeeds(definition.code);
+        if (!questions) throw new Error(`量表 ${definition.code} 缺少题库种子`);
+        validateAssessmentSeed(definition, questions, onetInterestCodeOf);
+
+        // 量表行不存在 = 全新库，由 seedAssessments 负责；这里只管「已有行」的升级
+        const [existingRows] = await conn.execute("SELECT * FROM assessments WHERE code = ?", [definition.code]);
+        const existing = (existingRows as AssessmentRow[])[0];
+        if (!existing) continue;
+
+        const [questionRows] = await conn.execute(
+          "SELECT question_index, origin FROM assessment_questions WHERE assessment_id = ?",
+          [existing.id]
+        );
+        const currentOrigins = new Map(
+          (questionRows as { question_index: number; origin: string }[]).map((row) => [
+            Number(row.question_index),
+            row.origin,
+          ])
+        );
+        const now = getNow();
+        for (const question of questions) {
+          const currentOrigin = currentOrigins.get(question.index);
+          if (currentOrigin === undefined) {
+            await conn.execute(
+              `INSERT INTO assessment_questions
+                 (assessment_id, question_index, prompt, dimension, origin, reverse_scored, version, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, 1, ?)`,
+              [
+                existing.id,
+                question.index,
+                question.prompt,
+                question.dimension,
+                question.origin,
+                question.reverseScored ? 1 : 0,
+                now,
+              ]
+            );
+            result.inserted += 1;
+            continue;
+          }
+          if (currentOrigin !== question.origin) {
+            await conn.execute(
+              "UPDATE assessment_questions SET origin = ? WHERE assessment_id = ? AND question_index = ?",
+              [question.origin, existing.id, question.index]
+            );
+            result.originBackfilled += 1;
+          }
+        }
+
+        if (existing.scale_version !== definition.scaleVersion) {
+          await conn.execute(
+            `UPDATE assessments
+                SET name = ?, question_count = ?, scale_version = ?, attribution = ?, license_text = ?, disclaimer = ?, updated_at = ?
+              WHERE id = ?`,
+            [
+              definition.name,
+              definition.questionCount,
+              definition.scaleVersion,
+              definition.attribution,
+              definition.licenseText,
+              definition.disclaimer,
+              now,
+              existing.id,
+            ]
+          );
+          result.definitionUpdated = true;
+        } else if (existing.license_text !== definition.licenseText) {
+          // #284：同版本库只刷新合规文案这一列，不覆盖后台维护的 name / attribution
+          await conn.execute("UPDATE assessments SET license_text = ?, updated_at = ? WHERE id = ?", [
+            definition.licenseText,
+            now,
+            existing.id,
+          ]);
+          result.licenseTextUpdated = true;
+        }
+
+        // #282：`items_per_attempt` 与 scale_version 无关也要补齐——生产库在 #281 时已是
+        // 「RIASEC-CN 2.0」，只有补列默认值 0（= 整库作答），不回填就永远进不了抽题口径。
+        if (Number(existing.items_per_attempt) !== definition.itemsPerAttempt) {
+          await conn.execute("UPDATE assessments SET items_per_attempt = ?, updated_at = ? WHERE id = ?", [
+            definition.itemsPerAttempt,
+            now,
+            existing.id,
+          ]);
+          result.itemsPerAttemptUpdated = true;
+        }
+      }
+      await conn.commit();
+    } catch (err) {
+      await conn.rollback();
+      throw err;
+    } finally {
+      conn.release();
+    }
+    return result;
+  }
+  /**
+   * O*NET 职业库（#226）：与 sqlite 适配器同构（列名/可空性/唯一约束一致），差异只在方言。
+   * 只读参考数据，判据与重灌口径见 sqlite 侧同名方法注释。
+   */
+  private async migrateOnetSchema(): Promise<void> {
+    await this.pool.execute(`
+      CREATE TABLE IF NOT EXISTS onet_occupations (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        code VARCHAR(16) NOT NULL UNIQUE,
+        name VARCHAR(200) NOT NULL,
+        name_zh VARCHAR(100),
+        interest_code VARCHAR(8) NOT NULL,
+        interests_json TEXT NOT NULL,
+        job_zone INT NOT NULL,
+        education_level VARCHAR(30) NOT NULL,
+        cluster VARCHAR(40) NOT NULL,
+        dataset_version VARCHAR(16) NOT NULL,
+        created_at TEXT NOT NULL
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    `);
+  }
+
+  /** 职业库种子：按快照版本幂等整表重灌（判据见 `needsOnetReseed`，两适配器共用） */
+  private async seedOnetOccupations(): Promise<void> {
+    const seeds = getOnetOccupationSeeds();
+    const [markerRows] = await this.pool.execute(
+      "SELECT value FROM configs_profile WHERE `key` = ?",
+      [ONET_SEED_MARKER_KEY]
+    );
+    const marker = (markerRows as { value: string }[])[0]?.value;
+    const [countRows] = await this.pool.execute("SELECT COUNT(*) as c FROM onet_occupations");
+    const count = Number((countRows as { c: number }[])[0].c);
+    if (!needsOnetReseed(marker, count, seeds.length)) return;
+
+    const now = getNow();
+    const conn = await this.pool.getConnection();
+    try {
+      await conn.beginTransaction();
+      await conn.execute("DELETE FROM onet_occupations");
+      // 923 行分批插入：单条多值 INSERT 参数太多，分批既稳又便于定位失败批次
+      const chunkSize = 300;
+      for (let start = 0; start < seeds.length; start += chunkSize) {
+        const values = seeds.slice(start, start + chunkSize).map((seed) => [
+          seed.code,
+          seed.name,
+          seed.nameZh,
+          seed.interestCode,
+          JSON.stringify(seed.scores),
+          seed.jobZone,
+          seed.educationLevel,
+          seed.cluster,
+          seed.datasetVersion,
+          now,
+        ]);
+        await conn.query(
+          `INSERT INTO onet_occupations
+             (code, name, name_zh, interest_code, interests_json, job_zone, education_level, cluster, dataset_version, created_at)
+           VALUES ?`,
+          [values]
+        );
+      }
+      await conn.commit();
+    } catch (err) {
+      await conn.rollback();
+      throw err;
+    } finally {
+      conn.release();
+    }
+    await this.setProfileConfig(ONET_SEED_MARKER_KEY, ONET_DATASET_VERSION);
   }
 
   /**
@@ -210,6 +864,9 @@ export class MysqlAdapter implements DbAdapter {
     if (!(await this.columnExists("users", "storage_id"))) {
       await this.pool.execute("ALTER TABLE users ADD COLUMN storage_id INT NOT NULL DEFAULT 1");
     }
+    if (!(await this.columnExists("users", "evaluation_text"))) {
+      await this.pool.execute("ALTER TABLE users ADD COLUMN evaluation_text TEXT NULL");
+    }
     if (!(await this.indexExists("users", "idx_users_storage_id"))) {
       await this.pool.execute("CREATE INDEX idx_users_storage_id ON users (storage_id)");
     }
@@ -240,6 +897,15 @@ export class MysqlAdapter implements DbAdapter {
     const [rows] = await this.pool.execute(
       "SELECT 1 FROM information_schema.statistics WHERE table_schema = ? AND table_name = ? AND index_name = ?",
       [this.database, table, index]
+    );
+    return (rows as unknown[]).length > 0;
+  }
+
+  private async constraintExists(table: string, constraint: string): Promise<boolean> {
+    const [rows] = await this.pool.execute(
+      "SELECT 1 FROM information_schema.table_constraints " +
+        "WHERE table_schema = ? AND table_name = ? AND constraint_name = ?",
+      [this.database, table, constraint]
     );
     return (rows as unknown[]).length > 0;
   }
@@ -353,6 +1019,7 @@ export class MysqlAdapter implements DbAdapter {
         tags TEXT,
         avatar_url VARCHAR(500),
         evaluation_url VARCHAR(500),
+        evaluation_text TEXT,
         storage_id INT NOT NULL DEFAULT 1,
         submitted_at TEXT NOT NULL,
         is_current TINYINT NOT NULL DEFAULT 0,
@@ -360,9 +1027,12 @@ export class MysqlAdapter implements DbAdapter {
         INDEX idx_ps_user_current (user_id, is_current)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
     `);
+    if (!(await this.columnExists("profile_submissions", "evaluation_text"))) {
+      await this.pool.execute("ALTER TABLE profile_submissions ADD COLUMN evaluation_text TEXT NULL");
+    }
     await this.pool.execute(`
-      INSERT IGNORE INTO profile_submissions (user_id, version, tags, avatar_url, evaluation_url, storage_id, submitted_at, is_current)
-      SELECT u.id, 1, u.tags, u.avatar_url, u.evaluation_url, u.storage_id, u.submitted_at, 1
+      INSERT IGNORE INTO profile_submissions (user_id, version, tags, avatar_url, evaluation_url, evaluation_text, storage_id, submitted_at, is_current)
+      SELECT u.id, 1, u.tags, u.avatar_url, u.evaluation_url, u.evaluation_text, u.storage_id, u.submitted_at, 1
       FROM users u
       WHERE u.role = 'student' AND u.submitted_at IS NOT NULL
         AND u.id NOT IN (SELECT user_id FROM profile_submissions)
@@ -487,6 +1157,21 @@ export class MysqlAdapter implements DbAdapter {
     return (rows as UserRow[])[0];
   }
 
+  async getUsersByCodes(userCodes: string[]): Promise<UserCodeRef[]> {
+    if (userCodes.length === 0) return [];
+    const rows: UserCodeRef[] = [];
+    for (const chunk of chunkArray([...new Set(userCodes)])) {
+      const placeholders = chunk.map(() => "?").join(",");
+      // 只取标识与班级归属：批量导入不需要整行（尤其不把 password_hash 带进内存）
+      const [chunkRows] = await this.pool.execute(
+        `SELECT id, user_code, class_id FROM users WHERE user_code IN (${placeholders})`,
+        chunk
+      );
+      rows.push(...(chunkRows as UserCodeRef[]));
+    }
+    return rows;
+  }
+
   async getUserById(id: number): Promise<UserRow | undefined> {
     const [rows] = await this.pool.execute("SELECT * FROM users WHERE id = ?", [id]);
     return (rows as UserRow[])[0];
@@ -498,33 +1183,87 @@ export class MysqlAdapter implements DbAdapter {
   }
 
   async updateUser(id: number, fields: UserUpdateFields): Promise<void> {
-    const sets: string[] = [];
-    const values: (string | number | null)[] = [];
-    if (fields.name !== undefined) {
-      sets.push("name = ?");
-      values.push(fields.name);
+    // 摘除旧班归属与改 users 必须同事务：分两步写中途失败会留下「人已换班、成员行还挂在旧班」的脏归属
+    const conn = await this.pool.getConnection();
+    try {
+      await conn.beginTransaction();
+      // 分组（#101）：**转班**时先摘掉旧班的当前分组归属。
+      // 不清理会撞 class_group_members 的 UNIQUE(user_id)，且学生会同时出现在两个班的名单里
+      if (fields.class_id !== undefined) {
+        const [currentRows] = await conn.execute("SELECT class_id FROM users WHERE id = ?", [id]);
+        const current = (currentRows as { class_id: number | null }[])[0];
+        if (current && current.class_id !== fields.class_id) {
+          // #345：转班后组长必须仍是本组成员，先清组长位再摘成员行（同一事务）
+          await conn.execute("UPDATE class_groups SET leader_user_id = NULL WHERE leader_user_id = ?", [id]);
+          await conn.execute("DELETE FROM class_group_members WHERE user_id = ?", [id]);
+        }
+      }
+      const sets: string[] = [];
+      const values: (string | number | null)[] = [];
+      if (fields.name !== undefined) {
+        sets.push("name = ?");
+        values.push(fields.name);
+      }
+      if (fields.class_id !== undefined) {
+        sets.push("class_id = ?");
+        values.push(fields.class_id);
+      }
+      if (fields.password_hash !== undefined) {
+        sets.push("password_hash = ?");
+        values.push(fields.password_hash);
+      }
+      if (sets.length > 0) {
+        values.push(id);
+        await conn.execute(`UPDATE users SET ${sets.join(", ")} WHERE id = ?`, values);
+      }
+      await conn.commit();
+    } catch (err) {
+      await conn.rollback();
+      throw err;
+    } finally {
+      conn.release();
     }
-    if (fields.class_id !== undefined) {
-      sets.push("class_id = ?");
-      values.push(fields.class_id);
-    }
-    if (fields.password_hash !== undefined) {
-      sets.push("password_hash = ?");
-      values.push(fields.password_hash);
-    }
-    if (sets.length === 0) return;
-    values.push(id);
-    await this.pool.execute(`UPDATE users SET ${sets.join(", ")} WHERE id = ?`, values);
   }
 
   async deleteStudents(userCodes: string[]): Promise<number> {
     if (userCodes.length === 0) return 0;
     const placeholders = userCodes.map(() => "?").join(",");
-    const [result] = await this.pool.execute(
-      `DELETE FROM users WHERE role = 'student' AND user_code IN (${placeholders})`,
-      userCodes
-    );
-    return (result as mysql.ResultSetHeader).affectedRows;
+    const conn = await this.pool.getConnection();
+    try {
+      await conn.beginTransaction();
+      // 分组（#101）：只清「当前分组」的成员行；历史批次保留快照（姓名/学号冗余，账号删除后仍可读）
+      // #345：删学生时组长位一并清空（新库有外键 SET NULL，这里显式清是为了两库与旧库行为一致）
+      await conn.execute(
+        `UPDATE class_groups SET leader_user_id = NULL
+          WHERE leader_user_id IN (SELECT id FROM users WHERE user_code IN (${placeholders}))`,
+        userCodes
+      );
+      await conn.execute(
+        `DELETE FROM class_group_members WHERE user_id IN (SELECT id FROM users WHERE user_code IN (${placeholders}))`,
+        userCodes
+      );
+      // 测评作答（#221）：属学生个人测评数据，账号删除即无归属方，随手一并清掉（不留悬空 user_id）
+      await conn.execute(
+        `DELETE FROM assessment_results WHERE user_id IN (SELECT id FROM users WHERE user_code IN (${placeholders}))`,
+        userCodes
+      );
+      // 小组已读水位（#346）：按 user_id 引用 users，删学生前清掉，避免外键拦住删除
+      await conn.execute(
+        `DELETE FROM group_workspace_reads WHERE user_id IN (SELECT id FROM users WHERE user_code IN (${placeholders}))`,
+        userCodes
+      );
+      const [result] = await conn.execute(
+        `DELETE FROM users WHERE role = 'student' AND user_code IN (${placeholders})`,
+        userCodes
+      );
+      await conn.commit();
+      return (result as mysql.ResultSetHeader).affectedRows;
+    } catch (err) {
+      await conn.rollback();
+      throw err;
+    } finally {
+      conn.release();
+    }
   }
 
   async getStudents(): Promise<UserRow[]> {
@@ -543,29 +1282,39 @@ export class MysqlAdapter implements DbAdapter {
   }
 
   // submissions
-  async upsertSubmission(userCode: string, tagsJson: string, avatarUrl: string, evaluationUrl: string, storageId: number): Promise<void> {
+  async upsertSubmission(userCode: string, tagsJson: string, avatarUrl: string, evaluationUrl: string, evaluationText: string | null, storageId: number): Promise<void> {
     await this.pool.execute(
-      `UPDATE users SET tags = ?, avatar_url = ?, evaluation_url = ?, submitted_at = ?, storage_id = ?
+      `UPDATE users SET tags = ?, avatar_url = ?, evaluation_url = ?, evaluation_text = ?, submitted_at = ?, storage_id = ?
        WHERE role = 'student' AND user_code = ?`,
-      [tagsJson, avatarUrl, evaluationUrl, getNow(), storageId, userCode]
+      [tagsJson, avatarUrl, evaluationUrl, evaluationText, getNow(), storageId, userCode]
     );
   }
 
   async getSubmittedProfiles(
     page: number = 1,
-    pageSize: number = 20
+    pageSize: number = 20,
+    filters?: SubmittedProfileFilters
   ): Promise<{ rows: UserRow[]; total: number }> {
-    const [countResult] = await this.pool.execute(
-      "SELECT COUNT(*) as c FROM users WHERE role = 'student' AND submitted_at IS NOT NULL"
-    );
-    const total = Number((countResult as { c: number }[])[0].c);
+    // #295：与 sqlite 适配器共用同一份 WHERE / ORDER BY 生成逻辑，差异只在方言
+    const { whereSql, params, orderBySql } = buildSubmittedProfilesSql("mysql", filters, RIASEC_CODE);
     const offset = (page - 1) * pageSize;
+    const [countResult] = await this.pool.execute(`SELECT COUNT(*) as c FROM users u WHERE ${whereSql}`, params);
+    const total = Number((countResult as { c: number }[])[0].c);
     const [rows] = await this.pool.query(
-      `SELECT * FROM users WHERE role = 'student' AND submitted_at IS NOT NULL
-       ORDER BY submitted_at DESC LIMIT ? OFFSET ?`,
-      [pageSize, offset]
+      `SELECT u.* FROM users u WHERE ${whereSql} ORDER BY ${orderBySql} LIMIT ? OFFSET ?`,
+      [...params, pageSize, offset]
     );
     return { rows: rows as UserRow[], total };
+  }
+
+  async getSubmittedProfilesForExport(filters?: SubmittedProfileFilters): Promise<UserRow[]> {
+    // #331：与列表共用同一份 WHERE / ORDER BY，只是不套 LIMIT/OFFSET（导出「当前筛选结果」含所有页）
+    const { whereSql, params, orderBySql } = buildSubmittedProfilesSql("mysql", filters, RIASEC_CODE);
+    const [rows] = await this.pool.query(
+      `SELECT u.* FROM users u WHERE ${whereSql} ORDER BY ${orderBySql}`,
+      params
+    );
+    return rows as UserRow[];
   }
 
   async getAllSubmitted(): Promise<UserRow[]> {
@@ -583,7 +1332,7 @@ export class MysqlAdapter implements DbAdapter {
     try {
       await conn.beginTransaction();
       const [result] = await conn.execute(
-        `UPDATE users SET tags = NULL, avatar_url = NULL, evaluation_url = NULL, submitted_at = NULL
+        `UPDATE users SET tags = NULL, avatar_url = NULL, evaluation_url = NULL, evaluation_text = NULL, submitted_at = NULL
          WHERE role = 'student' AND user_code IN (${placeholders})`,
         userCodes
       );
@@ -607,14 +1356,15 @@ export class MysqlAdapter implements DbAdapter {
   // profile_submissions（档案提交历史版本，#95）
   async insertProfileSubmission(userId: number, version: number, data: ProfileSubmissionData): Promise<number> {
     const [result] = await this.pool.execute(
-      `INSERT INTO profile_submissions (user_id, version, tags, avatar_url, evaluation_url, storage_id, submitted_at, is_current)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO profile_submissions (user_id, version, tags, avatar_url, evaluation_url, evaluation_text, storage_id, submitted_at, is_current)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         userId,
         version,
         data.tags,
         data.avatar_url,
         data.evaluation_url,
+        data.evaluation_text,
         data.storage_id,
         data.submitted_at,
         data.is_current,
@@ -730,7 +1480,9 @@ export class MysqlAdapter implements DbAdapter {
     tagsJson: string,
     avatarUrl: string,
     evaluationUrl: string,
-    storageId: number
+    evaluationText: string | null,
+    storageId: number,
+    submittedAt?: string
   ): Promise<{ version: number }> {
     const conn = await this.pool.getConnection();
     try {
@@ -744,8 +1496,8 @@ export class MysqlAdapter implements DbAdapter {
       if (!user) throw new Error("学生不存在：" + userCode);
       // 1) UPDATE users（不变）
       await conn.execute(
-        "UPDATE users SET tags = ?, avatar_url = ?, evaluation_url = ?, submitted_at = ?, storage_id = ? WHERE id = ?",
-        [tagsJson, avatarUrl, evaluationUrl, getNow(), storageId, user.id]
+        "UPDATE users SET tags = ?, avatar_url = ?, evaluation_url = ?, evaluation_text = ?, submitted_at = ?, storage_id = ? WHERE id = ?",
+        [tagsJson, avatarUrl, evaluationUrl, evaluationText, submittedAt ?? getNow(), storageId, user.id]
       );
       // 2) 旧 is_current → 0
       await conn.execute("UPDATE profile_submissions SET is_current = 0 WHERE user_id = ?", [user.id]);
@@ -758,9 +1510,9 @@ export class MysqlAdapter implements DbAdapter {
       const nextVersion = (maxRow?.m ? Number(maxRow.m) : 0) + 1;
       // 4) INSERT 新版本（is_current=1）
       await conn.execute(
-        `INSERT INTO profile_submissions (user_id, version, tags, avatar_url, evaluation_url, storage_id, submitted_at, is_current)
-         VALUES (?, ?, ?, ?, ?, ?, ?, 1)`,
-        [user.id, nextVersion, tagsJson, avatarUrl, evaluationUrl, storageId, getNow()]
+        `INSERT INTO profile_submissions (user_id, version, tags, avatar_url, evaluation_url, evaluation_text, storage_id, submitted_at, is_current)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)`,
+        [user.id, nextVersion, tagsJson, avatarUrl, evaluationUrl, evaluationText, storageId, submittedAt ?? getNow()]
       );
       // 5) 超限检查 → 删除最旧版本（仅删 DB 记录，文件保留，#111 旧文件不自动删除）
       const [configRows] = await conn.execute(
@@ -826,35 +1578,72 @@ export class MysqlAdapter implements DbAdapter {
     return { total, today: todayCount, uniqueTags, topTags };
   }
 
-  async getTrends(days: number): Promise<{ date: string; count: number }[]> {
-    const since = new Date(Date.now() - days * 86400000).toLocaleDateString("sv-SE", {
-      timeZone: "Asia/Shanghai",
-    });
+  async getTrends(days: number): Promise<TrendPoint[]> {
+    const start = shiftDate(getToday(), -(days - 1));
+    const end = shiftDate(getToday(), 1);
     const [rows] = await this.pool.execute(
       `SELECT DATE(submitted_at) as d, COUNT(*) as c FROM users
-       WHERE role = 'student' AND submitted_at >= ?
+       WHERE role = 'student' AND submitted_at >= ? AND submitted_at < ?
        GROUP BY DATE(submitted_at) ORDER BY d`,
-      [since]
+      [start, end]
     );
-    return (rows as { d: string; c: number }[]).map((r) => ({ date: String(r.d), count: Number(r.c) }));
+    return fillTrendSeries(
+      (rows as { d: string; c: number }[]).map((r) => ({ date: String(r.d), count: Number(r.c) })),
+      start,
+      days
+    );
   }
 
-  async getCompareBy(by: "class" | "segment"): Promise<{ key: string; count: number }[]> {
-    if (by === "class") {
+  async getTrendsByClass(days: number): Promise<ClassTrendSeries> {
+    const start = shiftDate(getToday(), -(days - 1));
+    const end = shiftDate(getToday(), 1);
+    // 按 classes.id 分组：NULL 自成一组，再用哨兵键与真实班名区分（#260）
+    const [rows] = await this.pool.execute(
+      `SELECT DATE(u.submitted_at) AS d, c.id AS class_id, c.name AS class_name, COUNT(*) AS cnt
+       FROM users u LEFT JOIN classes c ON u.class_id = c.id
+       WHERE u.role = 'student' AND u.submitted_at >= ? AND u.submitted_at < ?
+       GROUP BY d, c.id, c.name
+       ORDER BY CASE WHEN c.id IS NULL THEN 1 ELSE 0 END, c.name, d`,
+      [start, end]
+    );
+    return fillClassTrend(rows as RawClassTrendRow[], start, days);
+  }
+
+  async getCompareByClass(): Promise<CompareStat[]> {
+    // 分母口径：按 users 分组统计在册学生，不按提交过滤，故零提交班级也可见
+    const [rows] = await this.pool.execute(
+      `SELECT c.id AS class_id, c.name AS class_name, COUNT(*) AS total,
+              SUM(CASE WHEN u.submitted_at IS NOT NULL THEN 1 ELSE 0 END) AS submitted
+       FROM users u LEFT JOIN classes c ON u.class_id = c.id
+       WHERE u.role = 'student'
+       GROUP BY c.id, c.name
+       ORDER BY CASE WHEN c.id IS NULL THEN 1 ELSE 0 END, c.name`
+    );
+    return mapCompareRows(rows as RawCompareRow[]);
+  }
+
+  async getClassRoster(classId: number | null): Promise<ClassRosterRow[]> {
+    // 与 compare 的 NULL 分组严格互补；未提交置顶，其余按学号升序。
+    // submitted_at 的空串视为未提交，避免脏数据把空时间显示成「已提交」。
+    const orderBy = `ORDER BY CASE WHEN u.submitted_at IS NULL OR TRIM(u.submitted_at) = '' THEN 0 ELSE 1 END,
+                u.user_code`;
+    if (classId === null) {
       const [rows] = await this.pool.execute(
-        `SELECT COALESCE(c.name, '未分班') as k, COUNT(*) as c
+        `SELECT u.name, u.user_code, u.submitted_at, u.tags
          FROM users u LEFT JOIN classes c ON u.class_id = c.id
-         WHERE u.role = 'student' AND u.submitted_at IS NOT NULL
-         GROUP BY k ORDER BY k`
+         WHERE u.role = 'student' AND c.id IS NULL
+         ${orderBy}`
       );
-      return (rows as { k: string; c: number }[]).map((r) => ({ key: r.k, count: Number(r.c) }));
+      return rows as ClassRosterRow[];
     }
     const [rows] = await this.pool.execute(
-      `SELECT LEFT(user_code, 4) as k, COUNT(*) as c FROM users
-       WHERE role = 'student' AND submitted_at IS NOT NULL
-       GROUP BY k ORDER BY k`
+      `SELECT u.name, u.user_code, u.submitted_at, u.tags
+       FROM users u JOIN classes c ON u.class_id = c.id
+       WHERE u.role = 'student' AND c.id = ?
+       ${orderBy}`,
+      [classId]
     );
-    return (rows as { k: string; c: number }[]).map((r) => ({ key: r.k, count: Number(r.c) }));
+    return rows as ClassRosterRow[];
   }
 
   // tags & classes
@@ -935,7 +1724,12 @@ export class MysqlAdapter implements DbAdapter {
   }
 
   async getClassByName(name: string): Promise<ClassRow | undefined> {
-    const [rows] = await this.pool.execute("SELECT * FROM classes WHERE name = ?", [name]);
+    const classes = await this.getClasses();
+    return classes.find((c) => c.name === name);
+  }
+
+  async getClassById(id: number): Promise<ClassRow | undefined> {
+    const [rows] = await this.pool.execute("SELECT * FROM classes WHERE id = ?", [id]);
     return (rows as ClassRow[])[0];
   }
 
@@ -968,10 +1762,39 @@ export class MysqlAdapter implements DbAdapter {
   }
 
   async deleteClass(id: number): Promise<void> {
-    // 建表未定义外键，事务内显式清理关联数据
+    // 外键只写 REFERENCES、没有 ON DELETE CASCADE（拦住删除而非替我级联），事务内显式按子→父清理关联数据
     const conn = await this.pool.getConnection();
     try {
       await conn.beginTransaction();
+      // 小组工作区（#346）：公告/任务/已读水位 → 工作区 → 批次组，按子→父顺序清理
+      await conn.execute(
+        "DELETE FROM group_posts WHERE workspace_id IN (SELECT id FROM group_workspaces WHERE class_id = ?)",
+        [id]
+      );
+      await conn.execute(
+        "DELETE FROM group_tasks WHERE workspace_id IN (SELECT id FROM group_workspaces WHERE class_id = ?)",
+        [id]
+      );
+      await conn.execute(
+        "DELETE FROM group_workspace_reads WHERE workspace_id IN (SELECT id FROM group_workspaces WHERE class_id = ?)",
+        [id]
+      );
+      await conn.execute("DELETE FROM group_workspaces WHERE class_id = ?", [id]);
+      // 分组（#101）：当前分组与历史批次一并清理（分类消失后它们没有归属方）；子→父顺序
+      await conn.execute(
+        "DELETE FROM group_batch_members WHERE batch_id IN (SELECT id FROM group_batches WHERE class_id = ?)",
+        [id]
+      );
+      await conn.execute(
+        "DELETE FROM group_batch_groups WHERE batch_id IN (SELECT id FROM group_batches WHERE class_id = ?)",
+        [id]
+      );
+      await conn.execute("DELETE FROM group_batches WHERE class_id = ?", [id]);
+      await conn.execute(
+        "DELETE FROM class_group_members WHERE group_id IN (SELECT id FROM class_groups WHERE class_id = ?)",
+        [id]
+      );
+      await conn.execute("DELETE FROM class_groups WHERE class_id = ?", [id]);
       await conn.execute("UPDATE users SET class_id = NULL WHERE class_id = ?", [id]);
       await conn.execute("DELETE FROM teacher_classes WHERE class_id = ?", [id]);
       await conn.execute("DELETE FROM classes WHERE id = ?", [id]);
@@ -1006,6 +1829,22 @@ export class MysqlAdapter implements DbAdapter {
     try {
       await conn.beginTransaction();
       await conn.execute("DELETE FROM teacher_classes WHERE teacher_id = ?", [id]);
+      await conn.execute("DELETE FROM users WHERE id = ?", [id]);
+      await conn.commit();
+    } catch (err) {
+      await conn.rollback();
+      throw err;
+    } finally {
+      conn.release();
+    }
+  }
+
+  async deleteUserById(id: number): Promise<void> {
+    const conn = await this.pool.getConnection();
+    try {
+      await conn.beginTransaction();
+      // 小组已读水位（#346）：引用 users，先清掉再删人，两库行为一致
+      await conn.execute("DELETE FROM group_workspace_reads WHERE user_id = ?", [id]);
       await conn.execute("DELETE FROM users WHERE id = ?", [id]);
       await conn.commit();
     } catch (err) {
@@ -1208,32 +2047,1081 @@ export class MysqlAdapter implements DbAdapter {
     return { rows: rows as AuditLogRow[], total };
   }
 
-  async backup(): Promise<BackupData> {
-    const [users] = await this.pool.execute("SELECT * FROM users ORDER BY id");
-    const [classes] = await this.pool.execute("SELECT * FROM classes ORDER BY id");
-    const [teacherClasses] = await this.pool.execute("SELECT * FROM teacher_classes ORDER BY id");
-    const [tags] = await this.pool.execute(
-      "SELECT id, name, type, parent_id, class_id, category_order, sort_order, active FROM tags ORDER BY id"
+  /* ---------- 分组（#101） ---------- */
+
+  async getClassGroups(classId: number): Promise<ClassGroupRow[]> {
+    const [rows] = await this.pool.execute(
+      "SELECT * FROM class_groups WHERE class_id = ? ORDER BY group_no",
+      [classId]
     );
-    const [configs] = await this.pool.execute(
-      "SELECT `key` as `key`, value FROM configs_profile ORDER BY id"
+    return rows as ClassGroupRow[];
+  }
+
+  async getClassGroupMembers(classId: number): Promise<ClassGroupMemberRow[]> {
+    const [rows] = await this.pool.execute(
+      `SELECT m.* FROM class_group_members m
+       JOIN class_groups g ON g.id = m.group_id
+       WHERE g.class_id = ? ORDER BY m.id`,
+      [classId]
     );
-    const [auditLogs] = await this.pool.execute("SELECT * FROM audit_logs ORDER BY id");
-    const [storageBackends] = await this.pool.execute("SELECT * FROM storage_backends ORDER BY id");
-    const [profileSubmissions] = await this.pool.execute("SELECT * FROM profile_submissions ORDER BY id");
+    return rows as ClassGroupMemberRow[];
+  }
+
+  /** 事务体内：清空该班当前分组并写入新分组（供单独调用与「覆盖 + 归档」组合复用） */
+  private async writeClassGrouping(
+    conn: mysql.PoolConnection,
+    classId: number,
+    groups: ClassGroupingInput[]
+  ): Promise<void> {
+    // 事务内复核成员归属（名单是事务之外读的，期间可能有人转班；外键不保证组与学生同班）
+    const ids = [...new Set(groups.flatMap((g) => g.user_ids))];
+    if (ids.length > 0) {
+      const placeholders = ids.map(() => "?").join(",");
+      const [checkRows] = await conn.execute(
+        `SELECT COUNT(*) AS c FROM users WHERE id IN (${placeholders}) AND role = 'student' AND class_id = ?`,
+        [...ids, classId]
+      );
+      const found = Number((checkRows as { c: number | string }[])[0]?.c ?? 0);
+      if (found !== ids.length) throw new Error("名单在分组期间发生变化，请重新分组");
+    }
+    // 先删成员再删组（成员引用组）；等价于「清空该班当前分组」
+    await conn.execute(
+      "DELETE m FROM class_group_members m JOIN class_groups g ON g.id = m.group_id WHERE g.class_id = ?",
+      [classId]
+    );
+    await conn.execute("DELETE FROM class_groups WHERE class_id = ?", [classId]);
+    const now = getNow();
+    for (const g of groups) {
+      // #345：组长必须是本组成员；不满足就整批拒绝（事务回滚，不留半套分组）
+      if (g.leader_user_id != null && !g.user_ids.includes(g.leader_user_id)) {
+        throw new Error("组长必须是本组成员");
+      }
+      const [info] = await conn.execute(
+        "INSERT INTO class_groups (class_id, group_no, leader_user_id, created_at) VALUES (?, ?, ?, ?)",
+        [classId, g.group_no, g.leader_user_id ?? null, now]
+      );
+      const groupId = (info as { insertId: number }).insertId;
+      for (const userId of g.user_ids) {
+        await conn.execute(
+          "INSERT INTO class_group_members (group_id, user_id, created_at) VALUES (?, ?, ?)",
+          [groupId, userId, now]
+        );
+      }
+    }
+  }
+
+  /** 事务体内：追加一个历史批次（头 + 组 + 成员），返回批次 id */
+  private async writeGroupBatch(conn: mysql.PoolConnection, input: NewGroupBatchInput): Promise<number> {
+    const now = getNow();
+    const [info] = await conn.execute(
+      `INSERT INTO group_batches
+         (class_id, strategy, feature_sources, group_size, student_count, tagged_count, metrics,
+          created_by_id, created_by_name, created_by_role, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        input.classId,
+        input.strategy,
+        input.featureSources,
+        input.groupSize,
+        input.studentCount,
+        input.taggedCount,
+        input.metrics,
+        input.actorId,
+        input.actorName,
+        input.actorRole,
+        now,
+      ]
+    );
+    const batchId = (info as { insertId: number }).insertId;
+    for (const g of input.groups) {
+      const [gInfo] = await conn.execute(
+        `INSERT INTO group_batch_groups (batch_id, group_no, cohesion, member_count, leader_user_id, created_at)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+        [batchId, g.groupNo, g.cohesion, g.members.length, g.leaderUserId ?? null, now]
+      );
+      const groupId = (gInfo as { insertId: number }).insertId;
+      for (const m of g.members) {
+        await conn.execute(
+          `INSERT INTO group_batch_members (batch_id, group_id, user_id, user_code, name, created_at)
+           VALUES (?, ?, ?, ?, ?, ?)`,
+          [batchId, groupId, m.userId, m.userCode, m.name, now]
+        );
+      }
+    }
+    return batchId;
+  }
+
+  /** 事务体内：给一个批次的每个组补建小组工作区（#346） */
+  private async writeBatchWorkspaces(
+    conn: mysql.PoolConnection,
+    batchId: number,
+    classId: number
+  ): Promise<void> {
+    const [rows] = await conn.execute(
+      "SELECT id, group_no FROM group_batch_groups WHERE batch_id = ? ORDER BY group_no",
+      [batchId]
+    );
+    const now = getNow();
+    for (const group of rows as { id: number; group_no: number }[]) {
+      await conn.execute(
+        `INSERT INTO group_workspaces (class_id, batch_id, batch_group_id, group_no, title, created_at)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+        [classId, batchId, group.id, group.group_no, `第 ${group.group_no} 组工作区`, now]
+      );
+    }
+  }
+
+  async replaceClassGrouping(classId: number, groups: ClassGroupingInput[]): Promise<void> {
+    const conn = await this.pool.getConnection();
+    try {
+      await conn.beginTransaction();
+      await this.writeClassGrouping(conn, classId, groups);
+      await conn.commit();
+    } catch (err) {
+      await conn.rollback();
+      throw err;
+    } finally {
+      conn.release();
+    }
+  }
+
+  async insertGroupBatch(input: NewGroupBatchInput): Promise<number> {
+    const conn = await this.pool.getConnection();
+    try {
+      await conn.beginTransaction();
+      const batchId = await this.writeGroupBatch(conn, input);
+      await this.writeBatchWorkspaces(conn, batchId, input.classId);
+      await conn.commit();
+      return batchId;
+    } catch (err) {
+      await conn.rollback();
+      throw err;
+    } finally {
+      conn.release();
+    }
+  }
+
+  /** 自动分组落库：**同一事务**内「覆盖当前分组 + 追加历史批次 + 建工作区」，避免出现无归档的当前态 */
+  async applyGroupingResult(
+    classId: number,
+    groups: ClassGroupingInput[],
+    batch: NewGroupBatchInput
+  ): Promise<number> {
+    // 班级由两个独立参数分别传入：不一致就会「覆盖 A 班、归档成 B 班」，事务本身看不出来
+    if (batch.classId !== classId) throw new Error("归档批次与覆盖的班级不一致");
+    const conn = await this.pool.getConnection();
+    try {
+      await conn.beginTransaction();
+      await this.writeClassGrouping(conn, classId, groups);
+      const batchId = await this.writeGroupBatch(conn, batch);
+      await this.writeBatchWorkspaces(conn, batchId, classId);
+      await conn.commit();
+      return batchId;
+    } catch (err) {
+      await conn.rollback();
+      throw err;
+    } finally {
+      conn.release();
+    }
+  }
+
+  async insertGroupEntry(classId: number, groupNo: number): Promise<void> {
+    await this.pool.execute(
+      "INSERT INTO class_groups (class_id, group_no, created_at) VALUES (?, ?, ?)",
+      [classId, groupNo, getNow()]
+    );
+  }
+
+  async deleteGroupEntry(classId: number, groupNo: number): Promise<void> {
+    // 「组空不空」与「删组」必须同事务：路由的预检查是先前的一次读，期间有人被移进来的话，
+    // 直接删组只会被外键拦成 500 + 驱动原文；这里复查后抛出可读原因，与 SQLite 侧完全一致
+    const conn = await this.pool.getConnection();
+    try {
+      await conn.beginTransaction();
+      const [groupRows] = await conn.execute(
+        "SELECT id FROM class_groups WHERE class_id = ? AND group_no = ?",
+        [classId, groupNo]
+      );
+      const target = (groupRows as { id: number }[])[0];
+      if (!target) throw new Error("该组不存在");
+      const [memberRows] = await conn.execute(
+        "SELECT id FROM class_group_members WHERE group_id = ? LIMIT 1",
+        [target.id]
+      );
+      if ((memberRows as unknown[]).length > 0) throw new Error("该组还有成员，请先移到其他组");
+      await conn.execute("DELETE FROM class_groups WHERE id = ?", [target.id]);
+      await conn.commit();
+    } catch (err) {
+      await conn.rollback();
+      throw err;
+    } finally {
+      conn.release();
+    }
+  }
+
+  async moveGroupMember(
+    classId: number,
+    userId: number,
+    toGroupNo: number
+  ): Promise<{ leaderCleared: boolean }> {
+    // 单连接事务：目标组校验、成员改写与组长回退不能分属多条连接（Pool.execute 每次任取连接），
+    // 否则「查到目标组 → 组被删 → 再写入」这个窗口会随机撞上外键报错，且改到一半无法回滚
+    const conn = await this.pool.getConnection();
+    try {
+      await conn.beginTransaction();
+      const [targetRows] = await conn.execute(
+        "SELECT id FROM class_groups WHERE class_id = ? AND group_no = ?",
+        [classId, toGroupNo]
+      );
+      const target = (targetRows as { id: number }[])[0];
+      if (!target) throw new Error("目标组不存在");
+      // 按 user_id 找，**不限旧组属于哪个班**（同 SQLite 侧）：只查本班会查不到脏归属，
+      // 转而 INSERT 就会撞全局 UNIQUE(user_id)，把「可修复」变成永久失败
+      const [currentRows] = await conn.execute(
+        "SELECT id, group_id FROM class_group_members WHERE user_id = ?",
+        [userId]
+      );
+      const current = (currentRows as { id: number; group_id: number }[])[0];
+      let leaderCleared = false;
+      if (current) {
+        // 被移走的是原组组长：组长位必须随人一起失效（#345）
+        if (current.group_id !== target.id) {
+          const [cleared] = await conn.execute(
+            "UPDATE class_groups SET leader_user_id = NULL WHERE id = ? AND leader_user_id = ?",
+            [current.group_id, userId]
+          );
+          leaderCleared = (cleared as mysql.ResultSetHeader).affectedRows > 0;
+        }
+        await conn.execute("UPDATE class_group_members SET group_id = ? WHERE id = ?", [target.id, current.id]);
+      } else {
+        // 未在任何组（新转入的学生等）：直接插入目标组
+        await conn.execute(
+          "INSERT INTO class_group_members (group_id, user_id, created_at) VALUES (?, ?, ?)",
+          [target.id, userId, getNow()]
+        );
+      }
+      await conn.commit();
+      return { leaderCleared };
+    } catch (err) {
+      await conn.rollback();
+      throw err;
+    } finally {
+      conn.release();
+    }
+  }
+
+  /** 设置 / 取消某组组长（#345）：定位带 class_id，避免组号跨班误写；成员归属由路由校验 */
+  async updateClassGroupLeader(classId: number, groupNo: number, leaderUserId: number | null): Promise<void> {
+    // 存在性用 SELECT 判，不拿 affectedRows 当存在性：那个数字的含义由连接标志决定。
+    // mysql2 默认带 CLIENT_FOUND_ROWS（实机 8.0.46 实测「首次写值 / 重复写同值 / 首次置空 / 重复置空」
+    // 都是 1，所以旧写法在默认配置下并未误报），但去掉该标志后同值 UPDATE 就返回 0
+    // （同一实例用 mysql CLI 实测 ROW_COUNT 1 → 0）——判存在属于业务语义，不该跟着驱动配置漂。
+    const [existing] = await this.pool.execute(
+      "SELECT 1 AS one FROM class_groups WHERE class_id = ? AND group_no = ? LIMIT 1",
+      [classId, groupNo]
+    );
+    if ((existing as unknown[]).length === 0) throw new Error("该组不存在");
+    await this.pool.execute(
+      "UPDATE class_groups SET leader_user_id = ? WHERE class_id = ? AND group_no = ?",
+      [leaderUserId, classId, groupNo]
+    );
+  }
+  async getGroupBatches(classId: number): Promise<GroupBatchRow[]> {
+    const [rows] = await this.pool.execute(
+      "SELECT * FROM group_batches WHERE class_id = ? ORDER BY id DESC",
+      [classId]
+    );
+    return rows as GroupBatchRow[];
+  }
+
+  async getGroupBatchDetail(batchId: number): Promise<{
+    batch: GroupBatchRow | undefined;
+    groups: GroupBatchGroupRow[];
+    members: GroupBatchMemberRow[];
+  }> {
+    const [batchRows] = await this.pool.execute("SELECT * FROM group_batches WHERE id = ?", [batchId]);
+    const [groupRows] = await this.pool.execute(
+      "SELECT * FROM group_batch_groups WHERE batch_id = ? ORDER BY group_no",
+      [batchId]
+    );
+    const [memberRows] = await this.pool.execute(
+      "SELECT * FROM group_batch_members WHERE batch_id = ? ORDER BY id",
+      [batchId]
+    );
     return {
-      version: 4,
-      sourceType: "mysql",
-      createdAt: new Date().toISOString(),
-      users: users as UserRow[],
-      classes: classes as ClassRow[],
-      teacher_classes: teacherClasses as BackupData["teacher_classes"],
-      tags: tags as TagRow[],
-      audit_logs: auditLogs as AuditLogRow[],
-      configs_profile: configs as { key: string; value: string }[],
-      storage_backends: storageBackends as StorageBackendRow[],
-      profile_submissions: profileSubmissions as ProfileSubmissionRow[],
+      batch: (batchRows as GroupBatchRow[])[0],
+      groups: groupRows as GroupBatchGroupRow[],
+      members: memberRows as GroupBatchMemberRow[],
     };
+  }
+
+  async getStudentGroupRef(userId: number): Promise<{ class_id: number; group_no: number } | undefined> {
+    const [rows] = await this.pool.execute(
+      `SELECT g.class_id AS class_id, g.group_no AS group_no
+       FROM class_group_members m JOIN class_groups g ON g.id = m.group_id
+       WHERE m.user_id = ?`,
+      [userId]
+    );
+    return (rows as { class_id: number; group_no: number }[])[0];
+  }
+
+  async areStudentsInSameCurrentGroup(userIdA: number, userIdB: number): Promise<boolean> {
+    // 同 group_id 即同班同组（与 SQLite 侧同口径；成员行的 group_id 有外键，不存在死组引用）
+    const [rows] = await this.pool.execute(
+      `SELECT EXISTS (
+         SELECT 1
+         FROM class_group_members a
+         JOIN class_group_members b ON b.group_id = a.group_id
+         WHERE a.user_id = ? AND b.user_id = ?
+       ) AS same`,
+      [userIdA, userIdB]
+    );
+    const row = (rows as { same: number }[])[0];
+    return Number(row?.same ?? 0) > 0;
+  }
+
+  /* ---------- 小组工作区（#346） ---------- */
+
+  private async workspaceContextOf(batch: GroupBatchRow, groupNo: number): Promise<GroupWorkspaceContext | undefined> {
+    const [groupRows] = await this.pool.execute(
+      "SELECT * FROM group_batch_groups WHERE batch_id = ? AND group_no = ?",
+      [batch.id, groupNo]
+    );
+    const batchGroup = (groupRows as GroupBatchGroupRow[])[0];
+    if (!batchGroup) return undefined;
+    const [workspaceRows] = await this.pool.execute(
+      "SELECT * FROM group_workspaces WHERE batch_group_id = ?",
+      [batchGroup.id]
+    );
+    const workspace = (workspaceRows as GroupWorkspaceRow[])[0];
+    if (!workspace) return undefined;
+    return { workspace, batch, batchGroup };
+  }
+
+  async getStudentWorkspaceContext(userId: number): Promise<GroupWorkspaceContext | undefined> {
+    const [refRows] = await this.pool.execute(
+      `SELECT g.class_id AS class_id, g.group_no AS group_no
+         FROM class_group_members m JOIN class_groups g ON g.id = m.group_id
+        WHERE m.user_id = ?`,
+      [userId]
+    );
+    const ref = (refRows as { class_id: number; group_no: number }[])[0];
+    if (!ref) return undefined;
+    const [batchRows] = await this.pool.execute(
+      "SELECT * FROM group_batches WHERE class_id = ? ORDER BY created_at DESC, id DESC LIMIT 1",
+      [ref.class_id]
+    );
+    const batch = (batchRows as GroupBatchRow[])[0];
+    if (!batch) return undefined;
+    return this.workspaceContextOf(batch, ref.group_no);
+  }
+
+  async getClassGroupWorkspace(classId: number, groupNo: number): Promise<GroupWorkspaceContext | undefined> {
+    const [batchRows] = await this.pool.execute(
+      "SELECT * FROM group_batches WHERE class_id = ? ORDER BY created_at DESC, id DESC LIMIT 1",
+      [classId]
+    );
+    const batch = (batchRows as GroupBatchRow[])[0];
+    if (!batch) return undefined;
+    return this.workspaceContextOf(batch, groupNo);
+  }
+
+  async listStudentWorkspaces(userId: number): Promise<StudentWorkspaceSummary[]> {
+    const [rows] = await this.pool.execute(
+      `SELECT w.id AS workspaceId, b.id AS batchId, b.created_at AS batchCreatedAt,
+              bg.group_no AS groupNo, w.title AS title
+         FROM group_batch_members bm
+         JOIN group_batch_groups bg ON bg.id = bm.group_id
+         JOIN group_batches b ON b.id = bg.batch_id
+         JOIN group_workspaces w ON w.batch_group_id = bg.id
+        WHERE bm.user_id = ?
+        ORDER BY b.created_at DESC, b.id DESC`,
+      [userId]
+    );
+    return rows as StudentWorkspaceSummary[];
+  }
+
+  async getGroupWorkspaceById(workspaceId: number): Promise<GroupWorkspaceRow | undefined> {
+    const [rows] = await this.pool.execute("SELECT * FROM group_workspaces WHERE id = ?", [workspaceId]);
+    return (rows as GroupWorkspaceRow[])[0];
+  }
+
+  async getBatchWorkspaces(batchId: number): Promise<GroupWorkspaceRow[]> {
+    const [rows] = await this.pool.execute(
+      "SELECT * FROM group_workspaces WHERE batch_id = ? ORDER BY group_no",
+      [batchId]
+    );
+    return rows as GroupWorkspaceRow[];
+  }
+
+  async listGroupPosts(workspaceId: number): Promise<GroupPostRow[]> {
+    const [rows] = await this.pool.execute(
+      `SELECT * FROM group_posts
+        WHERE workspace_id = ? AND deleted_at IS NULL
+        ORDER BY pinned DESC, created_at DESC, id DESC`,
+      [workspaceId]
+    );
+    return rows as GroupPostRow[];
+  }
+
+  async getGroupPost(postId: number, workspaceId: number): Promise<GroupPostRow | undefined> {
+    const [rows] = await this.pool.execute(
+      "SELECT * FROM group_posts WHERE id = ? AND workspace_id = ? AND deleted_at IS NULL",
+      [postId, workspaceId]
+    );
+    return (rows as GroupPostRow[])[0];
+  }
+
+  async insertGroupPost(input: NewGroupPostInput): Promise<number> {
+    const [info] = await this.pool.execute(
+      `INSERT INTO group_posts (workspace_id, author_id, author_name, author_role, title, content, pinned, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        input.workspaceId,
+        input.authorId,
+        input.authorName,
+        input.authorRole,
+        input.title,
+        input.content,
+        input.pinned ? 1 : 0,
+        getNow(),
+      ]
+    );
+    return (info as { insertId: number }).insertId;
+  }
+
+  async updateGroupPost(postId: number, workspaceId: number, fields: GroupPostUpdateFields): Promise<void> {
+    const sets: string[] = [];
+    const params: (string | number | null)[] = [];
+    if (fields.pinned !== undefined) {
+      sets.push("pinned = ?");
+      params.push(fields.pinned);
+    }
+    if (fields.deleted_at !== undefined) {
+      sets.push("deleted_at = ?");
+      params.push(fields.deleted_at);
+    }
+    if (sets.length === 0) return;
+    await this.pool.execute(
+      `UPDATE group_posts SET ${sets.join(", ")} WHERE id = ? AND workspace_id = ?`,
+      [...params, postId, workspaceId]
+    );
+  }
+
+  async countRecentGroupPosts(workspaceId: number, authorId: number, since: string): Promise<number> {
+    const [rows] = await this.pool.execute(
+      `SELECT COUNT(*) AS c FROM group_posts
+        WHERE workspace_id = ? AND author_id = ? AND created_at >= ?`,
+      [workspaceId, authorId, since]
+    );
+    return Number((rows as { c: number | string }[])[0]?.c ?? 0);
+  }
+
+  async listGroupTasks(workspaceId: number): Promise<GroupTaskRow[]> {
+    const [rows] = await this.pool.execute(
+      `SELECT * FROM group_tasks
+        WHERE workspace_id = ? AND deleted_at IS NULL
+        ORDER BY CASE status WHEN 'open' THEN 0 WHEN 'in_progress' THEN 1 ELSE 2 END,
+                 created_at DESC, id DESC`,
+      [workspaceId]
+    );
+    return rows as GroupTaskRow[];
+  }
+
+  async getGroupTask(taskId: number, workspaceId: number): Promise<GroupTaskRow | undefined> {
+    const [rows] = await this.pool.execute(
+      "SELECT * FROM group_tasks WHERE id = ? AND workspace_id = ? AND deleted_at IS NULL",
+      [taskId, workspaceId]
+    );
+    return (rows as GroupTaskRow[])[0];
+  }
+
+  async insertGroupTask(input: NewGroupTaskInput): Promise<number> {
+    const [info] = await this.pool.execute(
+      `INSERT INTO group_tasks
+         (workspace_id, title, description, assignee_id, assignee_name, status, due_at,
+          created_by_id, created_by_name, created_by_role, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        input.workspaceId,
+        input.title,
+        input.description,
+        input.assigneeId,
+        input.assigneeName,
+        input.assigneeId == null ? "open" : "in_progress",
+        input.dueAt,
+        input.createdById,
+        input.createdByName,
+        input.createdByRole,
+        getNow(),
+      ]
+    );
+    return (info as { insertId: number }).insertId;
+  }
+
+  async claimGroupTask(
+    taskId: number,
+    workspaceId: number,
+    userId: number,
+    userName: string | null
+  ): Promise<boolean> {
+    // 单条条件更新即原子：并发认领以先到为准（MySQL 受影响行数只在真正改动时为 1）
+    const [info] = await this.pool.execute(
+      `UPDATE group_tasks
+          SET assignee_id = ?, assignee_name = ?, status = 'in_progress'
+        WHERE id = ? AND workspace_id = ?
+          AND deleted_at IS NULL AND status = 'open' AND assignee_id IS NULL`,
+      [userId, userName, taskId, workspaceId]
+    );
+    return (info as { affectedRows: number }).affectedRows > 0;
+  }
+
+  async updateGroupTask(taskId: number, workspaceId: number, fields: GroupTaskUpdateFields): Promise<void> {
+    const sets: string[] = [];
+    const params: (string | null)[] = [];
+    if (fields.status !== undefined) {
+      sets.push("status = ?");
+      params.push(fields.status);
+    }
+    if (fields.completed_at !== undefined) {
+      sets.push("completed_at = ?");
+      params.push(fields.completed_at);
+    }
+    if (fields.deleted_at !== undefined) {
+      sets.push("deleted_at = ?");
+      params.push(fields.deleted_at);
+    }
+    if (sets.length === 0) return;
+    await this.pool.execute(
+      `UPDATE group_tasks SET ${sets.join(", ")} WHERE id = ? AND workspace_id = ?`,
+      [...params, taskId, workspaceId]
+    );
+  }
+
+  async countRecentGroupTasks(workspaceId: number, authorId: number, since: string): Promise<number> {
+    const [rows] = await this.pool.execute(
+      `SELECT COUNT(*) AS c FROM group_tasks
+        WHERE workspace_id = ? AND created_by_id = ? AND created_at >= ?`,
+      [workspaceId, authorId, since]
+    );
+    return Number((rows as { c: number | string }[])[0]?.c ?? 0);
+  }
+
+  async getGroupUnreadCount(workspaceId: number, userId: number): Promise<number> {
+    // 按公告 id 水位计数：同一秒内的新公告也不会被当成已读
+    const [countRows] = await this.pool.execute(
+      `SELECT COUNT(*) AS c FROM group_posts
+        WHERE workspace_id = ? AND deleted_at IS NULL
+          AND id > COALESCE((
+            SELECT last_read_post_id FROM group_workspace_reads
+             WHERE workspace_id = ? AND user_id = ?
+          ), 0)`,
+      [workspaceId, workspaceId, userId]
+    );
+    return Number((countRows as { c: number | string }[])[0]?.c ?? 0);
+  }
+
+  async markGroupWorkspaceRead(workspaceId: number, userId: number): Promise<void> {
+    await this.pool.execute(
+      `INSERT INTO group_workspace_reads (workspace_id, user_id, last_read_at, last_read_post_id)
+       VALUES (?, ?, ?, (SELECT COALESCE(MAX(id), 0) FROM group_posts WHERE workspace_id = ?))
+       ON DUPLICATE KEY UPDATE
+         last_read_at = VALUES(last_read_at),
+         last_read_post_id = VALUES(last_read_post_id)`,
+      [workspaceId, userId, getNow(), workspaceId]
+    );
+  }
+
+  // assessments / assessment_questions / assessment_results（#221 职业测评数据层）
+  async getEnabledAssessments(): Promise<AssessmentRow[]> {
+    const [rows] = await this.pool.execute("SELECT * FROM assessments WHERE enabled = 1 ORDER BY id");
+    return rows as AssessmentRow[];
+  }
+
+  async getAssessmentByCode(code: string): Promise<AssessmentRow | undefined> {
+    // code 归一化在边界做：SQLite 的 `=` 区分大小写、MySQL 默认不区分，直接比会分叉
+    const [rows] = await this.pool.execute("SELECT * FROM assessments WHERE code = ?", [
+      normalizeAssessmentCode(code),
+    ]);
+    return (rows as AssessmentRow[])[0];
+  }
+
+  async getAssessmentQuestions(assessmentId: number): Promise<AssessmentQuestionRow[]> {
+    const [rows] = await this.pool.execute(
+      "SELECT * FROM assessment_questions WHERE assessment_id = ? ORDER BY question_index",
+      [assessmentId]
+    );
+    return rows as AssessmentQuestionRow[];
+  }
+
+  async getAssessmentQuestionsByCode(code: string): Promise<AssessmentQuestionRow[]> {
+    const [rows] = await this.pool.execute(
+      `SELECT q.* FROM assessment_questions q
+       JOIN assessments a ON a.id = q.assessment_id
+       WHERE a.code = ? ORDER BY q.question_index`,
+      [normalizeAssessmentCode(code)]
+    );
+    return rows as AssessmentQuestionRow[];
+  }
+
+  async upsertAssessmentDraft(
+    userId: number,
+    assessmentId: number,
+    answersJson: string,
+    itemsJson: string
+  ): Promise<number> {
+    // 单条原子 upsert（同 SQLite 侧）：`draft_slot = 1` 是草稿位，唯一键保证「至多一条草稿」
+    // items_json 同 SQLite 口径：每次作答覆盖本轮抽题快照（值本就来自这条草稿，重复写同一个快照）
+    const now = getNow();
+    await this.pool.execute(
+      `INSERT INTO assessment_results
+         (user_id, assessment_id, status, answers_json, items_json, is_current, draft_slot, started_at, updated_at)
+       VALUES (?, ?, 'in_progress', ?, ?, 0, 1, ?, ?)
+       ON DUPLICATE KEY UPDATE answers_json = VALUES(answers_json), items_json = VALUES(items_json),
+                               updated_at = VALUES(updated_at)`,
+      [userId, assessmentId, answersJson, itemsJson, now, now]
+    );
+    const [rows] = await this.pool.execute(
+      "SELECT id FROM assessment_results WHERE user_id = ? AND assessment_id = ? AND draft_slot = 1",
+      [userId, assessmentId]
+    );
+    return (rows as { id: number }[])[0].id;
+  }
+
+  async getAssessmentDraft(userId: number, assessmentId: number): Promise<AssessmentResultRow | undefined> {
+    const [rows] = await this.pool.execute(
+      `SELECT * FROM assessment_results
+       WHERE user_id = ? AND assessment_id = ? AND draft_slot = 1
+       ORDER BY id DESC LIMIT 1`,
+      [userId, assessmentId]
+    );
+    return (rows as AssessmentResultRow[])[0];
+  }
+
+  async completeAssessmentResult(input: CompleteAssessmentInput): Promise<number> {
+    const { userId, assessmentId, answersJson, itemsJson, scoresJson, typeCode } = input;
+    const conn = await this.pool.getConnection();
+    try {
+      await conn.beginTransaction();
+      // 串行化同一学生的完成动作（与档案归档提交同款做法）：否则两个「首次完成」并发时都 UPDATE 到 0 行，
+      // 再各自插入 is_current = 1，当前版本就不唯一了。SQLite 侧由单写者事务天然串行。
+      await conn.execute("SELECT id FROM users WHERE id = ? FOR UPDATE", [userId]);
+      const now = getNow();
+      // 当前版本唯一：先整体置 0，再把本次结果置 1（同一事务内，读不到中间态）
+      await conn.execute(
+        "UPDATE assessment_results SET is_current = 0 WHERE user_id = ? AND assessment_id = ? AND is_current = 1",
+        [userId, assessmentId]
+      );
+      const [draftRows] = await conn.execute(
+        `SELECT id FROM assessment_results
+         WHERE user_id = ? AND assessment_id = ? AND draft_slot = 1
+         ORDER BY id DESC LIMIT 1`,
+        [userId, assessmentId]
+      );
+      const draft = (draftRows as { id: number }[])[0];
+      if (draft) {
+        // 沿用草稿行：保留 started_at，作答内容以本次提交为准，草稿位释放（draft_slot → NULL）
+        await conn.execute(
+          `UPDATE assessment_results
+           SET status = 'completed', answers_json = ?, items_json = ?, scores_json = ?, type_code = ?,
+               is_current = 1, draft_slot = NULL, updated_at = ?, completed_at = ?
+           WHERE id = ?`,
+          [answersJson, itemsJson, scoresJson, typeCode, now, now, draft.id]
+        );
+        await conn.commit();
+        return draft.id;
+      }
+      const [result] = await conn.execute(
+        `INSERT INTO assessment_results
+           (user_id, assessment_id, status, answers_json, items_json, scores_json, type_code, is_current,
+            started_at, updated_at, completed_at)
+         VALUES (?, ?, 'completed', ?, ?, ?, ?, 1, ?, ?, ?)`,
+        [userId, assessmentId, answersJson, itemsJson, scoresJson, typeCode, now, now, now]
+      );
+      await conn.commit();
+      return (result as mysql.ResultSetHeader).insertId;
+    } catch (err) {
+      await conn.rollback();
+      throw err;
+    } finally {
+      conn.release();
+    }
+  }
+
+  async getCurrentAssessmentResult(userId: number, assessmentId: number): Promise<AssessmentResultRow | undefined> {
+    const [rows] = await this.pool.execute(
+      `SELECT * FROM assessment_results
+       WHERE user_id = ? AND assessment_id = ? AND status = 'completed' AND is_current = 1
+       ORDER BY id DESC LIMIT 1`,
+      [userId, assessmentId]
+    );
+    return (rows as AssessmentResultRow[])[0];
+  }
+
+  async getAssessmentResults(userId: number, assessmentId: number): Promise<AssessmentResultRow[]> {
+    const [rows] = await this.pool.execute(
+      `SELECT * FROM assessment_results
+       WHERE user_id = ? AND assessment_id = ? AND status = 'completed'
+       ORDER BY completed_at DESC, id DESC`,
+      [userId, assessmentId]
+    );
+    return rows as AssessmentResultRow[];
+  }
+
+  async getCurrentAssessmentResultsByUserCodes(
+    assessmentId: number,
+    userCodes: string[]
+  ): Promise<AssessmentResultSummary[]> {
+    if (userCodes.length === 0) return [];
+    const rows: AssessmentResultSummary[] = [];
+    for (const chunk of chunkArray([...new Set(userCodes)])) {
+      const placeholders = chunk.map(() => "?").join(",");
+      // 只需要列表/导出用的四列：不取作答内容，也不取整行（#233/#234）
+      const [chunkRows] = await this.pool.execute(
+        `SELECT u.user_code AS user_code, r.type_code AS type_code,
+                r.scores_json AS scores_json, r.completed_at AS completed_at
+         FROM assessment_results r
+         JOIN users u ON u.id = r.user_id
+         WHERE r.assessment_id = ? AND r.status = 'completed' AND r.is_current = 1
+           AND u.role = 'student' AND u.user_code IN (${placeholders})`,
+        [assessmentId, ...chunk]
+      );
+      rows.push(...(chunkRows as AssessmentResultSummary[]));
+    }
+    return rows;
+  }
+
+  // onet_occupations（#226 O*NET 职业库：离线导入的只读参考数据）
+  async getOnetOccupations(): Promise<OnetOccupationRow[]> {
+    const [rows] = await this.pool.execute("SELECT * FROM onet_occupations ORDER BY code");
+    return rows as OnetOccupationRow[];
+  }
+
+  // 教师端测评统计（#229）：与 SQLite 适配器同构（同一套 SQL 口径），只数数，口径统一在 assessment-stats.ts
+  async getAssessmentStats(
+    assessmentId: number,
+    classIds: number[] | null,
+    classId?: number
+  ): Promise<AssessmentStatsRaw> {
+    if (classIds !== null && classIds.length === 0) {
+      return {
+        classes: [],
+        types: [],
+        classTypes: [],
+        codes: [],
+        total: { enrolled: 0, assessed: 0, last_completed_at: null },
+      };
+    }
+    const scopeClauses: string[] = [];
+    const params: number[] = [];
+    if (classIds !== null) {
+      scopeClauses.push(`u.class_id IN (${classIds.map(() => "?").join(",")})`);
+      params.push(...classIds);
+    }
+    if (classId !== undefined) {
+      scopeClauses.push("u.class_id = ?");
+      params.push(classId);
+    }
+    const scopeClause = scopeClauses.length === 0 ? "" : ` AND ${scopeClauses.join(" AND ")}`;
+    const resultWhere = `r.assessment_id = ? AND r.status = 'completed' AND r.is_current = 1 AND u.role = 'student'${scopeClause}`;
+
+    const classClauses: string[] = [];
+    const classParams: number[] = [];
+    if (classIds !== null) {
+      classClauses.push(`c.id IN (${classIds.map(() => "?").join(",")})`);
+      classParams.push(...classIds);
+    }
+    if (classId !== undefined) {
+      classClauses.push("c.id = ?");
+      classParams.push(classId);
+    }
+    const classWhere = classClauses.length === 0 ? "" : ` WHERE ${classClauses.join(" AND ")}`;
+    const [classRows] = await this.pool.execute(
+      `SELECT c.id AS class_id, c.name AS name, COUNT(u.id) AS enrolled
+       FROM classes c LEFT JOIN users u ON u.class_id = c.id AND u.role = 'student'
+       ${classWhere}
+       GROUP BY c.id, c.name`,
+      classParams
+    );
+    const [assessedRows] = await this.pool.execute(
+      `SELECT u.class_id AS class_id, COUNT(DISTINCT r.user_id) AS assessed
+       FROM assessment_results r JOIN users u ON u.id = r.user_id
+       WHERE ${resultWhere} AND u.class_id IS NOT NULL
+       GROUP BY u.class_id`,
+      [assessmentId, ...params]
+    );
+    const [typeRows] = await this.pool.execute(
+      `SELECT SUBSTR(r.type_code, 1, 1) AS \`key\`, COUNT(*) AS count
+       FROM assessment_results r JOIN users u ON u.id = r.user_id
+       WHERE ${resultWhere} AND r.type_code IS NOT NULL AND TRIM(r.type_code) <> ''
+       GROUP BY SUBSTR(r.type_code, 1, 1)`,
+      [assessmentId, ...params]
+    );
+    const [classTypeRows] = await this.pool.execute(
+      `SELECT u.class_id AS class_id,
+              SUBSTR(r.type_code, 1, 1) AS \`key\`,
+              COUNT(*) AS count
+       FROM assessment_results r JOIN users u ON u.id = r.user_id
+       WHERE ${resultWhere} AND u.class_id IS NOT NULL AND r.type_code IS NOT NULL AND TRIM(r.type_code) <> ''
+       GROUP BY u.class_id, SUBSTR(r.type_code, 1, 1)`,
+      [assessmentId, ...params]
+    );
+    const [codeRows] = await this.pool.execute(
+      `SELECT r.type_code AS code, COUNT(*) AS count
+       FROM assessment_results r JOIN users u ON u.id = r.user_id
+       WHERE ${resultWhere} AND r.type_code IS NOT NULL AND TRIM(r.type_code) <> ''
+       GROUP BY r.type_code`,
+      [assessmentId, ...params]
+    );
+    const totalClauses = ["role = 'student'"];
+    const totalParams: number[] = [];
+    if (classIds !== null) {
+      totalClauses.push(`class_id IN (${classIds.map(() => "?").join(",")})`);
+      totalParams.push(...classIds);
+    }
+    if (classId !== undefined) {
+      totalClauses.push("class_id = ?");
+      totalParams.push(classId);
+    }
+    const [totalRows] = await this.pool.execute(
+      `SELECT COUNT(*) AS c FROM users WHERE ${totalClauses.join(" AND ")}`,
+      totalParams
+    );
+    const [assessedTotalRows] = await this.pool.execute(
+      `SELECT COUNT(DISTINCT r.user_id) AS c, MAX(r.completed_at) AS last
+       FROM assessment_results r JOIN users u ON u.id = r.user_id
+       WHERE ${resultWhere}`,
+      [assessmentId, ...params]
+    );
+
+    const assessedByClass = new Map(
+      (assessedRows as { class_id: number; assessed: number }[]).map((row) => [Number(row.class_id), Number(row.assessed)])
+    );
+    const totalRow = (totalRows as { c: number }[])[0];
+    const assessedTotalRow = (assessedTotalRows as { c: number; last: string | null }[])[0];
+    return {
+      classes: (classRows as { class_id: number; name: string; enrolled: number }[]).map((row) => ({
+        class_id: Number(row.class_id),
+        name: row.name,
+        enrolled: Number(row.enrolled),
+        assessed: assessedByClass.get(Number(row.class_id)) ?? 0,
+      })),
+      types: (typeRows as { key: string; count: number }[]).map((row) => ({
+        key: String(row.key),
+        count: Number(row.count),
+      })),
+      classTypes: (classTypeRows as { class_id: number; key: string; count: number }[]).map((row) => ({
+        class_id: Number(row.class_id),
+        key: String(row.key),
+        count: Number(row.count),
+      })),
+      codes: (codeRows as { code: string; count: number }[]).map((row) => ({
+        code: String(row.code),
+        count: Number(row.count),
+      })),
+      total: {
+        enrolled: Number(totalRow?.c ?? 0),
+        assessed: Number(assessedTotalRow?.c ?? 0),
+        last_completed_at: assessedTotalRow?.last ?? null,
+      },
+    };
+  }
+
+  // 班级完成矩阵（#310）：SQL 与行映射由 `completion-query.ts` 与 SQLite 共用，避免两适配器分叉
+  async getCompletionStats(
+    assessmentIds: number[],
+    classIds: number[] | null
+  ): Promise<CompletionStatsRaw> {
+    const { sql, params } = buildCompletionStatsSql(assessmentIds, classIds);
+    if (!sql) return { profile: [], assessments: [] };
+    const [rows] = await this.pool.execute(sql, params);
+    return mapCompletionStatsRows(rows as CompletionStatsRow[]);
+  }
+
+  // dimensional 量表的逐人结果快照（#312）：只取三列，解析与三档归并在纯函数里做
+  async getDimensionalResultScores(
+    assessmentId: number,
+    classIds: number[] | null
+  ): Promise<DimensionalResultScoreRow[]> {
+    if (classIds !== null && classIds.length === 0) return [];
+    const conditions = [
+      "r.assessment_id = ?",
+      "r.status = 'completed'",
+      "r.is_current = 1",
+      "u.role = 'student'",
+    ];
+    const params: number[] = [assessmentId];
+    if (classIds !== null) {
+      conditions.push(`u.class_id IN (${classIds.map(() => "?").join(",")})`);
+      params.push(...classIds);
+    }
+    const [rows] = await this.pool.execute(
+      `SELECT r.user_id AS user_id, r.scores_json AS scores_json, r.completed_at AS completed_at
+       FROM assessment_results r JOIN users u ON u.id = r.user_id
+       WHERE ${conditions.join(" AND ")}
+       ORDER BY r.user_id`,
+      params
+    );
+    return (rows as DimensionalResultScoreRow[]).map((row) => ({
+      user_id: Number(row.user_id),
+      scores_json: row.scores_json,
+      completed_at: row.completed_at,
+    }));
+  }
+
+  async getAssessmentRoster(
+    assessmentId: number,
+    classIds: number[] | null,
+    filters: {
+      classId?: number | null;
+      lead?: string | null;
+      code?: string | null;
+      includeScores?: boolean;
+    } = {}
+  ): Promise<AssessmentRosterRow[]> {
+    if (classIds !== null && classIds.length === 0) return [];
+    const conditions = ["r.assessment_id = ?", "r.status = 'completed'", "r.is_current = 1", "u.role = 'student'"];
+    const params: (string | number)[] = [assessmentId];
+    if (classIds !== null) {
+      conditions.push(`u.class_id IN (${classIds.map(() => "?").join(",")})`);
+      params.push(...classIds);
+    }
+    if (filters.classId != null) {
+      conditions.push("u.class_id = ?");
+      params.push(filters.classId);
+    }
+    if (filters.lead) {
+      conditions.push("SUBSTR(r.type_code, 1, 1) = ?");
+      params.push(filters.lead);
+    }
+    if (filters.code) {
+      // 三字码精确过滤（#232 胶囊下钻）：与 lead 可同时出现，二者是「且」关系
+      conditions.push("r.type_code = ?");
+      params.push(filters.code);
+    }
+    // dimensional 量表（#313）没有三字码、要看档位，才需要多取一份结果快照；
+    // 默认仍只取展示所需的六列，不让个人分数进入不必要的数据搬运面
+    const scoresColumn = filters.includeScores ? ", r.scores_json AS scores_json" : "";
+    const [rows] = await this.pool.execute(
+      `SELECT u.class_id AS class_id, c.name AS class_name, u.name AS name, u.user_code AS user_code,
+              r.type_code AS code, r.completed_at AS assessed_at${scoresColumn}
+       FROM assessment_results r
+       JOIN users u ON u.id = r.user_id
+       LEFT JOIN classes c ON c.id = u.class_id
+       WHERE ${conditions.join(" AND ")}
+       ORDER BY COALESCE(c.name, ''), u.user_code`,
+      params
+    );
+    return (rows as AssessmentRosterRow[]).map((row) => ({
+      ...row,
+      class_id: row.class_id === null ? null : Number(row.class_id),
+    }));
+  }
+
+  async getAssessmentMissingRoster(
+    assessmentId: number,
+    classIds: number[] | null,
+    filters: { classId?: number | null } = {}
+  ): Promise<AssessmentMissingRosterRow[]> {
+    if (classIds !== null && classIds.length === 0) return [];
+    // 基准是「在册学生」而不是结果表：只有 NOT EXISTS 才能把「只有草稿」算作未完成，
+    // 写成 LEFT JOIN 结果表再判 NULL 会把草稿行当成已完成（#313 明确要求）
+    const conditions = [
+      "u.role = 'student'",
+      `NOT EXISTS (
+         SELECT 1 FROM assessment_results r
+         WHERE r.user_id = u.id AND r.assessment_id = ? AND r.status = 'completed' AND r.is_current = 1
+       )`,
+    ];
+    const params: (string | number)[] = [assessmentId];
+    if (classIds !== null) {
+      conditions.push(`u.class_id IN (${classIds.map(() => "?").join(",")})`);
+      params.push(...classIds);
+    }
+    if (filters.classId != null) {
+      conditions.push("u.class_id = ?");
+      params.push(filters.classId);
+    }
+    // 排序沿用名册既有约定（班级名 → 学号），两适配器逐列一致
+    const [rows] = await this.pool.execute(
+      `SELECT u.class_id AS class_id, c.name AS class_name, u.name AS name, u.user_code AS user_code
+       FROM users u
+       LEFT JOIN classes c ON c.id = u.class_id
+       WHERE ${conditions.join(" AND ")}
+       ORDER BY COALESCE(c.name, ''), u.user_code`,
+      params
+    );
+    return (rows as AssessmentMissingRosterRow[]).map((row) => ({
+      ...row,
+      class_id: row.class_id === null ? null : Number(row.class_id),
+    }));
+  }
+
+  async backup(): Promise<BackupData> {
+    // **单连接 + 一致性快照**：这张表用 pool.execute 逐条读，每次任取连接、各自开隐式事务，
+    // 中途有写入就会读出「成员行引用一个不在本次 users 里的 user_id」这类撕裂备份；
+    // restore 又会关掉外键检查再整表插入，落库时没人拦得住这种不一致。
+    const conn = await this.pool.getConnection();
+    try {
+      await conn.query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ");
+      await conn.query("START TRANSACTION WITH CONSISTENT SNAPSHOT");
+      const [users] = await conn.execute("SELECT * FROM users ORDER BY id");
+      const [classes] = await conn.execute("SELECT * FROM classes ORDER BY id");
+      const [teacherClasses] = await conn.execute("SELECT * FROM teacher_classes ORDER BY id");
+      const [tags] = await conn.execute(
+        "SELECT id, name, type, parent_id, class_id, category_order, sort_order, active FROM tags ORDER BY id"
+      );
+      const [configs] = await conn.execute(
+        "SELECT `key` as `key`, value FROM configs_profile ORDER BY id"
+      );
+      const [auditLogs] = await conn.execute("SELECT * FROM audit_logs ORDER BY id");
+      const [storageBackends] = await conn.execute("SELECT * FROM storage_backends ORDER BY id");
+      const [profileSubmissions] = await conn.execute("SELECT * FROM profile_submissions ORDER BY id");
+      const [classGroups] = await conn.execute("SELECT * FROM class_groups ORDER BY id");
+      const [classGroupMembers] = await conn.execute("SELECT * FROM class_group_members ORDER BY id");
+      const [groupBatches] = await conn.execute("SELECT * FROM group_batches ORDER BY id");
+      const [groupBatchGroups] = await conn.execute("SELECT * FROM group_batch_groups ORDER BY id");
+      const [groupBatchMembers] = await conn.execute("SELECT * FROM group_batch_members ORDER BY id");
+      const [groupWorkspaces] = await conn.execute("SELECT * FROM group_workspaces ORDER BY id");
+      const [groupPosts] = await conn.execute("SELECT * FROM group_posts ORDER BY id");
+      const [groupTasks] = await conn.execute("SELECT * FROM group_tasks ORDER BY id");
+      const [groupWorkspaceReads] = await conn.execute("SELECT * FROM group_workspace_reads ORDER BY id");
+      const [assessments] = await conn.execute("SELECT * FROM assessments ORDER BY id");
+      const [assessmentQuestions] = await conn.execute("SELECT * FROM assessment_questions ORDER BY id");
+      const [assessmentResults] = await conn.execute("SELECT * FROM assessment_results ORDER BY id");
+      await conn.commit();
+      return {
+        // #346：version 9 增加小组工作区四表（公告 / 任务 / 已读水位）
+        version: 9,
+        sourceType: "mysql",
+        createdAt: new Date().toISOString(),
+        users: users as UserRow[],
+        classes: classes as ClassRow[],
+        teacher_classes: teacherClasses as BackupData["teacher_classes"],
+        tags: tags as TagRow[],
+        audit_logs: auditLogs as AuditLogRow[],
+        configs_profile: configs as { key: string; value: string }[],
+        storage_backends: storageBackends as StorageBackendRow[],
+        profile_submissions: profileSubmissions as ProfileSubmissionRow[],
+        class_groups: classGroups as ClassGroupRow[],
+        class_group_members: classGroupMembers as ClassGroupMemberRow[],
+        group_batches: groupBatches as GroupBatchRow[],
+        group_batch_groups: groupBatchGroups as GroupBatchGroupRow[],
+        group_batch_members: groupBatchMembers as GroupBatchMemberRow[],
+        group_workspaces: groupWorkspaces as GroupWorkspaceRow[],
+        group_posts: groupPosts as GroupPostRow[],
+        group_tasks: groupTasks as GroupTaskRow[],
+        group_workspace_reads: groupWorkspaceReads as GroupWorkspaceReadRow[],
+        assessments: assessments as AssessmentRow[],
+        assessment_questions: assessmentQuestions as AssessmentQuestionRow[],
+        assessment_results: assessmentResults as AssessmentResultRow[],
+      };
+    } catch (err) {
+      await conn.rollback();
+      throw err;
+    } finally {
+      conn.release();
+    }
   }
 
   async restore(data: BackupData): Promise<void> {
@@ -1243,6 +3131,20 @@ export class MysqlAdapter implements DbAdapter {
       // 恢复期间关闭外键约束（全量 DELETE + INSERT 顺序可能违反 REFERENCES）
       await conn.execute("SET FOREIGN_KEY_CHECKS = 0");
       const tags = normalizeBackupTags(data.tags);
+      // 凡按 user_id / class_id 引用 users / classes 的持久表，恢复时一律无条件先清空：这两张表整表替换且按原 id 重插，
+      // 旧备份缺字段时若保留现状，行会指向已不存在、或已被别人占用的 id（恢复期间 FK 关闭，库不会拦，事后开启也不回溯校验）。
+      // 所以「缺字段 = 恢复后该功能无数据」，不是「保留不动」——#101 分组五表、#95 档案历史版本同此口径
+      // #346 工作区四表同样按 user_id / class_id 引用，旧备份缺字段时一律清空
+      await conn.execute("DELETE FROM group_workspace_reads");
+      await conn.execute("DELETE FROM group_tasks");
+      await conn.execute("DELETE FROM group_posts");
+      await conn.execute("DELETE FROM group_workspaces");
+      await conn.execute("DELETE FROM class_group_members");
+      await conn.execute("DELETE FROM class_groups");
+      await conn.execute("DELETE FROM group_batch_members");
+      await conn.execute("DELETE FROM group_batch_groups");
+      await conn.execute("DELETE FROM group_batches");
+      await conn.execute("DELETE FROM profile_submissions");
       await conn.execute("DELETE FROM teacher_classes");
       await conn.execute("DELETE FROM users");
       await conn.execute("DELETE FROM classes");
@@ -1320,12 +3222,13 @@ export class MysqlAdapter implements DbAdapter {
           u.tags,
           u.avatar_url,
           u.evaluation_url,
+          u.evaluation_text ?? null,
           u.submitted_at,
           u.created_at,
           nullableInt(u.storage_id) ?? localId,
         ]);
         await conn.query(
-          `INSERT INTO users (id, user_code, password_hash, role, name, class_id, tags, avatar_url, evaluation_url, submitted_at, created_at, storage_id)
+          `INSERT INTO users (id, user_code, password_hash, role, name, class_id, tags, avatar_url, evaluation_url, evaluation_text, submitted_at, created_at, storage_id)
            VALUES ?`,
           [values]
         );
@@ -1380,9 +3283,8 @@ export class MysqlAdapter implements DbAdapter {
           );
         }
       }
-      // 档案提交历史版本恢复（#95；旧备份无此字段时保留当前记录不动）
+      // 档案提交历史版本恢复（#95；**含此字段才回填，旧备份恢复后即为无历史版本**——上面已统一清空）
       if (Array.isArray(data.profile_submissions)) {
-        await conn.execute("DELETE FROM profile_submissions");
         if (data.profile_submissions.length > 0) {
           const values = data.profile_submissions.map((p) => [
             p.id,
@@ -1391,13 +3293,256 @@ export class MysqlAdapter implements DbAdapter {
             p.tags,
             p.avatar_url,
             p.evaluation_url,
+            p.evaluation_text ?? null,
             p.storage_id ?? 1,
             p.submitted_at,
             p.is_current ?? 0,
           ]);
           await conn.query(
-            `INSERT INTO profile_submissions (id, user_id, version, tags, avatar_url, evaluation_url, storage_id, submitted_at, is_current)
+            `INSERT INTO profile_submissions (id, user_id, version, tags, avatar_url, evaluation_url, evaluation_text, storage_id, submitted_at, is_current)
              VALUES ?`,
+            [values]
+          );
+        }
+      }
+      // 测评恢复（#221）：
+      // - `assessments` + `assessment_questions` 是参考数据：两字段齐备才整体替换，否则保留现状（可被种子自愈）；
+      // - `assessment_results` 是**学生个人数据且只靠数值 user_id 关联**，而 `users` 上面已经整表替换了：
+      //   保留旧结果会在「恢复到另一套库的旧备份」时张冠李戴，故与分组五表同口径——**一律先清空**，
+      //   只有备份带该字段才回填。
+      await conn.execute("DELETE FROM assessment_results");
+      if (Array.isArray(data.assessments) && Array.isArray(data.assessment_questions)) {
+        await conn.execute("DELETE FROM assessment_questions");
+        await conn.execute("DELETE FROM assessments");
+        if (data.assessments.length > 0) {
+          const values = data.assessments.map((a) => [
+            a.id,
+            // code 统一小写入库：两适配器唯一比较语义已对齐（本表用 utf8mb4_bin），
+            // 再规范化一次，避免跨库备份里的大小写差异变成「查不到的量表」
+            normalizeAssessmentCode(a.code),
+            a.name,
+            a.question_count,
+            // #282：旧备份没有这一列 → 补 0（全量作答），下次 init 的 upgradeAssessmentBank 会按种子回填
+            a.items_per_attempt ?? 0,
+            a.dimensions_json,
+            a.scoring_mode ?? "typological",
+            a.scale_version,
+            a.attribution ?? "",
+            a.license_text ?? "",
+            a.disclaimer ?? "",
+            a.enabled ?? 1,
+            a.created_at ?? getNow(),
+            a.updated_at ?? getNow(),
+          ]);
+          await conn.query(
+            `INSERT INTO assessments
+               (id, code, name, question_count, items_per_attempt, dimensions_json, scoring_mode, scale_version,
+                attribution, license_text, disclaimer, enabled, created_at, updated_at)
+             VALUES ?`,
+            [values]
+          );
+        }
+        if (data.assessment_questions.length > 0) {
+          // #281：旧备份没有 origin → 按原创题默认（与列默认值一致，绝不因缺字段拒绝恢复）
+          const values = data.assessment_questions.map((q) => [
+            q.id,
+            q.assessment_id,
+            q.question_index,
+            q.prompt,
+            q.dimension,
+            q.origin ?? "cn-original",
+            q.reverse_scored ?? 0,
+            q.version ?? 1,
+            q.created_at ?? getNow(),
+          ]);
+          await conn.query(
+            `INSERT INTO assessment_questions
+               (id, assessment_id, question_index, prompt, dimension, origin, reverse_scored, version, created_at)
+             VALUES ?`,
+            [values]
+          );
+        }
+      }
+      if (Array.isArray(data.assessment_results) && data.assessment_results.length > 0) {
+        const values = data.assessment_results.map((r) => [
+          r.id,
+          r.user_id,
+          r.assessment_id,
+          r.status,
+          r.answers_json ?? "{}",
+          // #282：旧备份没有抽题快照 → 补 '[]'（按整库一轮处理），读取侧还有 parseItemsSnapshot 兜底
+          r.items_json ?? "[]",
+          r.scores_json ?? null,
+          r.type_code ?? null,
+          r.is_current ?? 0,
+          // 旧备份没有 draft_slot 列：草稿补草稿位、完成记录补 NULL，恢复后不变量仍成立
+          r.draft_slot ?? (r.status === "in_progress" ? 1 : null),
+          r.started_at ?? getNow(),
+          r.updated_at ?? getNow(),
+          r.completed_at ?? null,
+        ]);
+        await conn.query(
+          `INSERT INTO assessment_results
+             (id, user_id, assessment_id, status, answers_json, items_json, scores_json, type_code, is_current,
+              draft_slot, started_at, updated_at, completed_at)
+           VALUES ?`,
+          [values]
+        );
+      }
+      // 分组恢复（#101；**含此字段才回填，旧备份恢复后即为未分组**——上面已统一清空）
+      // 当前侧与历史侧各自成对处理，避免出现「删了组却留着成员」的半截状态
+      if (Array.isArray(data.class_groups)) {
+        if (data.class_groups.length > 0) {
+          const values = data.class_groups.map((g) => [
+            g.id,
+            g.class_id,
+            g.group_no,
+            g.leader_user_id ?? null,
+            g.created_at ?? getNow(),
+          ]);
+          await conn.query(
+            "INSERT INTO class_groups (id, class_id, group_no, leader_user_id, created_at) VALUES ?",
+            [values]
+          );
+        }
+        if ((data.class_group_members ?? []).length > 0) {
+          const values = (data.class_group_members ?? []).map((m) => [
+            m.id,
+            m.group_id,
+            m.user_id,
+            m.created_at ?? getNow(),
+          ]);
+          await conn.query(
+            "INSERT INTO class_group_members (id, group_id, user_id, created_at) VALUES ?",
+            [values]
+          );
+        }
+      }
+      if (Array.isArray(data.group_batches)) {
+        if (data.group_batches.length > 0) {
+          const values = data.group_batches.map((b) => [
+            b.id,
+            b.class_id,
+            b.strategy,
+            b.feature_sources ?? null,
+            b.group_size ?? 5,
+            b.student_count ?? 0,
+            b.tagged_count ?? 0,
+            b.metrics ?? null,
+            b.created_by_id ?? null,
+            b.created_by_name ?? null,
+            b.created_by_role ?? null,
+            b.created_at ?? getNow(),
+          ]);
+          await conn.query(
+            `INSERT INTO group_batches
+               (id, class_id, strategy, feature_sources, group_size, student_count, tagged_count, metrics,
+                created_by_id, created_by_name, created_by_role, created_at)
+             VALUES ?`,
+            [values]
+          );
+        }
+        if ((data.group_batch_groups ?? []).length > 0) {
+          const values = (data.group_batch_groups ?? []).map((g) => [
+            g.id,
+            g.batch_id,
+            g.group_no,
+            g.cohesion ?? null,
+            g.member_count ?? 0,
+            g.leader_user_id ?? null,
+            g.created_at ?? getNow(),
+          ]);
+          await conn.query(
+            "INSERT INTO group_batch_groups (id, batch_id, group_no, cohesion, member_count, leader_user_id, created_at) VALUES ?",
+            [values]
+          );
+        }
+        if ((data.group_batch_members ?? []).length > 0) {
+          const values = (data.group_batch_members ?? []).map((m) => [
+            m.id,
+            m.batch_id,
+            m.group_id,
+            m.user_id,
+            m.user_code ?? null,
+            m.name ?? null,
+            m.created_at ?? getNow(),
+          ]);
+          await conn.query(
+            "INSERT INTO group_batch_members (id, batch_id, group_id, user_id, user_code, name, created_at) VALUES ?",
+            [values]
+          );
+        }
+        // 小组工作区（#346）：顺序 工作区 → 公告/任务 → 已读水位；旧备份无字段时保持空
+        if ((data.group_workspaces ?? []).length > 0) {
+          const values = (data.group_workspaces ?? []).map((w) => [
+            w.id,
+            w.class_id,
+            w.batch_id,
+            w.batch_group_id,
+            w.group_no,
+            w.title ?? `第 ${w.group_no} 组工作区`,
+            w.created_at ?? getNow(),
+          ]);
+          await conn.query(
+            "INSERT INTO group_workspaces (id, class_id, batch_id, batch_group_id, group_no, title, created_at) VALUES ?",
+            [values]
+          );
+        }
+        if ((data.group_posts ?? []).length > 0) {
+          const values = (data.group_posts ?? []).map((p) => [
+            p.id,
+            p.workspace_id,
+            p.author_id ?? null,
+            p.author_name ?? null,
+            p.author_role ?? null,
+            p.title,
+            p.content,
+            p.pinned ?? 0,
+            p.created_at ?? getNow(),
+            p.deleted_at ?? null,
+          ]);
+          await conn.query(
+            `INSERT INTO group_posts
+               (id, workspace_id, author_id, author_name, author_role, title, content, pinned, created_at, deleted_at)
+             VALUES ?`,
+            [values]
+          );
+        }
+        if ((data.group_tasks ?? []).length > 0) {
+          const values = (data.group_tasks ?? []).map((t) => [
+            t.id,
+            t.workspace_id,
+            t.title,
+            t.description ?? null,
+            t.assignee_id ?? null,
+            t.assignee_name ?? null,
+            t.status ?? "open",
+            t.due_at ?? null,
+            t.created_by_id ?? null,
+            t.created_by_name ?? null,
+            t.created_by_role ?? null,
+            t.created_at ?? getNow(),
+            t.completed_at ?? null,
+            t.deleted_at ?? null,
+          ]);
+          await conn.query(
+            `INSERT INTO group_tasks
+               (id, workspace_id, title, description, assignee_id, assignee_name, status, due_at,
+                created_by_id, created_by_name, created_by_role, created_at, completed_at, deleted_at)
+             VALUES ?`,
+            [values]
+          );
+        }
+        if ((data.group_workspace_reads ?? []).length > 0) {
+          const values = (data.group_workspace_reads ?? []).map((r) => [
+            r.id,
+            r.workspace_id,
+            r.user_id,
+            r.last_read_at ?? getNow(),
+            r.last_read_post_id ?? 0,
+          ]);
+          await conn.query(
+            "INSERT INTO group_workspace_reads (id, workspace_id, user_id, last_read_at, last_read_post_id) VALUES ?",
             [values]
           );
         }
@@ -1406,10 +3551,18 @@ export class MysqlAdapter implements DbAdapter {
       await conn.commit();
     } catch (err) {
       await conn.rollback();
+      try {
+        // 失败路径也要复位：连接归还池后若仍停在 FOREIGN_KEY_CHECKS=0，后续写操作会失去外键保护
+        await conn.execute("SET FOREIGN_KEY_CHECKS = 1");
+      } catch (resetErr) {
+        console.error("Restore foreign key reset failed:", resetErr);
+      }
       throw err;
     } finally {
       conn.release();
     }
+    // 恢复后保证内置量表存在（旧备份无测评字段、或备份本身题库为空时自愈）；已存在的量表不覆盖
+    await this.seedAssessments();
   }
 
   async close(): Promise<void> {

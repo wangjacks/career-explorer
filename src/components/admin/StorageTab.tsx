@@ -377,7 +377,7 @@ export default function StorageTab() {
           <div>
             <h3 className="font-semibold text-foreground text-sm">迁移本地文件到云后端</h3>
             <p className="text-xs text-muted mt-1">
-              将归属本地后端的头像与评价词云批量上传到目标云后端。可重复执行，已存在的对象自动跳过；单用户失败不影响整体。
+              将归属本地后端的头像与历史评价词云图片批量上传到目标云后端。可重复执行，已存在的对象自动跳过；单用户失败不影响整体。
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-3">

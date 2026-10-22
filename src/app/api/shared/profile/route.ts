@@ -1,3 +1,4 @@
+import { withDemoScope } from "@/lib/demo-scope";
 import { NextRequest, NextResponse } from "next/server";
 import {
   getActiveTags,
@@ -11,6 +12,13 @@ import {
   submitProfileWithVersion,
 } from "@/lib/db";
 import { normalizeTagNames, extractCustomTags } from "@/lib/tag-utils";
+import {
+  EVALUATION_COUNT,
+  extractEvaluationWords,
+  normalizeEvaluationTexts,
+  parseStoredEvaluationTexts,
+  serializeEvaluationTexts,
+} from "@/lib/evaluation-text";
 import { verifyToken } from "@/lib/token";
 import { getRequestContext, recordAudit } from "@/lib/audit";
 
@@ -18,7 +26,7 @@ import { getRequestContext, recordAudit } from "@/lib/audit";
 const MAX_TAG_NAME_LENGTH = 50;
 
 /** 会话查询：登录学生获取本人档案（含班级名与标签名） */
-export async function GET(request: NextRequest) {
+async function GET_impl(request: NextRequest) {
   try {
     const token = request.cookies.get("auth_token")?.value;
     if (!token) {
@@ -54,6 +62,7 @@ export async function GET(request: NextRequest) {
       }
     }
 
+    const evaluationTexts = parseStoredEvaluationTexts(user.evaluation_text);
     return NextResponse.json({
       name: user.name,
       user_code: user.user_code,
@@ -61,6 +70,8 @@ export async function GET(request: NextRequest) {
       tags: tagNames,
       avatar_url: user.avatar_url || "",
       evaluation_url: user.evaluation_url || "",
+      evaluation_texts: evaluationTexts,
+      evaluation_words: extractEvaluationWords(evaluationTexts),
       storage_id: user.storage_id,
       submitted_at: user.submitted_at,
       // 提交时限（#96）：服务端计算截止状态，不信任客户端时钟
@@ -73,7 +84,7 @@ export async function GET(request: NextRequest) {
   }
 }
 
-export async function POST(request: NextRequest) {
+async function POST_impl(request: NextRequest) {
   const { ip, user_agent } = getRequestContext(request);
   try {
     // 已移除快速提交通道（#92）：保存必须学生本人登录，身份只取自会话，拒绝显式指定学号，杜绝覆盖他人数据
@@ -108,7 +119,10 @@ export async function POST(request: NextRequest) {
     if (body.studentId !== undefined) {
       return NextResponse.json({ error: "不支持指定学号，档案保存仅限本人操作" }, { status: 400 });
     }
-    const { tags, avatarUrl, evaluationUrl } = body;
+    const { tags, avatarUrl } = body;
+    if (tags !== undefined && !Array.isArray(tags)) {
+      return NextResponse.json({ error: "标签格式不正确" }, { status: 400 });
+    }
     const studentId = currentUser.user_code;
 
     // 文件所在后端（#111）：以上传响应回传的 id 为准（验证存在）；未重选图片不传 → 保留当前记录值；非法值 → 默认后端
@@ -123,15 +137,14 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "存储后端未初始化" }, { status: 500 });
     }
 
-    if (!Array.isArray(tags) || tags.length === 0) {
-      return NextResponse.json({ error: "标签不能为空" }, { status: 400 });
+    // #208：标签必填；#162：三条他人评价必填（存量仅图片账户在三条留空时保留历史图片）
+    const names = normalizeTagNames(tags ?? []);
+    const avatar = typeof avatarUrl === "string" ? avatarUrl : "";
+    if (names.length === 0) {
+      return NextResponse.json({ error: "请至少选择一个标签" }, { status: 400 });
     }
 
     // #94：标签文本直存（预设 + 自定义），入库前规范化；自定义部分受配置上限约束（后端二次校验）
-    const names = normalizeTagNames(tags as unknown[]);
-    if (names.length === 0) {
-      return NextResponse.json({ error: "标签不能为空" }, { status: 400 });
-    }
     if (names.some((n) => n.length > MAX_TAG_NAME_LENGTH)) {
       return NextResponse.json({ error: `标签名称不能超过 ${MAX_TAG_NAME_LENGTH} 字` }, { status: 400 });
     }
@@ -145,21 +158,52 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // #162：旧客户端不传 evaluationTexts 时按三条空值处理：仅历史图片账户可保留旧图；
+    // 不接受客户端传来的 evaluationUrl，避免任意 URL 写入档案。
+    const evaluationInput = body.evaluationTexts == null ? ["", "", ""] : body.evaluationTexts;
+    const normalizedEvaluation = normalizeEvaluationTexts(evaluationInput);
+    if (!normalizedEvaluation.ok) {
+      return NextResponse.json({ error: normalizedEvaluation.message }, { status: 400 });
+    }
+    const filledEvaluationCount = normalizedEvaluation.texts.filter(Boolean).length;
+    const legacyEvaluationUrl = currentUser.evaluation_url || "";
+    if (filledEvaluationCount === 0 && !legacyEvaluationUrl) {
+      return NextResponse.json(
+        { error: `请完整填写${EVALUATION_COUNT}条他人评价` },
+        { status: 400 }
+      );
+    }
+    // 三条齐全 → 以文字为准并清空当前历史图片；三条全空 → 保留历史图片（兼容存量）
+    const evaluationText =
+      filledEvaluationCount === EVALUATION_COUNT
+        ? serializeEvaluationTexts(normalizedEvaluation.texts)
+        : null;
+    const evaluationUrl =
+      filledEvaluationCount === EVALUATION_COUNT ? "" : legacyEvaluationUrl;
+
     // #95：提交与版本快照一体化（事务内完成：UPDATE users + 生成新版本 + 超限清理）
     const { version } = await submitProfileWithVersion(
       studentId,
       JSON.stringify(names),
-      avatarUrl || "",
-      evaluationUrl || "",
+      avatar,
+      evaluationUrl,
+      evaluationText,
       storageId
     );
-    // 档案提交/修改审计（#110）：仅记标签计数，不记标签内容（学生数据不重复入库）
+    // 档案提交/修改审计（#110）：只记计数/布尔，不记标签与评价原文
     void recordAudit({
       actor_id: currentUser.id, actor_user_code: currentUser.user_code, actor_name: currentUser.name, actor_role: currentUser.role,
       action: "profile:submit", method: "POST", path: "/api/shared/profile",
       resource_type: "profile", resource_id: studentId,
       status: "success", error_message: null, ip, user_agent,
-      metadata: { tagCount: names.length, hasAvatar: Boolean(avatarUrl), hasEvaluation: Boolean(evaluationUrl), version },
+      metadata: {
+        tagCount: names.length,
+        hasAvatar: Boolean(avatar),
+        evaluationCount: filledEvaluationCount,
+        hasEvaluationText: filledEvaluationCount === EVALUATION_COUNT,
+        keptLegacyEvaluation: filledEvaluationCount === 0 && Boolean(legacyEvaluationUrl),
+        version,
+      },
     });
     return NextResponse.json({ message: "保存成功", version });
   } catch (err) {
@@ -167,3 +211,6 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "服务器错误" }, { status: 500 });
   }
 }
+
+export const GET = withDemoScope(GET_impl);
+export const POST = withDemoScope(POST_impl);

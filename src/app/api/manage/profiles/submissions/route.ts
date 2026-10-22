@@ -1,5 +1,7 @@
+import { withDemoScope } from "@/lib/demo-scope";
 import { NextRequest, NextResponse } from "next/server";
 import { getProfileSubmissions, getUserById, getTeacherClassPairs } from "@/lib/db";
+import { extractEvaluationWords, parseStoredEvaluationTexts } from "@/lib/evaluation-text";
 import { verifyToken } from "@/lib/token";
 
 /** 解析快照标签 JSON（容忍非法值返回空数组） */
@@ -14,7 +16,7 @@ function parseTags(raw: string | null): string[] {
 }
 
 /** 管理端查看学生提交历史（#95）：admin 全量；teacher 仅限管辖班级（storage-sign 同款班级白名单） */
-export async function GET(request: NextRequest) {
+async function GET_impl(request: NextRequest) {
   try {
     const token = request.cookies.get("auth_token")?.value;
     if (!token) {
@@ -50,19 +52,26 @@ export async function GET(request: NextRequest) {
     const rows = await getProfileSubmissions(userId);
     return NextResponse.json({
       student: { id: student.id, user_code: student.user_code, name: student.name },
-      submissions: rows.map((r) => ({
-        id: r.id,
-        version: r.version,
-        tags: parseTags(r.tags),
-        avatar_url: r.avatar_url,
-        evaluation_url: r.evaluation_url,
-        storage_id: r.storage_id,
-        submitted_at: r.submitted_at,
-        is_current: r.is_current,
-      })),
+      submissions: rows.map((r) => {
+        const evaluationTexts = parseStoredEvaluationTexts(r.evaluation_text);
+        return {
+          id: r.id,
+          version: r.version,
+          tags: parseTags(r.tags),
+          avatar_url: r.avatar_url,
+          evaluation_url: r.evaluation_url,
+          evaluation_texts: evaluationTexts,
+          evaluation_words: extractEvaluationWords(evaluationTexts),
+          storage_id: r.storage_id,
+          submitted_at: r.submitted_at,
+          is_current: r.is_current,
+        };
+      }),
     });
   } catch (err) {
     console.error("Admin submissions GET error:", err);
     return NextResponse.json({ error: "服务器错误" }, { status: 500 });
   }
 }
+
+export const GET = withDemoScope(GET_impl);

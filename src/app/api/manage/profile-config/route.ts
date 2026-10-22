@@ -1,3 +1,4 @@
+import { withDemoScope } from "@/lib/demo-scope";
 import { NextRequest, NextResponse } from "next/server";
 import {
   getMaxAvatarSizeMb,
@@ -11,11 +12,21 @@ import {
   setProfileConfig,
   SUBMISSION_DEADLINE_KEY,
 } from "@/lib/db";
-import { getAuditActor, getRequestContext, recordAudit } from "@/lib/audit";
+import { getRequestContext, recordAudit } from "@/lib/audit";
+import { WriteGuard, type AuditTarget } from "../write-guard";
 
-/** 档案功能设置（#94/#96/#111/#95）：管理/教师面板读写；表单端读取上限/截止状态走开放端点 /api/tags */
+/** 档案功能设置（#94/#96/#111/#95）：管理面板读写；教师只读（#171，这些项影响全站学生）；
+ * 表单端读取上限/截止状态走开放端点 /api/tags */
 
-export async function GET() {
+const CONFIG: AuditTarget = {
+  action: "profile-config:update",
+  method: "PUT",
+  path: "/api/manage/profile-config",
+  resource_type: "profile-config",
+};
+const CONFIG_ONLY_ADMIN = "档案功能设置全站生效，仅管理员可修改";
+
+async function GET_impl() {
   try {
     const maxCustomTags = await getMaxCustomTags();
     const submissionDeadline = await getSubmissionDeadline();
@@ -48,10 +59,14 @@ function parseDeadline(raw: unknown): string | null {
   return value.slice(0, 16).replace("T", " ");
 }
 
-export async function PUT(request: NextRequest) {
+async function PUT_impl(request: NextRequest) {
   const { ip, user_agent } = getRequestContext(request);
-  const actor = await getAuditActor(request);
+  const guard = await WriteGuard.from(request);
+  const actor = guard.actor;
   try {
+    if (!guard.session) return guard.unauthenticated();
+    // 归属边界（#171）：这里改的是全站学生共用的配置，教师只读
+    if (!guard.canWriteGlobal) return guard.deny(CONFIG, null, CONFIG_ONLY_ADMIN);
     const body = (await request.json()) as Record<string, unknown>;
     // 变更前快照（审计记 old/new，#110）
     const oldMaxCustomTags = await getMaxCustomTags();
@@ -134,3 +149,6 @@ export async function PUT(request: NextRequest) {
     return NextResponse.json({ error: "保存配置失败" }, { status: 500 });
   }
 }
+
+export const GET = withDemoScope(GET_impl);
+export const PUT = withDemoScope(PUT_impl);

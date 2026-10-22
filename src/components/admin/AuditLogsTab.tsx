@@ -33,6 +33,7 @@ const PAGE_SIZE = 20;
 /** 动作词汇表（与埋点一致，#110；#95/#118/#117 新增动作同步维护） */
 const ACTIONS = [
   "auth:login", "auth:login-failed", "auth:logout", "auth:activate", "auth:activate-verify",
+  "auth:captcha-failed", "auth:captcha-degraded",
   "student:create", "student:batch-import", "student:update", "student:delete",
   "student:reset-password", "student:batch-password",
   "teacher:create", "teacher:update", "teacher:delete",
@@ -41,15 +42,19 @@ const ACTIONS = [
   "settings:update", "profile-config:update",
   "export:excel", "export:images",
   "backup:create", "backup:restore",
-  "test-db:run", "profile:submit", "profile:restore", "profile-submission:cleanup",
+  "test-db:run", "profile:submit", "profile:restore", "profile:clear", "profile-submission:cleanup",
   "media:query", "media:config-update", "media:cleanup", "media:thumbnail-backfill",
+  "upload:rejected", "upload:failed",
+  "group:generate", "group:move", "group:create", "group:delete", "group:import", "group:export",
+  "assessment:answer", "assessment:submit", "assessment:results", "assessment:list", "assessment:roster",
   "audit:query",
 ];
 
 const RESOURCE_TYPES = [
   "session", "student", "teacher", "class", "tag",
-  "db-config", "profile-config", "profile", "profile-submission", "media",
-  "export", "backup", "db", "audit-log",
+  "db-config", "profile-config", "profile", "profile-submission", "media", "upload",
+  "group", "group-batch",
+  "export", "backup", "db", "audit-log", "assessment",
 ];
 
 const ROLE_LABELS: Record<string, string> = {

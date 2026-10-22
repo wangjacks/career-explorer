@@ -1,12 +1,21 @@
 import Link from "next/link";
+import { cookies } from "next/headers";
 import { Compass } from "lucide-react";
 import NavigationBar from "@/components/NavigationBar";
 import SiteFooter from "@/components/SiteFooter";
+import { verifyToken } from "@/lib/token";
+import { resolveExploreHref } from "@/lib/role-home";
+import { COPYRIGHT_NOTICE } from "@/lib/copyright";
 
-// 强制动态渲染，避免 Next.js 静态预渲染添加 s-maxage 缓存头
+// cookies() 是请求时 API，已使本路由按请求动态渲染；这里保留显式声明，避免被误加静态缓存
 export const dynamic = "force-dynamic";
 
-export default function IndexPage() {
+export default async function IndexPage() {
+  // 首屏即给出正确 href：已登录直达本人面板，未登录直达登录页
+  const token = (await cookies()).get("auth_token")?.value;
+  const session = token ? await verifyToken(token) : { valid: false };
+  const exploreHref = resolveExploreHref(session);
+
   return (
     <div className="flex flex-col min-h-screen md:h-dvh bg-background overflow-x-clip">
       <NavigationBar title="Career Explorer" showHome />
@@ -24,7 +33,7 @@ export default function IndexPage() {
               通过兴趣、技能与性格标签，探索真实的自己，生成一份专属的职业探索档案。
             </p>
             <Link
-              href="/form/create-profile"
+              href={exploreHref}
               className="inline-block mt-2 px-8 py-3.5 bg-accent text-stone-900 text-base font-semibold rounded-xl hover:brightness-105 transition-all shadow-lg animate-[hero-slide-in_0.7s_cubic-bezier(0.33,1,0.68,1)_1.7s_both]"
             >
               开始探索
@@ -32,7 +41,7 @@ export default function IndexPage() {
           </div>
         </section>
       </main>
-      <SiteFooter />
+      <SiteFooter copyright={COPYRIGHT_NOTICE} />
     </div>
   );
 }

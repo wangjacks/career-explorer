@@ -1,9 +1,11 @@
 import { describe, it, expect } from "vitest";
+import Database from "better-sqlite3";
 import { mkdtempSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import path from "path";
 import { SqliteAdapter } from "../lib/db-sqlite";
 import { DEFAULT_MAX_PROFILE_SUBMISSIONS, MAX_PROFILE_SUBMISSIONS_KEY } from "../lib/db";
+import type { BackupData } from "../lib/db";
 
 function makeTmpDb(): string {
   const dir = mkdtempSync(path.join(tmpdir(), "career-test-"));
@@ -16,8 +18,38 @@ function cleanup(dbPath: string): void {
 
 /** 提交一次档案（走旧 upsertSubmission 模拟存量数据，不写版本表） */
 function legacySubmit(adapter: SqliteAdapter, userCode: string, tagsJson: string): void {
-  adapter.upsertSubmission(userCode, tagsJson, "/a.png", "/w.png", adapter.getDefaultStorageBackend()!.id);
+  adapter.upsertSubmission(userCode, tagsJson, "/a.png", "/w.png", null, adapter.getDefaultStorageBackend()!.id);
 }
+
+describe("三条他人评价（#162）", () => {
+  it("提交时写入用户行与版本快照，备份包含文字，清空档案时一并置空", () => {
+    const dbPath = makeTmpDb();
+    const adapter = new SqliteAdapter(dbPath);
+    adapter.init();
+    const studentId = adapter.insertUser({ user_code: "202505050101", role: "student", name: "张三" });
+    const storageId = adapter.getDefaultStorageBackend()!.id;
+    const text = JSON.stringify(["评价一", "评价二", "评价三"]);
+
+    adapter.submitProfileWithVersion("202505050101", "[]", "", "", text, storageId);
+
+    const user = adapter.getStudentByCode("202505050101")!;
+    expect(user.evaluation_text).toBe(text);
+    const versions = adapter.getProfileSubmissions(studentId);
+    expect(versions).toHaveLength(1);
+    expect(versions[0].evaluation_text).toBe(text);
+
+    const data = adapter.backup();
+    expect(data.users.find((u) => u.id === studentId)?.evaluation_text).toBe(text);
+    expect(data.profile_submissions?.[0].evaluation_text).toBe(text);
+
+    adapter.clearSubmissions(["202505050101"]);
+    expect(adapter.getStudentByCode("202505050101")!.evaluation_text).toBeNull();
+    expect(adapter.getProfileSubmissions(studentId)).toHaveLength(0);
+
+    adapter.close();
+    cleanup(dbPath);
+  });
+});
 
 describe("profile_submissions 迁移（#95）", () => {
   it("新装 init 后建表并写入默认版本上限配置", () => {
@@ -86,6 +118,7 @@ describe("profile_submissions CRUD（#95）", () => {
       tags: "[1]",
       avatar_url: "/a1.png",
       evaluation_url: null,
+      evaluation_text: null,
       storage_id: 1,
       submitted_at: "2026-08-01 10:00:00",
       is_current: 0,
@@ -94,6 +127,7 @@ describe("profile_submissions CRUD（#95）", () => {
       tags: "[2]",
       avatar_url: "/a2.png",
       evaluation_url: "/w2.png",
+      evaluation_text: null,
       storage_id: 1,
       submitted_at: "2026-08-02 10:00:00",
       is_current: 1,
@@ -126,6 +160,7 @@ describe("profile_submissions CRUD（#95）", () => {
         tags: `[${v}]`,
         avatar_url: null,
         evaluation_url: null,
+        evaluation_text: null,
         storage_id: 1,
         submitted_at: `2026-08-0${v} 10:00:00`,
         is_current: v === 4 ? 1 : 0,
@@ -149,11 +184,11 @@ describe("profile_submissions CRUD（#95）", () => {
     adapter.init();
     const studentId = adapter.insertUser({ user_code: "202505050101", role: "student", name: "张三" });
     const id1 = adapter.insertProfileSubmission(studentId, 1, {
-      tags: "[1]", avatar_url: null, evaluation_url: null, storage_id: 1,
+      tags: "[1]", avatar_url: null, evaluation_url: null, evaluation_text: null, storage_id: 1,
       submitted_at: "2026-08-01 10:00:00", is_current: 1,
     });
     const id2 = adapter.insertProfileSubmission(studentId, 2, {
-      tags: "[2]", avatar_url: null, evaluation_url: null, storage_id: 1,
+      tags: "[2]", avatar_url: null, evaluation_url: null, evaluation_text: null, storage_id: 1,
       submitted_at: "2026-08-02 10:00:00", is_current: 0,
     });
 
@@ -174,11 +209,11 @@ describe("profile_submissions CRUD（#95）", () => {
     adapter.insertUser({ user_code: "202505050101", role: "student", name: "张三" });
     const storageId = adapter.getDefaultStorageBackend()!.id;
     // 当前档案（users 引用）
-    adapter.upsertSubmission("202505050101", "[1]", "/a.png", "/w.png", storageId);
+    adapter.upsertSubmission("202505050101", "[1]", "/a.png", "/w.png", null, storageId);
     // 历史快照（profile_submissions 引用，直接插入不覆盖 users）
     const studentId = adapter.getStudentByCode("202505050101")!.id;
     adapter.insertProfileSubmission(studentId, 1, {
-      tags: "[2]", avatar_url: "/h-a.png", evaluation_url: "/h-w.png", storage_id: storageId,
+      tags: "[2]", avatar_url: "/h-a.png", evaluation_url: "/h-w.png", evaluation_text: null, storage_id: storageId,
       submitted_at: "2026-08-01 10:00:00", is_current: 0,
     });
 
@@ -205,7 +240,7 @@ describe("profile_submissions CRUD（#95）", () => {
     const classId = adapter.insertClass("一班", "AAAA1111");
     const studentId = adapter.insertUser({ user_code: "202505050101", role: "student", name: "张三", class_id: classId });
     adapter.insertProfileSubmission(studentId, 1, {
-      tags: "[1]", avatar_url: "/old-a.png", evaluation_url: "/old-w.png", storage_id: 2,
+      tags: "[1]", avatar_url: "/old-a.png", evaluation_url: "/old-w.png", evaluation_text: null, storage_id: 2,
       submitted_at: "2026-08-01 10:00:00", is_current: 1,
     });
 
@@ -229,9 +264,9 @@ describe("profile_submissions CRUD（#95）", () => {
     adapter.insertUser({ user_code: "202505050101", role: "student", name: "张三" });
     adapter.insertUser({ user_code: "202505050102", role: "student", name: "李四" });
     const storageId = adapter.getDefaultStorageBackend()!.id;
-    adapter.submitProfileWithVersion("202505050101", "[1]", "/a1.png", "/w1.png", storageId);
-    adapter.submitProfileWithVersion("202505050101", "[2]", "/a2.png", "/w2.png", storageId);
-    adapter.submitProfileWithVersion("202505050102", "[1]", "/b1.png", "/x1.png", storageId);
+    adapter.submitProfileWithVersion("202505050101", "[1]", "/a1.png", "/w1.png", null, storageId);
+    adapter.submitProfileWithVersion("202505050101", "[2]", "/a2.png", "/w2.png", null, storageId);
+    adapter.submitProfileWithVersion("202505050102", "[1]", "/b1.png", "/x1.png", null, storageId);
 
     const deleted = adapter.clearSubmissions(["202505050101"]);
     expect(deleted).toBe(1);
@@ -255,9 +290,9 @@ describe("submitProfileWithVersion（#95）", () => {
     adapter.insertUser({ user_code: "202505050101", role: "student", name: "张三" });
     const storageId = adapter.getDefaultStorageBackend()!.id;
 
-    const first = adapter.submitProfileWithVersion("202505050101", "[1]", "/a1.png", "/w1.png", storageId);
+    const first = adapter.submitProfileWithVersion("202505050101", "[1]", "/a1.png", "/w1.png", null, storageId);
     expect(first.version).toBe(1);
-    const second = adapter.submitProfileWithVersion("202505050101", "[2]", "/a2.png", "/w2.png", storageId);
+    const second = adapter.submitProfileWithVersion("202505050101", "[2]", "/a2.png", "/w2.png", null, storageId);
     expect(second.version).toBe(2);
 
     // users 保留最新
@@ -284,9 +319,9 @@ describe("submitProfileWithVersion（#95）", () => {
     adapter.setProfileConfig(MAX_PROFILE_SUBMISSIONS_KEY, "2");
     const storageId = adapter.getDefaultStorageBackend()!.id;
 
-    adapter.submitProfileWithVersion("202505050101", "[1]", "/a1.png", "/w1.png", storageId);
-    adapter.submitProfileWithVersion("202505050101", "[2]", "/a2.png", "/w2.png", storageId);
-    const third = adapter.submitProfileWithVersion("202505050101", "[3]", "/a3.png", "/w3.png", storageId);
+    adapter.submitProfileWithVersion("202505050101", "[1]", "/a1.png", "/w1.png", null, storageId);
+    adapter.submitProfileWithVersion("202505050101", "[2]", "/a2.png", "/w2.png", null, storageId);
+    const third = adapter.submitProfileWithVersion("202505050101", "[3]", "/a3.png", "/w3.png", null, storageId);
     expect(third.version).toBe(3);
 
     const student = adapter.getStudentByCode("202505050101")!;
@@ -306,7 +341,7 @@ describe("submitProfileWithVersion（#95）", () => {
     const adapter = new SqliteAdapter(dbPath);
     adapter.init();
     expect(() =>
-      adapter.submitProfileWithVersion("999999999999", "[]", "/a.png", "/w.png", 1)
+      adapter.submitProfileWithVersion("999999999999", "[]", "/a.png", "/w.png", null, 1)
     ).toThrow(/学生不存在/);
     // 无副作用
     expect(adapter.getProfileSubmissions(1)).toHaveLength(0);
@@ -317,23 +352,23 @@ describe("submitProfileWithVersion（#95）", () => {
 });
 
 describe("备份恢复集成（#95）", () => {
-  it("backup 导出版本记录，restore 后完整还原；旧备份无此字段时保留当前记录", () => {
+  it("backup 导出版本记录，restore 后完整还原；旧备份无此字段时清空", () => {
     const dbPath = makeTmpDb();
     const adapter = new SqliteAdapter(dbPath);
     adapter.init();
     const studentId = adapter.insertUser({ user_code: "202505050101", role: "student", name: "张三" });
     const storageId = adapter.getDefaultStorageBackend()!.id;
-    adapter.submitProfileWithVersion("202505050101", "[1]", "/a1.png", "/w1.png", storageId);
-    adapter.submitProfileWithVersion("202505050101", "[2]", "/a2.png", "/w2.png", storageId);
+    adapter.submitProfileWithVersion("202505050101", "[1]", "/a1.png", "/w1.png", null, storageId);
+    adapter.submitProfileWithVersion("202505050101", "[2]", "/a2.png", "/w2.png", null, storageId);
 
     const data = adapter.backup();
-    expect(data.version).toBe(4);
+    expect(data.version).toBe(9); // #162 起含评价文字列
     expect(data.profile_submissions).toHaveLength(2);
     expect(data.profile_submissions![0]).toMatchObject({ user_id: studentId, version: 1, is_current: 0 });
     expect(data.profile_submissions![1]).toMatchObject({ user_id: studentId, version: 2, is_current: 1 });
 
     // 恢复后版本记录完整还原（替换而非累加）
-    adapter.submitProfileWithVersion("202505050101", "[3]", "/a3.png", "/w3.png", storageId);
+    adapter.submitProfileWithVersion("202505050101", "[3]", "/a3.png", "/w3.png", null, storageId);
     expect(adapter.getProfileSubmissions(studentId)).toHaveLength(3);
     adapter.restore(data);
     const restored = adapter.getProfileSubmissions(studentId);
@@ -341,10 +376,83 @@ describe("备份恢复集成（#95）", () => {
     expect(restored.map((r) => r.version)).toEqual([2, 1]);
     expect(restored.find((r) => r.version === 2)?.is_current).toBe(1);
 
-    // 旧备份（无 profile_submissions 字段）→ 保留当前记录不动（兼容）
-    const legacy = { ...data, profile_submissions: undefined };
+    // 旧备份（无 profile_submissions 字段）→ 清空，不是保留不动
+    // users 是整表替换且按备份原 id 重插，保留旧快照就是留下可能属于别人的历史版本（#211）
+    const legacy = { ...data } as BackupData;
+    delete legacy.profile_submissions;
     adapter.restore(legacy);
-    expect(adapter.getProfileSubmissions(studentId)).toHaveLength(2);
+    expect(adapter.getProfileSubmissions(studentId)).toHaveLength(0);
+
+    adapter.close();
+    cleanup(dbPath);
+  });
+
+  it("旧备份 + 名单变化：同 id 换人不会把甲的历史交给丙，被删的人也不留幽灵行（#211）", () => {
+    const dbPath = makeTmpDb();
+    const adapter = new SqliteAdapter(dbPath);
+    adapter.init();
+    const classId = adapter.insertClass("一班", "AAAA1111");
+    const jiaId = adapter.insertUser({ user_code: "202505050101", role: "student", name: "甲", class_id: classId });
+    const yiId = adapter.insertUser({ user_code: "202505050102", role: "student", name: "乙", class_id: classId });
+    const storageId = adapter.getDefaultStorageBackend()!.id;
+    adapter.submitProfileWithVersion("202505050101", '["编程"]', "/jia-a.png", "/jia-w.png", null, storageId);
+    adapter.submitProfileWithVersion("202505050102", '["足球"]', "/yi-a.png", "/yi-w.png", null, storageId);
+
+    const dump = adapter.backup();
+    // 模拟 #95 之前生成的旧档：缺 profile_submissions 字段，且名单已变——甲的位置换成未提交的丙、乙已退班
+    const legacy = {
+      ...dump,
+      users: dump.users
+        .filter((u) => u.id !== yiId)
+        .map((u) =>
+          u.id === jiaId
+            ? { ...u, name: "丙", user_code: "202505050199", tags: null, avatar_url: null, evaluation_url: null, submitted_at: null }
+            : u
+        ),
+    } as BackupData;
+    delete legacy.profile_submissions;
+    adapter.restore(legacy);
+
+    const bing = adapter.getStudentByCode("202505050199")!;
+    expect(bing.id).toBe(jiaId); // 同 id 换人，正是错配的触发条件
+    // 断言一：丙读不到任何历史版本（等价于经 GET /api/shared/profile/submissions 拿到空数组）
+    expect(adapter.getProfileSubmissions(bing.id)).toHaveLength(0);
+
+    // 断言二：全表不存在 user_id 落在恢复后名单之外的幽灵快照（乙的行若残留即命中）
+    const db = (adapter as unknown as { db: Database.Database }).db;
+    const rows = db.prepare("SELECT id, user_id FROM profile_submissions").all() as { id: number; user_id: number }[];
+    const alive = new Set(legacy.users.map((u) => u.id));
+    expect(rows.filter((r) => !alive.has(r.user_id))).toEqual([]);
+    expect(rows).toHaveLength(0);
+
+    adapter.close();
+    cleanup(dbPath);
+  });
+
+  it("清空后下次启动的迁移按恢复后的 users 补 version=1，归属是丙而不是甲（#211 副作用）", () => {
+    const dbPath = makeTmpDb();
+    const adapter = new SqliteAdapter(dbPath);
+    adapter.init();
+    const jiaId = adapter.insertUser({ user_code: "202505050101", role: "student", name: "甲" });
+    const storageId = adapter.getDefaultStorageBackend()!.id;
+    adapter.submitProfileWithVersion("202505050101", '["编程"]', "/jia-a.png", "/jia-w.png", null, storageId);
+
+    const dump = adapter.backup();
+    // 同 id 换人，且丙自己是一条已提交档案（迁移只会按 users 补，不会搬运甲的快照）
+    const legacy = {
+      ...dump,
+      users: dump.users.map((u) =>
+        u.id === jiaId ? { ...u, name: "丙", user_code: "202505050199", tags: '["篮球"]', avatar_url: "/bing-a.png" } : u
+      ),
+    } as BackupData;
+    delete legacy.profile_submissions;
+    adapter.restore(legacy);
+    expect(adapter.getProfileSubmissions(jiaId)).toHaveLength(0);
+
+    adapter.init(); // 模拟下一次冷启动
+    const rows = adapter.getProfileSubmissions(jiaId);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ version: 1, is_current: 1, tags: '["篮球"]', avatar_url: "/bing-a.png" });
 
     adapter.close();
     cleanup(dbPath);
@@ -358,10 +466,10 @@ describe("getStudentsExceedingSubmissionLimit（#95）", () => {
     adapter.init();
     const aId = adapter.insertUser({ user_code: "202505050101", role: "student", name: "张三" });
     const bId = adapter.insertUser({ user_code: "202505050102", role: "student", name: "李四" });
-    adapter.insertProfileSubmission(aId, 1, { tags: null, avatar_url: null, evaluation_url: null, storage_id: 1, submitted_at: "2026-08-01 10:00:00", is_current: 1 });
-    adapter.insertProfileSubmission(aId, 2, { tags: null, avatar_url: null, evaluation_url: null, storage_id: 1, submitted_at: "2026-08-02 10:00:00", is_current: 0 });
-    adapter.insertProfileSubmission(aId, 3, { tags: null, avatar_url: null, evaluation_url: null, storage_id: 1, submitted_at: "2026-08-03 10:00:00", is_current: 0 });
-    adapter.insertProfileSubmission(bId, 1, { tags: null, avatar_url: null, evaluation_url: null, storage_id: 1, submitted_at: "2026-08-01 10:00:00", is_current: 1 });
+    adapter.insertProfileSubmission(aId, 1, { tags: null, avatar_url: null, evaluation_url: null, evaluation_text: null, storage_id: 1, submitted_at: "2026-08-01 10:00:00", is_current: 1 });
+    adapter.insertProfileSubmission(aId, 2, { tags: null, avatar_url: null, evaluation_url: null, evaluation_text: null, storage_id: 1, submitted_at: "2026-08-02 10:00:00", is_current: 0 });
+    adapter.insertProfileSubmission(aId, 3, { tags: null, avatar_url: null, evaluation_url: null, evaluation_text: null, storage_id: 1, submitted_at: "2026-08-03 10:00:00", is_current: 0 });
+    adapter.insertProfileSubmission(bId, 1, { tags: null, avatar_url: null, evaluation_url: null, evaluation_text: null, storage_id: 1, submitted_at: "2026-08-01 10:00:00", is_current: 1 });
 
     const exceeding = adapter.getStudentsExceedingSubmissionLimit(2);
     expect(exceeding).toHaveLength(1);

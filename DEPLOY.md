@@ -99,7 +99,7 @@ JWT_SECRET=一个随机字符串作为JWT签名密钥
 # 可选：Google Fonts 镜像前缀（官方域名访问不畅的环境配置，构建前生效）
 #FONT_CDN_PREFIX=https://fonts.loli.net
 # 必需：站点公网地址（班级邀请海报二维码的链接基址，#102）。填你的域名，不带子路径
-NEXT_PUBLIC_APP_URL=https://your-domain.com
+APP_PUBLIC_URL=https://your-domain.com
 EOF
 
 # 构建生产版本
@@ -108,7 +108,9 @@ npm run build
 
 构建成功后会生成 `.next/` 目录。管理员密码无需在此步配置，将在首次安装引导中设置（见「八、首次安装引导」）。
 
-`NEXT_PUBLIC_APP_URL` 由应用在请求时读取，事后补改只需 `pm2 restart career-app`，**无需重新 `npm run build`**。取值规则见 `docs/standards.md` §11。
+`APP_PUBLIC_URL` 不带 `NEXT_PUBLIC_` 前缀，不会被 Next.js 构建时内联，在请求时读取。事后补改只需 `pm2 restart career-app`，**无需重新 `npm run build`**。取值规则见 `docs/standards.md` §11。
+
+> **从旧版本升级**：旧变量名 `NEXT_PUBLIC_APP_URL` 自 #196 起**不再被读取**（它在构建期被内联，改配置后重启不生效）。请把 `.env.local` 中的该行改名为 `APP_PUBLIC_URL` 再重启，否则海报接口会持续返回 503（提示「海报基址未配置」）。
 
 ### 可选：对象存储凭据（S3 兼容，#111）
 
@@ -199,8 +201,10 @@ server {
     listen 80;
     server_name your-domain.com www.your-domain.com;
 
-    # 上传文件大小限制
-    client_max_body_size 10M;
+    # 上传文件大小限制：必须 ≥ 应用「上传大小上限」可配最大值（管理面板设置，1-20MB）
+    # 再加 multipart 信封开销。应用侧把上限改到 20MB 时，这里须同步调大，否则
+    # 边界请求会被 Nginx 直接拒绝（返回 413 HTML，应用侧收不到也记不到审计）。
+    client_max_body_size 24M;
 
     location / {
         proxy_pass http://127.0.0.1:3000;
@@ -282,6 +286,42 @@ Let's Encrypt 证书有效期 90 天，Certbot 会自动通过 cron 续期。
 
 > **修改/忘记密码**：管理面板改密功能上线前，需直接更新数据库 `users` 表的 `password_hash`（见「常见问题」章节的「忘记管理员密码」）。
 
+### 4. 演示环境（可选）
+
+演示环境让授权访客在**独立演示库**上体验 admin / teacher / student 三种身份，生产库与生产上传目录不受影响。默认关闭。
+
+**启用**
+
+在服务端环境变量（`.env` 或 PM2 环境）中设置并重启进程：
+
+```bash
+DEMO_ENABLED=true
+# 可选，默认 ./data/career-demo.db
+DEMO_DB_PATH=./data/career-demo.db
+```
+
+- `DEMO_ENABLED` 必须精确为 `true`，运行时读取，修改后需重启。
+- 演示库始终是独立 SQLite 文件，与生产使用 MySQL 还是 SQLite 无关；**绝不要把 `DEMO_DB_PATH` 指向生产库文件**。
+- 演示上传文件固定写入 `UPLOADS_DIR` 下的 `demo/` 子目录（默认 `uploads/demo`），与生产文件隔离。
+
+**初始化、发放与管理**
+
+1. 用生产管理员（`10001`）登录 → 管理后台 → 系统设置 → **演示环境**。
+2. 点「生成演示数据」：创建演示库、随机生成演示班级/学生/提交/测评/分组/占位图，并清空旧的 `uploads/demo`。已初始化时该按钮为「重置演示数据」。
+3. 发放访客账户：可留空密码由服务端生成，或点「自动生成」后再创建。一个账户包含管理员 / 教师 / 学生三个编号，共用一个姓名与密码；**密码只在创建或重置时显示一次**，请立即复制交付。
+4. 账户列表支持禁用、启用、重置密码与删除。启用与重置密码都会生成新密码并返回一次；删除会级联清理该账户的档案版本、分组成员、测评结果与演示上传文件。
+5. 关闭演示环境：移除 `DEMO_ENABLED`（或设为非 `true`）并重启。端点随即返回 404，演示作用域内的数据库访问 fail-safe 抛错，不会回落到生产库。
+
+**访客登录**
+
+把 `https://your-domain.com/login?demo=1` 与三身份任一编号、共用密码一起交付给访客；登录后顶部横幅可切换管理员 / 教师 / 学生。普通 `/login` 始终走生产登录，不接受演示库凭据；同一浏览器已有登录会话时需先退出或使用无痕窗口（`auth_token` 单会话）。
+
+**注意事项**
+
+- **全量重置会删除演示库、清空 `uploads/demo`，并清除全部访客账户与密码**，重置后需要重新发放账户；正在使用演示环境的会话会失去对应数据。操作不可撤销。
+- 演示环境的全部管理操作仅生产管理员可用，重置/账户变更均写入生产审计；demo-admin 在演示库内无法访问演示环境管理、数据源设置、存储/媒体/备份等全站级功能。
+- 当前按单实例设计：演示库为进程内单文件，不要多实例共享或并发重置。
+
 ## 九、防火墙配置
 
 ```bash
@@ -321,7 +361,7 @@ curl http://localhost:3000/api/setup/status
 sudo netstat -tlnp | grep -E ':(80|443|3000)'
 ```
 
-再在管理面板「班级管理 → 邀请海报」生成一张海报，确认弹窗「当前生效链接」的域名与 `NEXT_PUBLIC_APP_URL` 一致；弹窗报错见 §十二「邀请海报二维码扫不开 / 指向 localhost」。
+再在管理面板「班级管理 → 邀请海报」生成一张海报，确认弹窗「当前生效链接」的域名与 `APP_PUBLIC_URL` 一致；弹窗报错见 §十二「邀请海报二维码扫不开 / 指向 localhost」。
 
 ## 十二、常见问题
 
@@ -337,7 +377,13 @@ sudo netstat -tlnp | grep 3000
 
 ### 上传文件 413 错误
 
-在 Nginx 配置中调大 `client_max_body_size`，默认 1M。
+`413 Request Entity Too Large` 由 Nginx 直接返回，**应用侧不会收到请求、也不会留下审计记录**，因此管理端审计页查不到，只能从这里排查：
+
+1. Nginx 返回的响应体是 **HTML 页面而不是 JSON**（学生端会把它翻译成「图片过大，服务器拒绝接收，请压缩后重试」）。
+2. `client_max_body_size` 的 **http 级默认值只有 1M**，只在 `server` 或 `location` 里覆盖才生效；本项目的示例值见 §六「创建站点配置」（当前 24M）。
+3. 上传链路上**每一跳都要放同样的值**：Nginx 之外还有 CDN / 云负载均衡 / 网关时，任一层偏小都会在到达应用前截断。
+4. 改完用 `sudo nginx -t && sudo systemctl reload nginx` 生效。
+5. 应用侧会自行拒绝超过「上传大小上限」的请求（返回 JSON 文案，并写入审计）。排查「到底是哪一层拒绝的」时，管理面板「审计日志」按动作 `upload:rejected` / `upload:failed` 筛选：这里有记录＝应用侧拒绝（含 `sizeBytes` / `mime` / `limitMb` 线索），没有记录但学生仍失败＝上游代理拒绝（回到第 1-4 步）。
 
 ### MySQL 连接失败
 
@@ -375,7 +421,7 @@ mysql -u root -p career_app -e "UPDATE users SET password_hash='新的hash值' W
 
 **根因**：二维码的域名不能从请求推导。Next.js 未开启 `experimental.trustHostHeader` 时，`request.url` 的主机名取的是进程绑定地址而非 `Host` 头，`next start` 不带 `-H` 时恒为 `localhost`，反向代理转发的真实域名被忽略（机制详见 `docs/standards.md` §11）。自 #148 起生产环境不再静默生成错误域名的海报，而是返回 503 并在弹窗显示具体原因。
 
-**处理**：在 `.env.local` 配置站点公网地址后重启（无需重新构建）：
+**处理**：在 `.env.local` 配置 `APP_PUBLIC_URL` 后重启（该变量不带 `NEXT_PUBLIC_` 前缀，不会被构建时内联，无需重新构建）。从旧版本升级的部署请先确认变量名已改名 —— 旧名 `NEXT_PUBLIC_APP_URL` 不再被读取：
 
 ```bash
 cd /var/www/career-app

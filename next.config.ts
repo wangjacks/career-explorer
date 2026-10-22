@@ -6,6 +6,21 @@ const nextConfig: NextConfig = {
     ? process.env.ALLOWED_ORIGINS.split(",")
     : [],
   async headers() {
+    // 带 hash 的静态资源恢复长期缓存（置于其后以覆盖上面的通用规则）。
+    // 仅 production 生效：Next 本体默认同样是 immutable，但上面的 catch-all 会把它盖成 no-cache，
+    // 所以生产需要这条；而 dev 下 Turbopack 的 chunk 名不带内容哈希，打 immutable 会让浏览器
+    // 一直沿用旧 chunk —— 改了客户端代码、重启 dev 也看不到，且 Next 只会打印
+    // "Custom Cache-Control headers detected for /_next/static/:path*" 警告（2026-09-29 实际踩到）。
+    const staticAssetRule = {
+      source: "/_next/static/:path*",
+      headers: [
+        {
+          key: "Cache-Control",
+          value: "public, max-age=31536000, immutable",
+        },
+      ],
+    };
+
     return [
       {
         // 所有 HTML 页面禁止缓存：确保部署更新后浏览器/代理立即拿到新内容
@@ -18,17 +33,13 @@ const nextConfig: NextConfig = {
           },
         ],
       },
-      {
-        // 带 hash 的静态资源恢复长期缓存（置于其后以覆盖上面的通用规则）
-        source: "/_next/static/:path*",
-        headers: [
-          {
-            key: "Cache-Control",
-            value: "public, max-age=31536000, immutable",
-          },
-        ],
-      },
+      ...(process.env.NODE_ENV === "production" ? [staticAssetRule] : []),
     ];
+  },
+  async redirects() {
+    // 老链接兜底（#318）：/form 占位页已删除，存过书签或从旧文档点进来的访客落回首页；
+    // 首页 CTA 已按登录态判定（#317），落地即可继续。`permanent` 在 Next 中产出 308。
+    return [{ source: "/form", destination: "/", permanent: true }];
   },
 };
 

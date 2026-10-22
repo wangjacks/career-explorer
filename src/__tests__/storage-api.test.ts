@@ -26,6 +26,7 @@ vi.mock("@/lib/db", () => ({
   getAllSubmitted: vi.fn(),
   getProfileSubmissionOwnerByFileUrl: vi.fn(),
   getTeacherClassPairs: vi.fn(),
+  areStudentsInSameCurrentGroup: vi.fn(),
   getProfileConfigs: vi.fn(),
   setProfileConfig: vi.fn(),
   getMaxCustomTags: vi.fn(),
@@ -64,6 +65,7 @@ import {
   getAllSubmitted,
   getProfileSubmissionOwnerByFileUrl,
   getTeacherClassPairs,
+  areStudentsInSameCurrentGroup,
   setProfileConfig,
   getMaxCustomTags,
   getMaxAvatarSizeMb,
@@ -127,6 +129,8 @@ async function tokens() {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  // 默认「非同组」——放行分支由 grouping-student-api.test.ts 覆盖，这里只验既有边界不变
+  vi.mocked(areStudentsInSameCurrentGroup).mockResolvedValue(false);
   // 审计模块经 insertAuditLog 落库，mock 后不会触碰真实库
   fakeStorage = {
     upload: vi.fn().mockResolvedValue(undefined),
@@ -433,6 +437,7 @@ describe("本地 → 云迁移端点", () => {
         tags: "[]",
         avatar_url: "/api/uploads/avatar_a.jpg?t=1",
         evaluation_url: "",
+        evaluation_text: null,
         submitted_at: "",
         created_at: "",
         storage_id: 1,
@@ -464,6 +469,7 @@ describe("本地 → 云迁移端点", () => {
         tags: "[]",
         avatar_url: "/api/uploads/avatar_a.jpg",
         evaluation_url: null,
+        evaluation_text: null,
         submitted_at: "",
         created_at: "",
         storage_id: 1,
@@ -495,6 +501,7 @@ describe("本地 → 云迁移端点", () => {
         tags: "[]",
         avatar_url: "/api/uploads/avatar_a.jpg",
         evaluation_url: null,
+        evaluation_text: null,
         submitted_at: "",
         created_at: "",
         storage_id: 1,

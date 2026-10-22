@@ -2,10 +2,26 @@
  * 本地文件存储实现（#111）：复用现有 `uploads/` 目录。
  * - 私有读写在本地模式下的等价物：应用代理路径 `/api/uploads/{key}`（免签名，行为与现版本完全一致）
  * - 保留路径穿越防护（与 `GET /api/uploads/[...path]` 同策略）
+ * - 演示沙箱（#253 S1）：演示作用域下基目录切到 `uploads/demo/`，与生产上传物理隔离
  */
 import { mkdir, readFile, readdir, stat, unlink, writeFile } from "fs/promises";
 import path from "path";
 import { validateObjectKey, type StorageAdapter, type StoredObject } from "./storage";
+import { isDemoScope } from "./demo-scope";
+
+/**
+ * 本地存储落盘基目录：演示作用域（AsyncLocalStorage）解析为 `<uploads>/demo/`，其余为 `<uploads>/`。
+ * 对象 key 仍是扁平单段（`validateObjectKey` 拒 `/`），`demo/` 前缀只能来自这里；serve 路由共用此函数。
+ * 根目录默认 `uploads/`，可用 `UPLOADS_DIR` 覆盖（默认不变；主要供集成测试按临时目录隔离，避免并发用例互清 uploads/demo）。
+ * 动态路径解析需运行时求值（防穿越 + 作用域切换），豁免 Turbopack 静态追踪。
+ */
+export function getUploadsBaseDir(): string {
+  const root = process.env.UPLOADS_DIR || "uploads";
+  return path.resolve(
+    /*turbopackIgnore: true*/ process.cwd(),
+    isDemoScope() ? path.join(root, "demo") : root
+  );
+}
 
 export class LocalStorageAdapter implements StorageAdapter {
   readonly type = "local" as const;
@@ -13,8 +29,7 @@ export class LocalStorageAdapter implements StorageAdapter {
   /** 解析并校验对象落盘路径（防路径穿越） */
   private resolveSafe(key: string): string {
     validateObjectKey(key);
-    // 动态路径校验需运行时解析（防穿越），豁免 Turbopack 静态追踪
-    const uploadsDir = path.resolve(/*turbopackIgnore: true*/ process.cwd(), "uploads");
+    const uploadsDir = getUploadsBaseDir();
     const filepath = path.resolve(uploadsDir, key);
     if (!filepath.startsWith(uploadsDir + path.sep)) {
       throw new Error("禁止访问");
@@ -53,7 +68,7 @@ export class LocalStorageAdapter implements StorageAdapter {
 
   /** 全量枚举（#117）：扁平目录扫描；跳过点文件（.gitkeep/.DS_Store 保护）与子目录 */
   async listObjects(): Promise<StoredObject[]> {
-    const uploadsDir = path.resolve(/*turbopackIgnore: true*/ process.cwd(), "uploads");
+    const uploadsDir = getUploadsBaseDir();
     let entries: string[];
     try {
       entries = await readdir(uploadsDir);

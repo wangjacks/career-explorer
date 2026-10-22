@@ -1,51 +1,27 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
-import { ClipboardList, Tag, Flame } from "lucide-react";
-import { StatCard } from "./AdminUI";
-import ClassOverviewTable from "./ClassOverviewTable";
-import type { Stats, Student } from "@/hooks/useAdminAuth";
+import { useEffect, useState } from "react";
+import { ArrowUpRight } from "lucide-react";
+import type { PanelSidebarGroup } from "@/components/dashboard/PanelSidebar";
+import { buildQuickNavGroups, getTimeGreeting } from "@/lib/dashboard-utils";
 
 interface Props {
   teacherName: string;
-  students: Student[];
+  /** 与侧边栏**同一份**导航数据（分组 / 图标 / 徽标 / 一句话说明都来自这里，新增栏目只改 page.tsx 一处） */
+  groups: PanelSidebarGroup[];
+  /** 点击快捷入口跳到对应 Tab 路由（#361；由页面按 key 解析成 `/dashboard/teacher/<tab>`） */
+  onNavigate: (key: string) => void;
 }
 
-/** 按时段返回问候语 */
-function getGreeting(hour: number): string {
-  if (hour < 5) return "夜深了";
-  if (hour < 11) return "早上好";
-  if (hour < 13) return "中午好";
-  if (hour < 18) return "下午好";
-  return "晚上好";
-}
+/** 侧边栏里「主页」指向本页，不再作为快捷入口重复出现 */
+const HOME_KEY = "home";
 
-/** 教师面板主页：时段问候 + 数据概览摘要（统计卡 + 班级概览） */
-export default function TeacherHomeTab({ teacherName, students }: Props) {
-  const [stats, setStats] = useState<Stats | null>(null);
-  const [loadError, setLoadError] = useState(false);
+/**
+ * 教师面板主页：只负责**问候与分流**。
+ * 统计数字与班级概览一律归「数据概览」，主页不再重复渲染（#228）。
+ */
+export default function TeacherHomeTab({ teacherName, groups, onNavigate }: Props) {
   const [now, setNow] = useState(() => new Date());
-
-  const loadStats = useCallback(async () => {
-    setLoadError(false);
-    try {
-      const res = await fetch("/api/manage/stats");
-      if (!res.ok) {
-        setLoadError(true);
-        return;
-      }
-      setStats(await res.json());
-    } catch (err) {
-      console.error("Failed to load stats:", err);
-      setLoadError(true);
-    }
-  }, []);
-
-  /* eslint-disable react-hooks/set-state-in-effect -- data fetch on mount */
-  useEffect(() => {
-    loadStats();
-  }, [loadStats]);
-  /* eslint-enable react-hooks/set-state-in-effect */
 
   // 跨时段停留时问候语跟随本地时间更新
   useEffect(() => {
@@ -53,75 +29,80 @@ export default function TeacherHomeTab({ teacherName, students }: Props) {
     return () => clearInterval(timer);
   }, []);
 
+  const quickGroups = buildQuickNavGroups(groups, HOME_KEY);
+  const today = now.toLocaleDateString("zh-CN", {
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+    weekday: "long",
+  });
+
   return (
     <>
-      {/* 问候卡 */}
-      <div className="bg-card rounded-xl border border-border-soft p-6">
-        <h2 className="text-xl font-semibold text-foreground">
-          {getGreeting(now.getHours())}，{teacherName}老师
+      {/* Hero：问候 + 日期 + 一句引导 */}
+      <section className="bg-brand-deep rounded-2xl p-5 sm:p-6 shadow-sm">
+        <h2 className="text-xl sm:text-2xl font-semibold text-white">
+          {getTimeGreeting(now.getHours())}，{teacherName}老师
         </h2>
-        <p className="text-sm text-muted mt-1">
-          {now.toLocaleDateString("zh-CN", { year: "numeric", month: "long", day: "numeric", weekday: "long" })}
-          ，欢迎回来看看学生们的探索进展。
-        </p>
-      </div>
+        <p className="mt-2 text-sm text-white">{today}</p>
+        <p className="mt-3 text-sm text-white">从下面挑一个入口开始；想看整体数据，去「数据概览」。</p>
+      </section>
 
-      {/* 统计卡 */}
-      {stats ? (
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-          <StatCard
-            label="总提交数"
-            value={stats.total}
-            color="emerald"
-            sub={`今日 +${stats.today}`}
-            icon={
-              <ClipboardList className="w-5 h-5" strokeWidth={1.5} />
-            }
-          />
-          <StatCard
-            label="标签种类"
-            value={stats.uniqueTags}
-            color="blue"
-            icon={
-              <Tag className="w-5 h-5" strokeWidth={1.5} />
-            }
-          />
-          <div className="bg-card rounded-xl border border-border-soft overflow-hidden hover:-translate-y-1 hover:shadow-lg transition-all duration-200 shadow-sm">
-            <div className="h-1 bg-gradient-to-r from-amber-500 to-amber-400" />
-            <div className="p-5">
-              <div className="flex items-center justify-between mb-3">
-                <p className="text-sm font-medium text-muted">热门标签</p>
-                <div className="w-10 h-10 rounded-xl bg-amber-100 dark:bg-amber-900/30 text-amber-600 dark:text-amber-400 flex items-center justify-center">
-                  <Flame className="w-5 h-5" strokeWidth={1.5} />
-                </div>
-              </div>
-              <div className="space-y-2">
-                {stats.topTags.slice(0, 5).map((t) => (
-                  <div key={t.tag} className="flex items-center justify-between text-sm">
-                    <span className="text-gray-700 dark:text-gray-200 truncate">{t.tag}</span>
-                    <span className="text-xs text-muted ml-2 flex-shrink-0">{t.count}</span>
-                  </div>
-                ))}
-              </div>
+      {/* 快捷入口：与侧边栏同源，按现有三个分组排成卡片网格 */}
+      <nav aria-label="快捷入口" className="space-y-6">
+        {quickGroups.map((group, index) => (
+          <section key={group.label ?? `group-${index}`} className="space-y-3">
+            {group.label && <h3 className="text-sm font-semibold text-muted">{group.label}</h3>}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+              {group.items.map((item) => {
+                const ItemIcon = item.icon;
+                return (
+                  <button
+                    key={item.key}
+                    type="button"
+                    onClick={() => onNavigate(item.key)}
+                    className="group relative overflow-hidden text-left bg-card rounded-xl border border-border-soft p-4 hover:-translate-y-1 hover:shadow-lg transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
+                  >
+                    {/* 琥珀只作悬停装饰条，不承载小字（与 PanelSidebar 既有约定一致） */}
+                    <span
+                      aria-hidden
+                      className="absolute inset-x-0 top-0 h-1 bg-accent opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100"
+                    />
+                    <span className="flex items-start gap-3">
+                      {ItemIcon && (
+                        <span className="w-10 h-10 rounded-lg bg-primary-soft text-primary-strong dark:bg-green-900/40 dark:text-green-300 flex items-center justify-center flex-shrink-0">
+                          <ItemIcon size={18} strokeWidth={1.8} />
+                        </span>
+                      )}
+                      <span className="min-w-0 flex-1">
+                        <span className="flex items-center gap-2">
+                          <span className="text-sm font-semibold text-foreground">{item.label}</span>
+                          {item.badge && (
+                            <span className="px-1.5 py-0.5 bg-primary-soft text-primary-strong dark:bg-green-900/40 dark:text-green-300 rounded text-[10px] flex-shrink-0">
+                              {item.badge}
+                            </span>
+                          )}
+                        </span>
+                        {item.description && (
+                          <span className="mt-1 block text-xs text-muted leading-relaxed">
+                            {item.description}
+                          </span>
+                        )}
+                      </span>
+                      <ArrowUpRight
+                        size={16}
+                        strokeWidth={1.8}
+                        aria-hidden
+                        className="mt-0.5 flex-shrink-0 text-muted opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100"
+                      />
+                    </span>
+                  </button>
+                );
+              })}
             </div>
-          </div>
-        </div>
-      ) : loadError ? (
-        <div className="text-center py-8 space-y-3">
-          <p className="text-sm text-red-500">统计数据加载失败</p>
-          <button
-            onClick={loadStats}
-            className="px-4 py-1.5 bg-gray-100 hover:bg-gray-200 dark:bg-gray-800 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-200 text-sm font-medium rounded-lg transition-colors"
-          >
-            重试
-          </button>
-        </div>
-      ) : (
-        <div className="text-center py-8 text-muted text-sm">统计数据加载中...</div>
-      )}
-
-      {/* 班级概览 */}
-      <ClassOverviewTable students={students} />
+          </section>
+        ))}
+      </nav>
     </>
   );
 }

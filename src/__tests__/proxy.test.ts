@@ -79,13 +79,12 @@ describe("proxy", () => {
   });
 
   describe("teacher role", () => {
-    it("should allow teacher all methods on classes/students/tags/export", async () => {
+    it("should allow teacher all methods on classes/students/export（写入归属由路由内判定，#171）", async () => {
       const token = await signToken({ role: "teacher", uid: 3, name: "测试教师" });
       const paths = [
         "/api/manage/classes",
         "/api/manage/students",
         "/api/manage/students/batch-password",
-        "/api/manage/tags",
         "/api/manage/export",
         "/api/manage/export-images",
       ];
@@ -97,9 +96,32 @@ describe("proxy", () => {
       }
     });
 
+    it("should allow teacher GET-only on tags and profile-config（全站生效配置写入归管理员，#171）", async () => {
+      const token = await signToken({ role: "teacher", uid: 3, name: "测试教师" });
+      for (const path of ["/api/manage/tags", "/api/manage/profile-config"]) {
+        const getRes = await proxy(createRequest(path, { auth_token: token }, "GET"));
+        expect(getRes.status).toBe(200);
+        for (const method of ["POST", "PATCH", "PUT", "DELETE"]) {
+          const res = await proxy(createRequest(path, { auth_token: token }, method));
+          expect(res.status).toBe(403);
+        }
+      }
+      // 子路由同样只读（前缀匹配覆盖 tags/batch 与 tags/restore）
+      for (const path of ["/api/manage/tags/batch", "/api/manage/tags/restore"]) {
+        const res = await proxy(createRequest(path, { auth_token: token }, "POST"));
+        expect(res.status).toBe(403);
+      }
+    });
+
     it("should allow teacher GET-only on stats (including sub routes)", async () => {
       const token = await signToken({ role: "teacher", uid: 3, name: "测试教师" });
-      for (const path of ["/api/manage/stats", "/api/manage/stats/trends", "/api/manage/stats/distribution", "/api/manage/stats/compare"]) {
+      for (const path of [
+        "/api/manage/stats",
+        "/api/manage/stats/trends",
+        "/api/manage/stats/distribution",
+        "/api/manage/stats/compare",
+        "/api/manage/stats/class-roster",
+      ]) {
         const getRes = await proxy(createRequest(path, { auth_token: token }, "GET"));
         expect(getRes.status).toBe(200);
         const postRes = await proxy(createRequest(path, { auth_token: token }, "POST"));
@@ -143,6 +165,86 @@ describe("proxy", () => {
         const res = await proxy(createRequest(path, { auth_token: token }, "GET"));
         expect(res.status).toBe(403);
       }
+    });
+  });
+
+  describe("demo admin role（#274）", () => {
+    const demoAdminToken = () => signToken({ role: "admin", uid: 1, name: "演示管理员", demo: true });
+
+    it("按 DEMO_ALLOWED 放行演示班读与教师级写", async () => {
+      const token = await demoAdminToken();
+      const allowed: [string, string][] = [
+        ["/api/manage/classes", "GET"],
+        ["/api/manage/classes/1/poster", "GET"],
+        ["/api/manage/students", "GET"],
+        ["/api/manage/tags", "GET"],
+        ["/api/manage/profile-config", "GET"],
+        ["/api/manage/profiles", "GET"],
+        ["/api/manage/profiles", "DELETE"],
+        ["/api/manage/profiles/submissions", "GET"],
+        ["/api/manage/groups", "POST"],
+        ["/api/manage/groups/batches", "GET"],
+        ["/api/manage/export", "GET"],
+        ["/api/manage/export-images", "GET"],
+        ["/api/manage/stats/assessment", "GET"],
+        ["/api/manage/assessment/roster", "GET"],
+        ["/api/manage/audit-logs", "GET"],
+      ];
+      for (const [path, method] of allowed) {
+        const res = await proxy(createRequest(path, { auth_token: token }, method));
+        expect(res.status, `${method} ${path}`).toBe(200);
+      }
+    });
+
+    it("拒绝全站级/管理级端点与写操作（含 test-db）", async () => {
+      const token = await demoAdminToken();
+      const denied: [string, string][] = [
+        ["/api/manage/test-db", "POST"],
+        ["/api/manage/settings", "GET"],
+        ["/api/manage/settings", "PUT"],
+        ["/api/manage/storage", "GET"],
+        ["/api/manage/storage/test", "POST"],
+        ["/api/manage/storage/migrate", "POST"],
+        ["/api/manage/backup", "GET"],
+        ["/api/manage/backup", "POST"],
+        ["/api/manage/media/status", "GET"],
+        ["/api/manage/media/orphans/cleanup", "POST"],
+        ["/api/manage/teachers", "GET"],
+        ["/api/manage/teachers", "POST"],
+        ["/api/manage/students", "POST"],
+        ["/api/manage/students", "PUT"],
+        ["/api/manage/students", "DELETE"],
+        ["/api/manage/students/batch-password", "POST"],
+        ["/api/manage/classes", "POST"],
+        ["/api/manage/tags", "POST"],
+        ["/api/manage/tags/batch", "POST"],
+        ["/api/manage/profile-config", "PUT"],
+        ["/api/manage/profiles/submissions/cleanup", "POST"],
+        ["/api/manage/demo/status", "GET"],
+        ["/api/manage/demo/reset", "POST"],
+      ];
+      for (const [path, method] of denied) {
+        const res = await proxy(createRequest(path, { auth_token: token }, method));
+        expect(res.status, `${method} ${path}`).toBe(403);
+      }
+    });
+
+    it("不影响生产 admin、demo-teacher 与 demo-student 的既有规则", async () => {
+      const prodAdmin = await signToken({ role: "admin", uid: 1, name: "管理员" });
+      for (const [path, method] of [
+        ["/api/manage/test-db", "POST"],
+        ["/api/manage/settings", "PUT"],
+        ["/api/manage/backup", "POST"],
+      ] as [string, string][]) {
+        expect((await proxy(createRequest(path, { auth_token: prodAdmin }, method))).status).toBe(200);
+      }
+
+      const demoTeacher = await signToken({ role: "teacher", uid: 3, name: "演示教师", demo: true });
+      expect((await proxy(createRequest("/api/manage/groups", { auth_token: demoTeacher }, "POST"))).status).toBe(200);
+      expect((await proxy(createRequest("/api/manage/settings", { auth_token: demoTeacher }, "GET"))).status).toBe(403);
+
+      const demoStudent = await signToken({ role: "student", uid: 2, name: "演示学生", demo: true });
+      expect((await proxy(createRequest("/api/manage/stats", { auth_token: demoStudent }, "GET"))).status).toBe(403);
     });
   });
 

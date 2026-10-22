@@ -1,10 +1,12 @@
 "use client";
 
-import { Suspense, useEffect, useState } from "react";
+import { Suspense, useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { useSession } from "@/hooks/useSession";
 import NavigationBar from "@/components/NavigationBar";
+import GeetestCaptcha, { type GeetestCaptchaHandle } from "@/components/GeetestCaptcha";
+import type { CaptchaTicket } from "@/lib/captcha";
 
 const inputClass =
   "w-full px-4 py-3 border border-gray-200 dark:border-gray-600 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-focus-ring focus:border-transparent";
@@ -28,6 +30,9 @@ function ActivateForm() {
   const [verifiedName, setVerifiedName] = useState<string | null>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  // 人机验证（#155）：仅第一步身份核验启用；票据一次性，核验失败后需重新验证
+  const [captchaResetSignal, setCaptchaResetSignal] = useState(0);
+  const captchaRef = useRef<GeetestCaptchaHandle>(null);
 
   const step = searchParams.get("step") === "2" && verifiedName ? 2 : 1;
 
@@ -65,7 +70,7 @@ function ActivateForm() {
   const confirmValid = password === confirmPassword;
   const step2Valid = passwordValid && confirmValid;
 
-  const handleVerify = async () => {
+  const handleVerify = async (ticket: CaptchaTicket | null) => {
     setError("");
     setLoading(true);
     try {
@@ -76,6 +81,7 @@ function ActivateForm() {
           userCode: userCode.trim(),
           name: name.trim(),
           inviteCode: inviteCode.trim(),
+          ...(ticket ? { captcha: ticket } : {}),
         }),
       });
       const data = await res.json();
@@ -85,8 +91,10 @@ function ActivateForm() {
         return;
       }
       setError(data.error || "核验失败");
+      setCaptchaResetSignal((n) => n + 1);
     } catch {
       setError("核验失败，请稍后重试");
+      setCaptchaResetSignal((n) => n + 1);
     } finally {
       setLoading(false);
     }
@@ -173,13 +181,15 @@ function ActivateForm() {
 
               {error && <p className="text-sm text-red-500">{error}</p>}
 
-              <button
-                onClick={handleVerify}
-                disabled={!step1Valid || loading}
-                className="w-full py-3 bg-primary hover:bg-primary-strong disabled:bg-gray-300 dark:disabled:bg-gray-600 text-white font-medium rounded-xl transition-colors"
-              >
-                {loading ? "核验中..." : "下一步"}
-              </button>
+              <GeetestCaptcha
+                ref={captchaRef}
+                label="下一步"
+                loadingLabel="核验中..."
+                disabled={!step1Valid}
+                loading={loading}
+                resetSignal={captchaResetSignal}
+                onVerified={handleVerify}
+              />
             </>
           ) : (
             <>

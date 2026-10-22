@@ -1,3 +1,4 @@
+import { withDemoScope } from "@/lib/demo-scope";
 import { NextRequest, NextResponse } from "next/server";
 import { queryAuditLogs } from "@/lib/db";
 import type { AuditLogFilters } from "@/lib/db";
@@ -10,7 +11,7 @@ import { getAuditActor, getRequestContext, recordAudit } from "@/lib/audit";
  * - teacher 强制 actor_id = 本人（忽略前端传来的操作者筛选，防越权）
  * - 查询本身记 `audit:query`（审计功能不得成为绕过权限的入口）
  */
-export async function GET(request: NextRequest) {
+async function GET_impl(request: NextRequest) {
   const { ip, user_agent } = getRequestContext(request);
 
   // 路由内再验签拿操作者身份（端点在 proxy matcher 内已过鉴权，此处为分流依据）
@@ -77,3 +78,5 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "查询失败" }, { status: 500 });
   }
 }
+
+export const GET = withDemoScope(GET_impl);

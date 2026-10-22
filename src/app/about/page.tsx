@@ -1,32 +1,32 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { Compass, Sparkles, Users, BarChart3 } from "lucide-react";
+import { BarChart3, ClipboardCheck, Compass, UserRound, Users } from "lucide-react";
 import NavigationBar from "@/components/NavigationBar";
 import SiteFooter from "@/components/SiteFooter";
+import {
+  ABOUT_CAPABILITIES,
+  ABOUT_CAPABILITY_LINE,
+  ABOUT_INTRO,
+  ABOUT_META_DESCRIPTION,
+  ABOUT_ROLES,
+  ABOUT_START,
+  ABOUT_STEPS,
+  ABOUT_TRUST,
+} from "@/lib/about-content";
+import { COPYRIGHT_NOTICE } from "@/lib/copyright";
 import pkg from "../../../package.json";
 
 export const metadata: Metadata = {
   title: "关于 · Career Explorer",
-  description: "关于 Career Explorer 学生职业探索工具",
+  description: ABOUT_META_DESCRIPTION,
 };
 
-const features = [
-  {
-    icon: Sparkles,
-    title: "学生探索",
-    desc: "选择兴趣、技能、性格标签，生成专属词云与虚拟形象，完成一份属于自己的职业探索档案。",
-  },
-  {
-    icon: Users,
-    title: "教师管理",
-    desc: "创建班级、管理学生账户、查看提交进展，一键导出班级数据。",
-  },
-  {
-    icon: BarChart3,
-    title: "数据统计",
-    desc: "提交进度、标签分布、班级概览一目了然，支持数据大屏与备份恢复。",
-  },
-];
+const CAPABILITY_ICONS = {
+  profile: UserRound,
+  assessment: ClipboardCheck,
+  grouping: Users,
+  data: BarChart3,
+} as const;
 
 export default function AboutPage() {
   return (
@@ -41,58 +41,118 @@ export default function AboutPage() {
             </div>
             <h1 className="text-2xl font-bold text-foreground">关于 Career Explorer</h1>
           </div>
-          <p className="text-gray-600 dark:text-gray-300 leading-relaxed">
-            Career Explorer 是一款面向学生的职业探索工具。学生通过选择兴趣、技能与性格标签，
-            生成个性化的职业探索档案；教师与管理员在后台管理班级、查看统计并导出数据，
-            帮助每一位学生迈出认识自我、探索职业方向的第一步。
-          </p>
+          <p className="text-gray-600 dark:text-gray-300 leading-relaxed">{ABOUT_INTRO.lead}</p>
+          <p className="text-sm text-muted leading-relaxed">{ABOUT_INTRO.description}</p>
         </section>
 
-        {/* 功能一览 */}
+        {/* 主要功能 */}
         <section className="space-y-4">
           <h2 className="text-lg font-semibold text-foreground">主要功能</h2>
+          <div className="grid gap-4 sm:grid-cols-2">
+            {ABOUT_CAPABILITIES.map((capability) => {
+              const Icon = CAPABILITY_ICONS[capability.key];
+              return (
+                <div
+                  key={capability.key}
+                  className="bg-card rounded-xl border border-border-soft p-5 space-y-2 shadow-sm"
+                >
+                  <Icon size={20} className="text-primary dark:text-green-400" />
+                  <h3 className="font-medium text-foreground">{capability.title}</h3>
+                  <p className="text-sm text-muted leading-relaxed">{capability.desc}</p>
+                </div>
+              );
+            })}
+          </div>
+        </section>
+
+        {/* 三个角色 */}
+        <section className="space-y-4">
+          <h2 className="text-lg font-semibold text-foreground">三个角色，各得其所</h2>
           <div className="grid gap-4 sm:grid-cols-3">
-            {features.map((f) => (
+            {ABOUT_ROLES.map((role) => (
               <div
-                key={f.title}
-                className="bg-card rounded-xl border border-border-soft p-5 space-y-2 shadow-sm"
+                key={role.role}
+                className="flex h-full flex-col gap-2 bg-card rounded-xl border border-border-soft p-5 shadow-sm"
               >
-                <f.icon size={20} className="text-primary dark:text-green-400" />
-                <h3 className="font-medium text-foreground">{f.title}</h3>
-                <p className="text-sm text-muted leading-relaxed">{f.desc}</p>
+                <p className="text-xs font-medium text-muted">{role.role}</p>
+                <h3 className="font-medium text-foreground">{role.title}</h3>
+                <p className="text-sm text-muted leading-relaxed">{role.summary}</p>
+                <ul className="mt-auto flex flex-wrap gap-1.5 pt-2">
+                  {role.points.map((point) => (
+                    <li
+                      key={point}
+                      className="rounded-full bg-gray-100 px-2 py-0.5 text-xs text-gray-700 dark:bg-gray-800 dark:text-gray-200"
+                    >
+                      {point}
+                    </li>
+                  ))}
+                </ul>
               </div>
             ))}
           </div>
         </section>
 
-        {/* 探索流程 */}
+        {/* 学生探索流程 */}
         <section className="space-y-4">
           <h2 className="text-lg font-semibold text-foreground">学生探索流程</h2>
           <ol className="space-y-2 text-gray-600 dark:text-gray-300 text-sm leading-relaxed list-decimal list-inside">
-            <li>登录后进入（未激活学生需先通过教师导入或激活流程）</li>
-            <li>选择兴趣 / 技能 / 性格标签</li>
-            <li>查看基于所选标签生成的词云</li>
-            <li>上传同学评价词云（仅本地预览，确认页统一上传）</li>
-            <li>上传虚拟形象图片（仅本地预览，确认页统一上传）</li>
-            <li>最终确认并提交，生成职业探索档案</li>
+            {ABOUT_STEPS.map((step) => (
+              <li key={step}>{step}</li>
+            ))}
           </ol>
-          <Link
-            href="/"
-            aria-label="返回主页开始探索"
-            className="inline-block mt-2 px-5 py-2.5 bg-primary hover:bg-primary-strong text-white text-sm font-medium rounded-xl transition-colors shadow-sm"
-          >
-            返回主页开始探索
-          </Link>
+        </section>
+
+        {/* 数据与信任 */}
+        <section className="space-y-4">
+          <h2 className="text-lg font-semibold text-foreground">数据与信任</h2>
+          <div className="bg-card rounded-xl border border-border-soft p-5 space-y-4 shadow-sm">
+            {ABOUT_TRUST.map((item) => (
+              <div key={item.title} className="space-y-1">
+                <h3 className="text-sm font-medium text-foreground">{item.title}</h3>
+                <p className="text-sm text-muted leading-relaxed">{item.desc}</p>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        {/* 如何开始 */}
+        <section className="space-y-4">
+          <h2 className="text-lg font-semibold text-foreground">如何开始</h2>
+          <ul className="space-y-2 text-gray-600 dark:text-gray-300 text-sm leading-relaxed">
+            {ABOUT_START.map((item) => (
+              <li key={item.audience}>
+                <span className="font-medium text-foreground">{item.audience}：</span>
+                {item.desc}
+              </li>
+            ))}
+          </ul>
+          <div className="flex flex-wrap items-center gap-4">
+            <Link
+              href="/"
+              aria-label="返回主页开始探索"
+              className="inline-block px-5 py-2.5 bg-primary hover:bg-primary-strong text-white text-sm font-medium rounded-xl transition-colors shadow-sm"
+            >
+              返回主页开始探索
+            </Link>
+            <Link
+              href="/login"
+              className="text-sm text-muted hover:text-foreground underline-offset-4 hover:underline"
+            >
+              已有账户？登录
+            </Link>
+          </div>
         </section>
 
         {/* 版本信息（动态读取 package.json，发布时随 npm version 更新） */}
         <div className="space-y-1.5 pt-4 border-t border-border-soft">
           <p className="text-xs text-muted">
-            Career Explorer v{pkg.version} · 三角色支持（学生 / 教师 / 管理员）
+            Career Explorer v{pkg.version} · 从兴趣测评到课堂协作
           </p>
+          <p className="text-xs text-muted">{ABOUT_CAPABILITY_LINE}</p>
+          <p className="text-xs text-muted">{COPYRIGHT_NOTICE}</p>
         </div>
       </main>
-      <SiteFooter />
+      <SiteFooter copyright={COPYRIGHT_NOTICE} />
     </div>
   );
 }

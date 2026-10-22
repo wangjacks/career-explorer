@@ -2,12 +2,21 @@
 
 import { useState, useRef, useEffect, useMemo } from "react";
 import { toast } from "sonner";
-import { ChevronDown, Users } from "lucide-react";
+import { ChevronDown, Download, Users } from "lucide-react";
 import { Field } from "./AdminUI";
 import ConfirmDialog from "./ConfirmDialog";
 import { useEscapeKey } from "@/hooks/useEscapeKey";
 import type { Student } from "@/hooks/useAdminAuth";
 import { generatePassword } from "@/lib/password";
+import {
+  countSubmissions,
+  formatSubmittedAt,
+  isSubmitted,
+  matchesSubmissionFilter,
+  type SubmissionFilter,
+} from "@/lib/student-status";
+import ClassSelect from "./ClassSelect";
+import { isClassNameMissing, isClassListUnavailable } from "@/lib/class-select";
 
 interface Props {
   students: Student[];
@@ -18,49 +27,12 @@ interface Props {
   role?: "admin" | "teacher";
 }
 
-type SortKey = "user_code" | "name" | "class_name";
+type SortKey = "user_code" | "name" | "class_name" | "submitted_at";
 type SortDir = "asc" | "desc";
 
 interface ClassItem {
   id: number;
   name: string;
-}
-
-/** 批量设班「未分班」选项的 id 哨兵，与真实班级 id（自增正整数）不冲突 */
-const UNASSIGNED_CLASS_ID = -1;
-
-interface BatchClassOptionProps {
-  label: string;
-  selected: boolean;
-  disabled?: boolean;
-  onSelect: () => void;
-}
-
-function BatchClassOption({ label, selected, disabled, onSelect }: BatchClassOptionProps) {
-  return (
-    <button
-      type="button"
-      role="option"
-      aria-selected={selected}
-      aria-disabled={disabled || undefined}
-      disabled={disabled}
-      onClick={onSelect}
-      className={`w-full text-left px-3 py-1.5 text-sm flex items-center gap-2 transition-colors disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent dark:disabled:hover:bg-transparent ${
-        selected
-          ? "bg-green-50 dark:bg-green-900/30 text-green-700 dark:text-green-300"
-          : "hover:bg-gray-50 dark:hover:bg-gray-800 text-gray-700 dark:text-gray-200"
-      }`}
-    >
-      <span
-        className={`w-4 h-4 rounded border flex items-center justify-center flex-shrink-0 text-xs ${
-          selected ? "bg-green-500 border-green-500 text-white" : "border-gray-300"
-        }`}
-      >
-        {selected && "✓"}
-      </span>
-      <span className="truncate">{label}</span>
-    </button>
-  );
 }
 
 interface ParsedRow {
@@ -133,10 +105,13 @@ function SortIcon({ active, dir }: { active: boolean; dir: SortDir }) {
 export default function StudentsTab({ students, loadError, onRetry, onStudentsChanged }: Props) {
   const [newStudentId, setNewStudentId] = useState("");
   const [newStudentName, setNewStudentName] = useState("");
-  const [newClassName, setNewClassName] = useState("");
+  // 班级一律经共享受控选择控件（#192）：保存 class_id，提交时回填名称以保持服务端契约不变
+  const [newClassId, setNewClassId] = useState<number | null>(null);
   const [classList, setClassList] = useState<ClassItem[]>([]);
   const [classesFailed, setClassesFailed] = useState(false);
   const [selectedStudents, setSelectedStudents] = useState<Set<string>>(new Set());
+  // 提交状态筛选（#170）：催交场景一键切到「未提交」
+  const [submissionFilter, setSubmissionFilter] = useState<SubmissionFilter>("all");
 
   // Search & sort
   const [search, setSearch] = useState("");
@@ -166,7 +141,7 @@ export default function StudentsTab({ students, loadError, onRetry, onStudentsCh
   // Edit modal
   const [editing, setEditing] = useState<Student | null>(null);
   const [editName, setEditName] = useState("");
-  const [editClass, setEditClass] = useState("");
+  const [editClassId, setEditClassId] = useState<number | null>(null);
 
   // Inline edit
   const [inlineEdit, setInlineEdit] = useState<{ studentId: string; field: "name" | "class_name"; value: string } | null>(null);
@@ -175,10 +150,8 @@ export default function StudentsTab({ students, loadError, onRetry, onStudentsCh
   const [confirmDelete, setConfirmDelete] = useState<{ ids: string[] } | null>(null);
   const [confirmBatchDelete, setConfirmBatchDelete] = useState(false);
   const [confirmBatchClass, setConfirmBatchClass] = useState(false);
-  // 批量设班选择：null = 未做出选择（不可提交）；UNASSIGNED_CLASS_ID = 清空为未分班
-  const [batchClassPick, setBatchClassPick] = useState<number | null>(null);
-  const [batchClassOpen, setBatchClassOpen] = useState(false);
-  const batchClassRef = useRef<HTMLDivElement>(null);
+  // 批量设班选择：undefined = 未做出选择（不可提交）；null = 清空为未分班；number = 目标班级
+  const [batchClassPick, setBatchClassPick] = useState<number | null | undefined>(undefined);
 
   const batchInputRef = useRef<HTMLTextAreaElement>(null);
 
@@ -219,20 +192,12 @@ export default function StudentsTab({ students, loadError, onRetry, onStudentsCh
     return () => document.removeEventListener("mousedown", handler);
   }, []);
 
-  // 点击外部关闭批量设班的班级下拉（仅展开期间挂载）
-  useEffect(() => {
-    if (!batchClassOpen) return;
-    const handler = (e: MouseEvent) => {
-      if (batchClassRef.current && !batchClassRef.current.contains(e.target as Node)) {
-        setBatchClassOpen(false);
-      }
-    };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
-  }, [batchClassOpen]);
-
   const classNameOf = (s: Student): string =>
     s.class_id != null ? classList.find((c) => c.id === s.class_id)?.name || "" : "";
+
+  /** 受控选择 → 班级名：服务端契约仍按名称解析（匹配口径由服务端统一，#191），故提交时回填名称 */
+  const classNameById = (classId: number | null): string =>
+    classId === null ? "" : classList.find((c) => c.id === classId)?.name ?? "";
 
   // 班级筛选选项（各班 + 未分班），支持搜索
   const classFilterOptions = useMemo(() => {
@@ -241,13 +206,6 @@ export default function StudentsTab({ students, loadError, onRetry, onStudentsCh
     const q = classSearch.trim().toLowerCase();
     return q ? opts.filter((o) => o.name.toLowerCase().includes(q)) : opts;
   }, [classList, classSearch]);
-
-  /** 班级输入即时提示（#160）：名称不在班级列表时提前告知不会绑定；班级列表从未加载成功时不作判断，避免把正确班级名误报为不存在 */
-  const addClassNameMissing = useMemo(() => {
-    const typed = newClassName.trim();
-    if (!typed || (classesFailed && classList.length === 0)) return false;
-    return !classList.some((c) => c.name === typed);
-  }, [newClassName, classList, classesFailed]);
 
   const toggleClassFilter = (id: number) => {
     setSelectedClasses((prev) => {
@@ -258,8 +216,8 @@ export default function StudentsTab({ students, loadError, onRetry, onStudentsCh
     });
   };
 
-  // Filtered + sorted students
-  const filteredStudents = useMemo(() => {
+  // 班级 + 搜索筛选结果（提交状态计数基于这一层，便于看到「本班未提交 N 名」）
+  const scopedStudents = useMemo(() => {
     const q = search.trim().toLowerCase();
     let list = students;
     if (selectedClasses.size > 0) {
@@ -273,6 +231,15 @@ export default function StudentsTab({ students, loadError, onRetry, onStudentsCh
           classNameOf(s).toLowerCase().includes(q)
       );
     }
+    return list;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [students, search, classList, selectedClasses]);
+
+  const submissionCounts = useMemo(() => countSubmissions(scopedStudents), [scopedStudents]);
+
+  // Filtered + sorted students（#170：叠加提交状态筛选）
+  const filteredStudents = useMemo(() => {
+    const list = scopedStudents.filter((s) => matchesSubmissionFilter(s.submitted_at, submissionFilter));
     return [...list].sort((a, b) => {
       const va = sortKey === "class_name" ? classNameOf(a) : a[sortKey] || "";
       const vb = sortKey === "class_name" ? classNameOf(b) : b[sortKey] || "";
@@ -280,7 +247,7 @@ export default function StudentsTab({ students, loadError, onRetry, onStudentsCh
       return sortDir === "asc" ? cmp : -cmp;
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [students, search, sortKey, sortDir, classList, selectedClasses]);
+  }, [scopedStudents, submissionFilter, sortKey, sortDir, classList]);
 
   const handleSort = (key: SortKey) => {
     if (sortKey === key) {
@@ -289,6 +256,30 @@ export default function StudentsTab({ students, loadError, onRetry, onStudentsCh
       setSortKey(key);
       setSortDir("asc");
     }
+  };
+
+  const handleExportCsv = () => {
+    const esc = (v: string) => `"${v.replace(/"/g, '""')}"`;
+    const header = [esc("学号"), esc("姓名"), esc("班级"), esc("提交状态"), esc("提交时间")].join(",");
+    const rows = filteredStudents.map((s) =>
+      [
+        esc("'" + s.user_code),
+        esc(s.name),
+        esc(classNameOf(s)),
+        esc(isSubmitted(s.submitted_at) ? "已提交" : "未提交"),
+        esc(formatSubmittedAt(s.submitted_at)),
+      ].join(","),
+    );
+    const csv = "\uFEFF" + [header, ...rows].join("\r\n");
+    const now = new Date();
+    const pad = (n: number) => String(n).padStart(2, "0");
+    const filename = `学生名单_${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}.csv`;
+    const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    a.click();
+    URL.revokeObjectURL(url);
   };
 
   const handleAddStudent = async () => {
@@ -304,22 +295,31 @@ export default function StudentsTab({ students, loadError, onRetry, onStudentsCh
       const res = await fetch("/api/manage/students", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ studentId: newStudentId, name: newStudentName.trim(), className: newClassName.trim() }),
+        body: JSON.stringify({
+          studentId: newStudentId,
+          name: newStudentName.trim(),
+          className: classNameById(newClassId),
+        }),
       });
-      const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data.error || "添加失败");
+      // 响应体可能不是 JSON（网关 502 返回 HTML、代理错误页等）：解析失败不抛引擎
+      // 异常，与 !res.ok 一并回退固定中文文案（#193）
+      const data = await res.json().catch(() => null);
+      if (!res.ok || data === null) {
+        toast.error(data?.error || "添加失败");
+        return;
       }
       // 班级未按预期绑定（#160）：服务端用 unbound / class_skipped 说明原因，以 warning 呈现避免“看起来成功但班级没绑上”
       if (data.unbound || data.class_skipped) toast.warning(data.message || "添加成功，但班级未绑定");
       else toast.success(data.message || "添加成功");
       setNewStudentId("");
       setNewStudentName("");
-      setNewClassName("");
+      setNewClassId(null);
       onStudentsChanged();
       refreshClasses();
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "添加失败");
+      // 走到这里只剩网络层异常（服务端中文错误文案已在上方返回），统一固定文案
+      console.error("Add student failed:", e);
+      toast.error("添加失败，请稍后重试");
     }
   };
 
@@ -488,7 +488,7 @@ export default function StudentsTab({ students, loadError, onRetry, onStudentsCh
   const openEditModal = (s: Student) => {
     setEditing(s);
     setEditName(s.name);
-    setEditClass(classNameOf(s));
+    setEditClassId(s.class_id ?? null);
   };
 
   const saveEditModal = async () => {
@@ -501,7 +501,11 @@ export default function StudentsTab({ students, loadError, onRetry, onStudentsCh
       const res = await fetch("/api/manage/students", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ studentId: editing.user_code, name: editName.trim(), className: editClass.trim() }),
+        body: JSON.stringify({
+          studentId: editing.user_code,
+          name: editName.trim(),
+          className: classNameById(editClassId),
+        }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || "更新失败");
@@ -537,18 +541,16 @@ export default function StudentsTab({ students, loadError, onRetry, onStudentsCh
   // Batch set class
   const executeBatchSetClass = async () => {
     const ids = Array.from(selectedStudents);
-    if (batchClassPick === null) {
+    if (batchClassPick === undefined) {
       toast.warning("请选择要设置的班级");
       return;
     }
-    // UNASSIGNED_CLASS_ID → 空串，命中后端 class_id = null 解绑分支
-    const className =
-      batchClassPick === UNASSIGNED_CLASS_ID ? "" : (classList.find((c) => c.id === batchClassPick)?.name ?? "");
-    if (!className && batchClassPick !== UNASSIGNED_CLASS_ID) {
+    // null → 空串，命中后端 class_id = null 解绑分支
+    const className = classNameById(batchClassPick);
+    if (!className && batchClassPick !== null) {
       toast.warning("该班级已不存在，请重新选择");
       return;
     }
-    setBatchClassOpen(false);
     setConfirmBatchClass(false);
     let okCount = 0;
     const failed: string[] = [];
@@ -583,20 +585,13 @@ export default function StudentsTab({ students, loadError, onRetry, onStudentsCh
     }
   };
 
-  // 列表从未加载成功（空 + 失败）才判定不可用：加载失败时不清空 classList，旧数据仍可用
-  const classesUnavailable = classesFailed && classList.length === 0;
-
-  const batchClassLabel =
-    batchClassPick === null
-      ? "选择班级"
-      : batchClassPick === UNASSIGNED_CLASS_ID
-        ? "未分班"
-        : classList.find((c) => c.id === batchClassPick)?.name ?? "班级已不存在";
+  // 列表从未加载成功（空 + 失败）才判定不可用：判据收敛到共享实现（#192）
+  const classesUnavailable = isClassListUnavailable(classList, classesFailed);
 
   const batchClassConfirmText =
-    batchClassPick === null
+    batchClassPick === undefined
       ? "请先选择班级"
-      : batchClassPick === UNASSIGNED_CLASS_ID
+      : batchClassPick === null
         ? "确认清空为未分班"
         : "确认设置";
 
@@ -622,21 +617,17 @@ export default function StudentsTab({ students, loadError, onRetry, onStudentsCh
         <Field label="姓名" value={newStudentName} onChange={(v) => setNewStudentName(v)} />
         <div className="space-y-1">
           <label className="text-xs text-gray-500">班级</label>
-          <input
-            list="class-datalist-add"
-            value={newClassName}
-            onChange={(e) => setNewClassName(e.target.value)}
-            placeholder="可选"
-            className="px-3 py-2 border border-gray-200 dark:border-gray-700 bg-card text-foreground rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-focus-ring"
+          <ClassSelect
+            ariaLabel="选择班级"
+            value={newClassId}
+            onChange={setNewClassId}
+            classes={classList}
+            allowEmpty
+            emptyLabel="不绑定班级"
+            loadFailed={classesFailed}
+            onRetry={refreshClasses}
+            className="min-w-[11rem]"
           />
-          <datalist id="class-datalist-add">
-            {classList.map((c) => (
-              <option key={c.id} value={c.name} />
-            ))}
-          </datalist>
-          {addClassNameMissing && (
-            <p className="text-xs text-warning">该班级不存在，提交后不会绑定班级</p>
-          )}
         </div>
         <button
           onClick={handleAddStudent}
@@ -679,6 +670,33 @@ export default function StudentsTab({ students, loadError, onRetry, onStudentsCh
             学生列表（{filteredStudents.length} / {students.length} 名）
           </span>
           <div className="flex items-center gap-2 flex-wrap">
+            {/* 提交状态筛选（#170）：一键切到「未提交」用于催交，计数基于当前班级 / 搜索范围 */}
+            <div
+              role="group"
+              aria-label="提交状态筛选"
+              className="flex items-center gap-0.5 p-0.5 rounded-lg border border-gray-200 dark:border-gray-700 bg-card"
+            >
+              {([
+                { key: "all" as const, label: "全部", count: submissionCounts.total },
+                { key: "submitted" as const, label: "已提交", count: submissionCounts.submitted },
+                { key: "pending" as const, label: "未提交", count: submissionCounts.pending },
+              ]).map((opt) => (
+                <button
+                  key={opt.key}
+                  type="button"
+                  aria-pressed={submissionFilter === opt.key}
+                  onClick={() => setSubmissionFilter(opt.key)}
+                  className={`px-2.5 py-1 text-xs rounded-md transition-colors ${
+                    submissionFilter === opt.key
+                      ? "bg-primary text-white"
+                      : "text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800"
+                  }`}
+                >
+                  {opt.label}
+                  <span className="ml-1 opacity-80">{opt.count}</span>
+                </button>
+              ))}
+            </div>
             {/* 班级筛选多选下拉（默认全选） */}
             <div className="relative" ref={classDropdownRef}>
               <button
@@ -755,12 +773,20 @@ export default function StudentsTab({ students, loadError, onRetry, onStudentsCh
                 清除筛选
               </button>
             )}
+            <button
+              onClick={handleExportCsv}
+              disabled={filteredStudents.length === 0}
+              className="px-3 py-1.5 rounded-lg text-sm font-medium border border-gray-200 dark:border-gray-700 bg-card text-gray-600 dark:text-gray-300 hover:border-gray-300 transition-colors flex items-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              <Download className="w-3.5 h-3.5" />
+              导出名单（{filteredStudents.length}）
+            </button>
             {selectedStudents.size > 0 && (
               <>
                 <button
                   onClick={() => {
-                    setBatchClassPick(null);
-                    setBatchClassOpen(false);
+                    // 每次打开重置为「未选择」（undefined），避免沿用上一次的目标班级
+                    setBatchClassPick(undefined);
                     setConfirmBatchClass(true);
                   }}
                   className="px-3 py-1.5 bg-info hover:bg-blue-600 text-white text-xs rounded-lg transition-colors"
@@ -769,7 +795,7 @@ export default function StudentsTab({ students, loadError, onRetry, onStudentsCh
                 </button>
                 <button
                   onClick={() => setConfirmBatchPwd(true)}
-                  className="px-3 py-1.5 bg-amber-500 hover:bg-amber-600 text-white text-xs rounded-lg transition-colors"
+                  className="px-3 py-1.5 bg-warning hover:bg-warning-strong text-white text-xs rounded-lg transition-colors"
                 >
                   批量重置密码（{selectedStudents.size}）
                 </button>
@@ -813,6 +839,14 @@ export default function StudentsTab({ students, loadError, onRetry, onStudentsCh
                 <th aria-sort={sortKey === "class_name" ? (sortDir === "asc" ? "ascending" : "descending") : "none"} className="px-4 py-2">
                   <button type="button" onClick={() => handleSort("class_name")} className="cursor-pointer select-none">
                     班级<SortIcon active={sortKey === "class_name"} dir={sortDir} />
+                  </button>
+                </th>
+                <th
+                  aria-sort={sortKey === "submitted_at" ? (sortDir === "asc" ? "ascending" : "descending") : "none"}
+                  className="px-4 py-2"
+                >
+                  <button type="button" onClick={() => handleSort("submitted_at")} className="cursor-pointer select-none">
+                    提交状态<SortIcon active={sortKey === "submitted_at"} dir={sortDir} />
                   </button>
                 </th>
                 <th className="px-4 py-2">操作</th>
@@ -868,17 +902,21 @@ export default function StudentsTab({ students, loadError, onRetry, onStudentsCh
                   </td>
                   <td className="px-4 py-2">
                     {inlineEdit?.studentId === s.user_code && inlineEdit.field === "class_name" ? (
-                      <input
-                        list="class-datalist-table"
-                        autoFocus
-                        value={inlineEdit.value}
-                        onChange={(e) => setInlineEdit({ ...inlineEdit, value: e.target.value })}
-                        onBlur={() => saveInlineEdit(s.user_code, "class_name", inlineEdit.value)}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter") saveInlineEdit(s.user_code, "class_name", inlineEdit.value);
-                          if (e.key === "Escape") setInlineEdit(null);
+                      <ClassSelect
+                        size="sm"
+                        autoFocusTrigger
+                        ariaLabel={`设置 ${s.name} 的班级`}
+                        value={s.class_id ?? null}
+                        allowEmpty
+                        emptyLabel="未分班"
+                        classes={classList}
+                        loadFailed={classesFailed}
+                        onRetry={refreshClasses}
+                        onChange={(classId) => {
+                          setInlineEdit(null);
+                          saveInlineEdit(s.user_code, "class_name", classNameById(classId));
                         }}
-                        className="px-2 py-0.5 border border-gray-300 dark:border-gray-600 bg-card text-foreground rounded text-sm w-28 focus:outline-none focus:ring-1 focus:ring-focus-ring"
+                        className="w-32"
                       />
                     ) : (
                       <span
@@ -897,6 +935,20 @@ export default function StudentsTab({ students, loadError, onRetry, onStudentsCh
                       </span>
                     )}
                   </td>
+                  <td className="px-4 py-2 whitespace-nowrap">
+                    {isSubmitted(s.submitted_at) ? (
+                      <span className="inline-flex items-center gap-1.5">
+                        <span className="px-1.5 py-0.5 rounded bg-green-50 dark:bg-green-900/30 text-green-700 dark:text-green-300 text-xs">
+                          已提交
+                        </span>
+                        <span className="text-xs text-muted">{formatSubmittedAt(s.submitted_at)}</span>
+                      </span>
+                    ) : (
+                      <span className="px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-xs text-muted">
+                        未提交
+                      </span>
+                    )}
+                  </td>
                   <td className="px-4 py-2">
                     <div className="flex items-center gap-2 opacity-60 group-hover:opacity-100 transition-opacity">
                       <button onClick={() => openEditModal(s)} className="text-green-600 hover:text-green-700 text-xs font-medium">
@@ -907,7 +959,7 @@ export default function StudentsTab({ students, loadError, onRetry, onStudentsCh
                           setResettingStudent(s);
                           setResetPwd("");
                         }}
-                        className="text-amber-600 hover:text-amber-700 text-xs font-medium"
+                        className="text-warning-strong hover:opacity-80 text-xs font-medium"
                       >
                         重置密码
                       </button>
@@ -920,7 +972,7 @@ export default function StudentsTab({ students, loadError, onRetry, onStudentsCh
               ))}
               {filteredStudents.length === 0 && (
                 <tr>
-                  <td colSpan={5} className="px-4 py-8 text-center text-muted text-sm">
+                  <td colSpan={6} className="px-4 py-8 text-center text-muted text-sm">
                     {students.length === 0 ? (
                       <span className="inline-flex flex-col items-center gap-2">
                         <Users size={28} strokeWidth={1.5} className="text-gray-300" />
@@ -934,11 +986,6 @@ export default function StudentsTab({ students, loadError, onRetry, onStudentsCh
               )}
             </tbody>
           </table>
-          <datalist id="class-datalist-table">
-            {classList.map((c) => (
-              <option key={c.id} value={c.name} />
-            ))}
-          </datalist>
         </div>
       </div>
 
@@ -967,18 +1014,16 @@ export default function StudentsTab({ students, loadError, onRetry, onStudentsCh
               </div>
               <div className="space-y-1">
                 <label className="text-xs text-muted">班级</label>
-                <input
-                  list="class-datalist-modal"
-                  value={editClass}
-                  onChange={(e) => setEditClass(e.target.value)}
-                  placeholder="输入班级"
-                  className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 bg-card text-foreground rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-focus-ring"
+                <ClassSelect
+                  ariaLabel="选择班级"
+                  value={editClassId}
+                  onChange={setEditClassId}
+                  classes={classList}
+                  allowEmpty
+                  emptyLabel="未分班"
+                  loadFailed={classesFailed}
+                  onRetry={refreshClasses}
                 />
-                <datalist id="class-datalist-modal">
-                  {classList.map((c) => (
-                    <option key={c.id} value={c.name} />
-                  ))}
-                </datalist>
               </div>
             </div>
             <div className="flex gap-2 pt-2">
@@ -1081,9 +1126,9 @@ export default function StudentsTab({ students, loadError, onRetry, onStudentsCh
                 <tbody className="divide-y divide-gray-50">
                   {parsedRows.map((r, i) => {
                     const invalid = !/^\d{12}$/.test(r.studentId) || !r.name.trim();
-                    const classMissing = !!r.className.trim() && !classList.some((c) => c.name === r.className.trim());
+                    const classMissing = isClassNameMissing(r.className, classList, classesUnavailable);
                     return (
-                      <tr key={i} className={invalid ? "bg-red-50" : classMissing ? "bg-amber-50" : ""}>
+                      <tr key={i} className={invalid ? "bg-danger/10" : classMissing ? "bg-warning/10" : ""}>
                         <td className="px-4 py-1.5 font-mono text-xs">{r.studentId || "-"}</td>
                         <td className="px-4 py-1.5">{r.name || "-"}</td>
                         <td className="px-4 py-1.5">{r.className || <span className="text-gray-400">-</span>}</td>
@@ -1155,7 +1200,7 @@ export default function StudentsTab({ students, loadError, onRetry, onStudentsCh
         <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 px-4" onClick={() => setCredential(null)}>
           <div role="dialog" aria-modal="true" aria-labelledby="students-credential-title" className="bg-card rounded-2xl shadow-xl max-w-sm w-full p-6 space-y-4" onClick={(e) => e.stopPropagation()}>
             <h3 id="students-credential-title" className="font-semibold text-foreground text-lg">密码已重置</h3>
-            <p className="text-xs text-amber-600">请立即记录并告知学生，关闭后将无法再次查看密码。</p>
+            <p className="text-xs text-warning-strong">请立即记录并告知学生，关闭后将无法再次查看密码。</p>
             <div className="space-y-2 text-sm">
               <div className="flex justify-between items-center bg-gray-50 dark:bg-gray-800 rounded-lg px-3 py-2">
                 <span className="text-muted">学号</span>
@@ -1190,7 +1235,7 @@ export default function StudentsTab({ students, loadError, onRetry, onStudentsCh
             onClick={(e) => e.stopPropagation()}
           >
             <h3 id="students-batch-title" className="font-semibold text-foreground text-lg">批量重置完成（{batchPwdResults.length} 人）</h3>
-            <p className="text-xs text-amber-600">请立即记录或复制，关闭后将无法再次查看密码。</p>
+            <p className="text-xs text-warning-strong">请立即记录或复制，关闭后将无法再次查看密码。</p>
             <div className="overflow-y-auto border border-border-soft rounded-lg flex-1">
               <table className="w-full text-sm">
                 <thead className="sticky top-0 bg-gray-50 dark:bg-gray-800">
@@ -1266,63 +1311,17 @@ export default function StudentsTab({ students, loadError, onRetry, onStudentsCh
         message={
           <div className="space-y-2">
             <p>将选中的 {selectedStudents.size} 名学生设置为：</p>
-            <div className="relative" ref={batchClassRef}>
-              <button
-                type="button"
-                aria-haspopup="listbox"
-                aria-expanded={batchClassOpen}
-                onClick={() => setBatchClassOpen((v) => !v)}
-                className="w-full px-3 py-1.5 rounded-lg text-sm font-medium border transition-colors flex items-center justify-between gap-1.5 bg-card text-gray-600 dark:text-gray-300 border-gray-200 dark:border-gray-700 hover:border-gray-300"
-              >
-                <span className="truncate">{batchClassLabel}</span>
-                <ChevronDown
-                  className={`w-3 h-3 flex-shrink-0 transition-transform ${batchClassOpen ? "rotate-180" : ""}`}
-                />
-              </button>
-              {batchClassOpen && (
-                <div className="absolute top-full left-0 mt-1 w-full bg-card rounded-xl border border-gray-200 dark:border-gray-700 shadow-lg z-30">
-                  <div className="max-h-44 overflow-y-auto py-1">
-                    <div role="listbox" aria-label="选择班级">
-                      {classList.map((c) => (
-                        <BatchClassOption
-                          key={c.id}
-                          label={c.name}
-                          selected={batchClassPick === c.id}
-                          onSelect={() => {
-                            setBatchClassPick(c.id);
-                            setBatchClassOpen(false);
-                          }}
-                        />
-                      ))}
-                      {classList.length > 0 && <div className="my-1 border-t border-border-soft" role="presentation" />}
-                      <BatchClassOption
-                        label="未分班"
-                        selected={batchClassPick === UNASSIGNED_CLASS_ID}
-                        disabled={classesUnavailable}
-                        onSelect={() => {
-                          setBatchClassPick(UNASSIGNED_CLASS_ID);
-                          setBatchClassOpen(false);
-                        }}
-                      />
-                    </div>
-                    {classesUnavailable ? (
-                      <div className="px-3 py-4 text-center space-y-2">
-                        <p className="text-sm text-red-500">班级列表加载失败</p>
-                        <button
-                          type="button"
-                          onClick={refreshClasses}
-                          className="px-3 py-1.5 text-xs font-medium bg-gray-100 hover:bg-gray-200 dark:bg-gray-800 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-200 rounded-lg transition-colors"
-                        >
-                          重试
-                        </button>
-                      </div>
-                    ) : classList.length === 0 ? (
-                      <div className="px-3 py-4 text-center text-sm text-gray-400">暂无班级可选</div>
-                    ) : null}
-                  </div>
-                </div>
-              )}
-            </div>
+            <ClassSelect
+              ariaLabel="选择班级"
+              placeholder="请选择班级"
+              value={batchClassPick}
+              onChange={setBatchClassPick}
+              classes={classList}
+              allowEmpty
+              emptyLabel="未分班"
+              loadFailed={classesFailed}
+              onRetry={refreshClasses}
+            />
           </div>
         }
         variant="warning"
@@ -1330,8 +1329,7 @@ export default function StudentsTab({ students, loadError, onRetry, onStudentsCh
         onConfirm={executeBatchSetClass}
         onCancel={() => {
           setConfirmBatchClass(false);
-          setBatchClassOpen(false);
-          setBatchClassPick(null);
+          setBatchClassPick(undefined);
         }}
       />
 

@@ -1,14 +1,24 @@
+import { withDemoScope, isDemoScope } from "@/lib/demo-scope";
 import { NextResponse } from "next/server";
 import { getConfig, setConfig, type DbConfig } from "@/lib/db-config";
 import { closeDb } from "@/lib/db";
 import { getAuditActor, getRequestContext, recordAudit } from "@/lib/audit";
 import type { NextRequest } from "next/server";
 
-export async function GET() {
+// settings 读写的是进程级全局文件 db-config.json（不是 DB），withDemoScope 的库改道对它
+// 零覆盖：GET 会把生产数据源参数（含 MySQL 口令）泄露给演示会话，PUT 会改写生产指向。
+// 此处对演示会话就地拒绝作为纵深；系统性的角色门（proxy 权限表）由 #252 负责。
+async function GET_impl() {
+  if (isDemoScope()) {
+    return NextResponse.json({ error: "演示会话不可访问系统设置" }, { status: 403 });
+  }
   return NextResponse.json(getConfig());
 }
 
-export async function PUT(request: NextRequest) {
+async function PUT_impl(request: NextRequest) {
+  if (isDemoScope()) {
+    return NextResponse.json({ error: "演示会话不可修改系统设置" }, { status: 403 });
+  }
   const { ip, user_agent } = getRequestContext(request);
   const actor = await getAuditActor(request);
   try {
@@ -48,3 +58,6 @@ export async function PUT(request: NextRequest) {
     return NextResponse.json({ error: "保存失败" }, { status: 500 });
   }
 }
+
+export const GET = withDemoScope(GET_impl);
+export const PUT = withDemoScope(PUT_impl);

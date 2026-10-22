@@ -15,8 +15,15 @@ vi.mock("@/lib/db", () => ({
   insertAuditLog: vi.fn(),
 }));
 
-import { PUT } from "@/app/api/manage/students/route";
-import { getUserByCode, updateUser, getClassByName, insertAuditLog, getUserById } from "@/lib/db";
+import { GET, PUT } from "@/app/api/manage/students/route";
+import {
+  getStudents,
+  getUserByCode,
+  updateUser,
+  getClassByName,
+  insertAuditLog,
+  getUserById,
+} from "@/lib/db";
 import type { ClassRow, UserRow } from "@/lib/db";
 
 const STUDENT = {
@@ -29,6 +36,7 @@ const STUDENT = {
   tags: null,
   avatar_url: null,
   evaluation_url: null,
+  evaluation_text: null,
   submitted_at: null,
   created_at: "",
   storage_id: 1,
@@ -61,6 +69,31 @@ beforeEach(() => {
   vi.mocked(getUserById).mockResolvedValue({ user_code: "10001", name: "管理员", role: "admin" } as unknown as UserRow);
 });
 
+describe("GET /api/manage/students — 用户列表投影（#358）", () => {
+  it("只返回名单字段，不泄露 password_hash 与档案字段", async () => {
+    vi.mocked(getStudents).mockResolvedValue([STUDENT] as unknown as UserRow[]);
+
+    const res = await GET();
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body).toStrictEqual({
+      data: [
+        {
+          id: 7,
+          user_code: "202505050101",
+          name: "测试学生",
+          class_id: 3,
+          created_at: "",
+          submitted_at: null,
+        },
+      ],
+      total: 1,
+    });
+    expect(JSON.stringify(body)).not.toContain("password_hash");
+  });
+});
+
 describe("PUT /api/manage/students — 班级绑定契约（#161）", () => {
   it("班级名存在 → 按解析出的 id 绑定", async () => {
     vi.mocked(getClassByName).mockResolvedValue(CLASS_5);
@@ -68,6 +101,16 @@ describe("PUT /api/manage/students — 班级绑定契约（#161）", () => {
       createPutRequest({ studentId: "202505050101", className: "2025级1班" }, await adminCookies())
     );
     expect(res.status).toBe(200);
+    expect(updateUser).toHaveBeenCalledWith(STUDENT.id, { class_id: 5 });
+  });
+
+  it("班级名首尾空格 → trim 后解析并绑定（#191：与前端即时提示、批量导入同一口径）", async () => {
+    vi.mocked(getClassByName).mockResolvedValue(CLASS_5);
+    const res = await PUT(
+      createPutRequest({ studentId: "202505050101", className: "  2025级1班 " }, await adminCookies())
+    );
+    expect(res.status).toBe(200);
+    expect(getClassByName).toHaveBeenCalledWith("2025级1班");
     expect(updateUser).toHaveBeenCalledWith(STUDENT.id, { class_id: 5 });
   });
 

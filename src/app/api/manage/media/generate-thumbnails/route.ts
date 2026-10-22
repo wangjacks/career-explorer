@@ -1,3 +1,4 @@
+import { withDemoScope } from "@/lib/demo-scope";
 import { NextRequest, NextResponse } from "next/server";
 import { verifyToken } from "@/lib/token";
 import { runThumbnailBackfill } from "@/lib/thumbnail-backfill";
@@ -8,7 +9,7 @@ import { getAuditActor, getRequestContext, recordAudit } from "@/lib/audit";
  * 为缺少缩略图的文件补生成（key 按 `_thumb` 后缀派生）。仅 admin。
  * 单文件失败不中断整体，返回统计供面板展示。
  */
-export async function POST(request: NextRequest) {
+async function POST_impl(request: NextRequest) {
   const { ip, user_agent } = getRequestContext(request);
   try {
     const token = request.cookies.get("auth_token")?.value;
@@ -38,3 +39,5 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "服务器错误" }, { status: 500 });
   }
 }
+
+export const POST = withDemoScope(POST_impl);

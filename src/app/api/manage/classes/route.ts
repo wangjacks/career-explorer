@@ -1,3 +1,4 @@
+import { withDemoScope } from "@/lib/demo-scope";
 import { NextRequest, NextResponse } from "next/server";
 import {
   getClasses,
@@ -9,6 +10,7 @@ import {
 } from "@/lib/db";
 import { getSession } from "./helpers";
 import { getRequestContext, recordAudit } from "@/lib/audit";
+import { validateNewClassName } from "@/lib/class-utils";
 
 /** 生成不重复的邀请码（碰撞重试） */
 async function uniqueInviteCode(): Promise<string> {
@@ -20,7 +22,7 @@ async function uniqueInviteCode(): Promise<string> {
   throw new Error("邀请码生成失败");
 }
 
-export async function GET() {
+async function GET_impl() {
   try {
     const [classes, pairs] = await Promise.all([getClasses(), getTeacherClassPairs()]);
     return NextResponse.json({ data: classes, teacher_classes: pairs });
@@ -30,16 +32,16 @@ export async function GET() {
   }
 }
 
-export async function POST(request: NextRequest) {
+async function POST_impl(request: NextRequest) {
   const { ip, user_agent } = getRequestContext(request);
   try {
     const session = await getSession(request);
     if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
     const { name } = await request.json();
-    const className = String(name ?? "").trim();
-    if (!className) {
-      return NextResponse.json({ error: "请输入班级名称" }, { status: 400 });
+    const { name: className, error: nameError } = validateNewClassName(name);
+    if (nameError) {
+      return NextResponse.json({ error: nameError }, { status: 400 });
     }
 
     const existing = await getClassByName(className);
@@ -66,3 +68,6 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "创建班级失败" }, { status: 500 });
   }
 }
+
+export const GET = withDemoScope(GET_impl);
+export const POST = withDemoScope(POST_impl);

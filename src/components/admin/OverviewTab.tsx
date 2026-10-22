@@ -1,24 +1,52 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { ClipboardList, Tag, Flame } from "lucide-react";
+import { BarChart3, ClipboardList, ClipboardCheck, Tag, Flame } from "lucide-react";
 import { StatCard } from "./AdminUI";
 import ClassOverviewTable from "./ClassOverviewTable";
 import ProfilesTab from "./ProfilesTab";
+import type { ProfileListQuery } from "@/lib/profile-query";
+import {
+  assessmentCompletionCard,
+  normalizeAssessmentOverview,
+  type AssessmentOverviewStats,
+} from "@/lib/assessment-overview";
 import type { Stats, PagedData, Student } from "@/hooks/useAdminAuth";
 
 interface Props {
   installed: boolean | null;
   loadStats: () => Promise<Stats | null>;
-  loadProfiles: (p: number) => Promise<PagedData | null>;
+  loadProfiles: (p: number, query?: ProfileListQuery) => Promise<PagedData | null>;
   students: Student[];
   /** 是否展示数据列表（admin 数据概览内嵌；教师端数据概览传 false，数据列表独立成页） */
   showProfiles?: boolean;
+  /** 面板归属：教师端才出现「去数据大屏」引导（#230，管理员端数据概览不受影响） */
+  mode?: "admin" | "teacher";
+  /** 切换面板 Tab（教师端用于跳「数据大屏」；不传则引导按钮不渲染） */
+  onNavigate?: (key: string) => void;
 }
 
-export default function OverviewTab({ installed, loadStats, loadProfiles, students, showProfiles = true }: Props) {
+/**
+ * 数据概览（教师/管理员共用）：四张统计卡 + 班级概览表 +（管理员）数据列表。
+ *
+ * #230 起多一张「兴趣测评」卡（#316 由「测评完成」改名，与数据大屏的量表口语名对齐），
+ * 并把完成度口径延伸到班级概览的两列；**图表一律留在数据大屏**
+ * （教师端在表下给一条引导），避免概览与大屏互相重复。
+ * 测评统计接口不可用（未启用/无数据/请求失败）时卡片显示 0 与友好空态、表格两列显示 `-`，不报错。
+ */
+export default function OverviewTab({
+  installed,
+  loadStats,
+  loadProfiles,
+  students,
+  showProfiles = true,
+  mode = "admin",
+  onNavigate,
+}: Props) {
   const [stats, setStats] = useState<Stats | null>(null);
   const [loadError, setLoadError] = useState(false);
+  const [assessment, setAssessment] = useState<AssessmentOverviewStats | null>(null);
+  const [assessmentLoading, setAssessmentLoading] = useState(true);
 
   const refreshStats = useCallback(async () => {
     const s = await loadStats();
@@ -30,12 +58,31 @@ export default function OverviewTab({ installed, loadStats, loadProfiles, studen
     }
   }, [loadStats]);
 
+  // 兴趣测评完成度（#230）：失败/未启用都按「没有测评数据」处理，概览页不出现红色失败态
+  const loadAssessment = useCallback(async () => {
+    setAssessmentLoading(true);
+    try {
+      const res = await fetch("/api/manage/stats/assessment");
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      setAssessment(normalizeAssessmentOverview(await res.json()));
+    } catch (err) {
+      console.error("Failed to load assessment stats:", err);
+      setAssessment(null);
+    } finally {
+      setAssessmentLoading(false);
+    }
+  }, []);
+
   /* eslint-disable react-hooks/set-state-in-effect -- initial data load */
   useEffect(() => {
     refreshStats();
+    loadAssessment();
     // eslint-disable-next-line react-hooks/exhaustive-deps -- only on mount
   }, []);
   /* eslint-enable react-hooks/set-state-in-effect */
+
+  const assessmentCard = assessmentCompletionCard(assessment);
+  const showDashboardGuide = mode === "teacher" && typeof onNavigate === "function";
 
   return (
     <>
@@ -50,7 +97,7 @@ export default function OverviewTab({ installed, loadStats, loadProfiles, studen
         <div className="text-center py-12 text-muted">加载中...</div>
       )}
       {stats && (
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           <StatCard
             label="总提交数"
             value={stats.total}
@@ -66,6 +113,15 @@ export default function OverviewTab({ installed, loadStats, loadProfiles, studen
             color="blue"
             icon={
               <Tag className="w-5 h-5" strokeWidth={1.5} />
+            }
+          />
+          <StatCard
+            label="兴趣测评"
+            value={assessmentCard.value}
+            color="purple"
+            sub={assessmentLoading ? "加载中..." : assessmentCard.sub}
+            icon={
+              <ClipboardCheck className="w-5 h-5" strokeWidth={1.5} />
             }
           />
           <div className="bg-card rounded-xl border border-border-soft overflow-hidden hover:-translate-y-1 hover:shadow-lg transition-all duration-200 shadow-sm">
@@ -90,8 +146,24 @@ export default function OverviewTab({ installed, loadStats, loadProfiles, studen
         </div>
       )}
 
-      {/* 班级概览统计 */}
-      <ClassOverviewTable students={students} />
+      {/* 班级概览统计（#230 追加「兴趣测评 / 交齐比例」两列） */}
+      <ClassOverviewTable students={students} assessment={assessment} />
+
+      {/* 分布类需求指向数据大屏（#230，仅教师端）：概览只回答「有没有做」 */}
+      {showDashboardGuide && stats && (
+        <div className="bg-card rounded-xl border border-border-soft p-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <p className="text-sm text-muted">
+            想了解班级的六型兴趣结构？数据大屏按班级展示测评分布与提交趋势。
+          </p>
+          <button
+            onClick={() => onNavigate?.("screen")}
+            className="inline-flex items-center justify-center gap-1.5 px-3 py-1.5 bg-gray-100 hover:bg-gray-200 dark:bg-gray-800 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-200 text-sm font-medium rounded-lg transition-colors flex-shrink-0 self-start sm:self-auto"
+          >
+            <BarChart3 className="w-4 h-4" strokeWidth={1.5} aria-hidden />
+            去数据大屏看兴趣类型分布
+          </button>
+        </div>
+      )}
 
       {/* 数据列表（教师端数据概览不展示，独立成页） */}
       {showProfiles && <ProfilesTab loadProfiles={loadProfiles} loadStats={loadStats} />}
