@@ -1,13 +1,15 @@
 /**
- * 演示账户原语（#253）：专用号段 + 中文姓名池 + 确定性构造器。
+ * 演示账户原语（#253）：专用号段 + 确定性构造器。姓名池与取名纯函数见零依赖的 `demo-names.ts`（#369）。
  * 名册学生即「仅学生角色的账户」（可登录、可提交），故「批量生成学生」=「批量创建账户」。
  * 这些纯构造器与 `createDemoAccount` 持久原语同时供 #278（访客 3 角色套装发放 / 管理）复用。
  */
 import { insertUser, type NewUser } from "@/lib/db";
 import { hashPassword } from "@/lib/auth";
+import { pickName, type Rng } from "./demo-names";
 
-/** 确定性 PRNG 类型：所有生成器接受注入的 rng，便于固定种子单测 */
-export type Rng = () => number;
+// re-export：姓名池相关符号迁到 demo-names.ts（客户端可共用），保持既有 `from "@/lib/demo-accounts"` 路径不变。
+export { pick, pickName } from "./demo-names";
+export type { Rng } from "./demo-names";
 
 /**
  * mulberry32：小而确定的 32 位 PRNG。同一种子 → 同一序列。
@@ -92,31 +94,9 @@ export function hashDemoPassword(): Promise<string> {
   return hashPassword(DEMO_PASSWORD);
 }
 
-const SURNAMES = [
-  "王", "李", "张", "刘", "陈", "杨", "黄", "赵", "周", "吴",
-  "徐", "孙", "马", "朱", "胡", "郭", "何", "高", "林", "罗",
-  "郑", "梁", "谢", "宋", "唐", "许", "邓", "冯", "韩", "曹",
-];
-
-const GIVEN_NAMES = [
-  "伟", "芳", "娜", "敏", "静", "磊", "强", "洋", "艳", "勇",
-  "军", "杰", "娟", "涛", "明", "超", "霞", "平", "刚", "桂英",
-  "子轩", "梓涵", "浩然", "欣怡", "雨泽", "思远", "嘉怡", "博文", "宇航", "若曦",
-];
-
-/** 从数组按 rng 取一项 */
-export function pick<T>(items: readonly T[], rng: Rng): T {
-  return items[Math.floor(rng() * items.length)];
-}
-
 /** [min, max] 闭区间随机整数 */
 export function randInt(rng: Rng, min: number, max: number): number {
   return min + Math.floor(rng() * (max - min + 1));
-}
-
-/** 随机中文姓名（姓 + 1~2 字名） */
-export function pickName(rng: Rng): string {
-  return pick(SURNAMES, rng) + pick(GIVEN_NAMES, rng);
 }
 
 export type DemoRole = "admin" | "teacher" | "student";
