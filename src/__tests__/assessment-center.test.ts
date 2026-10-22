@@ -32,7 +32,7 @@ describe("estimateMinutes / progressPercent", () => {
 describe("档案页耗时文案（#286）", () => {
   it("复用测评中心的题量与耗时视图，不再写死题量或分钟数", () => {
     const source = readFileSync(
-      new URL("../components/student/AssessmentResultCard.tsx", import.meta.url),
+      new URL("../components/assessment/AssessmentResultCard.tsx", import.meta.url),
       "utf8"
     );
 
@@ -48,7 +48,7 @@ describe("题量口径来源守卫（#283）", () => {
   const SOURCES = [
     "../app/dashboard/student/assessment/page.tsx",
     "../app/dashboard/student/assessment/quiz/page.tsx",
-    "../components/student/AssessmentResultCard.tsx",
+    "../components/assessment/AssessmentResultCard.tsx",
   ] as const;
 
   it("学生端不写死题量与分钟数（一律来自接口字段或 estimateMinutes）", () => {

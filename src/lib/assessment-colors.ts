@@ -51,3 +51,25 @@ export function typeColorOf(key: string | null | undefined): AssessmentTypeColor
   if (lead === "") return ASSESSMENT_TYPE_FALLBACK_COLOR;
   return ASSESSMENT_TYPE_COLORS[lead as RiasecKey] ?? ASSESSMENT_TYPE_FALLBACK_COLOR;
 }
+
+/**
+ * 大五人格三档的**单一靛蓝族**（#315）：低 / 中 / 高只用一个色相的深浅表达强弱，
+ * 不引入第二套分类色。浅色主题用「越强越深」、深色主题用「越强越亮」，两档都按 WCAG
+ * 非文本对比度 ≥ 3:1 对齐卡片底色（单测锁；文本另用语义 token）。
+ */
+export type BigFiveBand = "low" | "medium" | "high";
+
+export const BIG_FIVE_BAND_COLORS = {
+  light: { low: "#6366f1", medium: "#4338ca", high: "#312e81" },
+  dark: { low: "#6366f1", medium: "#818cf8", high: "#a5b4fc" },
+} as const;
+
+/**
+ * 堆叠条各档的 Tailwind 类（与上面的色值一一对应；单测会断言类名里含同一 hex，
+ * 避免有人只改颜色常量、界面却还画旧色）。
+ */
+export const BIG_FIVE_BAND_CLASSES: Readonly<Record<BigFiveBand, string>> = {
+  low: "bg-[#6366f1] dark:bg-[#6366f1]",
+  medium: "bg-[#4338ca] dark:bg-[#818cf8]",
+  high: "bg-[#312e81] dark:bg-[#a5b4fc]",
+};

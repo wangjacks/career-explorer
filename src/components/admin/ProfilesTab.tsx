@@ -5,13 +5,8 @@ import { toast } from "sonner";
 import { Tag, ChevronDown, Download } from "lucide-react";
 import ConfirmDialog from "./ConfirmDialog";
 import ExportProfilesDialog from "./ExportProfilesDialog";
-import { useEscapeKey } from "@/hooks/useEscapeKey";
+import ProfileDetailDialog from "./ProfileDetailDialog";
 import StorageImage from "@/components/StorageImage";
-import EvaluationWordCloud from "@/components/EvaluationWordCloud";
-import EvaluationTexts from "@/components/EvaluationTexts";
-import { useTagColorMap } from "@/hooks/useTagColorMap";
-import { buildRiasecBars } from "@/lib/assessment-view";
-import type { WordCloudItem } from "@/types";
 import { typeColorOf } from "@/lib/assessment-colors";
 import { formatResultTime } from "@/lib/assessment-flow";
 import {
@@ -21,8 +16,6 @@ import {
   findDimensionalScale,
   findTypologicalScale,
   hasAssessmentFilter,
-  hasAssessmentScores,
-  isAssessed,
   personalityHeadlineOf,
   personalityTooltipOf,
   scaleResultOf,
@@ -48,20 +41,6 @@ interface Props {
   /** 面板归属（#243）：教师端按 teacher_classes 收敛删除入口，管理员默认全量 */
   mode?: "admin" | "teacher";
   teacherUid?: number | null;
-}
-
-/** 版本历史行（#95）：详情弹窗内展示 */
-interface SubmissionHistoryRow {
-  id: number;
-  version: number;
-  tags: string[];
-  avatar_url: string;
-  evaluation_url: string;
-  evaluation_texts?: string[];
-  evaluation_words?: WordCloudItem[];
-  storage_id: number;
-  submitted_at: string;
-  is_current: number;
 }
 
 function SortIcon({ active, dir }: { active: boolean; dir: SortDir }) {
@@ -145,9 +124,6 @@ export default function ProfilesTab({
   mode = "admin",
   teacherUid = null,
 }: Props) {
-  // 标签三色映射（#95）：详情弹窗版本历史标签按分类着色
-  const tagColorMap = useTagColorMap();
-
   const [stats, setStats] = useState<Stats | null>(null);
   const [paged, setPaged] = useState<PagedData | null>(null);
   const [page, setPage] = useState(1);
@@ -167,20 +143,11 @@ export default function ProfilesTab({
   const [tagDropdownOpen, setTagDropdownOpen] = useState(false);
   const [tagSearch, setTagSearch] = useState("");
   const tagDropdownRef = useRef<HTMLDivElement>(null);
-  // 版本历史（#95）：详情弹窗内折叠展示
-  const [historyOpen, setHistoryOpen] = useState(false);
-  const [historyRows, setHistoryRows] = useState<SubmissionHistoryRow[]>([]);
-  const [historyLoading, setHistoryLoading] = useState(false);
-  // 历史请求序号（review 修复）：快速切换学生时丢弃过期响应
-  const historySeqRef = useRef(0);
   // 列表请求序号（#295）：快速切换筛选/排序/翻页时丢弃过期响应，见 `refreshProfiles`
   const profilesSeqRef = useRef(0);
   // 教师可写班级范围（#243）：null = 尚未取到，删除入口一律隐藏；管理员不依赖此集合
   const [ownedClassIds, setOwnedClassIds] = useState<Set<number> | null>(null);
   const [ownershipFailed, setOwnershipFailed] = useState(false);
-
-  // 弹窗 Escape 关闭（键盘可达性）
-  useEscapeKey(!!detail, () => setDetail(null));
 
   // 保留最新传入的 load 函数引用，初始加载 effect 仅 mount 时执行
   const loadProfilesRef = useRef(loadProfiles);
@@ -427,28 +394,9 @@ export default function ProfilesTab({
     });
   };
 
-  // 加载版本历史（#95）：首次展开详情弹窗时拉取；序号 guard 防旧响应覆盖新选择
-  const loadHistory = async (userId: number) => {
-    const seq = ++historySeqRef.current;
-    setHistoryLoading(true);
-    try {
-      const res = await fetch(`/api/manage/profiles/submissions?userId=${userId}`);
-      const data = await res.json();
-      if (seq !== historySeqRef.current) return;
-      if (res.ok) setHistoryRows(data.submissions || []);
-    } catch (err) {
-      if (seq !== historySeqRef.current) return;
-      console.error("Failed to load submission history:", err);
-    } finally {
-      if (seq === historySeqRef.current) setHistoryLoading(false);
-    }
-  };
-
+  // 打开详情（#332）：身份 + 测评结果全部来自列表行，弹窗自己负责版本历史 / 推荐职业的加载
   const openDetail = (p: Profile) => {
     setDetail(p);
-    setHistoryOpen(false);
-    setHistoryRows([]);
-    if (p.userId != null) void loadHistory(p.userId);
   };
 
   return (
@@ -721,204 +669,18 @@ export default function ProfilesTab({
         </div>
       )}
 
-      {/* Detail Modal */}
+      {/* 档案详情（#332）：与学生端「我的档案」同构的共享卡片 + 教师端版本历史 */}
       {detail && (
-        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 px-4"
-          onClick={() => setDetail(null)}>
-          <div role="dialog" aria-modal="true" aria-labelledby="profiles-detail-title" className="bg-card rounded-2xl shadow-xl max-w-md w-full p-6 space-y-4 max-h-[85vh] overflow-y-auto"
-            onClick={(e) => e.stopPropagation()}>
-            <div className="flex items-center justify-between">
-              <h3 id="profiles-detail-title" className="font-semibold text-foreground text-lg">档案详情</h3>
-              <button onClick={() => setDetail(null)} aria-label="关闭" className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 text-xl">×</button>
-            </div>
-
-            <div className="grid grid-cols-2 gap-3 text-sm">
-              <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-3">
-                <p className="text-xs text-muted">学号</p>
-                <p className="font-mono font-medium text-foreground mt-0.5">{detail.studentId}</p>
-              </div>
-              <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-3">
-                <p className="text-xs text-muted">姓名</p>
-                <p className="font-medium text-foreground mt-0.5">{detail.studentName || "-"}</p>
-              </div>
-              <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-3 col-span-2">
-                <p className="text-xs text-muted">提交时间</p>
-                <p className="font-medium text-foreground mt-0.5">{detail.createdAt}</p>
-              </div>
-            </div>
-
-            {detail.avatarUrl && (
-              <div>
-                <p className="text-xs text-muted mb-2">虚拟形象</p>
-                <StorageImage url={detail.avatarUrl} storageId={detail.storageId} alt="" className="w-20 h-20 rounded-xl object-cover border border-gray-100" />
-              </div>
-            )}
-
-            <div>
-              <p className="text-xs text-muted mb-2">标签（{detail.tags.length}个）</p>
-              <div className="flex flex-wrap gap-1.5">
-                {detail.tags.map((t) => (
-                  <span key={t} className="px-2.5 py-1 bg-green-50 dark:bg-green-900/30 text-green-700 dark:text-green-300 rounded-full text-xs font-medium">{t}</span>
-                ))}
-              </div>
-            </div>
-
-            {(detail.evaluationTexts ?? []).filter((text) => text.trim()).length === 3 ? (
-              <div className="space-y-3">
-                <p className="text-xs text-muted">他人评价与词云</p>
-                <EvaluationWordCloud
-                  words={detail.evaluationWords ?? []}
-                  height={260}
-                  emptyText="暂无可提取的关键词"
-                />
-                <EvaluationTexts texts={detail.evaluationTexts ?? []} collapsible={false} />
-                {detail.evaluationUrl && (
-                  <details>
-                    <summary className="cursor-pointer select-none text-xs text-muted hover:text-foreground">
-                      查看历史评价图片
-                    </summary>
-                    <StorageImage url={detail.evaluationUrl} storageId={detail.storageId} alt="" className="mt-2 w-full rounded-xl border border-gray-100" />
-                  </details>
-                )}
-              </div>
-            ) : detail.evaluationUrl ? (
-              <div>
-                <p className="text-xs text-muted mb-2">历史评价词云图片</p>
-                <StorageImage url={detail.evaluationUrl} storageId={detail.storageId} alt="" className="w-full rounded-xl border border-gray-100" />
-              </div>
-            ) : null}
-
-            {/* 职业兴趣测评（#234）：未测时整块不渲染；条形口径与结果页一致（buildRiasecBars） */}
-            {isAssessed(detail) && (
-              <div className="border-t border-border-soft pt-3" role="group" aria-label="职业兴趣测评">
-                <div className="flex items-center justify-between">
-                  <p className="text-sm font-medium text-foreground">职业兴趣测评</p>
-                  <span className="text-[11px] text-muted">
-                    {formatResultTime(detail.assessmentAt) || "完成时间未记录"}
-                  </span>
-                </div>
-                <div className="mt-2 flex items-center gap-2">
-                  <AssessmentCodeBadge code={detail.assessmentCode as string} />
-                  <span className="text-[11px] text-muted">霍兰德三字码 · 首位即主导型（列表筛选按任意位置包含）</span>
-                </div>
-                {hasAssessmentScores(detail) && (() => {
-                  const bars = buildRiasecBars(detail.assessmentScores ?? [], detail.assessmentCode);
-                  return (
-                    <div className="mt-3 space-y-1.5">
-                      {bars.map((bar) => (
-                        <div key={bar.key} className="flex items-center gap-2">
-                          <span className="w-24 flex-shrink-0 text-xs text-muted">
-                            {bar.key} · {bar.label}
-                            {bar.isTop && (
-                              <span className="ml-1 rounded bg-green-50 px-1 py-0.5 text-[9px] text-green-600 dark:bg-green-900/30 dark:text-green-400">
-                                主要
-                              </span>
-                            )}
-                          </span>
-                          <div className="h-2 flex-1 overflow-hidden rounded-full bg-gray-100 dark:bg-gray-800">
-                            <div
-                              className="h-full rounded-full"
-                              style={{ width: `${bar.percent}%`, backgroundColor: typeColorOf(bar.key).bar }}
-                            />
-                          </div>
-                          {/* 与学生端报告一致：保留一位小数，而不是四舍五入成整数 */}
-                          <span className="w-10 flex-shrink-0 text-right font-mono text-xs text-muted">
-                            {bar.standard.toFixed(1)}
-                          </span>
-                        </div>
-                      ))}
-                    </div>
-                  );
-                })()}
-                <p className="mt-2 text-[11px] leading-5 text-muted">
-                  需要重测时，请该生登录后进入「职业测评」重新作答：每次提交都会生成新的当前报告，旧版本保留可查。
-                </p>
-              </div>
-            )}
-
-            {/* 版本历史（#95）：折叠展示，打开详情时已预取 */}
-            <div className="border-t border-border-soft pt-3">
-              <button
-                onClick={() => setHistoryOpen((v) => !v)}
-                className="w-full flex items-center justify-between text-sm font-medium text-gray-700 dark:text-gray-200"
-                aria-expanded={historyOpen}
-              >
-                <span>版本历史（{historyRows.length}）</span>
-                <span className="text-gray-400">{historyOpen ? "收起" : "展开"}</span>
-              </button>
-              {historyOpen && (
-                <div className="mt-3 space-y-2">
-                  {historyLoading ? (
-                    <p className="text-sm text-gray-400">加载中...</p>
-                  ) : historyRows.length === 0 ? (
-                    <p className="text-sm text-gray-400">暂无版本记录</p>
-                  ) : (
-                    historyRows.map((h) => (
-                      <div key={h.id} className="border border-border-soft rounded-lg p-2.5 space-y-1.5">
-                        <div className="flex items-center gap-2">
-                          <span className="text-xs font-semibold text-gray-700 dark:text-gray-200">版本 {h.version}</span>
-                          {h.is_current === 1 ? (
-                            <span className="px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-green-50 text-green-600 dark:bg-green-900/30 dark:text-green-400">当前</span>
-                          ) : (
-                            <span className="px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-400">历史</span>
-                          )}
-                          <span className="ml-auto text-[10px] text-gray-400">{h.submitted_at}</span>
-                        </div>
-                        <div className="flex flex-wrap gap-1">
-                          {h.tags.length === 0 ? (
-                            <span className="text-[10px] text-gray-400">暂无标签</span>
-                          ) : (
-                            h.tags.map((t) => (
-                              <span key={t} className={`px-1.5 py-0.5 rounded text-[10px] ${tagColorMap.get(t) ?? "bg-green-50 dark:bg-green-900/30 text-green-700 dark:text-green-300"}`}>
-                                {t}
-                              </span>
-                            ))
-                          )}
-                        </div>
-                        {h.avatar_url && (
-                          <StorageImage url={h.avatar_url} storageId={h.storage_id} alt="" className="w-8 h-8 rounded object-cover border border-border-soft" />
-                        )}
-                        {(h.evaluation_texts ?? []).filter((text) => text.trim()).length === 3 ? (
-                          <div className="space-y-1.5">
-                            <EvaluationWordCloud
-                              words={h.evaluation_words ?? []}
-                              height={90}
-                              emptyText="暂无可提取的关键词"
-                            />
-                            <EvaluationTexts texts={h.evaluation_texts ?? []} />
-                            {h.evaluation_url && (
-                              <details>
-                                <summary className="cursor-pointer select-none text-[10px] text-muted hover:text-foreground">
-                                  查看此版本历史图片
-                                </summary>
-                                <StorageImage url={h.evaluation_url} storageId={h.storage_id} alt="" className="mt-1 h-8 w-14 rounded object-cover border border-border-soft" />
-                              </details>
-                            )}
-                          </div>
-                        ) : h.evaluation_url ? (
-                          <StorageImage url={h.evaluation_url} storageId={h.storage_id} alt="" className="h-8 w-14 rounded object-cover border border-border-soft" />
-                        ) : null}
-                      </div>
-                    ))
-                  )}
-                </div>
-              )}
-            </div>
-
-            <div className="flex gap-2 pt-2">
-              <button onClick={() => setDetail(null)}
-                className="flex-1 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm font-medium rounded-lg transition-colors">
-                关闭
-              </button>
-              {canDeleteProfile(detail) && (
-                <button onClick={() => { setConfirmDelete([detail.studentId]); setDetail(null); }}
-                  className="flex-1 py-2 bg-danger hover:bg-red-600 text-white text-sm font-medium rounded-lg transition-colors">
-                  删除此记录
-                </button>
-              )}
-            </div>
-          </div>
-        </div>
+        <ProfileDetailDialog
+          profile={detail}
+          scales={scales}
+          canDelete={canDeleteProfile(detail)}
+          onClose={() => setDetail(null)}
+          onRequestDelete={() => {
+            setConfirmDelete([detail.studentId]);
+            setDetail(null);
+          }}
+        />
       )}
 
       {/* 导出名单（#331）：范围 = 当前筛选结果（含所有页）；按需挂载，每次打开回到默认勾选 */}

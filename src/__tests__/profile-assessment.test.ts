@@ -7,7 +7,6 @@ import {
   assessmentLeadOf,
   findDimensionalScale,
   findTypologicalScale,
-  hasAssessmentScores,
   isAssessed,
   matchesAssessmentInterest,
   personalityDimensionLabel,
@@ -23,6 +22,7 @@ import {
   type ProfileAssessmentFields,
   type ProfileAssessmentScaleView,
 } from "@/lib/profile-assessment";
+import { hasScoreSnapshot, scoreSnapshotNotice } from "@/lib/assessment-view";
 import { RIASEC_KEYS } from "@/lib/assessment-match";
 import { IPIP_DIMENSIONS } from "@/lib/assessment-data";
 
@@ -91,15 +91,18 @@ describe("兴趣测评筛选口径（#234 / #305 数据列表）", () => {
 
 describe("详情条形数据判定（#234）", () => {
   it("快照缺失 / 损坏（解析为空）时不画条形", () => {
-    expect(hasAssessmentScores({ assessmentScores: null })).toBe(false);
-    expect(hasAssessmentScores({})).toBe(false);
-    expect(hasAssessmentScores({ assessmentScores: [] })).toBe(false);
+    expect(hasScoreSnapshot(null)).toBe(false);
+    expect(hasScoreSnapshot(undefined)).toBe(false);
+    expect(hasScoreSnapshot([])).toBe(false);
   });
 
   it("有六维快照时才画条形", () => {
-    expect(
-      hasAssessmentScores({ assessmentScores: [{ key: "R", standard: 80 }] })
-    ).toBe(true);
+    expect(hasScoreSnapshot([{ key: "R", standard: 80 }])).toBe(true);
+  });
+
+  it("快照缺失说明按受众切人称", () => {
+    expect(scoreSnapshotNotice("teacher")).toContain("该生");
+    expect(scoreSnapshotNotice("student")).not.toContain("该生");
   });
 });
 

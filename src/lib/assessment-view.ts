@@ -12,6 +12,7 @@
 import type { DimensionScore } from "./assessment-scoring";
 import { MAX_RESULT_VERSIONS } from "./assessment-flow";
 import { RIASEC_KEYS, RIASEC_LABELS, normalizeHollandCode, type RiasecKey } from "./assessment-match";
+import type { StudentViewKey } from "./student-nav";
 
 /** 六型通俗解读：写给第一次看结果的学生，不出现「维度 / 标准分 / 口径」这类术语 */
 export const RIASEC_INTERPRETATIONS: Readonly<Record<RiasecKey, string>> = {
@@ -209,6 +210,24 @@ export function resultCardStatus(
   if (data.current) return "completed";
   if (data.inProgress) return "in-progress";
   return "not-started";
+}
+
+/**
+ * 维度分快照能不能画（#234 / #332）：`completed` 但快照缺失或损坏（解析后为空）时返回 false，
+ * 结果卡与速览卡据此降级——按 0 分画六条 / 雷达 / 画像等于凭空造结论。
+ */
+export function hasScoreSnapshot(scores: readonly RiasecScoreSnapshot[] | null | undefined): boolean {
+  return Array.isArray(scores) && scores.length > 0;
+}
+
+/** 速览卡在快照缺失时的主文案 */
+export const SNAPSHOT_MISSING_HEADLINE = "已测 · 分数快照缺失";
+
+/** 详情卡在快照缺失时的说明（人称按受众切换） */
+export function scoreSnapshotNotice(viewer: "student" | "teacher"): string {
+  return viewer === "teacher"
+    ? "这份报告只取到了结论：该生的维度分快照缺失，因此不画分数条与雷达图；需要完整画像请让学生重新作答。"
+    : "这份报告只取到了结论：维度分快照缺失，因此暂时不画分数条与雷达图；重新作答可以生成完整画像。";
 }
 
 /**
@@ -551,4 +570,19 @@ export function buildAttributionGroups(input: {
     disclaimers,
     careersAttribution: (input.careersAttribution ?? "").trim(),
   };
+}
+
+/**
+ * 测评结果区是否渲染（#344）：**只在「我的档案」视图、且不在编辑态**时渲染。
+ *
+ * - 我的小组 / 历史提交与测评无关，此前无条件挂载会把霍兰德、大五与「人格与兴趣一起看」
+ *   三张卡塞进无关页面，并把本组名单挤到第 4 屏；不渲染后也不会再发
+ *   `assessment/list` + 逐套 `results` 请求；
+ * - 编辑态统一隐藏（产研结论）：填写档案时结果卡只会干扰输入，与资料卡「先保存再回来看结果」
+ *   的既有交互一致；保存/取消后回到档案视图即恢复；
+ * - 与档案提交流程仍完全解耦：不看 `submissionClosed`、不进档案版本快照。
+ * - 视图联合类型取自 `student-nav.ts`（唯一权威定义），本模块不重复声明。
+ */
+export function shouldRenderAssessmentResults(activeView: StudentViewKey, editing: boolean): boolean {
+  return !editing && activeView === "profile";
 }

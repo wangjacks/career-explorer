@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { ASSESSMENT_DASHBOARD_COPY, ADMIN_DASHBOARD_COPY, TEACHER_BOARD_COPY, TEACHER_DASHBOARD_COPY, type DashboardCopy } from "../lib/dashboard-copy";
+import { TEACHER_BOARD_CONTENT, bigFiveTeacherLabel } from "../lib/teacher-board-content";
 import {
   isReservedClassName,
   UNASSIGNED_CLASS_KEY,
@@ -398,6 +399,9 @@ describe("ASSESSMENT_DASHBOARD_COPY（#232 大屏测评栏）", () => {
       "src/components/admin/TeacherBoardHero.tsx",
       "src/components/admin/CompletionMatrix.tsx",
       "src/components/admin/ActionStrip.tsx",
+      "src/components/admin/InterestStructureCard.tsx",
+      "src/components/admin/BigFiveStructureCard.tsx",
+      "src/components/admin/BoardHelpDrawer.tsx",
       "src/components/admin/AssessmentRosterDialog.tsx",
     ]) {
       expect(cjkLiterals(readFileSync(join(process.cwd(), file), "utf8")), `${file} 里有硬编码中文`).toEqual([]);
@@ -433,6 +437,16 @@ const BOARD_FUNCTION_SAMPLES: Record<string, unknown[][]> = {
   rosterTitleMissing: [["2025级1班", "兴趣测评"]],
   rosterBandLabel: [["high"], ["medium"], ["low"]],
   rosterCountLabel: [[12]],
+  rosterTitleCode: [["SIA", "社会型 · 研究型 · 艺术型"]],
+  rosterTitleCodeClass: [["2025级1班", "SIA", "社会型 · 研究型 · 艺术型"]],
+  interestLegendAria: [["社会型", "S", 2]],
+  interestCodeLabel: [["SIA", "社会型 · 研究型 · 艺术型"]],
+  interestCodeAria: [["SIA", "社会型 · 研究型 · 艺术型", 4]],
+  bigFiveRowAria: [["情绪敏感度（神经质 N）", 12, 18, 16]],
+  bigFiveCountLabel: [[12, 18, 16]],
+  bigFiveInvalidNote: [[3]],
+  bigFiveRosterButton: [[]],
+  bigFiveRosterAria: [[]],
 };
 
 function collectBoardStrings(): string[] {
@@ -512,6 +526,97 @@ describe("TEACHER_BOARD_COPY（#314 测评看板）", () => {
       expect(value, `${key} 为空`).toBeTruthy();
     }
     for (const text of collectBoardStrings()) expect(text.trim()).not.toBe("");
+  });
+
+  it("结构卡与说明抽屉的关键文案（#315）", () => {
+    expect(TEACHER_BOARD_COPY.structureAllClassesLabel).toBe("全部班级");
+    expect(TEACHER_BOARD_COPY.structureClassLabel).toBe("看的班级");
+    expect(TEACHER_BOARD_COPY.interestTitle).toBe("兴趣结构");
+    expect(TEACHER_BOARD_COPY.interestSampleHint).toContain("少于 5");
+    expect(TEACHER_BOARD_COPY.interestLegendAria("社会型", "S", 2)).toContain("社会型");
+    expect(TEACHER_BOARD_COPY.interestLegendAria("社会型", "S", 2)).toContain("S");
+    expect(TEACHER_BOARD_COPY.interestCodeLabel("SIA", "社会型 · 研究型 · 艺术型")).toBe(
+      "SIA（社会型 · 研究型 · 艺术型）"
+    );
+    expect(TEACHER_BOARD_COPY.bigFiveTitle).toBe("人格轮廓");
+    expect(TEACHER_BOARD_COPY.bigFiveCountLabel(12, 18, 16)).toBe("偏低 12 · 中等 18 · 偏高 16");
+    expect(TEACHER_BOARD_COPY.bigFiveInvalidNote(3)).toContain("不计入分布");
+    expect(TEACHER_BOARD_COPY.helpTitle).toBe("老师怎么看这些结果");
+    expect(TEACHER_BOARD_COPY.helpTabBigFive).toBe("人格五项");
+    expect(TEACHER_BOARD_COPY.rosterTitleCode("SIA", "社会型 · 研究型 · 艺术型")).toBe(
+      "三字码 SIA（社会型 · 研究型 · 艺术型）· 已完成名单"
+    );
+  });
+});
+
+/** 把内容模块里所有会展示的字符串摊平（含数组），用于禁词扫描 */
+function flattenContentStrings(value: unknown): string[] {
+  if (typeof value === "string") return [value];
+  if (Array.isArray(value)) return value.flatMap((item) => flattenContentStrings(item));
+  if (value !== null && typeof value === "object") {
+    return Object.values(value as Record<string, unknown>).flatMap((item) => flattenContentStrings(item));
+  }
+  return [];
+}
+
+describe("教师说明内容（#315 teacher-board-content）", () => {
+  const strings = flattenContentStrings(TEACHER_BOARD_CONTENT);
+  const BANNED_SCALE_NAMES = ["SDS", "Strong", "MBTI", "霍兰德职业兴趣测验"];
+
+  it("沿用教师侧禁词表：不含统计口径词，也不说「全校 / 全班 / 本班」", () => {
+    expect(strings.length).toBeGreaterThan(15);
+    for (const text of strings) {
+      for (const word of JARGON) {
+        expect(text, `说明文案残留「${word}」：${text}`).not.toContain(word);
+      }
+      expect(text, `说明文案暗示了范围：${text}`).not.toMatch(/全校|全班|本班/);
+    }
+  });
+
+  it("不出现商业量表名与诊断式表述", () => {
+    for (const text of strings) {
+      for (const name of BANNED_SCALE_NAMES) {
+        expect(text, `出现商业量表名「${name}」：${text}`).not.toContain(name);
+      }
+      expect(text).not.toMatch(/诊断结果|心理诊断书|抑郁症|多动症/);
+    }
+  });
+
+  it("硬约束齐备：E/A/C 同名不同义、三档阈值、不贴标签的使用边界", () => {
+    const all = strings.join("\n");
+    expect(all).toContain("企业型 ≠ 外向性");
+    expect(all).toContain("艺术型 ≠ 宜人性");
+    expect(all).toContain("常规型 ≠ 尽责性");
+    // 三档阈值与学生侧 50 分中线口径的差异说明（#315 §4）
+    expect(all).toContain("33");
+    expect(all).toContain("50 分中线");
+    expect(all).toContain("不构成心理诊断");
+    expect(all).toContain("不用于评价");
+  });
+
+  it("五项教师叫法：只特判 N，其余中文名跟随接口下发的量表名", () => {
+    expect(bigFiveTeacherLabel("N", "神经质")).toBe("情绪敏感度（神经质 N）");
+    expect(bigFiveTeacherLabel("E", "外向性")).toBe("外向性（E）");
+    // 换一份接口标签就必须跟着变，证明前端没有写死 E/O/A/C
+    expect(bigFiveTeacherLabel("O", "经验开放性")).toBe("经验开放性（O）");
+    expect(bigFiveTeacherLabel("A", "合作性")).toBe("合作性（A）");
+    expect(bigFiveTeacherLabel("C", "自律性")).toBe("自律性（C）");
+    // fallback 为空时退回 key，不产出空标签
+    expect(bigFiveTeacherLabel("E", "  ")).toBe("E");
+    expect(bigFiveTeacherLabel("unknown", "未知方面")).toBe("未知方面（unknown）");
+  });
+
+  it("「怎么用」Tab 覆盖 #315 §4.3 的必备内容，页脚声明不是死文案", () => {
+    const titles = TEACHER_BOARD_CONTENT.howTo.map((item) => item.title).join("\n");
+    const bodies = TEACHER_BOARD_CONTENT.howTo.map((item) => item.body).join("\n");
+    expect(titles).toContain("先看完成度");
+    expect(titles).toContain("一人只计一次");
+    expect(bodies).toContain("第一位");
+    expect(titles).toContain("不做个人排名");
+    expect(titles).toContain("投屏");
+    const drawer = readFileSync(join(process.cwd(), "src/components/admin/BoardHelpDrawer.tsx"), "utf8");
+    expect(drawer).toContain("content.footerDisclaimer");
+    expect(drawer).not.toContain("helpFooterNote");
   });
 });
 

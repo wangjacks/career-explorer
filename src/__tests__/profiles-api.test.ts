@@ -3,6 +3,7 @@ import { NextRequest } from "next/server";
 
 vi.mock("@/lib/db", () => ({
   getSubmittedProfiles: vi.fn(),
+  getClasses: vi.fn(),
   clearSubmissions: vi.fn(),
   getEnabledAssessments: vi.fn(),
   getCurrentAssessmentResultsByUserCodes: vi.fn(),
@@ -16,6 +17,7 @@ vi.mock("@/lib/db", () => ({
 import { GET } from "@/app/api/manage/profiles/route";
 import {
   getSubmittedProfiles,
+  getClasses,
   getEnabledAssessments,
   getCurrentAssessmentResultsByUserCodes,
 } from "@/lib/db";
@@ -60,10 +62,10 @@ const RIASEC_SCALE = {
     { key: "C", label: "常规型" },
   ]),
   scoring_mode: "typological",
-  scale_version: "Mini-IP-CN 1.0",
-  attribution: "",
-  license_text: "",
-  disclaimer: "",
+  scale_version: "RIASEC-CN 2.0",
+  attribution: "O*NET 署名文本",
+  license_text: "O*NET 授权文本",
+  disclaimer: "兴趣结果只用于生涯探索。",
   enabled: 1,
   created_at: "",
   updated_at: "",
@@ -84,6 +86,9 @@ const IPIP_SCALE = {
   ]),
   scoring_mode: "dimensional",
   scale_version: "IPIP NEO-FFI 1.0",
+  attribution: "IPIP 公有领域",
+  license_text: "IPIP 授权文本",
+  disclaimer: "人格结果只用于生涯探索。",
 } as AssessmentRow;
 
 function result(overrides: Partial<AssessmentResultSummary> = {}): AssessmentResultSummary {
@@ -129,6 +134,9 @@ beforeEach(() => {
     total: 42,
   });
   vi.mocked(getEnabledAssessments).mockResolvedValue([RIASEC_SCALE, IPIP_SCALE]);
+  vi.mocked(getClasses).mockResolvedValue([
+    { id: 7, name: "2026智能科学与技术1班", invitation_code: "CODE7", created_at: "" },
+  ]);
   vi.mocked(getCurrentAssessmentResultsByUserCodes).mockImplementation(async (assessmentId: number) => {
     if (assessmentId === RIASEC_ID) return [result()];
     if (assessmentId === IPIP_ID) return [ipipResult()];
@@ -191,6 +199,7 @@ describe("GET /api/manage/profiles — 双测评列（#330）", () => {
       studentId: "202505050101",
       // #243：教师端据此判断行是否在本人管辖班级内
       classId: 7,
+      className: "2026智能科学与技术1班",
       assessmentCode: "SIA",
       assessmentStatus: "completed",
       assessmentAt: "2026-10-18 09:30:00",
@@ -382,5 +391,40 @@ describe("GET /api/manage/profiles — 测评筛选参数（#330）", () => {
 
     expect((await GET(makeRequest("?interest=Z"))).status).toBe(400);
     expect((await GET(makeRequest("?personality=C"))).status).toBe(400);
+  });
+});
+describe("GET /api/manage/profiles — 详情弹窗数据（#332）", () => {
+  it("行带班级名；量表清单带授权/免责/版本/题量（弹窗渲染无需再请求测评接口）", async () => {
+    const res = await GET(makeRequest());
+    const body = await res.json();
+    expect(body.data[0]).toMatchObject({ classId: 7, className: "2026智能科学与技术1班" });
+    expect(body.assessmentScales[0]).toMatchObject({
+      code: "riasec",
+      scaleVersion: "RIASEC-CN 2.0",
+      questionCount: 30,
+      poolSize: 30,
+      attribution: "O*NET 署名文本",
+      licenseText: "O*NET 授权文本",
+      disclaimer: "兴趣结果只用于生涯探索。",
+    });
+    expect(body.assessmentScales[1]).toMatchObject({
+      code: "ipip-neo-ffi",
+      questionCount: 50,
+      poolSize: 50,
+      attribution: "IPIP 公有领域",
+      licenseText: "IPIP 授权文本",
+      disclaimer: "人格结果只用于生涯探索。",
+    });
+  });
+
+  it("班级表读取失败 → className 为 null（只降级该字段，列表照常 200）", async () => {
+    vi.mocked(getClasses).mockRejectedValueOnce(new Error("classes table missing"));
+    const res = await GET(makeRequest());
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.data).toHaveLength(2);
+    expect(body.data[0].className).toBeNull();
+    // 其余字段不受影响
+    expect(body.data[0].assessmentResults.riasec.status).toBe("completed");
   });
 });
