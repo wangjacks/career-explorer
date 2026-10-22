@@ -82,6 +82,24 @@ describe("buildClassSeries", () => {
     );
     expect(series[0]).toEqual({ date: "2026-10-17", s0: 5, s1: 6 });
   });
+
+  it("存在名为 date 的班级时，X 轴字段仍是日期、该班数值落在自己的位置别名上", () => {
+    const rows = buildClassSeries(
+      [
+        { key: "一班", label: "一班" },
+        { key: "date", label: "date" },
+        { key: "三班", label: "三班" },
+      ],
+      [
+        { date: "2026-10-17", counts: { 一班: 1, date: 2, 三班: 3 } },
+        { date: "2026-10-18", counts: { 一班: 4, date: 5, 三班: 6 } },
+      ]
+    );
+    // 字段集合只有 date + 位置别名：任何合法班名都进不了图表行的键
+    expect(Object.keys(rows[0]).sort()).toEqual(["date", "s0", "s1", "s2"]);
+    expect(rows.map((row) => row.date)).toEqual(["2026-10-17", "2026-10-18"]);
+    expect(rows[1]).toEqual({ date: "2026-10-18", s0: 4, s1: 5, s2: 6 });
+  });
 });
 
 describe("maskStudentCode", () => {

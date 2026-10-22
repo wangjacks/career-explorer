@@ -134,6 +134,8 @@ describe("TEACHER_DASHBOARD_COPY", () => {
     expect(TEACHER_DASHBOARD_COPY.trendGroupAriaLabel).toBe("怎么看（所有班级 · 分班级）");
     expect(TEACHER_DASHBOARD_COPY.trendScopeNote).toBe("上面两个按钮只改这张图");
     expect(TEACHER_DASHBOARD_COPY.trendLoadingByClass).toBe("正在分班统计…");
+    expect(TEACHER_DASHBOARD_COPY.trendLoadingTotal).toBe("正在统计这几天的提交…");
+    expect(TEACHER_DASHBOARD_COPY.trendSummaryLoading).toBe("这几天的合计还在统计…");
     expect(TEACHER_DASHBOARD_COPY.trendEmptyTitle).toBe("这几天还没有学生提交");
     expect(TEACHER_DASHBOARD_COPY.trendEmptyHint).toBe("可以把天数拉长一些，或者提醒学生开始填写。");
     expect(TEACHER_DASHBOARD_COPY.distEyebrow).toBe("学生常提哪类");
@@ -209,6 +211,8 @@ describe("ADMIN_DASHBOARD_COPY", () => {
     expect(ADMIN_DASHBOARD_COPY.trendGroupClassLabel).toBe("按班级");
     expect(ADMIN_DASHBOARD_COPY.trendDaysAriaLabel).toBe("趋势天数");
     expect(ADMIN_DASHBOARD_COPY.trendLoadingByClass).toBe("正在按班级拆分…");
+    expect(ADMIN_DASHBOARD_COPY.trendLoadingTotal).toBe("正在按时间窗口统计…");
+    expect(ADMIN_DASHBOARD_COPY.trendSummaryLoading).toBe("本窗口合计统计中…");
     expect(ADMIN_DASHBOARD_COPY.trendEmptyTitle).toBe("所选窗口内还没有提交记录");
     expect(ADMIN_DASHBOARD_COPY.trendEmptyHint).toBe("把趋势天数调大一些，或确认学生是否已开始填写档案。");
     expect(ADMIN_DASHBOARD_COPY.trendFailedSummary).toBe("趋势数据加载失败，暂不显示本窗口合计");

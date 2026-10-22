@@ -14,14 +14,13 @@ import {
 
 export default function AdminDashboardTab() {
   const {
-    trends,
     distribution,
     compare,
     trendDays,
     trendGroup,
     setTrendDays,
     setTrendGroup,
-    classTrend,
+    trendView,
     firstLoading,
     trendPending,
     errors,
@@ -66,12 +65,11 @@ export default function AdminDashboardTab() {
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
         <TrendCard
-          trends={trends}
+          trendView={trendView}
           trendDays={trendDays}
           trendGroup={trendGroup}
           setTrendDays={setTrendDays}
           setTrendGroup={setTrendGroup}
-          classTrend={classTrend}
           trendPending={trendPending}
           trendsFailed={errors.trends}
           copy={ADMIN_DASHBOARD_COPY}
