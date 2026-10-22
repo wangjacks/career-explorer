@@ -166,6 +166,11 @@ function StudentProfilePageContent() {
 
   const startEdit = useCallback(async () => {
     if (!profile) return;
+    // 直接深链 `?edit=1` 也要受截止门控：入口按钮虽已置灰，URL 仍可绕过
+    if (submissionClosed) {
+      toast.error("档案提交已截止，无法修改");
+      return;
+    }
     setEditTags(profile.tags);
     setAvatarFile(null);
     setEditEvaluations(
@@ -182,7 +187,7 @@ function StudentProfilePageContent() {
     } else {
       void reloadCategories();
     }
-  }, [profile, categoriesState, reloadCategories]);
+  }, [profile, submissionClosed, categoriesState, reloadCategories]);
 
   // 编辑态导航守卫（#361）：侧边栏 / 历史提交 Link 跳转前询问，避免一半输入丢失
   useEffect(() => {
@@ -200,12 +205,21 @@ function StudentProfilePageContent() {
   // 历史 / 小组页 hero 的「修改」跳到 `?edit=1`（#361）：profile 就绪后自动进入编辑态并清掉查询参数
   const editQueryHandled = useRef(false);
   const editRequested = searchParams.get("edit") === "1";
+  /* eslint-disable react-hooks/set-state-in-effect -- ?edit=1 深链需在 profile / 截止状态就绪后进入编辑态 */
   useEffect(() => {
-    if (!editRequested || editQueryHandled.current || !profile || editing) return;
+    // 等标签接口回来再判截止态：否则可能先按旧状态打开编辑表单
+    if (!editRequested || editQueryHandled.current || !profile || editing || categoriesState === "loading") {
+      return;
+    }
     editQueryHandled.current = true;
     router.replace("/dashboard/student", { scroll: false });
+    if (submissionClosed) {
+      toast.error("档案提交已截止，无法修改");
+      return;
+    }
     void startEdit();
-  }, [editRequested, profile, editing, router, startEdit]);
+  }, [editRequested, profile, editing, categoriesState, submissionClosed, router, startEdit]);
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   // 速览卡「查看详情」（#323）：滚动到目标 + 短暂高亮（1800ms 后自动淡出）
   const focusDetail = useCallback((targetId: string) => {
