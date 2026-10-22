@@ -144,6 +144,7 @@ async function POST_impl(request: NextRequest) {
       featureSources: describeBatchSources(sources),
       groupSize: GROUP_SIZE_CAP,
       studentCount: roster.length,
+      // #345 起该列存「有任一分组依据」人数（沿用 tagged_count 列名）；历史批次不可比，口径见 docs/architecture.md
       taggedCount: metrics.coveredCount,
       metrics: JSON.stringify(metrics),
       actorId: session.uid ?? null,

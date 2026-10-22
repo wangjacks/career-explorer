@@ -378,6 +378,7 @@ export function planDemoSeed(seed: number, opts: DemoSeedOptions): DemoSeedPlan 
       featureSources: describeSources(),
       groupSize: GROUP_SIZE_CAP,
       studentCount: groupingResult.metrics.studentCount,
+      // 与生产归档同口径：tagged_count 存「有任一分组依据」人数（#345 起）
       taggedCount: groupingResult.metrics.coveredCount,
       metricsJson: JSON.stringify(groupingResult.metrics),
       groups,

@@ -258,7 +258,7 @@ export interface GroupBatchRow {
   /** 目标组容量（每组上限） */
   group_size: number;
   student_count: number;
-  /** 有特征的学生数（本期即「有标签人数」） */
+  /** 有任一分组依据的学生数（#345 起口径；列名沿用 tagged_count，历史批次不可比，见 docs/architecture.md「课堂分组」） */
   tagged_count: number;
   /** 指标快照（JSON 文本；标签会随时间变，故质量指标必须快照） */
   metrics: string | null;
@@ -300,6 +300,7 @@ export interface NewGroupBatchInput {
   featureSources: string;
   groupSize: number;
   studentCount: number;
+  /** 有任一分组依据的学生数（写入 group_batches.tagged_count；列名为历史名称，不代表「有标签」） */
   taggedCount: number;
   metrics: string;
   actorId: number | null;
