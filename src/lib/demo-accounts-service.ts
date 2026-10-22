@@ -1,6 +1,7 @@
 /**
  * 演示访客账户服务（#278）：一个访客账户 = 同名同密码的三个 user 行
  * （admin / teacher / student），由同一 seq 从专用号段派生编号（见 demo-accounts.ts）。
+ * 姓名可自定义（#369）：传入 `opts.name` 归一后落三行，留空则回退 `pickName` 随机。
  *
  * 本模块**不自行进入演示作用域**——由路由在 admin 校验后 `runInDemoScope` 包裹（同 materializeDemoSeed）。
  * 所有操作仅作用于演示库；生产 admin 的审计由路由在生产作用域写入。
@@ -16,6 +17,7 @@ import {
   DEMO_CLASS_NAME,
   createDemoAccount,
 } from "./demo-accounts";
+import { normalizeDemoName } from "./demo-names";
 import {
   getStudents,
   getUserByCode,
@@ -208,7 +210,7 @@ export async function getVisitorAccount(seq: number): Promise<VisitorAccountSumm
   return rows ? toSummary(seq, rows) : null;
 }
 
-export function createVisitorAccount(opts?: { password?: string }): Promise<VisitorAccountCreated> {
+export function createVisitorAccount(opts?: { password?: string; name?: string }): Promise<VisitorAccountCreated> {
   return withMutationLock(async () => {
     assertDemoScope();
     const cls = await getClassByName(DEMO_CLASS_NAME);
@@ -217,7 +219,9 @@ export function createVisitorAccount(opts?: { password?: string }): Promise<Visi
     }
 
     const seq = await allocateSeq();
-    const name = pickName(Math.random); // 三身份共用一个姓名
+    // 归一后为空则回退随机；非空用自定义名（三身份共用）。服务层再归一一次做纵深防御，
+    // 覆盖不经路由的直接调用者，保证落库三行、凭据复制、审计口径一致。
+    const name = normalizeDemoName(opts?.name) || pickName(Math.random);
     const plain = opts?.password ?? generatePassword(12);
     const hash = await hashPassword(plain);
     const codes = demoAccountCodes(seq);
