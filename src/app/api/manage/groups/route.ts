@@ -1,6 +1,6 @@
 import { withDemoScope } from "@/lib/demo-scope";
 import { NextRequest, NextResponse } from "next/server";
-import { applyGroupingResult, getStudents } from "@/lib/db";
+import { applyGroupingResult, getBatchWorkspaces, getStudents } from "@/lib/db";
 import { getRequestContext, recordAudit } from "@/lib/audit";
 import { getSession, canModifyClass } from "../classes/helpers";
 import { buildFeatureVectors, FEATURE_SOURCES } from "@/lib/grouping-features";
@@ -165,6 +165,9 @@ async function POST_impl(request: NextRequest) {
     };
 
     const batchId = await applyGroupingResult(classId, groupsSql, batch);
+    // #346：应用分组在同一事务内为每个组建了工作区；这里把 ids 回给教师端接线
+    const workspaces = await getBatchWorkspaces(batchId);
+    const workspaceId = workspaces[0]?.id ?? null;
     void recordAudit({
       ...actorOf(session),
       ...GENERATE_AUDIT,
@@ -198,8 +201,10 @@ async function POST_impl(request: NextRequest) {
     return NextResponse.json({
       ok: true,
       batchId,
-      // #346 起「应用分组」会同时创建学生端小组工作区；本 issue 先返回 null，等 #346 提供接口后接线
-      workspaceId: null,
+      // #346：应用分组会同时创建学生端小组工作区（每个组一个）；workspaceId 保留首个便于旧调用方，
+      // 新调用方用 workspaces 按组号取
+      workspaceId,
+      workspaces: workspaces.map((w) => ({ groupNo: w.group_no, workspaceId: w.id })),
       view: await buildGroupingView(classId),
     });
   } catch (err) {

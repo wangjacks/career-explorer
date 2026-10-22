@@ -23,6 +23,8 @@ export default function StudentPanelLayout({ children }: { children: React.React
   const { session, checking } = useSession();
 
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  // 小组未读公告（#346）：侧边栏红点；小组页标记已读后由 GroupPanel 清零
+  const [groupUnread, setGroupUnread] = useState(0);
   /* eslint-disable react-hooks/set-state-in-effect -- 桌面默认展开需挂载后按视口判断 */
   useEffect(() => {
     if (window.matchMedia("(min-width: 768px)").matches) setSidebarOpen(true);
@@ -42,9 +44,28 @@ export default function StudentPanelLayout({ children }: { children: React.React
     }
   }, [checking, session, router]);
 
+  // 侧边栏红点（#346）：进入面板时取一次未读数；小组页打开后标记已读并清零
+  useEffect(() => {
+    if (!session || session.role !== "student") return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await fetch("/api/shared/group/unread");
+        if (!res.ok) return;
+        const data = await res.json();
+        if (!cancelled) setGroupUnread(Number(data.unreadCount) || 0);
+      } catch (err) {
+        console.error("Failed to load group unread:", err);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [session]);
+
   const contextValue = useMemo<StudentPanelContextValue>(
-    () => ({ canNavigate, setNavGuard, sidebarOpen }),
-    [canNavigate, setNavGuard, sidebarOpen]
+    () => ({ canNavigate, setNavGuard, sidebarOpen, groupUnread, setGroupUnread }),
+    [canNavigate, setNavGuard, sidebarOpen, groupUnread]
   );
 
   if (!session || session.role !== "student") {
@@ -68,6 +89,7 @@ export default function StudentPanelLayout({ children }: { children: React.React
             open={sidebarOpen}
             onClose={() => setSidebarOpen(false)}
             canNavigate={canNavigate}
+            unreadCount={groupUnread}
           />
 
           <main className="flex-1 min-w-0 px-4 sm:px-6 pt-6 pb-6 animate-[fade-in_0.2s_ease-out]">

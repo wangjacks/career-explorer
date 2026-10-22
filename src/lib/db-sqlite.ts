@@ -39,6 +39,16 @@ import type {
   GroupBatchGroupRow,
   GroupBatchMemberRow,
   NewGroupBatchInput,
+  GroupWorkspaceRow,
+  GroupPostRow,
+  GroupTaskRow,
+  GroupWorkspaceReadRow,
+  GroupWorkspaceContext,
+  StudentWorkspaceSummary,
+  NewGroupPostInput,
+  NewGroupTaskInput,
+  GroupPostUpdateFields,
+  GroupTaskUpdateFields,
   TrendPoint,
   CompareStat,
   ClassTrendSeries,
@@ -301,6 +311,70 @@ export class SqliteAdapter implements DbAdapter {
         UNIQUE(batch_id, user_id)
       )
     `);
+    // 小组工作区（#346）：锚定**批次内的组**而不是批次头——同批多个组各有公告/任务，
+    // 共用一个工作区会把别组内容暴露给本组。重分组追加新批次 → 新工作区，旧批次只读。
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS group_workspaces (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        class_id INTEGER NOT NULL REFERENCES classes(id),
+        batch_id INTEGER NOT NULL REFERENCES group_batches(id),
+        batch_group_id INTEGER NOT NULL REFERENCES group_batch_groups(id),
+        group_no INTEGER NOT NULL,
+        title TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        UNIQUE(batch_group_id)
+      )
+    `);
+    // 公告：作者姓名/角色做快照；deleted_at 软删除（保留审计链）
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS group_posts (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        workspace_id INTEGER NOT NULL REFERENCES group_workspaces(id),
+        author_id INTEGER,
+        author_name TEXT,
+        author_role TEXT,
+        title TEXT NOT NULL,
+        content TEXT NOT NULL,
+        pinned INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL,
+        deleted_at TEXT
+      )
+    `);
+    // 任务：认领人姓名做快照；status 只接受 open / in_progress / done（路由层校验）
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS group_tasks (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        workspace_id INTEGER NOT NULL REFERENCES group_workspaces(id),
+        title TEXT NOT NULL,
+        description TEXT,
+        assignee_id INTEGER,
+        assignee_name TEXT,
+        status TEXT NOT NULL DEFAULT 'open',
+        due_at TEXT,
+        created_by_id INTEGER,
+        created_by_name TEXT,
+        created_by_role TEXT,
+        created_at TEXT NOT NULL,
+        completed_at TEXT,
+        deleted_at TEXT
+      )
+    `);
+    // 已读水位：未读红点按「水位之后的公告数」算；唯一约束让 upsert 两库语义一致
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS group_workspace_reads (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        workspace_id INTEGER NOT NULL REFERENCES group_workspaces(id),
+        user_id INTEGER NOT NULL REFERENCES users(id),
+        last_read_at TEXT NOT NULL,
+        last_read_post_id INTEGER NOT NULL DEFAULT 0,
+        UNIQUE(workspace_id, user_id)
+      )
+    `);
+    // 增量补列（#346 首版只有 last_read_at）：旧库缺列时补上，水位从 0 起算
+    const readColumns = this.db.prepare("PRAGMA table_info(group_workspace_reads)").all() as { name: string }[];
+    if (!readColumns.some((column) => column.name === "last_read_post_id")) {
+      this.db.exec("ALTER TABLE group_workspace_reads ADD COLUMN last_read_post_id INTEGER NOT NULL DEFAULT 0");
+    }
     // #345 补列：旧库（#101 时期创建）没有组长列。SQLite 的 ALTER TABLE 只能加可空列，
     // 正好符合「组长可空」的语义；新库由上面的 CREATE TABLE 直接带列。
     const classGroupColumns = this.db.prepare("PRAGMA table_info(class_groups)").all() as { name: string }[];
@@ -342,6 +416,21 @@ export class SqliteAdapter implements DbAdapter {
     this.db.exec(
       `CREATE INDEX IF NOT EXISTS idx_group_batch_members_user ON group_batch_members(user_id)`
     );
+    this.db.exec(`CREATE INDEX IF NOT EXISTS idx_group_workspaces_class ON group_workspaces(class_id)`);
+    this.db.exec(`CREATE INDEX IF NOT EXISTS idx_group_workspaces_batch ON group_workspaces(batch_id)`);
+    this.db.exec(`CREATE INDEX IF NOT EXISTS idx_group_posts_workspace ON group_posts(workspace_id, created_at)`);
+    this.db.exec(`CREATE INDEX IF NOT EXISTS idx_group_tasks_workspace ON group_tasks(workspace_id, status)`);
+    // 旧库升级（#346 之前已有批次）：为存量批次组补建工作区，避免上线后「已分组但没有工作区」。
+    // 幂等：仅补 NOT EXISTS 的组；标题与新建工作区保持同一口径。历史批次的工作区天然只读。
+    this.db.exec(`
+      INSERT INTO group_workspaces (class_id, batch_id, batch_group_id, group_no, title, created_at)
+      SELECT b.class_id, bg.batch_id, bg.id, bg.group_no,
+             '第 ' || bg.group_no || ' 组工作区',
+             COALESCE(b.created_at, datetime('now', 'localtime'))
+        FROM group_batch_groups bg
+        JOIN group_batches b ON b.id = bg.batch_id
+       WHERE NOT EXISTS (SELECT 1 FROM group_workspaces w WHERE w.batch_group_id = bg.id)
+    `);
   }
 
   /**
@@ -1057,6 +1146,12 @@ export class SqliteAdapter implements DbAdapter {
           `DELETE FROM assessment_results WHERE user_id IN (SELECT id FROM users WHERE user_code IN (${placeholders}))`
         )
         .run(...userCodes);
+      // 小组已读水位（#346）：按 user_id 引用 users，删学生前清掉，避免外键拦住删除
+      this.db
+        .prepare(
+          `DELETE FROM group_workspace_reads WHERE user_id IN (SELECT id FROM users WHERE user_code IN (${placeholders}))`
+        )
+        .run(...userCodes);
       return this.db
         .prepare(`DELETE FROM users WHERE role = 'student' AND user_code IN (${placeholders})`)
         .run(...userCodes).changes;
@@ -1517,6 +1612,23 @@ export class SqliteAdapter implements DbAdapter {
     // 建表只写 REFERENCES、没有 ON DELETE CASCADE：外键在这里的作用是「拦住删除」而不是「替我级联」，
     // 依赖它只会得到 FOREIGN KEY constraint failed，所以事务内按子→父顺序显式清理关联数据
     const tx = this.db.transaction((classId: number) => {
+      // 小组工作区（#346）：公告/任务/已读水位 → 工作区 → 批次组，按子→父顺序清理
+      this.db
+        .prepare(
+          "DELETE FROM group_posts WHERE workspace_id IN (SELECT id FROM group_workspaces WHERE class_id = ?)"
+        )
+        .run(classId);
+      this.db
+        .prepare(
+          "DELETE FROM group_tasks WHERE workspace_id IN (SELECT id FROM group_workspaces WHERE class_id = ?)"
+        )
+        .run(classId);
+      this.db
+        .prepare(
+          "DELETE FROM group_workspace_reads WHERE workspace_id IN (SELECT id FROM group_workspaces WHERE class_id = ?)"
+        )
+        .run(classId);
+      this.db.prepare("DELETE FROM group_workspaces WHERE class_id = ?").run(classId);
       // 分组（#101）：当前分组与历史批次一并清理（分类消失后它们没有归属方）；子→父顺序
       this.db
         .prepare(
@@ -1565,7 +1677,12 @@ export class SqliteAdapter implements DbAdapter {
   }
 
   deleteUserById(id: number): void {
-    this.db.prepare("DELETE FROM users WHERE id = ?").run(id);
+    const tx = this.db.transaction((userId: number) => {
+      // 小组已读水位（#346）：引用 users，先清掉再删人，两库行为一致
+      this.db.prepare("DELETE FROM group_workspace_reads WHERE user_id = ?").run(userId);
+      this.db.prepare("DELETE FROM users WHERE id = ?").run(userId);
+    });
+    tx(id);
   }
 
   getProfileConfigs(): ConfigRow[] {
@@ -1852,6 +1969,21 @@ export class SqliteAdapter implements DbAdapter {
     return batchId;
   }
 
+  /** 事务体内：给一个批次的每个组补建小组工作区（#346），标题口径唯一 */
+  private writeBatchWorkspaces(batchId: number, classId: number): void {
+    const groups = this.db
+      .prepare("SELECT id, group_no FROM group_batch_groups WHERE batch_id = ? ORDER BY group_no")
+      .all(batchId) as { id: number; group_no: number }[];
+    const now = getNow();
+    const stmt = this.db.prepare(
+      `INSERT INTO group_workspaces (class_id, batch_id, batch_group_id, group_no, title, created_at)
+       VALUES (?, ?, ?, ?, ?, ?)`
+    );
+    for (const group of groups) {
+      stmt.run(classId, batchId, group.id, group.group_no, `第 ${group.group_no} 组工作区`, now);
+    }
+  }
+
   replaceClassGrouping(classId: number, groups: ClassGroupingInput[]): void {
     this.db.transaction(() => this.writeClassGrouping(classId, groups))();
   }
@@ -1860,11 +1992,12 @@ export class SqliteAdapter implements DbAdapter {
     let batchId = 0;
     this.db.transaction(() => {
       batchId = this.writeGroupBatch(input);
+      this.writeBatchWorkspaces(batchId, input.classId);
     })();
     return batchId;
   }
 
-  /** 自动分组落库：**同一事务**内「覆盖当前分组 + 追加历史批次」，避免出现无归档的当前态 */
+  /** 自动分组落库：**同一事务**内「覆盖当前分组 + 追加历史批次 + 建工作区」，避免出现无归档的当前态 */
   applyGroupingResult(
     classId: number,
     groups: ClassGroupingInput[],
@@ -1876,6 +2009,7 @@ export class SqliteAdapter implements DbAdapter {
     this.db.transaction(() => {
       this.writeClassGrouping(classId, groups);
       batchId = this.writeGroupBatch(batch);
+      this.writeBatchWorkspaces(batchId, classId);
     })();
     return batchId;
   }
@@ -2002,6 +2136,240 @@ export class SqliteAdapter implements DbAdapter {
       )
       .get(userIdA, userIdB) as { same: number };
     return row.same === 1;
+  }
+
+  /* ---------- 小组工作区（#346） ---------- */
+
+  /** 在一个批次内按组号定位「批次组 + 工作区」，没有批次/组/工作区返回 undefined */
+  private workspaceContextOf(batch: GroupBatchRow, groupNo: number): GroupWorkspaceContext | undefined {
+    const batchGroup = this.db
+      .prepare("SELECT * FROM group_batch_groups WHERE batch_id = ? AND group_no = ?")
+      .get(batch.id, groupNo) as GroupBatchGroupRow | undefined;
+    if (!batchGroup) return undefined;
+    const workspace = this.db
+      .prepare("SELECT * FROM group_workspaces WHERE batch_group_id = ?")
+      .get(batchGroup.id) as GroupWorkspaceRow | undefined;
+    if (!workspace) return undefined;
+    return { workspace, batch, batchGroup };
+  }
+
+  getStudentWorkspaceContext(userId: number): GroupWorkspaceContext | undefined {
+    const ref = this.getStudentGroupRef(userId);
+    if (!ref) return undefined;
+    const batch = this.db
+      .prepare("SELECT * FROM group_batches WHERE class_id = ? ORDER BY created_at DESC, id DESC LIMIT 1")
+      .get(ref.class_id) as GroupBatchRow | undefined;
+    if (!batch) return undefined;
+    return this.workspaceContextOf(batch, ref.group_no);
+  }
+
+  getClassGroupWorkspace(classId: number, groupNo: number): GroupWorkspaceContext | undefined {
+    const batch = this.db
+      .prepare("SELECT * FROM group_batches WHERE class_id = ? ORDER BY created_at DESC, id DESC LIMIT 1")
+      .get(classId) as GroupBatchRow | undefined;
+    if (!batch) return undefined;
+    return this.workspaceContextOf(batch, groupNo);
+  }
+
+  listStudentWorkspaces(userId: number): StudentWorkspaceSummary[] {
+    return this.db
+      .prepare(
+        `SELECT w.id AS workspaceId, b.id AS batchId, b.created_at AS batchCreatedAt,
+                bg.group_no AS groupNo, w.title AS title
+           FROM group_batch_members bm
+           JOIN group_batch_groups bg ON bg.id = bm.group_id
+           JOIN group_batches b ON b.id = bg.batch_id
+           JOIN group_workspaces w ON w.batch_group_id = bg.id
+          WHERE bm.user_id = ?
+          ORDER BY b.created_at DESC, b.id DESC`
+      )
+      .all(userId) as StudentWorkspaceSummary[];
+  }
+
+  getGroupWorkspaceById(workspaceId: number): GroupWorkspaceRow | undefined {
+    return this.db.prepare("SELECT * FROM group_workspaces WHERE id = ?").get(workspaceId) as
+      | GroupWorkspaceRow
+      | undefined;
+  }
+
+  getBatchWorkspaces(batchId: number): GroupWorkspaceRow[] {
+    return this.db
+      .prepare("SELECT * FROM group_workspaces WHERE batch_id = ? ORDER BY group_no")
+      .all(batchId) as GroupWorkspaceRow[];
+  }
+
+  listGroupPosts(workspaceId: number): GroupPostRow[] {
+    return this.db
+      .prepare(
+        `SELECT * FROM group_posts
+          WHERE workspace_id = ? AND deleted_at IS NULL
+          ORDER BY pinned DESC, created_at DESC, id DESC`
+      )
+      .all(workspaceId) as GroupPostRow[];
+  }
+
+  getGroupPost(postId: number, workspaceId: number): GroupPostRow | undefined {
+    return this.db
+      .prepare("SELECT * FROM group_posts WHERE id = ? AND workspace_id = ? AND deleted_at IS NULL")
+      .get(postId, workspaceId) as GroupPostRow | undefined;
+  }
+
+  insertGroupPost(input: NewGroupPostInput): number {
+    const info = this.db
+      .prepare(
+        `INSERT INTO group_posts (workspace_id, author_id, author_name, author_role, title, content, pinned, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+      )
+      .run(
+        input.workspaceId,
+        input.authorId,
+        input.authorName,
+        input.authorRole,
+        input.title,
+        input.content,
+        input.pinned ? 1 : 0,
+        getNow()
+      );
+    return Number(info.lastInsertRowid);
+  }
+
+  updateGroupPost(postId: number, workspaceId: number, fields: GroupPostUpdateFields): void {
+    const sets: string[] = [];
+    const params: (string | number | null)[] = [];
+    if (fields.pinned !== undefined) {
+      sets.push("pinned = ?");
+      params.push(fields.pinned);
+    }
+    if (fields.deleted_at !== undefined) {
+      sets.push("deleted_at = ?");
+      params.push(fields.deleted_at);
+    }
+    if (sets.length === 0) return;
+    this.db
+      .prepare(`UPDATE group_posts SET ${sets.join(", ")} WHERE id = ? AND workspace_id = ?`)
+      .run(...params, postId, workspaceId);
+  }
+
+  countRecentGroupPosts(workspaceId: number, authorId: number, since: string): number {
+    const row = this.db
+      .prepare(
+        `SELECT COUNT(*) AS c FROM group_posts
+          WHERE workspace_id = ? AND author_id = ? AND created_at >= ?`
+      )
+      .get(workspaceId, authorId, since) as { c: number };
+    return Number(row.c);
+  }
+
+  listGroupTasks(workspaceId: number): GroupTaskRow[] {
+    return this.db
+      .prepare(
+        `SELECT * FROM group_tasks
+          WHERE workspace_id = ? AND deleted_at IS NULL
+          ORDER BY CASE status WHEN 'open' THEN 0 WHEN 'in_progress' THEN 1 ELSE 2 END,
+                   created_at DESC, id DESC`
+      )
+      .all(workspaceId) as GroupTaskRow[];
+  }
+
+  getGroupTask(taskId: number, workspaceId: number): GroupTaskRow | undefined {
+    return this.db
+      .prepare("SELECT * FROM group_tasks WHERE id = ? AND workspace_id = ? AND deleted_at IS NULL")
+      .get(taskId, workspaceId) as GroupTaskRow | undefined;
+  }
+
+  insertGroupTask(input: NewGroupTaskInput): number {
+    const info = this.db
+      .prepare(
+        `INSERT INTO group_tasks
+           (workspace_id, title, description, assignee_id, assignee_name, status, due_at,
+            created_by_id, created_by_name, created_by_role, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      )
+      .run(
+        input.workspaceId,
+        input.title,
+        input.description,
+        input.assigneeId,
+        input.assigneeName,
+        input.assigneeId == null ? "open" : "in_progress",
+        input.dueAt,
+        input.createdById,
+        input.createdByName,
+        input.createdByRole,
+        getNow()
+      );
+    return Number(info.lastInsertRowid);
+  }
+
+  claimGroupTask(taskId: number, workspaceId: number, userId: number, userName: string | null): boolean {
+    // 单条条件更新即原子：并发时只有一个请求能把 assignee 从 NULL 改掉
+    const info = this.db
+      .prepare(
+        `UPDATE group_tasks
+            SET assignee_id = ?, assignee_name = ?, status = 'in_progress'
+          WHERE id = ? AND workspace_id = ?
+            AND deleted_at IS NULL AND status = 'open' AND assignee_id IS NULL`
+      )
+      .run(userId, userName, taskId, workspaceId);
+    return info.changes > 0;
+  }
+
+  updateGroupTask(taskId: number, workspaceId: number, fields: GroupTaskUpdateFields): void {
+    const sets: string[] = [];
+    const params: (string | null)[] = [];
+    if (fields.status !== undefined) {
+      sets.push("status = ?");
+      params.push(fields.status);
+    }
+    if (fields.completed_at !== undefined) {
+      sets.push("completed_at = ?");
+      params.push(fields.completed_at);
+    }
+    if (fields.deleted_at !== undefined) {
+      sets.push("deleted_at = ?");
+      params.push(fields.deleted_at);
+    }
+    if (sets.length === 0) return;
+    this.db
+      .prepare(`UPDATE group_tasks SET ${sets.join(", ")} WHERE id = ? AND workspace_id = ?`)
+      .run(...params, taskId, workspaceId);
+  }
+
+  countRecentGroupTasks(workspaceId: number, authorId: number, since: string): number {
+    const row = this.db
+      .prepare(
+        `SELECT COUNT(*) AS c FROM group_tasks
+          WHERE workspace_id = ? AND created_by_id = ? AND created_at >= ?`
+      )
+      .get(workspaceId, authorId, since) as { c: number };
+    return Number(row.c);
+  }
+
+  getGroupUnreadCount(workspaceId: number, userId: number): number {
+    // 按公告 id 水位计数：同一秒内的新公告也不会被当成已读
+    const row = this.db
+      .prepare(
+        `SELECT COUNT(*) AS c FROM group_posts
+          WHERE workspace_id = ? AND deleted_at IS NULL
+            AND id > COALESCE((
+              SELECT last_read_post_id FROM group_workspace_reads
+               WHERE workspace_id = ? AND user_id = ?
+            ), 0)`
+      )
+      .get(workspaceId, workspaceId, userId) as { c: number };
+    return Number(row.c);
+  }
+
+  markGroupWorkspaceRead(workspaceId: number, userId: number): void {
+    this.db
+      .prepare(
+        `INSERT INTO group_workspace_reads (workspace_id, user_id, last_read_at, last_read_post_id)
+         VALUES (?, ?, ?, (SELECT COALESCE(MAX(id), 0) FROM group_posts WHERE workspace_id = ?))
+         ON CONFLICT(workspace_id, user_id) DO UPDATE SET
+           last_read_at = excluded.last_read_at,
+           last_read_post_id = excluded.last_read_post_id`
+      )
+      .run(workspaceId, userId, getNow(), workspaceId);
   }
 
   // assessments / assessment_questions / assessment_results（#221 职业测评数据层）
@@ -2435,6 +2803,14 @@ export class SqliteAdapter implements DbAdapter {
     const groupBatchMembers = this.db
       .prepare("SELECT * FROM group_batch_members ORDER BY id")
       .all() as GroupBatchMemberRow[];
+    const groupWorkspaces = this.db
+      .prepare("SELECT * FROM group_workspaces ORDER BY id")
+      .all() as GroupWorkspaceRow[];
+    const groupPosts = this.db.prepare("SELECT * FROM group_posts ORDER BY id").all() as GroupPostRow[];
+    const groupTasks = this.db.prepare("SELECT * FROM group_tasks ORDER BY id").all() as GroupTaskRow[];
+    const groupWorkspaceReads = this.db
+      .prepare("SELECT * FROM group_workspace_reads ORDER BY id")
+      .all() as GroupWorkspaceReadRow[];
     const assessments = this.db.prepare("SELECT * FROM assessments ORDER BY id").all() as AssessmentRow[];
     const assessmentQuestions = this.db
       .prepare("SELECT * FROM assessment_questions ORDER BY id")
@@ -2443,7 +2819,8 @@ export class SqliteAdapter implements DbAdapter {
       .prepare("SELECT * FROM assessment_results ORDER BY id")
       .all() as AssessmentResultRow[];
     return {
-      version: 8,
+      // #346：version 9 增加小组工作区四表（公告 / 任务 / 已读水位）
+      version: 9,
       sourceType: "sqlite",
       createdAt: new Date().toISOString(),
       users,
@@ -2459,6 +2836,10 @@ export class SqliteAdapter implements DbAdapter {
       group_batches: groupBatches,
       group_batch_groups: groupBatchGroups,
       group_batch_members: groupBatchMembers,
+      group_workspaces: groupWorkspaces,
+      group_posts: groupPosts,
+      group_tasks: groupTasks,
+      group_workspace_reads: groupWorkspaceReads,
       assessments,
       assessment_questions: assessmentQuestions,
       assessment_results: assessmentResults,
@@ -2476,6 +2857,11 @@ export class SqliteAdapter implements DbAdapter {
       // 凡按 user_id / class_id 引用 users / classes 的持久表，恢复时一律无条件先清空：这两张表整表替换且按原 id 重插，
       // 旧备份缺字段时若保留现状，行会指向已不存在、或已被别人占用的 id（恢复期间 FK 关闭，库不会拦，事后开启也不回溯校验）。
       // 所以「缺字段 = 恢复后该功能无数据」，不是「保留不动」——#101 分组五表、#95 档案历史版本同此口径
+      // #346 工作区四表同样按 user_id / class_id 引用，旧备份缺字段时一律清空
+      this.db.exec("DELETE FROM group_workspace_reads");
+      this.db.exec("DELETE FROM group_tasks");
+      this.db.exec("DELETE FROM group_posts");
+      this.db.exec("DELETE FROM group_workspaces");
       this.db.exec("DELETE FROM class_group_members");
       this.db.exec("DELETE FROM class_groups");
       this.db.exec("DELETE FROM group_batch_members");
@@ -2790,6 +3176,81 @@ export class SqliteAdapter implements DbAdapter {
             m.user_code ?? null,
             m.name ?? null,
             m.created_at ?? getNow()
+          );
+        }
+      }
+      // 小组工作区（#346）：旧备份没有这些字段时保持空（上面已清空），
+      // 顺序必须是 工作区 → 公告/任务 → 已读水位，保证引用在关闭外键的恢复窗口内也自洽
+      if (Array.isArray(d.group_workspaces)) {
+        const stmt = this.db.prepare(
+          `INSERT INTO group_workspaces (id, class_id, batch_id, batch_group_id, group_no, title, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?)`
+        );
+        for (const w of d.group_workspaces) {
+          stmt.run(
+            w.id,
+            w.class_id,
+            w.batch_id,
+            w.batch_group_id,
+            w.group_no,
+            w.title ?? `第 ${w.group_no} 组工作区`,
+            w.created_at ?? getNow()
+          );
+        }
+        const postStmt = this.db.prepare(
+          `INSERT INTO group_posts
+             (id, workspace_id, author_id, author_name, author_role, title, content, pinned, created_at, deleted_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        );
+        for (const p of d.group_posts ?? []) {
+          postStmt.run(
+            p.id,
+            p.workspace_id,
+            p.author_id ?? null,
+            p.author_name ?? null,
+            p.author_role ?? null,
+            p.title,
+            p.content,
+            p.pinned ?? 0,
+            p.created_at ?? getNow(),
+            p.deleted_at ?? null
+          );
+        }
+        const taskStmt = this.db.prepare(
+          `INSERT INTO group_tasks
+             (id, workspace_id, title, description, assignee_id, assignee_name, status, due_at,
+              created_by_id, created_by_name, created_by_role, created_at, completed_at, deleted_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        );
+        for (const t of d.group_tasks ?? []) {
+          taskStmt.run(
+            t.id,
+            t.workspace_id,
+            t.title,
+            t.description ?? null,
+            t.assignee_id ?? null,
+            t.assignee_name ?? null,
+            t.status ?? "open",
+            t.due_at ?? null,
+            t.created_by_id ?? null,
+            t.created_by_name ?? null,
+            t.created_by_role ?? null,
+            t.created_at ?? getNow(),
+            t.completed_at ?? null,
+            t.deleted_at ?? null
+          );
+        }
+        const readStmt = this.db.prepare(
+          `INSERT INTO group_workspace_reads (id, workspace_id, user_id, last_read_at, last_read_post_id)
+           VALUES (?, ?, ?, ?, ?)`
+        );
+        for (const r of d.group_workspace_reads ?? []) {
+          readStmt.run(
+            r.id,
+            r.workspace_id,
+            r.user_id,
+            r.last_read_at ?? getNow(),
+            r.last_read_post_id ?? 0
           );
         }
       }

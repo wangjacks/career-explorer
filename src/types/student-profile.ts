@@ -29,22 +29,3 @@ export interface SubmissionHistoryItem {
   submitted_at: string;
   is_current: number;
 }
-
-/** 本组名单（#101）：来自 /api/shared/group，只含请求者所在组 */
-export interface GroupRosterMember {
-  userId: number;
-  userCode: string;
-  name: string;
-  avatarUrl: string | null;
-  storageId: number;
-  isMe: boolean;
-  featureLabels: Record<string, string[]>;
-}
-
-export interface GroupRoster {
-  grouped: boolean;
-  groupNo: number | null;
-  memberCount: number;
-  sources: { key: string; label: string; kind: string }[];
-  members: GroupRosterMember[];
-}

@@ -13,6 +13,9 @@ export interface StudentPanelContextValue {
   setNavGuard: (guard: (() => boolean) | null) => void;
   /** 移动端侧边抽屉是否打开：底部 sticky 操作条据此让位 */
   sidebarOpen: boolean;
+  /** 「我的小组」未读公告数（#346）：侧边栏红点；小组页标记已读后清零 */
+  groupUnread: number;
+  setGroupUnread: (count: number) => void;
 }
 
 const StudentPanelContext = createContext<StudentPanelContextValue | null>(null);

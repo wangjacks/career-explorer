@@ -25,16 +25,20 @@ const NAV_ICONS: Record<StudentNavKey, LucideIcon> = {
  * - 移动（<md）：顶栏下方抽屉（top-12 起，不盖顶栏，切换按钮保持可点）+ z-30 遮罩
  * - 条目全部是路由 Link；高亮由 `studentActiveKey(pathname)` 判定，历史提交仍高亮「我的档案」
  * - `canNavigate` 用于编辑态拦截（layout 注入），返回 false 时阻止跳转并保持当前页
+ * - 「我的小组」未读公告红点由 layout 的未读数驱动（#346）
  * - 占位项保持不可聚焦（用 span），避免读屏把「即将上线」当成可操作的按钮。
  */
 export default function StudentSidebar({
   open,
   onClose,
   canNavigate,
+  unreadCount = 0,
 }: {
   open: boolean;
   onClose: () => void;
   canNavigate?: () => boolean;
+  /** 「我的小组」未读公告数（#346）：>0 时显示红点计数 */
+  unreadCount?: number;
 }) {
   const pathname = usePathname();
   const activeKey = studentActiveKey(pathname);
@@ -54,10 +58,19 @@ export default function StudentSidebar({
 
   const renderItem = (item: StudentNavItem) => {
     const Icon = NAV_ICONS[item.key];
+    const showUnread = item.key === "group" && unreadCount > 0;
     const label = (
       <>
         <Icon size={17} strokeWidth={item.href ? 2 : 1.8} />
         {item.label}
+        {showUnread && (
+          <span
+            aria-label={`${unreadCount} 条未读公告`}
+            className="ml-auto min-w-[18px] h-[18px] px-1 rounded-full bg-danger text-white text-[10px] font-medium flex items-center justify-center"
+          >
+            {unreadCount > 99 ? "99+" : unreadCount}
+          </span>
+        )}
       </>
     );
 

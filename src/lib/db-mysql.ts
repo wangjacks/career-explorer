@@ -37,6 +37,16 @@ import type {
   GroupBatchGroupRow,
   GroupBatchMemberRow,
   NewGroupBatchInput,
+  GroupWorkspaceRow,
+  GroupPostRow,
+  GroupTaskRow,
+  GroupWorkspaceReadRow,
+  GroupWorkspaceContext,
+  StudentWorkspaceSummary,
+  NewGroupPostInput,
+  NewGroupTaskInput,
+  GroupPostUpdateFields,
+  GroupTaskUpdateFields,
   TrendPoint,
   CompareStat,
   ClassTrendSeries,
@@ -322,6 +332,78 @@ export class MysqlAdapter implements DbAdapter {
         CONSTRAINT fk_batch_members_group FOREIGN KEY (group_id) REFERENCES group_batch_groups(id)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
     `);
+    // 小组工作区（#346）：锚定批次内的组（同批各组内容隔离），重分组追加新批次 → 新工作区
+    await this.pool.execute(`
+      CREATE TABLE IF NOT EXISTS group_workspaces (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        class_id INT NOT NULL,
+        batch_id INT NOT NULL,
+        batch_group_id INT NOT NULL,
+        group_no INT NOT NULL,
+        title VARCHAR(100) NOT NULL,
+        created_at TEXT NOT NULL,
+        UNIQUE KEY uniq_workspace_batch_group (batch_group_id),
+        INDEX idx_group_workspaces_class (class_id),
+        INDEX idx_group_workspaces_batch (batch_id),
+        CONSTRAINT fk_workspaces_class FOREIGN KEY (class_id) REFERENCES classes(id),
+        CONSTRAINT fk_workspaces_batch FOREIGN KEY (batch_id) REFERENCES group_batches(id),
+        CONSTRAINT fk_workspaces_batch_group FOREIGN KEY (batch_group_id) REFERENCES group_batch_groups(id)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    `);
+    await this.pool.execute(`
+      CREATE TABLE IF NOT EXISTS group_posts (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        workspace_id INT NOT NULL,
+        author_id INT NULL,
+        author_name VARCHAR(100) NULL,
+        author_role VARCHAR(20) NULL,
+        title VARCHAR(200) NOT NULL,
+        content TEXT NOT NULL,
+        pinned TINYINT NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL,
+        deleted_at TEXT NULL,
+        INDEX idx_group_posts_workspace (workspace_id, created_at(19)),
+        CONSTRAINT fk_posts_workspace FOREIGN KEY (workspace_id) REFERENCES group_workspaces(id)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    `);
+    await this.pool.execute(`
+      CREATE TABLE IF NOT EXISTS group_tasks (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        workspace_id INT NOT NULL,
+        title VARCHAR(200) NOT NULL,
+        description TEXT NULL,
+        assignee_id INT NULL,
+        assignee_name VARCHAR(100) NULL,
+        status VARCHAR(20) NOT NULL DEFAULT 'open',
+        due_at TEXT NULL,
+        created_by_id INT NULL,
+        created_by_name VARCHAR(100) NULL,
+        created_by_role VARCHAR(20) NULL,
+        created_at TEXT NOT NULL,
+        completed_at TEXT NULL,
+        deleted_at TEXT NULL,
+        INDEX idx_group_tasks_workspace (workspace_id, status),
+        CONSTRAINT fk_tasks_workspace FOREIGN KEY (workspace_id) REFERENCES group_workspaces(id)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    `);
+    await this.pool.execute(`
+      CREATE TABLE IF NOT EXISTS group_workspace_reads (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        workspace_id INT NOT NULL,
+        user_id INT NOT NULL,
+        last_read_at TEXT NOT NULL,
+        last_read_post_id INT NOT NULL DEFAULT 0,
+        UNIQUE KEY uniq_workspace_read (workspace_id, user_id),
+        CONSTRAINT fk_reads_workspace FOREIGN KEY (workspace_id) REFERENCES group_workspaces(id),
+        CONSTRAINT fk_reads_user FOREIGN KEY (user_id) REFERENCES users(id)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    `);
+    // 增量补列（#346 首版只有 last_read_at）：旧库缺列时补上，水位从 0 起算
+    if (!(await this.columnExists("group_workspace_reads", "last_read_post_id"))) {
+      await this.pool.execute(
+        "ALTER TABLE group_workspace_reads ADD COLUMN last_read_post_id INT NOT NULL DEFAULT 0"
+      );
+    }
     // #345 补列：旧库（#101 时期创建）没有组长列，与 SQLite 侧同步补可空列。
     // 新库由 CREATE TABLE 直接带 users 外键（删学生时 SET NULL）；旧库一次 ALTER 同时补列与约束。
     if (!(await this.columnExists("class_groups", "leader_user_id"))) {
@@ -349,6 +431,16 @@ export class MysqlAdapter implements DbAdapter {
     if (!(await this.columnExists("group_batch_groups", "leader_user_id"))) {
       await this.pool.execute("ALTER TABLE group_batch_groups ADD COLUMN leader_user_id INT NULL");
     }
+    // 旧库升级（#346 之前已有批次）：为存量批次组补建工作区，幂等（仅补 NOT EXISTS 的组）
+    await this.pool.execute(`
+      INSERT INTO group_workspaces (class_id, batch_id, batch_group_id, group_no, title, created_at)
+      SELECT b.class_id, bg.batch_id, bg.id, bg.group_no,
+             CONCAT('第 ', bg.group_no, ' 组工作区'),
+             COALESCE(b.created_at, DATE_FORMAT(NOW(), '%Y-%m-%d %H:%i:%s'))
+        FROM group_batch_groups bg
+        JOIN group_batches b ON b.id = bg.batch_id
+       WHERE NOT EXISTS (SELECT 1 FROM group_workspaces w WHERE w.batch_group_id = bg.id)
+    `);
   }
 
   /**
@@ -1155,6 +1247,11 @@ export class MysqlAdapter implements DbAdapter {
         `DELETE FROM assessment_results WHERE user_id IN (SELECT id FROM users WHERE user_code IN (${placeholders}))`,
         userCodes
       );
+      // 小组已读水位（#346）：按 user_id 引用 users，删学生前清掉，避免外键拦住删除
+      await conn.execute(
+        `DELETE FROM group_workspace_reads WHERE user_id IN (SELECT id FROM users WHERE user_code IN (${placeholders}))`,
+        userCodes
+      );
       const [result] = await conn.execute(
         `DELETE FROM users WHERE role = 'student' AND user_code IN (${placeholders})`,
         userCodes
@@ -1669,6 +1766,20 @@ export class MysqlAdapter implements DbAdapter {
     const conn = await this.pool.getConnection();
     try {
       await conn.beginTransaction();
+      // 小组工作区（#346）：公告/任务/已读水位 → 工作区 → 批次组，按子→父顺序清理
+      await conn.execute(
+        "DELETE FROM group_posts WHERE workspace_id IN (SELECT id FROM group_workspaces WHERE class_id = ?)",
+        [id]
+      );
+      await conn.execute(
+        "DELETE FROM group_tasks WHERE workspace_id IN (SELECT id FROM group_workspaces WHERE class_id = ?)",
+        [id]
+      );
+      await conn.execute(
+        "DELETE FROM group_workspace_reads WHERE workspace_id IN (SELECT id FROM group_workspaces WHERE class_id = ?)",
+        [id]
+      );
+      await conn.execute("DELETE FROM group_workspaces WHERE class_id = ?", [id]);
       // 分组（#101）：当前分组与历史批次一并清理（分类消失后它们没有归属方）；子→父顺序
       await conn.execute(
         "DELETE FROM group_batch_members WHERE batch_id IN (SELECT id FROM group_batches WHERE class_id = ?)",
@@ -1729,7 +1840,19 @@ export class MysqlAdapter implements DbAdapter {
   }
 
   async deleteUserById(id: number): Promise<void> {
-    await this.pool.execute("DELETE FROM users WHERE id = ?", [id]);
+    const conn = await this.pool.getConnection();
+    try {
+      await conn.beginTransaction();
+      // 小组已读水位（#346）：引用 users，先清掉再删人，两库行为一致
+      await conn.execute("DELETE FROM group_workspace_reads WHERE user_id = ?", [id]);
+      await conn.execute("DELETE FROM users WHERE id = ?", [id]);
+      await conn.commit();
+    } catch (err) {
+      await conn.rollback();
+      throw err;
+    } finally {
+      conn.release();
+    }
   }
 
   getProfileConfigs(): Promise<ConfigRow[]> {
@@ -2028,6 +2151,26 @@ export class MysqlAdapter implements DbAdapter {
     return batchId;
   }
 
+  /** 事务体内：给一个批次的每个组补建小组工作区（#346） */
+  private async writeBatchWorkspaces(
+    conn: mysql.PoolConnection,
+    batchId: number,
+    classId: number
+  ): Promise<void> {
+    const [rows] = await conn.execute(
+      "SELECT id, group_no FROM group_batch_groups WHERE batch_id = ? ORDER BY group_no",
+      [batchId]
+    );
+    const now = getNow();
+    for (const group of rows as { id: number; group_no: number }[]) {
+      await conn.execute(
+        `INSERT INTO group_workspaces (class_id, batch_id, batch_group_id, group_no, title, created_at)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+        [classId, batchId, group.id, group.group_no, `第 ${group.group_no} 组工作区`, now]
+      );
+    }
+  }
+
   async replaceClassGrouping(classId: number, groups: ClassGroupingInput[]): Promise<void> {
     const conn = await this.pool.getConnection();
     try {
@@ -2047,6 +2190,7 @@ export class MysqlAdapter implements DbAdapter {
     try {
       await conn.beginTransaction();
       const batchId = await this.writeGroupBatch(conn, input);
+      await this.writeBatchWorkspaces(conn, batchId, input.classId);
       await conn.commit();
       return batchId;
     } catch (err) {
@@ -2057,7 +2201,7 @@ export class MysqlAdapter implements DbAdapter {
     }
   }
 
-  /** 自动分组落库：**同一事务**内「覆盖当前分组 + 追加历史批次」，避免出现无归档的当前态 */
+  /** 自动分组落库：**同一事务**内「覆盖当前分组 + 追加历史批次 + 建工作区」，避免出现无归档的当前态 */
   async applyGroupingResult(
     classId: number,
     groups: ClassGroupingInput[],
@@ -2070,6 +2214,7 @@ export class MysqlAdapter implements DbAdapter {
       await conn.beginTransaction();
       await this.writeClassGrouping(conn, classId, groups);
       const batchId = await this.writeGroupBatch(conn, batch);
+      await this.writeBatchWorkspaces(conn, batchId, classId);
       await conn.commit();
       return batchId;
     } catch (err) {
@@ -2233,6 +2378,258 @@ export class MysqlAdapter implements DbAdapter {
     );
     const row = (rows as { same: number }[])[0];
     return Number(row?.same ?? 0) > 0;
+  }
+
+  /* ---------- 小组工作区（#346） ---------- */
+
+  private async workspaceContextOf(batch: GroupBatchRow, groupNo: number): Promise<GroupWorkspaceContext | undefined> {
+    const [groupRows] = await this.pool.execute(
+      "SELECT * FROM group_batch_groups WHERE batch_id = ? AND group_no = ?",
+      [batch.id, groupNo]
+    );
+    const batchGroup = (groupRows as GroupBatchGroupRow[])[0];
+    if (!batchGroup) return undefined;
+    const [workspaceRows] = await this.pool.execute(
+      "SELECT * FROM group_workspaces WHERE batch_group_id = ?",
+      [batchGroup.id]
+    );
+    const workspace = (workspaceRows as GroupWorkspaceRow[])[0];
+    if (!workspace) return undefined;
+    return { workspace, batch, batchGroup };
+  }
+
+  async getStudentWorkspaceContext(userId: number): Promise<GroupWorkspaceContext | undefined> {
+    const [refRows] = await this.pool.execute(
+      `SELECT g.class_id AS class_id, g.group_no AS group_no
+         FROM class_group_members m JOIN class_groups g ON g.id = m.group_id
+        WHERE m.user_id = ?`,
+      [userId]
+    );
+    const ref = (refRows as { class_id: number; group_no: number }[])[0];
+    if (!ref) return undefined;
+    const [batchRows] = await this.pool.execute(
+      "SELECT * FROM group_batches WHERE class_id = ? ORDER BY created_at DESC, id DESC LIMIT 1",
+      [ref.class_id]
+    );
+    const batch = (batchRows as GroupBatchRow[])[0];
+    if (!batch) return undefined;
+    return this.workspaceContextOf(batch, ref.group_no);
+  }
+
+  async getClassGroupWorkspace(classId: number, groupNo: number): Promise<GroupWorkspaceContext | undefined> {
+    const [batchRows] = await this.pool.execute(
+      "SELECT * FROM group_batches WHERE class_id = ? ORDER BY created_at DESC, id DESC LIMIT 1",
+      [classId]
+    );
+    const batch = (batchRows as GroupBatchRow[])[0];
+    if (!batch) return undefined;
+    return this.workspaceContextOf(batch, groupNo);
+  }
+
+  async listStudentWorkspaces(userId: number): Promise<StudentWorkspaceSummary[]> {
+    const [rows] = await this.pool.execute(
+      `SELECT w.id AS workspaceId, b.id AS batchId, b.created_at AS batchCreatedAt,
+              bg.group_no AS groupNo, w.title AS title
+         FROM group_batch_members bm
+         JOIN group_batch_groups bg ON bg.id = bm.group_id
+         JOIN group_batches b ON b.id = bg.batch_id
+         JOIN group_workspaces w ON w.batch_group_id = bg.id
+        WHERE bm.user_id = ?
+        ORDER BY b.created_at DESC, b.id DESC`,
+      [userId]
+    );
+    return rows as StudentWorkspaceSummary[];
+  }
+
+  async getGroupWorkspaceById(workspaceId: number): Promise<GroupWorkspaceRow | undefined> {
+    const [rows] = await this.pool.execute("SELECT * FROM group_workspaces WHERE id = ?", [workspaceId]);
+    return (rows as GroupWorkspaceRow[])[0];
+  }
+
+  async getBatchWorkspaces(batchId: number): Promise<GroupWorkspaceRow[]> {
+    const [rows] = await this.pool.execute(
+      "SELECT * FROM group_workspaces WHERE batch_id = ? ORDER BY group_no",
+      [batchId]
+    );
+    return rows as GroupWorkspaceRow[];
+  }
+
+  async listGroupPosts(workspaceId: number): Promise<GroupPostRow[]> {
+    const [rows] = await this.pool.execute(
+      `SELECT * FROM group_posts
+        WHERE workspace_id = ? AND deleted_at IS NULL
+        ORDER BY pinned DESC, created_at DESC, id DESC`,
+      [workspaceId]
+    );
+    return rows as GroupPostRow[];
+  }
+
+  async getGroupPost(postId: number, workspaceId: number): Promise<GroupPostRow | undefined> {
+    const [rows] = await this.pool.execute(
+      "SELECT * FROM group_posts WHERE id = ? AND workspace_id = ? AND deleted_at IS NULL",
+      [postId, workspaceId]
+    );
+    return (rows as GroupPostRow[])[0];
+  }
+
+  async insertGroupPost(input: NewGroupPostInput): Promise<number> {
+    const [info] = await this.pool.execute(
+      `INSERT INTO group_posts (workspace_id, author_id, author_name, author_role, title, content, pinned, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        input.workspaceId,
+        input.authorId,
+        input.authorName,
+        input.authorRole,
+        input.title,
+        input.content,
+        input.pinned ? 1 : 0,
+        getNow(),
+      ]
+    );
+    return (info as { insertId: number }).insertId;
+  }
+
+  async updateGroupPost(postId: number, workspaceId: number, fields: GroupPostUpdateFields): Promise<void> {
+    const sets: string[] = [];
+    const params: (string | number | null)[] = [];
+    if (fields.pinned !== undefined) {
+      sets.push("pinned = ?");
+      params.push(fields.pinned);
+    }
+    if (fields.deleted_at !== undefined) {
+      sets.push("deleted_at = ?");
+      params.push(fields.deleted_at);
+    }
+    if (sets.length === 0) return;
+    await this.pool.execute(
+      `UPDATE group_posts SET ${sets.join(", ")} WHERE id = ? AND workspace_id = ?`,
+      [...params, postId, workspaceId]
+    );
+  }
+
+  async countRecentGroupPosts(workspaceId: number, authorId: number, since: string): Promise<number> {
+    const [rows] = await this.pool.execute(
+      `SELECT COUNT(*) AS c FROM group_posts
+        WHERE workspace_id = ? AND author_id = ? AND created_at >= ?`,
+      [workspaceId, authorId, since]
+    );
+    return Number((rows as { c: number | string }[])[0]?.c ?? 0);
+  }
+
+  async listGroupTasks(workspaceId: number): Promise<GroupTaskRow[]> {
+    const [rows] = await this.pool.execute(
+      `SELECT * FROM group_tasks
+        WHERE workspace_id = ? AND deleted_at IS NULL
+        ORDER BY CASE status WHEN 'open' THEN 0 WHEN 'in_progress' THEN 1 ELSE 2 END,
+                 created_at DESC, id DESC`,
+      [workspaceId]
+    );
+    return rows as GroupTaskRow[];
+  }
+
+  async getGroupTask(taskId: number, workspaceId: number): Promise<GroupTaskRow | undefined> {
+    const [rows] = await this.pool.execute(
+      "SELECT * FROM group_tasks WHERE id = ? AND workspace_id = ? AND deleted_at IS NULL",
+      [taskId, workspaceId]
+    );
+    return (rows as GroupTaskRow[])[0];
+  }
+
+  async insertGroupTask(input: NewGroupTaskInput): Promise<number> {
+    const [info] = await this.pool.execute(
+      `INSERT INTO group_tasks
+         (workspace_id, title, description, assignee_id, assignee_name, status, due_at,
+          created_by_id, created_by_name, created_by_role, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        input.workspaceId,
+        input.title,
+        input.description,
+        input.assigneeId,
+        input.assigneeName,
+        input.assigneeId == null ? "open" : "in_progress",
+        input.dueAt,
+        input.createdById,
+        input.createdByName,
+        input.createdByRole,
+        getNow(),
+      ]
+    );
+    return (info as { insertId: number }).insertId;
+  }
+
+  async claimGroupTask(
+    taskId: number,
+    workspaceId: number,
+    userId: number,
+    userName: string | null
+  ): Promise<boolean> {
+    // 单条条件更新即原子：并发认领以先到为准（MySQL 受影响行数只在真正改动时为 1）
+    const [info] = await this.pool.execute(
+      `UPDATE group_tasks
+          SET assignee_id = ?, assignee_name = ?, status = 'in_progress'
+        WHERE id = ? AND workspace_id = ?
+          AND deleted_at IS NULL AND status = 'open' AND assignee_id IS NULL`,
+      [userId, userName, taskId, workspaceId]
+    );
+    return (info as { affectedRows: number }).affectedRows > 0;
+  }
+
+  async updateGroupTask(taskId: number, workspaceId: number, fields: GroupTaskUpdateFields): Promise<void> {
+    const sets: string[] = [];
+    const params: (string | null)[] = [];
+    if (fields.status !== undefined) {
+      sets.push("status = ?");
+      params.push(fields.status);
+    }
+    if (fields.completed_at !== undefined) {
+      sets.push("completed_at = ?");
+      params.push(fields.completed_at);
+    }
+    if (fields.deleted_at !== undefined) {
+      sets.push("deleted_at = ?");
+      params.push(fields.deleted_at);
+    }
+    if (sets.length === 0) return;
+    await this.pool.execute(
+      `UPDATE group_tasks SET ${sets.join(", ")} WHERE id = ? AND workspace_id = ?`,
+      [...params, taskId, workspaceId]
+    );
+  }
+
+  async countRecentGroupTasks(workspaceId: number, authorId: number, since: string): Promise<number> {
+    const [rows] = await this.pool.execute(
+      `SELECT COUNT(*) AS c FROM group_tasks
+        WHERE workspace_id = ? AND created_by_id = ? AND created_at >= ?`,
+      [workspaceId, authorId, since]
+    );
+    return Number((rows as { c: number | string }[])[0]?.c ?? 0);
+  }
+
+  async getGroupUnreadCount(workspaceId: number, userId: number): Promise<number> {
+    // 按公告 id 水位计数：同一秒内的新公告也不会被当成已读
+    const [countRows] = await this.pool.execute(
+      `SELECT COUNT(*) AS c FROM group_posts
+        WHERE workspace_id = ? AND deleted_at IS NULL
+          AND id > COALESCE((
+            SELECT last_read_post_id FROM group_workspace_reads
+             WHERE workspace_id = ? AND user_id = ?
+          ), 0)`,
+      [workspaceId, workspaceId, userId]
+    );
+    return Number((countRows as { c: number | string }[])[0]?.c ?? 0);
+  }
+
+  async markGroupWorkspaceRead(workspaceId: number, userId: number): Promise<void> {
+    await this.pool.execute(
+      `INSERT INTO group_workspace_reads (workspace_id, user_id, last_read_at, last_read_post_id)
+       VALUES (?, ?, ?, (SELECT COALESCE(MAX(id), 0) FROM group_posts WHERE workspace_id = ?))
+       ON DUPLICATE KEY UPDATE
+         last_read_at = VALUES(last_read_at),
+         last_read_post_id = VALUES(last_read_post_id)`,
+      [workspaceId, userId, getNow(), workspaceId]
+    );
   }
 
   // assessments / assessment_questions / assessment_results（#221 职业测评数据层）
@@ -2685,12 +3082,17 @@ export class MysqlAdapter implements DbAdapter {
       const [groupBatches] = await conn.execute("SELECT * FROM group_batches ORDER BY id");
       const [groupBatchGroups] = await conn.execute("SELECT * FROM group_batch_groups ORDER BY id");
       const [groupBatchMembers] = await conn.execute("SELECT * FROM group_batch_members ORDER BY id");
+      const [groupWorkspaces] = await conn.execute("SELECT * FROM group_workspaces ORDER BY id");
+      const [groupPosts] = await conn.execute("SELECT * FROM group_posts ORDER BY id");
+      const [groupTasks] = await conn.execute("SELECT * FROM group_tasks ORDER BY id");
+      const [groupWorkspaceReads] = await conn.execute("SELECT * FROM group_workspace_reads ORDER BY id");
       const [assessments] = await conn.execute("SELECT * FROM assessments ORDER BY id");
       const [assessmentQuestions] = await conn.execute("SELECT * FROM assessment_questions ORDER BY id");
       const [assessmentResults] = await conn.execute("SELECT * FROM assessment_results ORDER BY id");
       await conn.commit();
       return {
-        version: 8,
+        // #346：version 9 增加小组工作区四表（公告 / 任务 / 已读水位）
+        version: 9,
         sourceType: "mysql",
         createdAt: new Date().toISOString(),
         users: users as UserRow[],
@@ -2706,6 +3108,10 @@ export class MysqlAdapter implements DbAdapter {
         group_batches: groupBatches as GroupBatchRow[],
         group_batch_groups: groupBatchGroups as GroupBatchGroupRow[],
         group_batch_members: groupBatchMembers as GroupBatchMemberRow[],
+        group_workspaces: groupWorkspaces as GroupWorkspaceRow[],
+        group_posts: groupPosts as GroupPostRow[],
+        group_tasks: groupTasks as GroupTaskRow[],
+        group_workspace_reads: groupWorkspaceReads as GroupWorkspaceReadRow[],
         assessments: assessments as AssessmentRow[],
         assessment_questions: assessmentQuestions as AssessmentQuestionRow[],
         assessment_results: assessmentResults as AssessmentResultRow[],
@@ -2728,6 +3134,11 @@ export class MysqlAdapter implements DbAdapter {
       // 凡按 user_id / class_id 引用 users / classes 的持久表，恢复时一律无条件先清空：这两张表整表替换且按原 id 重插，
       // 旧备份缺字段时若保留现状，行会指向已不存在、或已被别人占用的 id（恢复期间 FK 关闭，库不会拦，事后开启也不回溯校验）。
       // 所以「缺字段 = 恢复后该功能无数据」，不是「保留不动」——#101 分组五表、#95 档案历史版本同此口径
+      // #346 工作区四表同样按 user_id / class_id 引用，旧备份缺字段时一律清空
+      await conn.execute("DELETE FROM group_workspace_reads");
+      await conn.execute("DELETE FROM group_tasks");
+      await conn.execute("DELETE FROM group_posts");
+      await conn.execute("DELETE FROM group_workspaces");
       await conn.execute("DELETE FROM class_group_members");
       await conn.execute("DELETE FROM class_groups");
       await conn.execute("DELETE FROM group_batch_members");
@@ -3058,6 +3469,80 @@ export class MysqlAdapter implements DbAdapter {
           ]);
           await conn.query(
             "INSERT INTO group_batch_members (id, batch_id, group_id, user_id, user_code, name, created_at) VALUES ?",
+            [values]
+          );
+        }
+        // 小组工作区（#346）：顺序 工作区 → 公告/任务 → 已读水位；旧备份无字段时保持空
+        if ((data.group_workspaces ?? []).length > 0) {
+          const values = (data.group_workspaces ?? []).map((w) => [
+            w.id,
+            w.class_id,
+            w.batch_id,
+            w.batch_group_id,
+            w.group_no,
+            w.title ?? `第 ${w.group_no} 组工作区`,
+            w.created_at ?? getNow(),
+          ]);
+          await conn.query(
+            "INSERT INTO group_workspaces (id, class_id, batch_id, batch_group_id, group_no, title, created_at) VALUES ?",
+            [values]
+          );
+        }
+        if ((data.group_posts ?? []).length > 0) {
+          const values = (data.group_posts ?? []).map((p) => [
+            p.id,
+            p.workspace_id,
+            p.author_id ?? null,
+            p.author_name ?? null,
+            p.author_role ?? null,
+            p.title,
+            p.content,
+            p.pinned ?? 0,
+            p.created_at ?? getNow(),
+            p.deleted_at ?? null,
+          ]);
+          await conn.query(
+            `INSERT INTO group_posts
+               (id, workspace_id, author_id, author_name, author_role, title, content, pinned, created_at, deleted_at)
+             VALUES ?`,
+            [values]
+          );
+        }
+        if ((data.group_tasks ?? []).length > 0) {
+          const values = (data.group_tasks ?? []).map((t) => [
+            t.id,
+            t.workspace_id,
+            t.title,
+            t.description ?? null,
+            t.assignee_id ?? null,
+            t.assignee_name ?? null,
+            t.status ?? "open",
+            t.due_at ?? null,
+            t.created_by_id ?? null,
+            t.created_by_name ?? null,
+            t.created_by_role ?? null,
+            t.created_at ?? getNow(),
+            t.completed_at ?? null,
+            t.deleted_at ?? null,
+          ]);
+          await conn.query(
+            `INSERT INTO group_tasks
+               (id, workspace_id, title, description, assignee_id, assignee_name, status, due_at,
+                created_by_id, created_by_name, created_by_role, created_at, completed_at, deleted_at)
+             VALUES ?`,
+            [values]
+          );
+        }
+        if ((data.group_workspace_reads ?? []).length > 0) {
+          const values = (data.group_workspace_reads ?? []).map((r) => [
+            r.id,
+            r.workspace_id,
+            r.user_id,
+            r.last_read_at ?? getNow(),
+            r.last_read_post_id ?? 0,
+          ]);
+          await conn.query(
+            "INSERT INTO group_workspace_reads (id, workspace_id, user_id, last_read_at, last_read_post_id) VALUES ?",
             [values]
           );
         }
