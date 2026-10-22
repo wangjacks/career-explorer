@@ -323,6 +323,68 @@ describe("速览四卡：空态与降级", () => {
     expect(noEvaluation.cta).toMatchObject({ action: "edit", label: "补充他人评价" });
   });
 
+  it("资料卡：提交截止后编辑入口置灰并说明截止时间，只读入口不受影响", () => {
+    const unsubmitted = cardOf(
+      build({
+        profile: { tags: [], avatarUrl: "", evaluationUrl: "", submitted: false },
+        submissionClosed: true,
+        submissionDeadline: "2026-10-01 23:59",
+      }),
+      "profile"
+    );
+    expect(unsubmitted.cta).toEqual({ label: "提交已截止", action: "edit", disabled: true });
+    expect(unsubmitted.caption).toBe("档案提交已于 2026-10-01 23:59 截止，无法再修改");
+
+    const noEvaluation = cardOf(
+      build({
+        profile: { tags: ["摄影"], avatarUrl: "/a.jpg", evaluationUrl: "", submitted: true },
+        submissionClosed: true,
+        submissionDeadline: "2026-10-01 23:59",
+      }),
+      "profile"
+    );
+    expect(noEvaluation.cta).toMatchObject({ action: "edit", label: "提交已截止", disabled: true });
+    expect(noEvaluation.caption).toBe("档案提交已于 2026-10-01 23:59 截止，无法再修改");
+
+    // 已完成三项资料时 CTA 是只读的「查看详情」，截止后仍可用
+    const complete = cardOf(
+      build({ submissionClosed: true, submissionDeadline: "2026-10-01 23:59" }),
+      "profile"
+    );
+    expect(complete.cta).toMatchObject({ action: "profile", targetId: PROFILE_INFO_ID });
+    expect(complete.cta.disabled).toBeUndefined();
+    expect(complete.caption).toBe("标签 / 头像 / 他人评价");
+  });
+
+  it("资料卡：截止时间未知时仍给出可读的禁用说明", () => {
+    const card = cardOf(
+      build({
+        profile: { tags: [], avatarUrl: "", evaluationUrl: "", submitted: false },
+        submissionClosed: true,
+        submissionDeadline: null,
+      }),
+      "profile"
+    );
+    expect(card.caption).toBe("档案提交已截止，无法再修改");
+    expect(card.cta).toMatchObject({ action: "edit", disabled: true });
+  });
+
+  it("教师受众 + 提交截止：资料卡仍是只读「查看详情」，版本数说明不被截止文案顶掉（#332 × #324）", () => {
+    const card = cardOf(
+      build({
+        audience: "teacher",
+        submissionClosed: true,
+        submissionDeadline: "2026-10-01 23:59",
+        profile: { ...SUBMITTED_PROFILE, versionCount: 3 },
+      }),
+      "profile"
+    );
+    expect(card.title).toBe("档案资料");
+    expect(card.cta).toEqual({ label: "查看详情", action: "profile", targetId: PROFILE_INFO_ID });
+    expect(card.cta.disabled).toBeUndefined();
+    expect(card.caption).toBe("标签 / 头像 / 他人评价 · 共 3 个版本");
+  });
+
   it("资料卡完成度：#162 三条文字评价（无图片）算完成，与页面同一口径", () => {
     const card = cardOf(
       build({
