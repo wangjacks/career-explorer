@@ -218,8 +218,20 @@ export default function GroupingPreviewPanel({
     void loadPreview(next, 0, weights);
   };
 
+  /**
+   * 这份预览**实际用的**权重（服务端回显）。换人与应用都必须提交它，
+   * 而不是权重输入框里的草稿——否则服务端会按草稿权重重算并回显，
+   * 让「权重已改、待重算」的提示消失，批次记录的权重与生成分组的权重再次不一致。
+   */
+  const previewWeights = useMemo(() => {
+    if (!preview) return null;
+    const out: Record<string, number> = {};
+    for (const source of preview.sources) out[source.key] = source.weight;
+    return out;
+  }, [preview]);
+
   const swapMembers = async (a: PreviewGroup, aUserId: number, b: PreviewGroup, bUserId: number) => {
-    if (!preview || swapping) return;
+    if (!preview || !previewWeights || swapping) return;
     const memberA = a.members.find((member) => member.userId === aUserId);
     const memberB = b.members.find((member) => member.userId === bUserId);
     if (!memberA || !memberB) return;
@@ -245,7 +257,8 @@ export default function GroupingPreviewPanel({
 
     setSwapping(true);
     setSwap(null);
-    const result = await fetchPreview(strategy, variant, weights, payload);
+    // 换人沿用当前预览的权重（不是输入框草稿）：草稿改了但没重算时，这次换人也不能替它重算
+    const result = await fetchPreview(strategy, variant, previewWeights, payload);
     if (!result.ok) {
       toast.error(result.error);
       setSwapping(false);
@@ -279,18 +292,6 @@ export default function GroupingPreviewPanel({
       })),
     [preview, leaders]
   );
-
-  /**
-   * 这份预览**实际用的**权重（服务端回显）。应用时必须提交它，
-   * 而不是权重输入框里的草稿——否则批次记录的权重与生成分组的权重不一致，
-   * 「历史批次可回放」的前提就没了（评审第 2 条）。
-   */
-  const previewWeights = useMemo(() => {
-    if (!preview) return null;
-    const out: Record<string, number> = {};
-    for (const source of preview.sources) out[source.key] = source.weight;
-    return out;
-  }, [preview]);
 
   /** 输入框改过但还没「按新权重重算」：此刻分组并不是按输入框里的权重生成的 */
   const weightsDirty = useMemo(() => {
