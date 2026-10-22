@@ -19,8 +19,10 @@ import {
   buildResultTrailing,
   buildRiasecBars,
   buildRiasecInterpretations,
+  hasScoreSnapshot,
   resultCardMode,
   resultCardStatus,
+  scoreSnapshotNotice,
   type AssessmentResultsPayload,
   type CareerCardView,
 } from "@/lib/assessment-view";
@@ -61,6 +63,7 @@ export default function AssessmentResultCard({
   code,
   data,
   careers,
+  viewer = "student",
   id,
   open,
   onOpenChange,
@@ -68,6 +71,8 @@ export default function AssessmentResultCard({
 }: {
   code: string;
   data: AssessmentResultsPayload;
+  /** 展示受众（#332）：teacher 时不出现答题入口与「见页尾」合规指针（教师不能替学生作答） */
+  viewer?: "student" | "teacher";
   careers: readonly CareerCardView[];
   /** 页面锚点（#323：速览卡定位到这里） */
   id?: string;
@@ -103,19 +108,23 @@ export default function AssessmentResultCard({
         onOpenChange={onOpenChange}
         highlight={highlight}
         action={
-          <Link
-            href={quizHref(code)}
-            className="inline-flex items-center justify-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-primary-strong"
-          >
-            <Compass className="h-3.5 w-3.5" aria-hidden />
-            {data.inProgress ? "继续作答" : "去测评"}
-          </Link>
+          viewer === "teacher" ? undefined : (
+            <Link
+              href={quizHref(code)}
+              className="inline-flex items-center justify-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-primary-strong"
+            >
+              <Compass className="h-3.5 w-3.5" aria-hidden />
+              {data.inProgress ? "继续作答" : "去测评"}
+            </Link>
+          )
         }
       >
         <p className="text-sm text-muted leading-relaxed">
-          {mode === "big-five"
-            ? "做完可以看到你的五大人格画像，了解自己在哪些方面更有优势。"
-            : "做完可以看到你的兴趣类型，以及可能适合你的职业方向。"}
+          {viewer === "teacher"
+            ? "该生还没有完成这套测评。需要补测时，请该生登录后进入「职业测评」重新作答；每次提交都会生成新版本，旧版本保留可查。"
+            : mode === "big-five"
+              ? "做完可以看到你的五大人格画像，了解自己在哪些方面更有优势。"
+              : "做完可以看到你的兴趣类型，以及可能适合你的职业方向。"}
         </p>
         {data.inProgress && (
           <p className="text-xs text-muted">上次答到 {assessmentView.answered}/{assessmentView.total} 题，可以接着做。</p>
@@ -129,6 +138,7 @@ export default function AssessmentResultCard({
       <FiveFactorResultCard
         data={data}
         code={code}
+        viewer={viewer}
         id={id}
         open={open}
         onOpenChange={onOpenChange}
@@ -138,8 +148,10 @@ export default function AssessmentResultCard({
   }
 
   // 霍兰德卡（#224 原有内容）：按行排列的六型视图 + 推荐职业
-  const bars = buildRiasecBars(current.scores, current.typeCode);
-  const interpretations = buildRiasecInterpretations(current.scores, current.typeCode);
+  // 快照缺失 / 损坏时不画六条与雷达：空数组进 builder 会得到六条 0 分和全零多边形（#234/#332）
+  const hasSnapshot = hasScoreSnapshot(current.scores);
+  const bars = hasSnapshot ? buildRiasecBars(current.scores, current.typeCode) : [];
+  const interpretations = hasSnapshot ? buildRiasecInterpretations(current.scores, current.typeCode) : [];
   const completedAt = formatResultTime(current.completedAt);
   const trailing = buildResultTrailing({
     questionCount: current.questionCount,
@@ -158,59 +170,69 @@ export default function AssessmentResultCard({
       highlight={highlight}
     >
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <HollandCodeBadge typeCode={current.typeCode} />
-        <Link
-          href={quizHref(code)}
-          className="inline-flex items-center justify-center px-3 py-1.5 bg-gray-100 hover:bg-gray-200 dark:bg-gray-800 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-200 text-sm rounded-lg transition-colors flex-shrink-0"
-        >
-          {data.inProgress ? "继续作答" : "重新测评"}
-        </Link>
+        <HollandCodeBadge typeCode={current.typeCode} viewer={viewer} />
+        {viewer === "student" && (
+          <Link
+            href={quizHref(code)}
+            className="inline-flex items-center justify-center px-3 py-1.5 bg-gray-100 hover:bg-gray-200 dark:bg-gray-800 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-200 text-sm rounded-lg transition-colors flex-shrink-0"
+          >
+            {data.inProgress ? "继续作答" : "重新测评"}
+          </Link>
+        )}
       </div>
 
-      {/* 两种视图并列：雷达看整体形状，条状排名看具体高低；窄屏上下堆叠 */}
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-        <div className="min-w-0">
-          <RiasecRadarChart scores={current.scores} />
-        </div>
-        <ul className="min-w-0 space-y-2.5" aria-label="六型兴趣得分排名">
-          {bars.map((bar) => (
-            <li key={bar.key} className="space-y-1">
-              <div className="flex items-center justify-between gap-2 text-sm">
-                <span className="text-foreground">
-                  {bar.label}
-                  {bar.isTop && (
-                    <span className="ml-1.5 px-1.5 py-0.5 rounded text-[10px] bg-green-50 text-green-600 dark:bg-green-900/30 dark:text-green-400">
-                      主要兴趣
+      {hasSnapshot ? (
+        <>
+          {/* 两种视图并列：雷达看整体形状，条状排名看具体高低；窄屏上下堆叠 */}
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+            <div className="min-w-0">
+              <RiasecRadarChart scores={current.scores} />
+            </div>
+            <ul className="min-w-0 space-y-2.5" aria-label="六型兴趣得分排名">
+              {bars.map((bar) => (
+                <li key={bar.key} className="space-y-1">
+                  <div className="flex items-center justify-between gap-2 text-sm">
+                    <span className="text-foreground">
+                      {bar.label}
+                      {bar.isTop && (
+                        <span className="ml-1.5 px-1.5 py-0.5 rounded text-[10px] bg-green-50 text-green-600 dark:bg-green-900/30 dark:text-green-400">
+                          主要兴趣
+                        </span>
+                      )}
                     </span>
-                  )}
-                </span>
-                <span className="text-muted font-mono text-xs">{bar.standard.toFixed(1)}</span>
-              </div>
-              <div className="h-2 rounded-full bg-gray-100 dark:bg-gray-800 overflow-hidden">
-                <div
-                  className="h-full rounded-full bg-primary transition-all duration-500"
-                  style={{ width: `${bar.percent}%` }}
-                />
-              </div>
-            </li>
-          ))}
-        </ul>
-      </div>
+                    <span className="text-muted font-mono text-xs">{bar.standard.toFixed(1)}</span>
+                  </div>
+                  <div className="h-2 rounded-full bg-gray-100 dark:bg-gray-800 overflow-hidden">
+                    <div
+                      className="h-full rounded-full bg-primary transition-all duration-500"
+                      style={{ width: `${bar.percent}%` }}
+                    />
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </div>
 
-      <div className="space-y-2">
-        <h3 className="text-sm font-medium text-foreground">六型逐条解读</h3>
-        <ul className="space-y-2">
-          {interpretations.map((item) => (
-            <li key={item.key} className="rounded-lg bg-background px-3 py-2">
-              <p className="text-sm font-medium text-foreground">
-                {item.label}
-                {item.isTop && <span className="ml-1.5 text-xs text-muted">主要兴趣</span>}
-              </p>
-              <p className="mt-0.5 text-xs text-muted leading-relaxed">{item.text}</p>
-            </li>
-          ))}
-        </ul>
-      </div>
+          <div className="space-y-2">
+            <h3 className="text-sm font-medium text-foreground">六型逐条解读</h3>
+            <ul className="space-y-2">
+              {interpretations.map((item) => (
+                <li key={item.key} className="rounded-lg bg-background px-3 py-2">
+                  <p className="text-sm font-medium text-foreground">
+                    {item.label}
+                    {item.isTop && <span className="ml-1.5 text-xs text-muted">主要兴趣</span>}
+                  </p>
+                  <p className="mt-0.5 text-xs text-muted leading-relaxed">{item.text}</p>
+                </li>
+              ))}
+            </ul>
+          </div>
+        </>
+      ) : (
+        <p className="rounded-lg bg-background px-3 py-2 text-xs leading-relaxed text-muted">
+          {scoreSnapshotNotice(viewer)}
+        </p>
+      )}
 
       {/* 推荐职业（#226）：无数据/接口失败时整块不渲染；CC BY 署名收编到页尾授权卡 */}
       {careers.length > 0 && (
@@ -228,7 +250,7 @@ export default function AssessmentResultCard({
         </div>
       )}
 
-      <CompliancePointer />
+      {viewer === "student" && <CompliancePointer />}
     </CollapsibleCard>
   );
 }

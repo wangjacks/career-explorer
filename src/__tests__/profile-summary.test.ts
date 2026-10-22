@@ -217,6 +217,38 @@ describe("速览四卡：空态与降级", () => {
     expect(draftCard.cta.label).toBe("继续作答");
   });
 
+  it("学生受众：空态 headline 用「还没测」，不出现第三人称「该生」（#332 回归）", () => {
+    const summary = build({ results: {} });
+    expect(cardOf(summary, "interest").headline).toBe("还没测兴趣类型");
+    expect(cardOf(summary, "personality").headline).toBe("还没测人格特质");
+    expect(cardOf(summary, "interest").caption).toContain("你的三字码");
+  });
+
+  it("教师受众：同一张卡的空态 headline 换成「该生」", () => {
+    const summary = build({ audience: "teacher", results: {} });
+    expect(cardOf(summary, "interest").headline).toBe("该生还没测兴趣类型");
+    expect(cardOf(summary, "personality").headline).toBe("该生还没测人格特质");
+  });
+
+  it("已测但快照缺失：兴趣卡保留三字码、人格卡不伪造特质排名（不画 0 分）", () => {
+    const summary = build({
+      results: {
+        riasec: { ...HOLLAND_RESULT, current: { ...HOLLAND_RESULT.current!, scores: [] } },
+        "ipip-neo-ffi": { ...BIG_FIVE_RESULT, current: { ...BIG_FIVE_RESULT.current!, scores: [] } },
+      },
+    });
+    const interest = cardOf(summary, "interest");
+    expect(interest.state).toBe("ready");
+    expect(interest.code).toBe("SIA");
+    expect(interest.bars).toHaveLength(0);
+    expect(interest.caption).toContain("快照缺失");
+    const personality = cardOf(summary, "personality");
+    expect(personality.bars).toHaveLength(0);
+    expect(personality.headline).toBe("已测 · 分数快照缺失");
+    expect(personality.headline).not.toMatch(/偏低/);
+    expect(personality.caption).toContain("快照缺失");
+  });
+
   it("人格量表未启用：降级为「暂未开放」，不误报未测", () => {
     const card = cardOf(build({ scales: [HOLLAND_SCALE] }), "personality");
     expect(card.state).toBe("degraded");
@@ -233,6 +265,30 @@ describe("速览四卡：空态与降级", () => {
     const empty = cardOf(build({ careers: [] }), "careers");
     expect(empty.state).toBe("degraded");
     expect(empty.headline).toBe("还没有匹配到推荐职业");
+  });
+
+  it("教师受众：推荐职业卡不指向没有职业列表的详情卡（#332 死链回归）", () => {
+    const ready = cardOf(build({ audience: "teacher" }), "careers");
+    expect(ready.state).toBe("ready");
+    expect(ready.items).toHaveLength(3);
+    expect(ready.headline).toBe("可能适合该生的方向");
+    expect(ready.caption).toContain("详情卡不重复职业列表");
+    expect(ready.cta).toMatchObject({ action: "none" });
+
+    const failed = cardOf(build({ audience: "teacher", careers: [], careersFailed: true }), "careers");
+    expect(failed.cta).toMatchObject({ label: "查看兴趣结果", action: "detail", targetId: assessmentDetailId("riasec") });
+    expect(failed.caption).not.toContain("查看完整方向");
+
+    const noMatch = cardOf(build({ audience: "teacher", careers: [] }), "careers");
+    expect(noMatch.cta).toMatchObject({ label: "查看兴趣结果" });
+    expect(noMatch.caption).toContain("六型分布");
+  });
+
+  it("学生受众：推荐职业卡的指针与文案不变（「查看全部职业 / 查看详情」）", () => {
+    expect(cardOf(build(), "careers").cta).toMatchObject({ label: "查看详情", action: "detail" });
+    const failed = cardOf(build({ careers: [], careersFailed: true }), "careers");
+    expect(failed.cta.label).toBe("查看全部职业");
+    expect(failed.caption).toBe("兴趣结果不受影响，可以到详情里查看完整方向");
   });
 
   it("没有霍兰德结果时推荐职业卡为空态（去测评）", () => {
@@ -311,6 +367,22 @@ describe("速览四卡：空态与降级", () => {
     );
     expect(card.caption).toBe("档案提交已截止，无法再修改");
     expect(card.cta).toMatchObject({ action: "edit", disabled: true });
+  });
+
+  it("教师受众 + 提交截止：资料卡仍是只读「查看详情」，版本数说明不被截止文案顶掉（#332 × #324）", () => {
+    const card = cardOf(
+      build({
+        audience: "teacher",
+        submissionClosed: true,
+        submissionDeadline: "2026-10-01 23:59",
+        profile: { ...SUBMITTED_PROFILE, versionCount: 3 },
+      }),
+      "profile"
+    );
+    expect(card.title).toBe("档案资料");
+    expect(card.cta).toEqual({ label: "查看详情", action: "profile", targetId: PROFILE_INFO_ID });
+    expect(card.cta.disabled).toBeUndefined();
+    expect(card.caption).toBe("标签 / 头像 / 他人评价 · 共 3 个版本");
   });
 
   it("资料卡完成度：#162 三条文字评价（无图片）算完成，与页面同一口径", () => {

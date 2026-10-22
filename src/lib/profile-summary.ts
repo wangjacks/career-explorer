@@ -20,7 +20,9 @@ import {
   buildBigFiveHeadline,
   buildRiasecBars,
   describeTypeCode,
+  hasScoreSnapshot,
   resultCardMode,
+  SNAPSHOT_MISSING_HEADLINE,
   type AssessmentResultsPayload,
   type CareerCardView,
 } from "./assessment-view";
@@ -95,10 +97,17 @@ export interface SummaryProfileInput {
   /** #162：三条他人评价；填满三条与存量图片任一存在即算完成 */
   evaluationTexts?: string[];
   submitted: boolean;
+  /** 档案版本数（教师详情弹窗 #332：资料卡展示「共 N 个版本」；学生页可不传） */
+  versionCount?: number;
 }
+
+/** 展示受众：教师弹窗不能给「去测评 / 编辑」这类学生动作，空态改为「查看详情 + 重测指引」 */
+export type SummaryAudience = "student" | "teacher";
 
 export interface BuildProfileSummaryInput {
   profile: SummaryProfileInput | null;
+  /** 默认 student（行为不变）；教师详情弹窗传 teacher，空态不出现学生侧动作 */
+  audience?: SummaryAudience;
   scales: readonly AssessmentListItem[];
   results: Record<string, AssessmentResultsPayload>;
   careers: readonly CareerCardView[];
@@ -147,6 +156,9 @@ const RESULTS_FALLBACK_CTA: SummaryCardCta = {
   targetId: ASSESSMENT_RESULTS_ID,
 };
 
+/** 不给指针（内容已在本卡展示完）：`ProfileSummaryBoard` 对 `none` 不渲染按钮 */
+const NO_CTA: SummaryCardCta = { label: "", action: "none" };
+
 function toBars(rows: readonly { label: string; standard: number; percent: number }[], limit: number): SummaryBar[] {
   return rows.slice(0, limit).map((row) => ({ label: row.label, standard: row.standard, percent: row.percent }));
 }
@@ -171,6 +183,7 @@ export function buildProfileSummary(input: BuildProfileSummaryInput): ProfileSum
     careersFailed = false,
     submissionClosed = false,
     submissionDeadline = null,
+    audience = "student",
   } = input;
   const hollandScale = findScale(scales, "holland");
   const bigFiveScale = findScale(scales, "big-five");
@@ -183,10 +196,10 @@ export function buildProfileSummary(input: BuildProfileSummaryInput): ProfileSum
 
   return {
     cards: [
-      buildInterestCard({ hollandScale, hollandPayload, hollandFailed, listFailed }),
-      buildPersonalityCard({ bigFiveScale, bigFivePayload, bigFiveFailed, listFailed }),
-      buildCareersCard({ hollandScale, hollandCurrent, hollandFailed, careers, listFailed, careersFailed }),
-      buildProfileCard(profile, submissionClosed, submissionDeadline),
+      buildInterestCard({ hollandScale, hollandPayload, hollandFailed, listFailed, audience }),
+      buildPersonalityCard({ bigFiveScale, bigFivePayload, bigFiveFailed, listFailed, audience }),
+      buildCareersCard({ hollandScale, hollandCurrent, hollandFailed, careers, listFailed, careersFailed, audience }),
+      buildProfileCard(profile, audience, submissionClosed, submissionDeadline),
     ],
   };
 }
@@ -207,8 +220,9 @@ function buildInterestCard(input: {
   hollandPayload: AssessmentResultsPayload | undefined;
   hollandFailed: boolean;
   listFailed: boolean;
+  audience: SummaryAudience;
 }): SummaryCard {
-  const { hollandScale, hollandPayload, hollandFailed, listFailed } = input;
+  const { hollandScale, hollandPayload, hollandFailed, listFailed, audience } = input;
   const base = { kind: "interest" as const, title: "兴趣类型" };
 
   if (listFailed) {
@@ -237,26 +251,49 @@ function buildInterestCard(input: {
     return {
       ...base,
       state: "empty",
-      headline: inProgress ? "兴趣测评还没答完" : "还没测兴趣类型",
-      caption: inProgress
-        ? `上次答到 ${inProgress.answered}/${inProgress.total} 题，接着做就能看到结论`
-        : "做完就能看到你的三字码、六型分布与适合的职业方向",
-      cta: {
-        label: inProgress ? "继续作答" : "去测评",
-        action: "quiz",
-        href: quizHref(hollandScale.code),
-      },
+      headline:
+        inProgress
+          ? "兴趣测评还没答完"
+          : audience === "teacher"
+            ? "该生还没测兴趣类型"
+            : "还没测兴趣类型",
+      caption:
+        audience === "teacher"
+          ? inProgress
+            ? `该生上次答到 ${inProgress.answered}/${inProgress.total} 题；重测需学生登录后作答`
+            : "重测需学生登录后进入「职业测评」作答；做完会生成三字码与职业方向"
+          : inProgress
+            ? `上次答到 ${inProgress.answered}/${inProgress.total} 题，接着做就能看到结论`
+            : "做完就能看到你的三字码、六型分布与适合的职业方向",
+      cta:
+        audience === "teacher"
+          ? { label: "查看详情", action: "detail", targetId: assessmentDetailId(hollandScale.code) }
+          : {
+              label: inProgress ? "继续作答" : "去测评",
+              action: "quiz",
+              href: quizHref(hollandScale.code),
+            },
     };
   }
 
   const code = hollandPayload.current.typeCode ?? "";
+  // 三字码本身是结论，快照缺失时照样展示；六型条形没有分数就不能画（#234 口径）
+  const snapshot = hasScoreSnapshot(hollandPayload.current.scores);
   return {
     ...base,
     state: "ready",
     code: code || undefined,
-    headline: code ? describeTypeCode(code) : "兴趣结果已生成",
-    caption: "兴趣最强的三种类型，按先后顺序",
-    bars: toBars(buildRiasecBars(hollandPayload.current.scores, hollandPayload.current.typeCode), 3),
+    headline: code
+      ? describeTypeCode(code)
+      : snapshot
+        ? "兴趣结果已生成"
+        : SNAPSHOT_MISSING_HEADLINE,
+    caption: snapshot
+      ? "兴趣最强的三种类型，按先后顺序"
+      : audience === "teacher"
+        ? "该生的三字码在，但维度分快照缺失，暂不展示六型分布"
+        : "三字码在，但维度分快照缺失，暂不展示六型分布",
+    bars: snapshot ? toBars(buildRiasecBars(hollandPayload.current.scores, hollandPayload.current.typeCode), 3) : [],
     cta: { label: "查看详情", action: "detail", targetId: assessmentDetailId(hollandScale.code) },
   };
 }
@@ -266,8 +303,9 @@ function buildPersonalityCard(input: {
   bigFivePayload: AssessmentResultsPayload | undefined;
   bigFiveFailed: boolean;
   listFailed: boolean;
+  audience: SummaryAudience;
 }): SummaryCard {
-  const { bigFiveScale, bigFivePayload, bigFiveFailed, listFailed } = input;
+  const { bigFiveScale, bigFivePayload, bigFiveFailed, listFailed, audience } = input;
   const base = { kind: "personality" as const, title: "人格特质" };
 
   if (listFailed) {
@@ -296,26 +334,45 @@ function buildPersonalityCard(input: {
     return {
       ...base,
       state: "empty",
-      headline: inProgress ? "人格测评还没答完" : "还没测人格特质",
-      caption: inProgress
-        ? `上次答到 ${inProgress.answered}/${inProgress.total} 题，接着做就能看到结论`
-        : "做完就能看到你的五维画像与主要特质",
-      cta: {
-        label: inProgress ? "继续作答" : "去测评",
-        action: "quiz",
-        href: quizHref(bigFiveScale.code),
-      },
+      headline:
+        inProgress
+          ? "人格测评还没答完"
+          : audience === "teacher"
+            ? "该生还没测人格特质"
+            : "还没测人格特质",
+      caption:
+        audience === "teacher"
+          ? inProgress
+            ? `该生上次答到 ${inProgress.answered}/${inProgress.total} 题；重测需学生登录后作答`
+            : "重测需学生登录后进入「职业测评」作答；做完会生成五维画像与主要特质"
+          : inProgress
+            ? `上次答到 ${inProgress.answered}/${inProgress.total} 题，接着做就能看到结论`
+            : "做完就能看到你的五维画像与主要特质",
+      cta:
+        audience === "teacher"
+          ? { label: "查看详情", action: "detail", targetId: assessmentDetailId(bigFiveScale.code) }
+          : {
+              label: inProgress ? "继续作答" : "去测评",
+              action: "quiz",
+              href: quizHref(bigFiveScale.code),
+            },
     };
   }
 
   const dimensions = bigFivePayload.assessment.dimensions;
-  const headline = buildBigFiveHeadline(bigFivePayload.current.scores, dimensions);
+  // 快照缺失时不排名：`buildBigFiveHeadline([])` 会把五维都按 0 分算出「偏低X · 偏低Y」
+  const snapshot = hasScoreSnapshot(bigFivePayload.current.scores);
+  const headline = snapshot ? buildBigFiveHeadline(bigFivePayload.current.scores, dimensions) : "";
   return {
     ...base,
     state: "ready",
-    headline: headline || "人格结果已生成",
-    caption: "最高的两项特质",
-    bars: toBars(buildBigFiveBars(bigFivePayload.current.scores, dimensions), 2),
+    headline: headline || (snapshot ? "人格结果已生成" : SNAPSHOT_MISSING_HEADLINE),
+    caption: snapshot
+      ? "最高的两项特质"
+      : audience === "teacher"
+        ? "该生这次报告的维度分快照缺失，暂时给不出特质排名"
+        : "这次报告的维度分快照缺失，暂时给不出特质排名",
+    bars: snapshot ? toBars(buildBigFiveBars(bigFivePayload.current.scores, dimensions), 2) : [],
     cta: { label: "查看详情", action: "detail", targetId: assessmentDetailId(bigFiveScale.code) },
   };
 }
@@ -327,11 +384,18 @@ function buildCareersCard(input: {
   careers: readonly CareerCardView[];
   listFailed: boolean;
   careersFailed: boolean;
+  audience: SummaryAudience;
 }): SummaryCard {
-  const { hollandScale, hollandCurrent, hollandFailed, careers, listFailed, careersFailed } = input;
+  const { hollandScale, hollandCurrent, hollandFailed, careers, listFailed, careersFailed, audience } = input;
   const base = { kind: "careers" as const, title: "推荐职业" };
+  // 教师弹窗的霍兰德详情卡里没有职业列表（`AssessmentResultsSection` 对 viewer=teacher 传 careers=[]），
+  // 所以这里的指针只能说「去看兴趣结果」，不能承诺「查看全部职业」。
   const detailTarget = hollandScale
-    ? { label: "查看全部职业", action: "detail" as const, targetId: assessmentDetailId(hollandScale.code) }
+    ? {
+        label: audience === "teacher" ? "查看兴趣结果" : "查看全部职业",
+        action: "detail" as const,
+        targetId: assessmentDetailId(hollandScale.code),
+      }
     : RESULTS_FALLBACK_CTA;
 
   if (listFailed) {
@@ -357,11 +421,19 @@ function buildCareersCard(input: {
     return {
       ...base,
       state: "empty",
-      headline: "做完兴趣测评后生成推荐职业",
-      caption: "根据你的六型兴趣匹配职业库，中文名优先展示",
-      cta: hollandScale
-        ? { label: "去测评", action: "quiz", href: quizHref(hollandScale.code) }
-        : { label: "查看测评区", action: "detail", targetId: ASSESSMENT_RESULTS_ID },
+      headline: audience === "teacher" ? "该生做完兴趣测评后生成推荐职业" : "做完兴趣测评后生成推荐职业",
+      caption:
+        audience === "teacher"
+          ? "推荐职业只按该生的兴趣结果匹配；学生完成兴趣测评后即可查看"
+          : "根据你的六型兴趣匹配职业库，中文名优先展示",
+      cta:
+        audience === "teacher"
+          ? hollandScale
+            ? { label: "查看详情", action: "detail", targetId: assessmentDetailId(hollandScale.code) }
+            : { label: "查看详情", action: "detail", targetId: ASSESSMENT_RESULTS_ID }
+          : hollandScale
+            ? { label: "去测评", action: "quiz", href: quizHref(hollandScale.code) }
+            : { label: "查看测评区", action: "detail", targetId: ASSESSMENT_RESULTS_ID },
     };
   }
   if (careers.length === 0) {
@@ -369,7 +441,12 @@ function buildCareersCard(input: {
       ...base,
       state: "degraded",
       headline: careersFailed ? "推荐职业暂时没取到" : "还没有匹配到推荐职业",
-      caption: "兴趣结果不受影响，可以到详情里查看完整方向",
+      caption:
+        audience === "teacher"
+          ? careersFailed
+            ? "该生的兴趣结果不受影响，稍后重新打开弹窗可以再取一次"
+            : "该生的兴趣结果不受影响，可以在兴趣详情看六型分布"
+          : "兴趣结果不受影响，可以到详情里查看完整方向",
       cta: detailTarget,
     };
   }
@@ -377,22 +454,35 @@ function buildCareersCard(input: {
   return {
     ...base,
     state: "ready",
-    headline: "可能适合你的方向",
-    caption: `按匹配度取前 ${Math.min(SUMMARY_CAREERS, careers.length)} 个`,
+    headline: audience === "teacher" ? "可能适合该生的方向" : "可能适合你的方向",
+    caption:
+      audience === "teacher"
+        ? `按匹配度取前 ${Math.min(SUMMARY_CAREERS, careers.length)} 个，详情卡不重复职业列表`
+        : `按匹配度取前 ${Math.min(SUMMARY_CAREERS, careers.length)} 个`,
     items: careers.slice(0, SUMMARY_CAREERS).map((career) => ({
       title: career.displayName,
       subtitle: [career.meta, career.hasChineseName ? career.englishName : ""].filter(Boolean).join(" · "),
     })),
-    cta: { label: "查看详情", action: "detail", targetId: assessmentDetailId(hollandScale.code) },
+    // 学生端点「查看详情」会展开带完整职业列表的霍兰德卡；教师端那里没有职业，
+    // 前三条就是全部展示面，所以不给会落空的指针
+    cta:
+      audience === "teacher"
+        ? NO_CTA
+        : { label: "查看详情", action: "detail", targetId: assessmentDetailId(hollandScale.code) },
   };
 }
 
 function buildProfileCard(
   profile: SummaryProfileInput | null,
+  audience: SummaryAudience,
   submissionClosed: boolean,
   submissionDeadline: string | null
 ): SummaryCard {
-  const base = { kind: "profile" as const, title: "我的档案" };
+  // 教师弹窗里这张卡是「该生的档案资料」；学生页仍是「我的档案」
+  const base = {
+    kind: "profile" as const,
+    title: audience === "teacher" ? "档案资料" : "我的档案",
+  };
 
   if (!profile) {
     return {
@@ -415,33 +505,43 @@ function buildProfileCard(
   const evaluationDone = completion[2].done;
   const tokens = profile.tags.slice(0, MAX_SUMMARY_TAGS);
 
-  // 需要进入编辑态的入口：未归档或评价未填。截止后仍展示但置灰，并给出截止说明（#324）
-  const editCta: SummaryCardCta | null = !profile.submitted
-    ? { label: "开始填写", action: "edit" }
-    : !evaluationDone
-      ? { label: "补充他人评价", action: "edit" }
+  // 学生侧：需要进入编辑态的入口（未归档或评价未填），截止后仍展示但置灰并给说明（#324）。
+  // 教师端没有「编辑档案」入口：统一指向弹窗下方的档案资料区（#332）
+  const editCta: SummaryCardCta | null =
+    audience === "teacher"
+      ? null
+      : !profile.submitted
+        ? { label: "开始填写", action: "edit" }
+        : !evaluationDone
+          ? { label: "补充他人评价", action: "edit" }
+          : null;
+  const deadlineHint =
+    audience !== "teacher" && submissionClosed
+      ? submissionDeadline
+        ? `档案提交已于 ${submissionDeadline} 截止，无法再修改`
+        : "档案提交已截止，无法再修改"
       : null;
-  const deadlineHint = submissionClosed
-    ? submissionDeadline
-      ? `档案提交已于 ${submissionDeadline} 截止，无法再修改`
-      : "档案提交已截止，无法再修改"
-    : null;
-  const cta: SummaryCardCta = editCta
-    ? submissionClosed
-      ? { ...editCta, label: "提交已截止", disabled: true }
+  const cta: SummaryCardCta =
+    audience === "teacher"
+      ? { label: "查看详情", action: "profile", targetId: PROFILE_INFO_ID }
       : editCta
-    : { label: "查看详情", action: "profile", targetId: PROFILE_INFO_ID };
+        ? submissionClosed
+          ? { ...editCta, label: "提交已截止", disabled: true }
+          : editCta
+        : { label: "查看详情", action: "profile", targetId: PROFILE_INFO_ID };
+  const caption =
+    editCta && deadlineHint
+      ? deadlineHint
+      : (profile.submitted ? "标签 / 头像 / 他人评价" : "标签必填，头像与他人评价选填") +
+        (typeof profile.versionCount === "number" && profile.versionCount > 0
+          ? ` · 共 ${profile.versionCount} 个版本`
+          : "");
 
   return {
     ...base,
     state: "ready",
     headline: profile.submitted ? `已完成 ${doneCount}/3 项资料` : "档案还没提交",
-    caption:
-      editCta && deadlineHint
-        ? deadlineHint
-        : profile.submitted
-          ? "标签 / 头像 / 他人评价"
-          : "标签必填，头像与他人评价选填",
+    caption,
     tokens,
     completion,
     cta,

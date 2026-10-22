@@ -6,20 +6,30 @@ import { parseTypeCodeParts, describeTypeCode } from "@/lib/assessment-view";
  * 霍兰德三字码徽章（#224）：大字母 + 每枚字母的中文型名。
  * 无码时显示「—」并保留占位高度，避免结果区在数据不完整时塌陷。
  */
-export default function HollandCodeBadge({ typeCode }: { typeCode: string | null | undefined }) {
+export default function HollandCodeBadge({
+  typeCode,
+  viewer = "student",
+}: {
+  typeCode: string | null | undefined;
+  /** 展示受众（#332）：教师看学生档案时主语是「该生」，不是「你」 */
+  viewer?: "student" | "teacher";
+}) {
   const parts = parseTypeCodeParts(typeCode);
   const description = describeTypeCode(typeCode);
+  const owner = viewer === "teacher" ? "该生" : "你";
 
   return (
     <div className="flex items-center gap-4">
       <div
         className="bg-brand rounded-xl px-4 py-3 text-center flex-shrink-0"
-        aria-label={description ? `你的三字码是 ${parts.map((p) => p.key).join(" ")}，对应${description}` : "暂无三字码"}
+        aria-label={
+          description ? `${owner}的三字码是 ${parts.map((p) => p.key).join(" ")}，对应${description}` : "暂无三字码"
+        }
       >
         <p className="text-2xl sm:text-3xl font-extrabold tracking-[0.2em] text-white leading-none">
           {parts.length > 0 ? parts.map((part) => part.key).join("") : "—"}
         </p>
-        <p className="mt-1 text-[11px] text-white/70">你的三字码</p>
+        <p className="mt-1 text-[11px] text-white/70">{owner}的三字码</p>
       </div>
       <div className="min-w-0">
         {parts.length > 0 ? (

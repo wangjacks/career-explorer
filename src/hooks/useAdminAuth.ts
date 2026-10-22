@@ -14,6 +14,8 @@ export interface Profile {
   studentName: string;
   /** 学生当前所在班级（#243）；未分班或旧接口响应可能为 null / undefined */
   classId?: number | null;
+  /** 班级名（#332 详情弹窗身份区）；班级表读取失败或旧接口缺失时为 null */
+  className?: string | null;
   tags: string[];
   avatarUrl: string;
   /** 历史上传的评价词云图片；#162 起仅用于存量展示 */
