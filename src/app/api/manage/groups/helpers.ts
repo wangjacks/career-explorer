@@ -129,6 +129,7 @@ export interface GroupingBatchView {
   strategy: string;
   strategyLabel: string;
   studentCount: number;
+  /** 归档时的「有任一分组依据」人数（#345 起口径；旧批次可能是有标签人数，不可比） */
   taggedCount: number;
   createdByName: string | null;
   metrics: GroupingMetrics | null;

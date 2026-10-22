@@ -99,6 +99,7 @@ interface GroupingView {
     strategy: string;
     strategyLabel: string;
     studentCount: number;
+    /** 归档时的「有任一分组依据」人数（#345 起口径；旧批次不可比） */
     taggedCount: number;
     createdByName: string | null;
     metrics: { overall?: number } | null;
@@ -113,6 +114,7 @@ interface BatchItem {
   strategyLabel?: string;
   groupSize: number;
   studentCount: number;
+  /** 归档时的「有任一分组依据」人数（#345 起口径；旧批次不可比），列表文案见下方「N 人有分组依据」 */
   taggedCount: number;
   createdAt: string;
   createdByName: string | null;
@@ -134,6 +136,7 @@ interface BatchDetail {
     strategy?: string;
     strategyLabel?: string;
     studentCount: number;
+    /** 归档时的「有任一分组依据」人数（#345 起口径；旧批次不可比） */
     taggedCount: number;
     createdAt: string;
     createdByName: string | null;

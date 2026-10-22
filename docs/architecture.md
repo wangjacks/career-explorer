@@ -267,7 +267,7 @@
 |---|---|---|
 | `class_groups` | **当前**分组的组：`class_id` + `group_no` + `leader_user_id`（#345 组长，可空，外键 `users(id) ON DELETE SET NULL`；旧库 `init()` 自动补列并清掉指向非成员的组长），`UNIQUE(class_id, group_no)`；允许空组（教师手工建组先占位再移人） | ✅ |
 | `class_group_members` | **当前**分组的成员：`group_id` + `user_id`，`UNIQUE(user_id)` 全局——一个学生同时只能属于一个组，转班/删人必须清理旧行 | ✅ |
-| `group_batches` | 历史批次头（每次自动分组追加一条，永不覆盖）：`strategy`、`feature_sources`（本次用到的特征源 key/kind/weight）、`student_count` / `tagged_count`（覆盖率）、`metrics`（含两条基线）、操作者快照 | ✅ |
+| `group_batches` | 历史批次头（每次自动分组追加一条，永不覆盖）：`strategy`、`feature_sources`（本次用到的特征源 key/kind/weight）、`student_count` / `tagged_count`（#345 起为**有任一分组依据**的人数，列名沿用旧称；历史批次该列口径不同、不可比，见「课堂分组」）、`metrics`（含两条基线）、操作者快照 | ✅ |
 | `group_batch_groups` | 批次内各组快照：`group_no` + `cohesion`（组内平均相似度）+ `member_count` + `leader_user_id`（#345 组长快照）；**内聚度与组长必须存快照**，标签/组长随时间变，事后算不出当时的状态 | ✅ |
 | `group_batch_members` | 批次内成员快照：`user_id` + **冗余的 `user_code` / `name`**，账号删除后历史批次仍可读；因此该列**不建外键**（当前侧 `class_group_members.user_id` 建外键，两侧职责不同） | ✅ |
 
@@ -307,6 +307,7 @@
 - **确定性**：输入先按 `user_code` 升序稳定排序，平局按 `user_code` / 下标，全流程无随机源；只有对比基线用固定种子（mulberry32，随机基线取 20 次均值）。输入顺序不影响结果
 - **特征源注册表与技术边界**：算法只认 `FeatureSourceDef {key,label,kind,weight,version,extract}`，**不碰 `users.tags`**；#345 注册 `tags` / `riasec` / `bigfive` 三个源，默认权重 `标签 0.2 / 兴趣 0.5 / 性格 0.3`（可调）。**大五 N（神经质）不注册、不参与任何权重与展示**（单测用「翻转 N 不改变分组」锁住）。测评数据不在 `users` 表：路由先按学号批查结果快照装进 `AssessmentFeatureContext`，某套量表读取失败只降级该源，不阻断分组；覆盖率按全部注册源如实统计（`coverageBySource`），「两套都没做」单列为 `untestedCount`
 - **指标**：`coveredCount` / `nonZeroPairs` / 两条基线给出信号强弱；#345 增 `roleCoverage`（每组 0–4，目标 ≥3）/ `roleCoverageAverage` / `coverageBySource` / `untestedCount` / `balance`（组间 RIASEC 均值标准差）。角色由大五高维映射（组织者=C、推进者=E、点子王=O、协调者=A，阈值 50），**只用于组合、不做能力评价、不在学生端展示**。`overall` 与内聚度只含已进组的人，覆盖率按全班算——界面对外分列标注
+- **归档列 `tagged_count` 口径（#366 收口）**：`group_batches.tagged_count` 自 #345 起写入 `metrics.coveredCount`，即「**有任一分组依据**（标签 / 兴趣 / 性格任一）的学生数」，不再等同于「有标签人数」；列名保持历史名称不变。历史批次不重算——#101 时期该列是有标签人数、#345 起是总覆盖人数，**新旧批次的这一列不可比**，批次列表统一按「N 人有分组依据」展示。逐项分源覆盖数可从同批次的 `metrics.coverageBySource` 快照读取；若将来需要长期同时对比两个口径，再按 #366 的路线 a 拆分 `covered_count` 列并升级备份版本
 - **预览与应用（#345）**：`POST /api/manage/groups/preview` 只算不写库（读权限，与 GET 一致）；预览里换人后把新分组回传同一端点，服务端按与应用相同的校验与指标口径**即时重算**（原始测评分不下发客户端）。`POST /api/manage/groups` 应用时若带 `groups`（预览里换人/设组长后的那一份）服务端**重新校验**（本班、不重不漏、≤5 人、组间差 ≤1、组长本组）并按当前数据重算指标，客户端传来的指标一律不信；不带 `groups` 则服务端按策略生成。应用 = **完全覆盖当前分组 + 追加历史归档**（同一事务）；覆盖式写入失败/被拒均记审计
 - **组长（#345）**：`class_groups.leader_user_id` + `group_batch_groups.leader_user_id`（批次快照）。`PATCH /api/manage/groups/leader` 写限本人班级（`canModifyClass`，越权 403 + 审计），组长必须是本组成员；成员被移组时若他是原组长，数据层**在同一事务内**回退为空并回传 `leaderCleared`；转班与删学生同样清空组长位。**学生端小组工作区**（#346）：应用分组时同一事务为每个组各建一个 `group_workspaces`，接口回传 `workspaces: [{groupNo, workspaceId}]`（`workspaceId` 保留首个便于旧调用方）
 - **端点边界**：读不限班级（教师可看全校），写限自建班级；自动分组/应用之后追加一份历史归档；历史批次记录 `strategy` / `feature_sources`（含权重与版本）/ 覆盖率 / 指标 / **组长快照**，旧批次只读
