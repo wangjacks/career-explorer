@@ -30,7 +30,7 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 | `src/app/dashboard/{admin,teacher,student}/` | 三角色面板，导航分组见 `docs/architecture.md`「面板导航结构」 |
 | `src/app/api/{auth,setup}/` | 认证与安装端点，天然在 proxy matcher 之外 |
 | `src/app/api/manage/` | 管理域 API，admin + teacher 共用，角色差异由 `proxy.ts` 声明式权限表控制 |
-| `src/app/api/shared/` | 共享域 API，不进 proxy，**路由自鉴权**（档案、提交历史、存储签名、本组名单） |
+| `src/app/api/shared/` | 共享域 API，不进 proxy，**路由自鉴权**（档案、提交历史、存储签名、本组名单、小组工作区） |
 | `src/app/api/{tags,upload,uploads}/` | 开放端点：标签与配置读取、上传、本地文件静态服务（含路径穿越防护） |
 | `src/components/` | 全站公共组件；子目录 `admin/`（面板 Tab 页命名 `*Tab.tsx`，同目录另有共用 UI 组件如 `AdminUI` / `ConfirmDialog` / `*Table`）、`dashboard/`（管理/教师侧边栏）、`student/`（学生侧边栏）、`assessment/`（学生端与教师端**共用的测评卡片**：速览板 / 结果折叠卡 / 授权与免责卡，教师弹窗只包 dialog 不复制实现） |
 | `src/hooks/` | 客户端自定义 hook，命名一律 `use*.ts` |
@@ -94,6 +94,7 @@ find src/app -name page.tsx && find src/app/api -name route.ts
 - 例外：档案清除（`/api/manage/profiles` DELETE）沿用同一 `WriteGuard`（#243）——教师只能清除本人管辖班级学生的档案，未分班 / 他班 / 不在册 id 整批 403 且不落任何写入；成功与被拒均记审计 `profile:clear`，读列表仍不限班级
 - 边界：全站生效的配置写入只归管理员（#171）——预设标签（`/api/manage/tags*`）与 `profile-config` 对教师收敛为仅 GET，教师面板相应 Tab 以 `readOnly` 呈现
 - 路由设计原则：API 面向资源组织 + 业务域前缀（manage/shared），角色差异收敛于 proxy 权限表，**权限演化不搬路径**（否决过按角色拆分路由的设计）
+- 共享域小组工作区（#346）：`/api/shared/group*` 路由自鉴权；学生只能读写本组**当前批次**工作区，历史批次只读回看；教师限本人带的班（`classId + groupNo`）；越权 403 且被拒写记审计；成员只下发标签，测评分数 / 三字码 / 人格维度一律不下发
 - 激活（#93 两步单页）：`POST /api/auth/activate/verify` 核验学号 + 姓名 + 本班邀请码三要素并取回名单姓名 → `POST /api/auth/activate` 设置密码并自动登录；账户须先由教师导入名单预建（无密码）
 - 错误信息不泄露账号存在性：用户不存在与密码错误共用「编号或密码错误」；无 `password_hash` 账户提示「该账户尚未设置密码，请联系管理员」
 - 已登录访问 `/login`、`/activate` 自动重定向到对应角色面板
