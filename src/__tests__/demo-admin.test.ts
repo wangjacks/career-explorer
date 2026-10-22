@@ -95,14 +95,14 @@ describe("demo 会话隐藏 Tab（#258）", () => {
   it("只读可用的 Tab 不隐藏", () => {
     for (const key of [
       "overview",
-      "dashboard",
+      "screen",
       "students",
       "classes",
       "grouping",
       "export",
       "tags",
       "profile-config",
-      "profile-submissions",
+      "submissions",
       "audit-logs",
     ]) {
       expect(isDemoHiddenTab(key)).toBe(false);

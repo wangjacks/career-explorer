@@ -394,11 +394,11 @@ describe("shouldRenderAssessmentResults（#344 测评结果区的渲染范围）
 
 describe("学生面板的测评区挂载（#344）", () => {
   const pageSource = () =>
-    readFileSync(join(process.cwd(), "src/app/dashboard/student/page.tsx"), "utf8");
+    readFileSync(join(process.cwd(), "src/app/dashboard/student/(panel)/page.tsx"), "utf8");
 
   it("页面先用纯函数判定再挂载测评结果区与速览四卡，不存在无条件渲染", () => {
     const source = pageSource();
-    expect(source).toContain("shouldRenderAssessmentResults(activeView, editing)");
+    expect(source).toContain('shouldRenderAssessmentResults("profile", editing)');
     expect(source).toMatch(/showAssessmentResults\s*&&\s*\(?\s*<AssessmentResultsSection/);
     expect(source).toMatch(/showAssessmentResults\s*&&\s*\(?\s*<ProfileSummaryBoard/);
     // 各自只挂载一处，且上面两条已锁「由判定式引导」，不存在第二处无条件渲染
@@ -409,5 +409,17 @@ describe("学生面板的测评区挂载（#344）", () => {
   it("页尾授权卡与测评结果区同范围渲染（小组 / 历史视图不残留合规卡）", () => {
     const source = pageSource();
     expect(source).toMatch(/showAssessmentResults\s*&&\s*assessment\.data\.scales\.length\s*>\s*0/);
+  });
+
+  it("历史提交 / 我的小组是独立路由，页面不挂载测评结果区与速览四卡", () => {
+    for (const rel of [
+      "src/app/dashboard/student/(panel)/history/page.tsx",
+      "src/app/dashboard/student/(panel)/group/page.tsx",
+    ]) {
+      const source = readFileSync(join(process.cwd(), rel), "utf8");
+      expect(source, rel).not.toContain("AssessmentResultsSection");
+      expect(source, rel).not.toContain("ProfileSummaryBoard");
+      expect(source, rel).not.toContain("AssessmentAttributionCard");
+    }
   });
 });

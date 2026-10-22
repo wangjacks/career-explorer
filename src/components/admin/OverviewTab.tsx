@@ -156,7 +156,7 @@ export default function OverviewTab({
             想了解班级的六型兴趣结构？数据大屏按班级展示测评分布与提交趋势。
           </p>
           <button
-            onClick={() => onNavigate?.("dashboard")}
+            onClick={() => onNavigate?.("screen")}
             className="inline-flex items-center justify-center gap-1.5 px-3 py-1.5 bg-gray-100 hover:bg-gray-200 dark:bg-gray-800 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-200 text-sm font-medium rounded-lg transition-colors flex-shrink-0 self-start sm:self-auto"
           >
             <BarChart3 className="w-4 h-4" strokeWidth={1.5} aria-hidden />
