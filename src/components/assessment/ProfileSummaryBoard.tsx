@@ -14,7 +14,8 @@ const KIND_ICONS: Record<SummaryCardKind, LucideIcon> = {
 };
 
 /** 标签胶囊的兜底配色（分类色由页面经 tagColors 传入，缺失时用中性色） */
-const FALLBACK_TAG_CLASS = "bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-300";
+/** 标签分类色缺失时的兜底（教师详情弹窗的身份区 / 版本历史标签共用同一兜底，#332） */
+export const FALLBACK_TAG_CLASS = "bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-300";
 
 /**
  * 「我的档案」速览四卡（#323）：首屏结论区，放在 hero 与资料区之间。

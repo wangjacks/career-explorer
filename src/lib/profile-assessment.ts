@@ -45,20 +45,42 @@ export interface ProfileAssessmentScaleView {
   /** `typological`（霍兰德三字码）/ `dimensional`（大五等） */
   scoringMode: "typological" | "dimensional" | string;
   dimensions: { key: string; label: string }[];
+  /** 以下为 #332 详情弹窗/共享卡片所需元信息（旧接口缺失时容忍 undefined） */
+  scaleVersion?: string;
+  /** 本卷题量（抽题时是抽题数） */
+  questionCount?: number;
+  /** 题库总量 */
+  poolSize?: number;
+  /** 署名 / 授权 / 免责：弹窗底部「授权与免责」卡按量表展示（与学生端同一份库字段） */
+  attribution?: string;
+  licenseText?: string;
+  disclaimer?: string;
 }
 
-/** 数据层量表行 → 前端视图（列表与导出共用；#330 / #331） */
+/** 数据层量表行 → 前端视图（列表与导出共用；#330 / #331 / #332） */
 export function profileScaleViewOf(row: {
   code: string;
   name: string;
   scoring_mode: string;
   dimensions_json: string;
+  scale_version?: string;
+  question_count?: number;
+  pool_size?: number;
+  attribution?: string;
+  license_text?: string;
+  disclaimer?: string;
 }): ProfileAssessmentScaleView {
   return {
     code: row.code,
     name: row.name,
     scoringMode: row.scoring_mode,
     dimensions: parseDimensions(row.dimensions_json).map(({ key, label }) => ({ key, label })),
+    ...(row.scale_version ? { scaleVersion: row.scale_version } : {}),
+    ...(typeof row.question_count === "number" ? { questionCount: row.question_count } : {}),
+    ...(typeof row.pool_size === "number" ? { poolSize: row.pool_size } : {}),
+    ...(row.attribution ? { attribution: row.attribution } : {}),
+    ...(row.license_text ? { licenseText: row.license_text } : {}),
+    ...(row.disclaimer ? { disclaimer: row.disclaimer } : {}),
   };
 }
 
@@ -124,14 +146,6 @@ export function matchesAssessmentInterest(
     typeof row.assessmentCode === "string" &&
     row.assessmentCode.trim().toUpperCase().includes(filter.toUpperCase())
   );
-}
-
-/**
- * 详情条形是否有可画的数据：快照缺失/损坏（解析后为空）时整块条形不渲染——
- * 否则会画出六条 0，比不显示更误导。徽章与完成时间仍照常显示。
- */
-export function hasAssessmentScores(row: ProfileAssessmentFields): boolean {
-  return Array.isArray(row.assessmentScores) && row.assessmentScores.length > 0;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -288,4 +302,3 @@ export function assessmentFilterToQuery(filter: AssessmentFilter): {
   }
   return {};
 }
-

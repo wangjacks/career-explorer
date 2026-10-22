@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import {
   getSubmittedProfiles,
   getStudents,
+  getClasses,
   clearSubmissions,
   getEnabledAssessments,
   getCurrentAssessmentResultsByUserCodes,
@@ -80,7 +81,17 @@ async function GET_impl(request: NextRequest) {
     let scaleLoadFailed = false;
     try {
       const enabled = await getEnabledAssessments();
-      for (const row of enabled) scaleEntries.push({ row, view: profileScaleViewOf(row) });
+      for (const row of enabled) {
+        scaleEntries.push({
+          row,
+          view: profileScaleViewOf({
+            ...row,
+            // 本卷题量：启用抽题时是抽题数，否则等于题库总量（与 /api/shared/assessment/list 同口径）
+            question_count: row.items_per_attempt > 0 ? row.items_per_attempt : row.question_count,
+            pool_size: row.question_count,
+          }),
+        });
+      }
     } catch (err) {
       scaleLoadFailed = true;
       console.error("Profiles assessment scale lookup degraded:", err);
@@ -98,6 +109,14 @@ async function GET_impl(request: NextRequest) {
     }
 
     const { rows, total } = await getSubmittedProfiles(page, pageSize, resolvedFilters.filters);
+
+    // #332：详情弹窗要展示「班级」；班级表很小，一次查询按 id 映射，失败只让该字段降级为空
+    const classNames = new Map<number, string>();
+    try {
+      for (const item of await getClasses()) classNames.set(item.id, item.name);
+    } catch (err) {
+      console.error("Profiles class name lookup degraded:", err);
+    }
 
     // #330：本页学号 × 每套启用量表各批查一次（仍是当页批查，不做全校扫表）。
     // 某套量表查询失败只让该列全部降级为「未测」，其它列与档案列表不受影响。
@@ -144,6 +163,8 @@ async function GET_impl(request: NextRequest) {
           studentName: r.name,
           // #243：教师面板据此判断行是否在其管辖班级内，决定是否展示删除入口
           classId: r.class_id,
+          // #332：详情弹窗「身份区」展示班级；班级表读取失败时为 null
+          className: r.class_id == null ? null : classNames.get(r.class_id) ?? null,
           tags,
           avatarUrl: r.avatar_url,
           evaluationUrl: r.evaluation_url,

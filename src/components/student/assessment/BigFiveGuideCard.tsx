@@ -1,5 +1,5 @@
 import { BookOpen, Sparkles } from "lucide-react";
-import SectionCard from "./SectionCard";
+import SectionCard from "@/components/assessment/SectionCard";
 import { BIG_FIVE_INTRO, BIG_FIVE_RIASEC_NOTE } from "@/lib/assessment-center-content";
 
 /**

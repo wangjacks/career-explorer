@@ -1,7 +1,7 @@
 import { ExternalLink, ShieldCheck } from "lucide-react";
 import SectionCard from "./SectionCard";
 import AssessmentDisclaimer from "./AssessmentDisclaimer";
-import CollapsibleCard from "../CollapsibleCard";
+import CollapsibleCard from "./CollapsibleCard";
 import {
   buildAttributionGroups,
   type AttributionScaleInput,
@@ -33,6 +33,7 @@ export default function AssessmentAttributionCard({
   scales,
   careersAttribution,
   collapsible = false,
+  defaultOpen = true,
 }: {
   /** 单量表兼容入参（测评中心） */
   attribution?: string | null;
@@ -44,6 +45,8 @@ export default function AssessmentAttributionCard({
   careersAttribution?: string | null;
   /** 页尾折叠（我的档案）；默认常驻展开 */
   collapsible?: boolean;
+  /** 折叠态默认是否展开（学生页默认展开满足合规；教师弹窗可收起为「默认折叠」） */
+  defaultOpen?: boolean;
 }) {
   const {
     groups,
@@ -113,7 +116,7 @@ export default function AssessmentAttributionCard({
         title={CARD_TITLE}
         subtitle={CARD_SUBTITLE}
         icon={ShieldCheck}
-        defaultOpen
+        defaultOpen={defaultOpen}
         keepMounted
       >
         {content}
