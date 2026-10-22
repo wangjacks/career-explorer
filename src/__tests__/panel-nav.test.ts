@@ -9,6 +9,7 @@ import {
   panelPath,
   resolvePanelKey,
 } from "../lib/panel-nav";
+import { buildPanelGroups } from "../components/dashboard/panel-nav-view";
 
 const ALL = [
   { role: "admin" as const, items: ADMIN_NAV_ITEMS, root: ADMIN_ROOT_PATH },
@@ -42,6 +43,36 @@ describe("面板导航路由配置（#361）", () => {
     expect(panelPath("teacher", "overview")).toBe("/dashboard/teacher/overview");
     expect(panelNavItems("admin")).toBe(ADMIN_NAV_ITEMS);
     expect(panelNavItems("teacher")).toBe(TEACHER_NAV_ITEMS);
+  });
+});
+
+describe("buildPanelGroups", () => {
+  it("保留分组顺序、徽标与教师主页一句话说明", () => {
+    const groups = buildPanelGroups(TEACHER_NAV_ITEMS, {
+      badges: { students: "12 名" },
+    });
+    expect(groups.map((group) => group.label)).toEqual([
+      undefined,
+      "数据中心",
+      "数据管理",
+      "系统设置",
+    ]);
+    const items = groups.flatMap((group) => group.items);
+    expect(items.find((item) => item.key === "overview")?.description).toBe(
+      "交了多少人、标签怎么分布，都在这儿"
+    );
+    expect(items.find((item) => item.key === "students")?.badge).toBe("12 名");
+    expect(items.every((item) => typeof item.icon === "object" || typeof item.icon === "function")).toBe(true);
+  });
+
+  it("demo 隐藏项不进入菜单，空分组不渲染", () => {
+    const groups = buildPanelGroups(ADMIN_NAV_ITEMS, {
+      hiddenKeys: new Set(["settings", "profile-config", "storage", "media", "audit-logs", "demo"]),
+    });
+    const keys = groups.flatMap((group) => group.items).map((item) => item.key);
+    expect(keys).not.toContain("settings");
+    expect(keys).not.toContain("demo");
+    expect(groups.some((group) => group.label === "系统设置")).toBe(false);
   });
 });
 

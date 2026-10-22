@@ -22,6 +22,8 @@ export function buildPanelGroups(
       label: item.label,
       icon: PANEL_ICONS[item.key],
       badge: badges[item.key],
+      // 教师主页快捷入口依赖 description；这里丢掉会让卡片的一句话说明消失
+      description: item.description,
     });
     grouped.set(item.group, group);
   }

@@ -44,7 +44,8 @@ export default function StudentSidebar({
   };
 
   const handleNavigate = (event: React.MouseEvent<HTMLAnchorElement>) => {
-    if (canNavigate && !canNavigate()) {
+    // 已在当前路由时不需要询问导航守卫：编辑态点「我的档案」不应被提示先保存
+    if (event.currentTarget.pathname !== pathname && canNavigate && !canNavigate()) {
       event.preventDefault();
       return;
     }
