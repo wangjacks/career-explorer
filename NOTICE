@@ -17,4 +17,5 @@ Career Explorer — Third-party notices
 
 4. Open-source dependencies
    本项目使用 npm 依赖；各依赖保留其自身许可证。
+   完整清单与特别说明见 THIRD-PARTY-NOTICES.md。
    参见 package.json 与 package-lock.json。

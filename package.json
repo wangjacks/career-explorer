@@ -2,6 +2,7 @@
   "name": "career-explorer",
   "version": "2.0.3",
   "private": true,
+  "license": "SEE LICENSE IN LICENSE",
   "engines": {
     "node": ">=24"
   },
