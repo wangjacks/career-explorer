@@ -402,3 +402,271 @@ describe("深色主题点阵描边对比度（#314 验收）", () => {
     expect(contrast(TICK_STROKE_DARK, HERO_BG_DARK)).toBeGreaterThanOrEqual(3);
   });
 });
+
+/* ------------------------------------------------------------------ */
+/* 结构卡（#315）：兴趣结构与人格轮廓                                     */
+/* ------------------------------------------------------------------ */
+
+import {
+  INTEREST_SAMPLE_THRESHOLD,
+  buildBigFiveTeacherRows,
+  buildInterestStructure,
+  buildStructureClassOptions,
+  interestCodeLabel,
+  normalizeBigFiveStats,
+  normalizeInterestStats,
+  resolveBigFiveStructureState,
+  resolveInterestStructureState,
+  rosterCodeFilter,
+  type BigFiveStatsView,
+  type InterestStatsView,
+} from "../lib/teacher-board";
+
+function interestPayload() {
+  return {
+    scope: "mine",
+    assessment: { code: "riasec", name: "霍兰德职业兴趣测评", scaleVersion: "1.0", enabled: true },
+    types: [
+      { key: "R", label: "现实型", count: 0 },
+      { key: "I", label: "研究型", count: 1 },
+      { key: "A", label: "艺术型", count: 0 },
+      { key: "S", label: "社会型", count: 2 },
+      { key: "E", label: "企业型", count: 1 },
+      { key: "C", label: "常规型", count: 0 },
+    ],
+    byClass: [
+      {
+        classId: 1,
+        name: "1班",
+        assessed: 2,
+        types: [
+          { key: "S", count: 2 },
+          { key: "I", count: 0 },
+        ],
+      },
+      {
+        classId: 2,
+        name: "2班",
+        assessed: 2,
+        types: [
+          { key: "I", count: 1 },
+          { key: "E", count: 1 },
+        ],
+      },
+    ],
+    codes: [
+      { code: "SIA", count: 2 },
+      { code: "IEC", count: 1 },
+    ],
+    total: { enrolled: 10, assessed: 4, rate: 40, lastSubmittedAt: "2026-10-20 10:00" },
+  };
+}
+
+function bigFivePayload() {
+  return {
+    scope: "mine",
+    assessment: {
+      code: "ipip-neo-ffi",
+      name: "大五人格测评",
+      enabled: true,
+      scoringMode: "dimensional",
+      dimensions: [
+        { key: "N", label: "神经质" },
+        { key: "E", label: "外向性" },
+      ],
+    },
+    total: { enrolled: 10, assessed: 6, rate: 60, invalidCount: 2, lastSubmittedAt: "2026-10-20 11:00" },
+    dimensions: [
+      { key: "N", label: "神经质", low: 1, medium: 2, high: 1 },
+      { key: "E", label: "外向性", low: "x", medium: 3, high: 0 },
+    ],
+  };
+}
+
+describe("结构卡班级选择（#315）", () => {
+  it("全部班级排第一，空班与不可下钻的班不进选项，其余沿用矩阵顺序", () => {
+    const options = buildStructureClassOptions([
+      { classId: 2, name: "2班", enrolled: 10, canDrilldown: true },
+      { classId: 1, name: "1班", enrolled: 0, canDrilldown: true },
+      { classId: 3, name: "3班", enrolled: 5, canDrilldown: true },
+      { classId: 4, name: "别班的班", enrolled: 8, canDrilldown: false },
+    ]);
+    expect(options.map((option) => option.classId)).toEqual([null, 2, 3]);
+    expect(options[0].name).toBe("");
+  });
+
+  it("教师看「所有班级」时行全不可下钻 → 只剩「全部班级」", () => {
+    const options = buildStructureClassOptions([
+      { classId: 1, name: "1班", enrolled: 10, canDrilldown: false },
+    ]);
+    expect(options).toEqual([{ classId: null, name: "" }]);
+  });
+});
+
+describe("rosterCodeFilter（#315 名册 code 只随兴趣 Tab）", () => {
+  const request = { scale: "riasec", code: "SIA" };
+
+  it("停在发起胶囊的兴趣量表 Tab 时保留 code（含打开初值空串）", () => {
+    expect(rosterCodeFilter(request, "riasec")).toBe("SIA");
+    expect(rosterCodeFilter(request, "")).toBe("SIA");
+    expect(rosterCodeFilter({ scale: "riasec", code: " SIA " }, "riasec")).toBe("SIA");
+  });
+
+  it("切到人格 Tab 或非兴趣量表 → 不发送 code，标题回落普通标题", () => {
+    expect(rosterCodeFilter(request, "ipip-neo-ffi")).toBeNull();
+    expect(rosterCodeFilter({ scale: "ipip-neo-ffi", code: "SIA" }, "ipip-neo-ffi")).toBeNull();
+    expect(rosterCodeFilter({ scale: "riasec" }, "riasec")).toBeNull();
+    expect(rosterCodeFilter({ scale: "riasec", code: "  " }, "riasec")).toBeNull();
+  });
+});
+
+describe("normalizeInterestStats / buildInterestStructure（#315 兴趣结构卡）", () => {
+  it("六型恒补齐为 RIASEC 顺序，缺的补 0、标签回退中文名", () => {
+    const stats = normalizeInterestStats({
+      ...interestPayload(),
+      types: [{ key: "S", count: 2 }],
+    });
+    expect(stats?.types.map((type) => type.key)).toEqual(["R", "I", "A", "S", "E", "C"]);
+    expect(stats?.types.find((type) => type.key === "S")?.count).toBe(2);
+    expect(stats?.types.find((type) => type.key === "R")?.label).toBe("现实型");
+  });
+
+  it("全部班级：按合计出六条切片、中心数字 = 计数之和、组合胶囊取 Top-6", () => {
+    const stats = normalizeInterestStats(interestPayload());
+    const view = buildInterestStructure(stats, null);
+    expect(view.assessed).toBe(4);
+    expect(view.slices).toHaveLength(6);
+    expect(view.slices.find((slice) => slice.key === "S")?.percent).toBe(50);
+    expect(view.slices.find((slice) => slice.key === "S")?.count).toBe(2);
+    expect(view.codes.map((chip) => chip.code)).toEqual(["SIA", "IEC"]);
+    expect(interestCodeLabel("SIA")).toBe("社会型 · 研究型 · 艺术型");
+  });
+
+  it("选具体班：在前端按 byClass 过滤（不重发请求），班级维度没有组合数据", () => {
+    const stats = normalizeInterestStats(interestPayload());
+    const view = buildInterestStructure(stats, 2);
+    expect(view.assessed).toBe(2);
+    expect(view.slices.find((slice) => slice.key === "I")?.count).toBe(1);
+    expect(view.slices.find((slice) => slice.key === "E")?.count).toBe(1);
+    expect(view.slices.find((slice) => slice.key === "S")?.count).toBe(0);
+    expect(view.codes).toEqual([]);
+  });
+
+  it("样本门槛：少于 5 人提示仅供参考；0 人交给页面空态", () => {
+    const stats = normalizeInterestStats(interestPayload());
+    expect(buildInterestStructure(stats, null).sampleTooSmall).toBe(true);
+    expect(buildInterestStructure(stats, 99).assessed).toBe(0);
+    expect(buildInterestStructure(stats, 99).sampleTooSmall).toBe(false);
+    expect(INTEREST_SAMPLE_THRESHOLD).toBe(5);
+  });
+
+  it("卡片状态按当前所选班级判空：合计有 4 人、所选班 0 人 → empty", () => {
+    const stats = normalizeInterestStats(interestPayload());
+    expect(resolveInterestStructureState("ready", stats, null)).toBe("ready");
+    expect(resolveInterestStructureState("ready", stats, 1)).toBe("ready");
+    expect(resolveInterestStructureState("ready", stats, 99)).toBe("empty");
+  });
+
+  it("加载 / 失败 / 未开放状态原样透传，不被空态覆盖", () => {
+    const stats = normalizeInterestStats(interestPayload());
+    for (const state of ["loading", "failed", "disabled", "empty"] as const) {
+      expect(resolveInterestStructureState(state, stats, 99)).toBe(state);
+    }
+  });
+
+  it("脏数据：错误形状返回 null，脏计数按 0，界面不会出现 NaN", () => {
+    expect(normalizeInterestStats(null)).toBeNull();
+    expect(normalizeInterestStats({})).not.toBeNull();
+    const dirty = normalizeInterestStats({
+      assessment: { code: "riasec", name: "x", enabled: false },
+      types: [{ key: "S", count: "oops" }],
+      codes: [{ code: "sia", count: 1 }, { code: "sia", count: 2 }],
+      total: { enrolled: Number.NaN, assessed: -3, rate: 999 },
+    });
+    expect(dirty?.enabled).toBe(false);
+    expect(dirty?.types.find((type) => type.key === "S")?.count).toBe(0);
+    // 同码去重；比例钳到 100
+    expect(dirty?.codes).toEqual([{ code: "SIA", count: 1 }]);
+    expect(dirty?.total.rate).toBe(100);
+    expect(JSON.stringify(dirty)).not.toContain("NaN");
+  });
+});
+
+describe("normalizeBigFiveStats / buildBigFiveTeacherRows（#315 人格轮廓卡）", () => {
+  it("保持接口下发的五项顺序，不做分值排序；三档百分比按本行合计归一", () => {
+    const stats = normalizeBigFiveStats(bigFivePayload());
+    expect(stats?.dimensions.map((row) => row.key)).toEqual(["N", "E"]);
+    const n = stats?.dimensions[0];
+    expect(n?.total).toBe(4);
+    expect(n?.percents).toEqual({ low: 25, medium: 50, high: 25 });
+    // 脏计数按 0：E 行 = 0 + 3 + 0 = 3
+    expect(stats?.dimensions[1].total).toBe(3);
+    expect(stats?.dimensions[1].low).toBe(0);
+  });
+
+  it("invalidCount 钳到已测人数以内；停用返回 enabled=false（页面显示未开放）", () => {
+    const dirty = normalizeBigFiveStats({
+      ...bigFivePayload(),
+      total: { enrolled: 10, assessed: 3, rate: 30, invalidCount: 99 },
+    });
+    expect(dirty?.total.invalidCount).toBe(3);
+    expect(dirty?.enabled).toBe(true);
+
+    const disabled = normalizeBigFiveStats({
+      ...bigFivePayload(),
+      assessment: { ...bigFivePayload().assessment, enabled: false },
+    });
+    expect(disabled?.enabled).toBe(false);
+  });
+
+  it("形状不对返回 null；五项为空数组仍返回视图，由状态函数判未开放", () => {
+    expect(normalizeBigFiveStats(null)).toBeNull();
+    expect(normalizeBigFiveStats({})).toBeNull();
+    const empty = normalizeBigFiveStats({
+      assessment: { code: "ipip-neo-ffi", name: "大五人格测评", enabled: true },
+      dimensions: [],
+      total: { enrolled: 10, assessed: 0, rate: 0, invalidCount: 0 },
+    });
+    expect(empty?.dimensions).toEqual([]);
+    expect(resolveBigFiveStructureState("ready", empty)).toBe("disabled");
+  });
+
+  it("卡片状态：当前范围 0 人已测 → empty，有已测 → ready", () => {
+    expect(resolveBigFiveStructureState("ready", normalizeBigFiveStats(bigFivePayload()))).toBe("ready");
+    const untouched = normalizeBigFiveStats({
+      ...bigFivePayload(),
+      total: { enrolled: 10, assessed: 0, rate: 0, invalidCount: 0 },
+    });
+    expect(resolveBigFiveStructureState("ready", untouched)).toBe("empty");
+  });
+
+  it("停用 → disabled；加载 / 失败原样透传", () => {
+    const disabled = normalizeBigFiveStats({
+      ...bigFivePayload(),
+      assessment: { ...bigFivePayload().assessment, enabled: false },
+    });
+    expect(resolveBigFiveStructureState("ready", disabled)).toBe("disabled");
+    for (const state of ["loading", "failed", "empty"] as const) {
+      expect(resolveBigFiveStructureState(state, normalizeBigFiveStats(bigFivePayload()))).toBe(state);
+    }
+  });
+
+  it("教师显示名按 key 注入（N 换成情绪敏感度），行顺序不变", () => {
+    const stats = normalizeBigFiveStats(bigFivePayload()) as BigFiveStatsView;
+    const rows = buildBigFiveTeacherRows(stats, (key, fallback) =>
+      key === "N" ? "情绪敏感度（神经质 N）" : fallback
+    );
+    expect(rows.map((row) => row.teacherLabel)).toEqual(["情绪敏感度（神经质 N）", "外向性"]);
+    expect(rows.map((row) => row.key)).toEqual(["N", "E"]);
+  });
+
+  it("兴趣/人格的结构视图都不携带个人标识", () => {
+    const interest = buildInterestStructure(normalizeInterestStats(interestPayload()) as InterestStatsView, null);
+    const bigFive = normalizeBigFiveStats(bigFivePayload());
+    for (const payload of [interest, bigFive]) {
+      const text = JSON.stringify(payload);
+      expect(text).not.toContain("userCode");
+      expect(text).not.toContain("name\":\"张");
+    }
+  });
+});
