@@ -97,12 +97,13 @@ export function isTaskOverdue(dueAt: string | null, now: string): boolean {
   return dueAt < now;
 }
 
-/** 与适配器 getNow() 同格式的本地时间文本 */
+/**
+ * 与适配器 getNow() 同格式、同口径的本地时间文本（Asia/Shanghai）。
+ * 必须显式指定时区：生产服务器常是 UTC，用 `getFullYear()` 这类本地时间方法会把
+ * `deleted_at` / `completed_at` / 频率窗口算成 UTC，和 createdAt 差 8 小时。
+ */
 export function formatLocalDateTime(date: Date): string {
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(
-    date.getHours()
-  )}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
+  return date.toLocaleString("sv-SE", { timeZone: "Asia/Shanghai" });
 }
 
 export interface NormalizedDueAt {
@@ -139,7 +140,9 @@ export function normalizeDueAt(input: unknown): NormalizedDueAt | InvalidDueAt {
   ) {
     return { ok: false, error: "截止时间不是有效日期" };
   }
-  return { ok: true, value: formatLocalDateTime(probe) };
+  const pad = (n: number) => String(n).padStart(2, "0");
+  // 直接回写用户输入的墙钟分量，不经过时区换算
+  return { ok: true, value: `${year}-${month}-${day} ${pad(h)}:${pad(mi)}:00` };
 }
 
 export interface PostInput {

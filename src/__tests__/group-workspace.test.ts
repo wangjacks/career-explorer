@@ -3,6 +3,7 @@ import {
   GROUP_POST_CONTENT_MAX,
   GROUP_TASK_TITLE_MAX,
   commonInterests,
+  formatLocalDateTime,
   interestCoverage,
   isTaskOverdue,
   normalizeDueAt,
@@ -42,6 +43,11 @@ describe("小组工作区纯函数（#346）", () => {
     expect(isTaskOverdue("2026-10-01 10:00:00", "2026-10-02 10:00:00")).toBe(true);
     expect(isTaskOverdue("2026-10-03 10:00:00", "2026-10-02 10:00:00")).toBe(false);
     expect(isTaskOverdue(null, "2026-10-02 10:00:00")).toBe(false);
+  });
+
+  it("本地时间文本固定按 Asia/Shanghai 输出（与适配器 getNow 同口径）", () => {
+    expect(formatLocalDateTime(new Date(0))).toBe("1970-01-01 08:00:00");
+    expect(formatLocalDateTime(new Date("2026-10-30T18:05:09Z"))).toBe("2026-10-31 02:05:09");
   });
 
   it("截止时间归一化：日期取当天 23:59，datetime-local 补秒；非法日期拒绝", () => {
