@@ -33,9 +33,19 @@ export function useSession(): UseSessionResult {
     setChecking(true);
     try {
       const res = await fetch("/api/auth");
+      // 只有明确的未登录 / 无权限才清空会话；5xx 与网络错误保留旧会话，
+      // 避免面板 Tab 路由切换时的瞬时失败把已登录用户踢回登录页。
+      if (res.status === 401 || res.status === 403) {
+        setSession(null);
+        return;
+      }
+      if (!res.ok) {
+        console.error(`Session check failed: HTTP ${res.status}`);
+        return;
+      }
       const data = await res.json();
       setSession(
-        res.ok && data.role && data.name
+        data.role && data.name
           ? {
               role: data.role,
               uid: typeof data.uid === "number" ? data.uid : null,
@@ -44,8 +54,8 @@ export function useSession(): UseSessionResult {
             }
           : null
       );
-    } catch {
-      setSession(null);
+    } catch (err) {
+      console.error("Session check failed:", err);
     } finally {
       setChecking(false);
     }

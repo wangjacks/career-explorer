@@ -24,11 +24,17 @@ const APP_PAGES = new Set([
   "/dashboard/teacher",
 ]);
 
-function shouldShowMenu(pathname: string | null): boolean {
+/** 面板子路由同样显示用户菜单（#361）：`/dashboard/admin/students` 等按前缀命中 */
+const PANEL_PREFIXES = ["/dashboard/admin", "/dashboard/student", "/dashboard/teacher"];
+
+export function shouldShowMenu(pathname: string | null): boolean {
   if (!pathname) return false;
   const normalizedPath = pathname.replace(/\/+$/, "") || "/";
   if (["/login", "/activate", "/setup"].includes(normalizedPath)) return false;
-  return APP_PAGES.has(normalizedPath);
+  if (APP_PAGES.has(normalizedPath)) return true;
+  return PANEL_PREFIXES.some(
+    (prefix) => normalizedPath === prefix || normalizedPath.startsWith(`${prefix}/`)
+  );
 }
 
 /** 全局右上角用户菜单：统一使用下拉菜单容器展示登录状态和操作 */
@@ -87,8 +93,9 @@ export default function UserMenu() {
     return () => document.removeEventListener("mousedown", onMouseDown);
   }, [open]);
 
-  // 检测中不渲染，避免「登录」按钮闪现
-  if (checking || !shouldShowMenu(pathname)) return null;
+  // 只有首次检测（还没有会话）时才隐藏，避免面板 Tab 路由切换时菜单闪一下；
+  // 已登录后的后台复核继续显示旧会话，等结果回来再决定是否跳转。
+  if ((checking && !session) || !shouldShowMenu(pathname)) return null;
 
   const handleLogout = async () => {
     setOpen(false);

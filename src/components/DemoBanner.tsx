@@ -23,8 +23,9 @@ export default function DemoBanner() {
   const pathname = usePathname();
   const [switching, setSwitching] = useState<Role | null>(null);
 
-  // 检测未完成或非演示会话：一律不渲染，避免普通用户看到/闪烁
-  if (checking || !isDemoSession(session) || !session) return null;
+  // 与 UserMenu 同规则：只在首次检测（还没有会话）时隐藏；已有会话的后台复核继续显示，
+  // 避免面板 Tab 路由切换时演示横幅闪一下。非演示会话仍一律不渲染。
+  if ((checking && !session) || !session || !isDemoSession(session)) return null;
 
   const currentRole = session.role;
   const currentLabel = ROLE_LABELS[currentRole as Role] ?? currentRole;
