@@ -25,7 +25,7 @@
 | 路由 | 说明 |
 |---|---|
 | `/` | 首页 |
-| `/about` | 关于页（学生探索 / 教师管理 / 数据统计三段产品介绍） |
+| `/about` | 关于页（产品介绍 / 主要功能 / 三角色能力 / 学生流程 / 数据与信任 / 版本与版权信息） |
 | `/login` | 登录页（三角色统一）；`?demo=1` 为演示访客登录入口（提交到 `/api/auth/demo`，#350） |
 | `/activate` | 学生账户激活（学号 + 姓名 + 邀请码三要素核验；支持 `?invite=` 二维码预填，仅预填不绕过校验） |
 | `/dashboard/admin` | 管理面板·数据概览（默认 Tab）；其余 Tab 各有独立路由：`/screen`、`/export`、`/submissions`、`/students`、`/teachers`、`/classes`、`/grouping`、`/tags`、`/settings`、`/profile-config`、`/storage`、`/media`、`/audit-logs`、`/demo`（#361，分组见「面板导航结构」） |

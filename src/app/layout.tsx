@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import ErrorBoundary from "@/components/ErrorBoundary";
 import UserMenu from "@/components/UserMenu";
+import { COPYRIGHT_HOLDER, COPYRIGHT_NOTICE } from "@/lib/copyright";
 import "./globals.css";
 
 /*
@@ -25,6 +26,10 @@ export const viewport: Viewport = {
 export const metadata: Metadata = {
   title: "Career Explorer",
   description: "开始你的职业探索之旅",
+  authors: [{ name: COPYRIGHT_HOLDER }],
+  creator: COPYRIGHT_HOLDER,
+  publisher: COPYRIGHT_HOLDER,
+  other: { copyright: COPYRIGHT_NOTICE },
 };
 
 export default function RootLayout({
