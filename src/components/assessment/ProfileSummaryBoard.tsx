@@ -196,7 +196,8 @@ function SummaryCardView({
             type="button"
             onClick={() => onAction(card)}
             aria-controls={card.cta.targetId}
-            className="inline-flex items-center justify-center self-start rounded-lg bg-primary px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-primary-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
+            disabled={card.cta.disabled}
+            className="inline-flex items-center justify-center self-start rounded-lg bg-primary px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-primary-strong disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
           >
             {card.cta.label}
           </button>

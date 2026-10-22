@@ -63,6 +63,7 @@ export default function CollapsibleCard({
 }) {
   const [internalOpen, setInternalOpen] = useState(defaultOpen);
   const baseId = useId();
+  const titleId = `${baseId}-title`;
   const panelId = `${baseId}-panel`;
   const controlled = controlledOpen !== undefined;
   const open = controlled ? controlledOpen : internalOpen;
@@ -77,6 +78,7 @@ export default function CollapsibleCard({
   return (
     <section
       id={id}
+      aria-labelledby={titleId}
       className={`bg-card rounded-xl border border-border-soft transition-shadow duration-300 scroll-mt-24 ${
         highlight ? "ring-2 ring-accent/70 shadow-lg" : ""
       }`}
@@ -94,7 +96,9 @@ export default function CollapsibleCard({
             <span className="min-w-0 flex-1">
               <span className="flex flex-wrap items-center gap-2">
                 {Icon && <Icon size={16} className="text-accent" aria-hidden />}
-                <span>{title}</span>
+                <span id={titleId} className="min-w-0 break-words">
+                  {title}
+                </span>
                 {status && (
                   <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${STATUS_META[status].className}`}>
                     {STATUS_META[status].label}
@@ -102,7 +106,9 @@ export default function CollapsibleCard({
                 )}
               </span>
               {subtitle && (
-                <span className="mt-1 block text-xs font-normal leading-relaxed text-muted">{subtitle}</span>
+                <span className="mt-1 block break-words text-xs font-normal leading-relaxed text-muted">
+                  {subtitle}
+                </span>
               )}
             </span>
             <ChevronDown
@@ -120,6 +126,8 @@ export default function CollapsibleCard({
       {panelVisible && (
         <div
           id={panelId}
+          role="region"
+          aria-labelledby={titleId}
           hidden={!open}
           className="space-y-5 border-t border-border-soft px-5 pb-5 pt-4"
         >
