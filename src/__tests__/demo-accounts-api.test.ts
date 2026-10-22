@@ -206,5 +206,32 @@ describe("演示访客账户端点（#278）", () => {
       await flush();
       expect((await queryAuditLogs({ page: 1, pageSize: 50, action: "demo:account-delete" })).total).toBeGreaterThanOrEqual(1);
     }, 60_000);
+
+    it("名称校验：超 50 / 非字符串 → 400 且不消耗 seq；仅空白 → 200 随机；自定义 → trim 落库（#369）", async () => {
+      const cookie = await adminCookie();
+      const beforeCount = (await (await GET(req("GET", "/api/manage/demo/accounts", cookie))).json()).total;
+
+      // 超 50 字 → 400（校验在路由层，不进服务层，绝不下发到适配器）
+      expect((await POST(req("POST", "/api/manage/demo/accounts", cookie, { name: "名".repeat(51) }))).status).toBe(400);
+      // 非字符串 → 400（镜像密码臂 typeof 判定）
+      expect((await POST(req("POST", "/api/manage/demo/accounts", cookie, { name: 123 }))).status).toBe(400);
+
+      // 400 不消耗 seq：分配发生在服务层、校验之后 → 列表数量不变
+      expect((await (await GET(req("GET", "/api/manage/demo/accounts", cookie))).json()).total).toBe(beforeCount);
+
+      // 仅空白 → 200，归一为空回退随机名
+      const wsBody = await (await POST(req("POST", "/api/manage/demo/accounts", cookie, { name: "   " }))).json();
+      expect(wsBody.name.length).toBeGreaterThanOrEqual(2);
+
+      // 自定义（含两端空白）→ 200，trim 后落三行
+      const created = await (await POST(req("POST", "/api/manage/demo/accounts", cookie, { name: "  演示访客  " }))).json();
+      expect(created.name).toBe("演示访客");
+      const rows = await runInDemoScope(async () => [
+        await getUserByCode(created.codes.admin),
+        await getUserByCode(created.codes.teacher),
+        await getUserByCode(created.codes.student),
+      ]);
+      expect(rows.every((r) => r?.name === "演示访客")).toBe(true);
+    }, 60_000);
   });
 });
