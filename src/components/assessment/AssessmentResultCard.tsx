@@ -1,18 +1,11 @@
 "use client";
 
-import dynamic from "next/dynamic";
 import Link from "next/link";
 import { Compass } from "lucide-react";
 import CollapsibleCard from "./CollapsibleCard";
 import HollandCodeBadge from "./HollandCodeBadge";
-import ChartLoadingPlaceholder from "./ChartLoadingPlaceholder";
+import RiasecRadarChart from "./RiasecRadarChart";
 import FiveFactorResultCard from "./FiveFactorResultCard";
-
-/** 雷达图按需加载（#324）：折叠卡展开前不下载 recharts；`ssr:false` 因为图表依赖容器宽度 */
-const RiasecRadarChart = dynamic(() => import("./RiasecRadarChart"), {
-  ssr: false,
-  loading: () => <ChartLoadingPlaceholder />,
-});
 import { formatResultTime } from "@/lib/assessment-flow";
 import { deriveAssessmentCenter } from "@/lib/assessment-center";
 import {

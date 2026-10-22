@@ -61,8 +61,6 @@ export interface SummaryCardCta {
   targetId?: string;
   /** `quiz` 时跳转的地址 */
   href?: string;
-  /** 截止等状态下禁用：入口仍展示（避免以为界面坏了），但不能进入编辑 */
-  disabled?: boolean;
 }
 
 export interface SummaryCard {
@@ -117,10 +115,6 @@ export interface BuildProfileSummaryInput {
   failedCodes?: readonly string[];
   /** 推荐职业接口失败（有霍兰德结果但没有推荐时区分「失败」与「为空」） */
   careersFailed?: boolean;
-  /** 档案提交是否已截止（#324：资料卡的编辑入口一并禁用） */
-  submissionClosed?: boolean;
-  /** 档案提交截止时间文案；未知为 null */
-  submissionDeadline?: string | null;
 }
 
 /** 结果区容器 id：清单失败时摘要卡统一指向这里重试 */
@@ -181,8 +175,6 @@ export function buildProfileSummary(input: BuildProfileSummaryInput): ProfileSum
     listFailed = false,
     failedCodes = [],
     careersFailed = false,
-    submissionClosed = false,
-    submissionDeadline = null,
     audience = "student",
   } = input;
   const hollandScale = findScale(scales, "holland");
@@ -199,7 +191,7 @@ export function buildProfileSummary(input: BuildProfileSummaryInput): ProfileSum
       buildInterestCard({ hollandScale, hollandPayload, hollandFailed, listFailed, audience }),
       buildPersonalityCard({ bigFiveScale, bigFivePayload, bigFiveFailed, listFailed, audience }),
       buildCareersCard({ hollandScale, hollandCurrent, hollandFailed, careers, listFailed, careersFailed, audience }),
-      buildProfileCard(profile, audience, submissionClosed, submissionDeadline),
+      buildProfileCard(profile, audience),
     ],
   };
 }
@@ -472,12 +464,7 @@ function buildCareersCard(input: {
   };
 }
 
-function buildProfileCard(
-  profile: SummaryProfileInput | null,
-  audience: SummaryAudience,
-  submissionClosed: boolean,
-  submissionDeadline: string | null
-): SummaryCard {
+function buildProfileCard(profile: SummaryProfileInput | null, audience: SummaryAudience): SummaryCard {
   // 教师弹窗里这张卡是「该生的档案资料」；学生页仍是「我的档案」
   const base = {
     kind: "profile" as const,
@@ -505,37 +492,11 @@ function buildProfileCard(
   const evaluationDone = completion[2].done;
   const tokens = profile.tags.slice(0, MAX_SUMMARY_TAGS);
 
-  // 学生侧：需要进入编辑态的入口（未归档或评价未填），截止后仍展示但置灰并给说明（#324）。
-  // 教师端没有「编辑档案」入口：统一指向弹窗下方的档案资料区（#332）
-  const editCta: SummaryCardCta | null =
-    audience === "teacher"
-      ? null
-      : !profile.submitted
-        ? { label: "开始填写", action: "edit" }
-        : !evaluationDone
-          ? { label: "补充他人评价", action: "edit" }
-          : null;
-  const deadlineHint =
-    audience !== "teacher" && submissionClosed
-      ? submissionDeadline
-        ? `档案提交已于 ${submissionDeadline} 截止，无法再修改`
-        : "档案提交已截止，无法再修改"
-      : null;
-  const cta: SummaryCardCta =
-    audience === "teacher"
-      ? { label: "查看详情", action: "profile", targetId: PROFILE_INFO_ID }
-      : editCta
-        ? submissionClosed
-          ? { ...editCta, label: "提交已截止", disabled: true }
-          : editCta
-        : { label: "查看详情", action: "profile", targetId: PROFILE_INFO_ID };
   const caption =
-    editCta && deadlineHint
-      ? deadlineHint
-      : (profile.submitted ? "标签 / 头像 / 他人评价" : "标签必填，头像与他人评价选填") +
-        (typeof profile.versionCount === "number" && profile.versionCount > 0
-          ? ` · 共 ${profile.versionCount} 个版本`
-          : "");
+    (profile.submitted ? "标签 / 头像 / 他人评价" : "标签必填，头像与他人评价选填") +
+    (typeof profile.versionCount === "number" && profile.versionCount > 0
+      ? ` · 共 ${profile.versionCount} 个版本`
+      : "");
 
   return {
     ...base,
@@ -544,6 +505,14 @@ function buildProfileCard(
     caption,
     tokens,
     completion,
-    cta,
+    // 教师端没有「编辑档案」入口：统一指向弹窗下方的档案资料区
+    cta:
+      audience === "teacher"
+        ? { label: "查看详情", action: "profile", targetId: PROFILE_INFO_ID }
+        : !profile.submitted
+          ? { label: "开始填写", action: "edit" }
+          : !evaluationDone
+            ? { label: "补充他人评价", action: "edit" }
+            : { label: "查看详情", action: "profile", targetId: PROFILE_INFO_ID },
   };
 }
