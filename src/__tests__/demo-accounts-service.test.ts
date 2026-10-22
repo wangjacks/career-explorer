@@ -206,4 +206,25 @@ describe("演示访客账户服务（#278）", () => {
     expect(await runInDemoScope(() => deleteVisitorAccount(9999))).toBeNull();
     expect(await runInDemoScope(() => getVisitorAccount(9999))).toBeNull();
   });
+
+  it("自定义名称归一后落三行；仅空白回退随机；内部换行折叠（#369）", async () => {
+    const custom = await runInDemoScope(() => createVisitorAccount({ name: "  演示访客  " }));
+    expect(custom.name).toBe("演示访客");
+    const customRows = await runInDemoScope(async () => [
+      await getUserByCode(custom.codes.admin),
+      await getUserByCode(custom.codes.teacher),
+      await getUserByCode(custom.codes.student),
+    ]);
+    for (const r of customRows) expect(r?.name).toBe("演示访客");
+
+    const newline = await runInDemoScope(() => createVisitorAccount({ name: "张\n三" }));
+    expect(newline.name).toBe("张 三");
+    const nlRow = await runInDemoScope(() => getUserByCode(newline.codes.student));
+    expect(nlRow?.name).toBe("张 三");
+
+    const blank = await runInDemoScope(() => createVisitorAccount({ name: "   " }));
+    expect(blank.name.length).toBeGreaterThanOrEqual(2); // 归一为空 → 回退随机
+    const blankRow = await runInDemoScope(() => getUserByCode(blank.codes.student));
+    expect(blankRow?.name).toBe(blank.name);
+  }, 30_000);
 });

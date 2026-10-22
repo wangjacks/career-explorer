@@ -4,6 +4,7 @@
  * 类型镜像 API 响应，不 import 服务端模块，避免把 bcrypt / db 带进客户端包。
  */
 import { ROLE_LABELS } from "./demo-view";
+import { normalizeDemoName, DEMO_NAME_MAX } from "./demo-names";
 
 export interface DemoAccountCodes {
   admin: string;
@@ -76,18 +77,29 @@ export function isDemoHiddenTab(key: string): boolean {
   return HIDDEN_TAB_SET.has(key);
 }
 
-export type DemoPasswordBody =
-  | { ok: true; body: { password?: string } }
+export type DemoAccountBody =
+  | { ok: true; body: { name?: string; password?: string } }
   | { ok: false; error: string };
 
 /**
- * 创建访客账户的请求体：留空表示由服务端生成，必须省略 password 键
- * （服务端把空串判为 <8 位而 400）；非空时与后端同口径只校验长度、不 trim。
+ * 创建访客账户的请求体（#369，扩展自 #258 的纯密码版本）：
+ * - `name`：归一后为空则省略 `name` 键（服务端回退随机）；非空校验长度 ≤ `DEMO_NAME_MAX`、
+ *   超出则拒绝；始终发送**归一(trim)后的值**，与后端同口径，使预览→弹窗→库→审计→列表一致。
+ * - `password`：留空省略键；非空时与后端同口径只校验长度、**不 trim**（逐字节保持 #258 现状）。
  */
-export function demoCreatePasswordBody(raw: string): DemoPasswordBody {
-  if (raw === "") return { ok: true, body: {} };
-  if (raw.length < 8) return { ok: false, error: "密码须至少 8 位" };
-  return { ok: true, body: { password: raw } };
+export function demoCreateAccountBody(input: { rawName: string; rawPassword: string }): DemoAccountBody {
+  const body: { name?: string; password?: string } = {};
+
+  const name = normalizeDemoName(input.rawName);
+  if (name.length > DEMO_NAME_MAX) return { ok: false, error: "名称须为 1-50 字" };
+  if (name) body.name = name;
+
+  const raw = input.rawPassword;
+  if (raw !== "") {
+    if (raw.length < 8) return { ok: false, error: "密码须至少 8 位" };
+    body.password = raw;
+  }
+  return { ok: true, body };
 }
 
 export interface DemoCredentialsInput {
