@@ -40,6 +40,20 @@
 | 技能 | `--tag-skill` | `#0284c7` |
 | 性格 | `--tag-personality` | `#f59e0b` |
 
+### 数据分类固定色（#316 收口）
+
+测评看板的数据色**不走语义 token**：它们编码的是量表维度而不是「主/警/危」这类操作语义，混进 `--color-*` 会让「危险」看起来像某种人格。代价是必须自己满足两条纪律——**浅深两档都有值**、**对比度有单测锁**。
+
+| 用途 | 单一来源 | 浅色 | 深色 | 对比度单测 |
+|---|---|---|---|---|
+| RIASEC 六型色块 / 条形 | `lib/assessment-colors.ts` → `ASSESSMENT_TYPE_COLORS` | R `#dc2626`、I `#2563eb`、A `#7c3aed`、S `#059669`、E `#f59e0b`、C `#0891b2`（S/E/C 上文字用 `#111827`，其余白） | 同一套（色块本身两主题通用） | `assessment-colors.test.ts`：`chipFg`/`bar` ≥ 4.5:1；未知类型兜底 `#6b7280` |
+| 「未测」灰胶囊 | `lib/assessment-colors.ts` → `NOT_ASSESSED_PILL_COLORS` | 底 `#f3f4f6` / 字 `#4b5563` | 底 `#1f2937` / 字 `#9ca3af` | 同上，两套主题各 ≥ 4.5:1 |
+| 大五三档（低/中/高） | `lib/assessment-colors.ts` → `BIG_FIVE_BAND_COLORS` / `BIG_FIVE_BAND_CLASSES` | `#6366f1` / `#4338ca` / `#312e81` | `#6366f1` / `#818cf8` / `#a5b4fc` | 同上：对卡片底色**非文本** ≥ 3:1（浅色对 `#ffffff`、深色对 `#111827`）；类名含同一 hex 也有断言，防止只改常量不改界面 |
+| hero 点阵「待补」描边 | 常量 `lib/teacher-board.ts` → `TICK_STROKE_*` / `HERO_BG_*`；类名在 `TeacherBoardHero.tsx`（Tailwind 任意值必须写字面量，扫描器读不到插值） | `rgb(79,119,66)` | `rgba(167,243,208,0.55)` | `teacher-board.test.ts` 只锁**深色档**（含 alpha 混合后对 hero 底色 ≥ 3:1）；浅色档是 #314 指定的低存在感描边（对 hero 起点 `#065f46` 约 1.5:1，故意不抢眼），表意靠「已做」格子的渐变 `#7ceec2 → #55d6a3` 填充，不靠描边 |
+
+- **不引入第二套分类色**：新增维度/类型只在上面这几张表里加条目，组件一律通过 `typeColorOf()` 等取色函数拿色，禁止在组件里新写十六进制。
+- 大五只用**单一靛蓝族**的深浅表达强弱（#315），不与六型的分类色混用。
+
 ### 暗色主题
 
 - class-based dark：`@custom-variant dark (&:where(.dark, .dark *))`，三态切换（浅色/深色/跟随系统）经 UserMenu + localStorage `theme`
@@ -74,7 +88,7 @@
 | 线 / 面积 / 柱 / 饼 | 数据色用 `DATA_GREEN`（`#059669`）等固定色板；网格与轴用 `currentColor` + `strokeOpacity`，随深浅色自动适配 |
 | 雷达图 | `PolarGrid` / `PolarAngleAxis` 用 `currentColor`；量程固定 0–100 且**不画半径刻度**（看的是形状，精确值交给并列的条状排名）；填充用主色 25% 透明度 |
 | 进度条 / 排名条 | `bg-primary` 填充 + `bg-gray-100 dark:bg-gray-800` 轨道，高度 `h-2`（密集处 `h-1.5`） |
-| 按钮 | 主操作 `bg-primary` 等语义 token；**数据分类色**（如 RIASEC 六型）属于数据而不是品牌语义，按数据给色并在组件旁注明来源，不混进语义 token（#232 的做法：六型配色表 + 单测校验对比度） |
+| 按钮 | 主操作 `bg-primary` 等语义 token；**数据分类色**（如 RIASEC 六型）属于数据而不是品牌语义，按数据给色并在组件旁注明来源，不混进语义 token（口径见上文「数据分类固定色」：色表集中在 `lib/assessment-colors.ts` / `lib/teacher-board.ts`，浅深两档 + 对比度单测） |
 | 读数 | Tooltip/读数用 `font-mono tabular-nums`；图与读数并列时图在左、读数在右（窄屏上下堆叠） |
 
 - 卡片内边距统一 `p-5`/`p-6`；区块间距 `space-y-6`/`space-y-8`

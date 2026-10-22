@@ -314,21 +314,16 @@ describe("DashboardKit 的取数与文案解耦", () => {
     }
     expect(existsSync(join(process.cwd(), "src/components/admin/TeacherDashboardCards.tsx"))).toBe(false);
     expect(existsSync(join(process.cwd(), "src/components/admin/TeacherAssessmentCard.tsx"))).toBe(false);
+    // #316 清理：名册弹窗的旧外壳也不在了（名册走 AssessmentRosterDialog）
+    expect(existsSync(join(process.cwd(), "src/components/admin/ClassRosterDialog.tsx"))).toBe(false);
   });
 });
 
-/** 测评栏（#232）函数字段的样例入参：形状与真实调用一致，漏补会直接抛错 */
-const ASSESSMENT_FUNCTION_SAMPLES: Record<string, unknown[][]> = {
-  classCounts: [[2, 10]],
-  classAriaLabel: [["2025级1班", 2, 10]],
-  typeAriaLabel: [["社会型", 9]],
-  codeAriaLabel: [["SIA", 4]],
-  codeCountLabel: [[4]],
-  drilldownSummary: [[4, 10]],
-  drilldownTitleClass: [["2025级1班"]],
-  drilldownTitleType: [["社会型"]],
-  drilldownTitleCode: [["SIA"]],
-};
+/**
+ * 名册弹窗文案表（#232 起，#314/#315 后只剩弹窗字段）的函数字段样例。
+ * 现在整张表都是字符串字段；新增函数式字段时必须在这里补样例，否则 collect 会抛错。
+ */
+const ASSESSMENT_FUNCTION_SAMPLES: Record<string, unknown[][]> = {};
 
 function collectAssessmentStrings(): string[] {
   const out: string[] = [];
@@ -346,41 +341,35 @@ function collectAssessmentStrings(): string[] {
   return out;
 }
 
-describe("ASSESSMENT_DASHBOARD_COPY（#232 大屏测评栏）", () => {
+describe("ASSESSMENT_DASHBOARD_COPY（名册弹窗文案）", () => {
   it("沿用教师侧口语化词表：不含统计口径词，也不说「全班 / 本班」", () => {
     const strings = collectAssessmentStrings();
-    expect(strings.length).toBeGreaterThan(20);
+    // 只剩弹窗字段：每字段一个串，且数量与表一致（没有函数字段悄悄漏采）
+    expect(strings.length).toBe(Object.keys(ASSESSMENT_DASHBOARD_COPY).length);
+    expect(strings.length).toBeGreaterThan(10);
     for (const text of strings) {
       for (const word of JARGON) {
-        expect(text, `测评栏文案残留「${word}」：${text}`).not.toContain(word);
+        expect(text, `弹窗文案残留「${word}」：${text}`).not.toContain(word);
       }
-      expect(text, `测评栏文案暗示了班级范围：${text}`).not.toMatch(/全班|本班/);
+      expect(text, `弹窗文案暗示了班级范围：${text}`).not.toMatch(/全班|本班/);
     }
   });
 
-  it("空态是「行动邀请」：不写「暂无数据」这类孤句", () => {
+  it("空态给出下一步动作，不写「暂无数据」这类孤句", () => {
     const strings = collectAssessmentStrings();
     for (const text of strings) {
       expect(text).not.toMatch(/暂无数据|没有数据|暂无内容/);
     }
-    expect(ASSESSMENT_DASHBOARD_COPY.emptyTitle).toContain("还没有");
-    expect(ASSESSMENT_DASHBOARD_COPY.emptyHint).toContain("职业测评");
-    expect(ASSESSMENT_DASHBOARD_COPY.disabledHint).toContain("开放");
+    expect(ASSESSMENT_DASHBOARD_COPY.drilldownEmptyHint).toContain("筛选");
+    expect(ASSESSMENT_DASHBOARD_COPY.drilldownFailedHint).toContain("重试");
   });
 
-  it("三视图 / 两范围 / 下钻文案逐条落地", () => {
-    expect(ASSESSMENT_DASHBOARD_COPY.eyebrow).toBe("测评看板");
-    expect(ASSESSMENT_DASHBOARD_COPY.title).toBe("职业兴趣测评");
-    expect(ASSESSMENT_DASHBOARD_COPY.scopeAllLabel).toBe("所有班级");
-    expect(ASSESSMENT_DASHBOARD_COPY.scopeMineLabel).toBe("只看我的班");
-    expect(ASSESSMENT_DASHBOARD_COPY.viewProgressLabel).toBe("完成进度");
-    expect(ASSESSMENT_DASHBOARD_COPY.viewTypesLabel).toBe("类型分布");
-    expect(ASSESSMENT_DASHBOARD_COPY.viewCodesLabel).toBe("热门三字码");
-    expect(ASSESSMENT_DASHBOARD_COPY.classCounts(2, 10)).toBe("已交 2 / 10 人");
-    expect(ASSESSMENT_DASHBOARD_COPY.drilldownSummary(4, 10)).toBe("已测 4 / 10 人");
-    expect(ASSESSMENT_DASHBOARD_COPY.drilldownTitleClass("2025级1班")).toBe("2025级1班的测评明细");
-    expect(ASSESSMENT_DASHBOARD_COPY.drilldownTitleType("社会型")).toBe("社会型学生的测评明细");
-    expect(ASSESSMENT_DASHBOARD_COPY.drilldownTitleCode("SIA")).toBe("三字码 SIA 的学生");
+  it("下钻弹窗的列名与提醒逐条落地", () => {
+    expect(ASSESSMENT_DASHBOARD_COPY.drilldownColumnName).toBe("姓名");
+    expect(ASSESSMENT_DASHBOARD_COPY.drilldownColumnUserCode).toBe("学号");
+    expect(ASSESSMENT_DASHBOARD_COPY.drilldownColumnCode).toBe("三字码");
+    expect(ASSESSMENT_DASHBOARD_COPY.drilldownColumnTime).toBe("完成时间");
+    expect(ASSESSMENT_DASHBOARD_COPY.userCodeMaskedTooltip).toBe("学号已脱敏");
     // 投屏提醒：常驻在弹窗标题下与页脚，文案本身也要明确「含个人信息」
     expect(ASSESSMENT_DASHBOARD_COPY.drilldownHint).toContain("个人信息");
     expect(ASSESSMENT_DASHBOARD_COPY.drilldownHint).toContain("投屏");

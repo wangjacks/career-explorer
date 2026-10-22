@@ -1,15 +1,12 @@
 import { describe, it, expect } from "vitest";
 import {
   ROSTER_MARK_CAP,
-  buildClassSubmissionRows,
   buildClassSeries,
   buildQuickNavGroups,
   computeDashboardTotals,
   computeRosterBits,
-  filterRosterStudents,
   getTimeGreeting,
   maskStudentCode,
-  type RosterStudent,
 } from "../lib/dashboard-utils";
 
 describe("computeDashboardTotals", () => {
@@ -87,38 +84,6 @@ describe("buildClassSeries", () => {
   });
 });
 
-describe("buildClassSubmissionRows", () => {
-  it("按提交率升序，未分班哨兵固定置末", () => {
-    const rows = buildClassSubmissionRows([
-      { key: "一班", label: "一班", total: 10, submitted: 8 },
-      { key: "__unassigned__", label: "未分班", total: 4, submitted: 0 },
-      { key: "二班", label: "二班", total: 10, submitted: 2 },
-      { key: "三班", label: "三班", total: 5, submitted: 1 },
-    ]);
-    expect(rows.map((row) => row.key)).toEqual(["二班", "三班", "一班", "__unassigned__"]);
-    expect(rows[0]).toMatchObject({ unsubmitted: 8, rate: 0.2, rateText: "20.0%" });
-  });
-
-  it("真实班名「未分班」按提交率排序，不因名称被置末", () => {
-    const rows = buildClassSubmissionRows([
-      { key: "未分班", label: "未分班", total: 10, submitted: 9 },
-      { key: "一班", label: "一班", total: 10, submitted: 1 },
-      { key: "__unassigned__", label: "未分班", total: 10, submitted: 0 },
-    ]);
-    expect(rows.map((row) => row.key)).toEqual(["一班", "未分班", "__unassigned__"]);
-  });
-
-  it("同率按班名稳定排序，零分母走零保护文案", () => {
-    const rows = buildClassSubmissionRows([
-      { key: "B班", label: "B班", total: 10, submitted: 5 },
-      { key: "A班", label: "A班", total: 10, submitted: 5 },
-      { key: "空班", label: "空班", total: 0, submitted: 0 },
-    ]);
-    expect(rows.map((row) => row.key)).toEqual(["空班", "A班", "B班"]);
-    expect(rows[0].rateText).toBe("-");
-  });
-});
-
 describe("maskStudentCode", () => {
   it("12 位学号保留首 4 末 4", () => {
     expect(maskStudentCode("202301230156")).toBe("2023****0156");
@@ -128,25 +93,6 @@ describe("maskStudentCode", () => {
     expect(maskStudentCode("20250505")).toBe("2****5");
     expect(maskStudentCode("123")).toBe("****");
     expect(maskStudentCode("")).toBe("****");
-  });
-});
-
-describe("filterRosterStudents", () => {
-  const students: RosterStudent[] = [
-    { name: "张三", userCode: "202301230156", submitted: true, submittedAt: "2026-10-18 09:30:00", tagCount: 2 },
-    { name: "李四", userCode: "202301230157", submitted: false, submittedAt: null, tagCount: 0 },
-    { name: "王五", userCode: "202301230158", submitted: true, submittedAt: "2026-10-18 10:00:00", tagCount: 1 },
-  ];
-
-  it("按状态筛选", () => {
-    expect(filterRosterStudents(students, "pending", "").map((s) => s.name)).toEqual(["李四"]);
-    expect(filterRosterStudents(students, "submitted", "").map((s) => s.name)).toEqual(["张三", "王五"]);
-  });
-
-  it("按姓名或完整学号搜索（展示虽脱敏，搜索仍匹配完整值）", () => {
-    expect(filterRosterStudents(students, "all", "张").map((s) => s.name)).toEqual(["张三"]);
-    expect(filterRosterStudents(students, "all", "202301230158").map((s) => s.name)).toEqual(["王五"]);
-    expect(filterRosterStudents(students, "all", "不存在")).toEqual([]);
   });
 });
 

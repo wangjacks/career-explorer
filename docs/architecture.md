@@ -62,7 +62,7 @@
 
 > **主页只负责问候与分流（#228）**：主页 = 品牌 hero（时段问候 + 日期 + 一句引导）+ 按上面三个分组排成的快捷入口卡片网格，**不渲染任何统计数字与班级概览**（统计能力的唯一入口是「数据概览」）。卡片与侧边栏**共用 `page.tsx` 的同一份 `MENU_GROUPS`**（`description` 是卡片的一句话说明，侧边栏不渲染），新增栏目只改这一处；点击卡片即切 Tab，不做路由跳转。
 
-> **数据概览只回答「有没有做」，图表归数据大屏（#230）**：概览 = 四张统计卡（总提交数 / 标签种类 / **测评完成** / 热门标签，栅格 `1 → 2 → 4` 列）+ 班级概览表（在原有四列后追加 **测评完成**、**交齐比例**，百分比全表取整）。测评数据来自 `/api/manage/stats/assessment`（#229），口径与「提交率」一致（分母=在册人数）；接口不可用/还没人测评时卡片显示 `0` + 「学生还没开始测评」、表格两列显示 `-`，**不出现报错态**。教师端在表下多一条「去数据大屏看兴趣类型分布」引导（`mode="teacher"` 才渲染，管理员端概览不受影响）；**分布类需求一律进数据大屏，概览不新增图表**——这条边界写在 `src/lib/assessment-overview.ts` 的文件头。
+> **数据概览只回答「有没有做」，图表归数据大屏（#230）**：概览 = 四张统计卡（总提交数 / 标签种类 / **兴趣测评** / 热门标签，栅格 `1 → 2 → 4` 列）+ 班级概览表（在原有四列后追加 **兴趣测评**、**交齐比例**，百分比全表取整）。两处标题在 #316 由「测评完成」统一改为「兴趣测评」，与数据大屏的量表口语名（`TEACHER_BOARD_COPY.scaleLabels.riasec`）对齐，**口径不变**。测评数据来自 `/api/manage/stats/assessment`（#229），口径与「提交率」一致（分母=在册人数）；接口不可用/还没人测评时卡片显示 `0` + 「学生还没开始测评」、表格两列显示 `-`，**不出现报错态**。教师端在表下多一条「去数据大屏看兴趣类型分布」引导（`mode="teacher"` 才渲染，管理员端概览不受影响）；**分布类需求一律进数据大屏，概览不新增图表**——这条边界写在 `src/lib/assessment-overview.ts` 的文件头。
 
 **学生面板 `/dashboard/student`** — 侧边栏五项：我的档案、我的小组（#101）、职业测评（#222）、我的班级（即将上线）、成长记录（即将上线）。「我的档案」「我的小组」是页内视图切换（由 `StudentSidebar` 的 `activeView` / `onSelect` 控制，历史提交作为「我的档案」子视图仍高亮「我的档案」）；「职业测评」是独立路由，按路径前缀高亮（覆盖答题页）。条目定义与判定规则在 `src/lib/student-nav.ts`。
 
@@ -114,7 +114,7 @@
 | `/api/manage/settings` | GET / PUT | 数据源配置读写 |
 | `/api/manage/backup` | GET / POST | 备份下载 / 恢复 |
 | `/api/manage/test-db` | POST | 数据库连接测试 |
-| `/api/manage/demo/reset` | POST | 演示库全量重置（#253，**仅生产 admin**）：删演示库文件 + 清 `uploads/demo` + 重新 init + 全新随机重播账户/提交/测评（完成+进行中草稿）/分组/占位图；测评数据按**每次 30 题的分层抽题**生成并带 `items_json` 快照（#282：演示班级与真实施测同口径，草稿的已答题是本轮卷子的前缀、可被真人续答）；`DEMO_ENABLED` 关 404、演示会话 403；成功与生产越权拒绝落**生产**审计、演示会话越权拒绝落**演示**审计（隔离不变量）；并发重置经模块级单飞锁、播种失败丢弃半成品回到可重试态 |
+| `/api/manage/demo/reset` | POST | 演示库全量重置（#253，**仅生产 admin**）：删演示库文件 + 清 `uploads/demo` + 重新 init + 全新随机重播账户/提交/测评（完成+进行中草稿）/分组/占位图；测评数据按**每次 30 题的分层抽题**生成并带 `items_json` 快照（#282：演示班级与真实施测同口径，草稿的已答题是本轮卷子的前缀、可被真人续答）；自 #316 起**两套量表都播**——兴趣量表沿用上面的抽题口径，大五（`ipip-neo-ffi`，`itemsPerAttempt = 0` 整库一轮 50 题）与兴趣**同门槛、同形态**（同一学生两套要么都完成/要么都草稿/要么都没做），分数由**计分引擎现算**再落库（不手写 `scores_json`，维度 `band` 齐三档可复现），演示看板的人格测评栏与人格轮廓卡因此有真数据；两套结果各占自己的 `assessment_id`，草稿位与 `is_current` 互不干扰（新增计数只进 `bigFiveAssessed` / `bigFiveDrafts` 两个独立字段，不混进「已提交」口径）；`DEMO_ENABLED` 关 404、演示会话 403；成功与生产越权拒绝落**生产**审计、演示会话越权拒绝落**演示**审计（隔离不变量）；并发重置经模块级单飞锁、播种失败丢弃半成品回到可重试态 |
 | `/api/manage/demo/status` | GET | 演示库状态（#253，仅生产 admin）：initialized + 按演示号段过滤的规模计数，绝不泄露生产；库文件不存在时直接返回未初始化（不开 adapter、无建库副作用）。成功只读不审计；越权拒绝记审计（演示会话拒绝落演示审计、生产非 admin 落生产审计） |
 | `/api/manage/demo/accounts` | GET / POST | 演示访客账户（#278，仅生产 admin）：GET 列表（无 hash，演示库不存在返空）；POST 创建 3 角色套装（admin/teacher/student 共用一个姓名与密码、按同一 `seq` 从专用号段派生编号），密码缺省服务端生成、明文仅返回一次；演示库未初始化 409；成功审计落生产、演示会话拒绝落演示审计 |
 | `/api/manage/demo/accounts/[seq]` | PATCH / DELETE | 单个访客账户（#278，仅生产 admin）：PATCH `action=disable\|enable\|regenerate-password`（禁用=三身份 `password_hash` 置空；enable 即重生成密码并返回明文一次）；DELETE 级联清 `profile_submissions`/`class_group_members`/`assessment_results`/`teacher_classes`/`users` 并 best-effort 删 `uploads/demo` 派生文件（含缩略图） |
@@ -183,6 +183,8 @@
 > 数据范围：`/api/manage/stats/*` 默认全校（#165 的决策：教师与管理员读到同一份聚合数据）；需要按教师归属收窄的端点走显式参数——`scope=mine` 收窄到本人班级（#310/#312），`classId` 再收窄单班，其中 #312 对教师传非本人班级直接 403。聚合端点本身不含个人信息。
 >
 > **#229 测评统计的两层范围**：聚合 `/stats/assessment` 沿用上面这条口径（默认全校，`scope=mine` 才收窄到本人归属班级）；**个人明细 `/assessment/roster` 例外**——它是唯一**专用的**「测评结果 + 姓名学号」下钻端点，教师恒为本人归属班级（`classId` 越权直接 403），并每次读取记审计。注意「唯一」只指**专用测评端点**：档案数据列表 `/api/manage/profiles` GET 自 #234 起也在每行附带三字码/完成时间/六型分，它沿用档案列表既有权限（教师可见全校已提交档案学生、GET 无班级收窄且不记审计；DELETE 按 #243 记审计），不是第二套测评权限。两者的取舍见「教师端测评统计（#229）」与「教师端数据列表测评列（#234）」。
+
+> 数据大屏测评看板（#314 / #315，#316 收口）**没有新增权限条目**：`/stats/completion`、`/stats/assessment`、`/stats/big-five` 与 `/assessment/roster` 全部落在上面这两条既有口径里（`/api/manage/stats`、`/api/manage/assessment` 的 GET 前缀，`proxy.ts` 无改动），含个人信息的出口仍只有 `/assessment/roster` 一个。
 
 **演示管理员（demo-admin，#274）**
 
@@ -388,7 +390,8 @@
 - **数据只拉一轮（完成度 + 兴趣）**：先取 `completion`（hero／矩阵／行动条共用），返回后对兴趣型量表取一次 `stats/assessment?code=`（矩阵构成列 + 兴趣结构卡共用，不重复请求）；人格分布按 `classId` 单独取（#315）。请求一律 `cache: "no-store"` + `AbortController`（切范围／切班／卸载即中断），客户端 `normalizeCompletionStats` / `normalizeInterestStats` / `normalizeBigFiveStats` 防御式解析，界面与 `aria-label` 不出现 `NaN`
 - **失败隔离与文案**：各块独立 `loading / failed / empty / ready`（结构卡另有 `disabled`），失败只坏自己并给「重试」，顶部另给一条横幅（词云分布失败同样提示）；结构卡空态按**当前所选班级**判定（全部合计 > 0 不代表所选班有人），人格卡 `dimensions` 为空或量表停用按 `disabled`，不画五行 0 的空壳；空态是行动邀请（「还没有可看的班」+ 去建班导入名单），不写「暂无数据」。教师侧文案全部进 `TEACHER_BOARD_COPY`，长文案进 `teacher-board-content.ts`；量表口语短名（`riasec → 兴趣测评`、`ipip-neo-ffi → 人格测评`）按 `code` 映射、找不到回退接口正式名；禁词沿用教师侧词表（不出现「在册／口径／提交率／已提交／未提交／还差／维度／学生名单／全校／全班／本班」），新增组件源码零中文字面量由 `dashboard-copy.test.ts` 的 cjk 扫描钉住
 - **名册弹窗（#313 / #314 / #315）**：`AssessmentRosterDialog` 改为「班 × 量表 × 状态」三要素驱动——多量表 Tab 切换、`status=done|missing`、`classId` 留空表示当前范围所有班（行动条入口，多一列班级）；#315 增加 `code` 过滤（兴趣结构 Top-6 胶囊下钻，与 `lead` 一样只对「兴趣型 + 已完成」成立，标题带三字码中文展开；`code` 只在仍是发起胶囊的那套兴趣量表 Tab 下发送与展示，切到人格 Tab 即回落普通标题，避免组合校验 400）；兴趣型量表显示三字码胶囊，人格型量表显示五项档位（不出现分数），学号首 4 末 4 脱敏；投屏提醒常驻标题下与页脚；服务端每次读取（含被拒）记审计 `assessment:roster`
-- **旧实现清理**：删除 `TeacherAssessmentCard`（卡内三视图）与 `ClassSubmissionCard`（各班提交列表），教师端不再调用管理端 `SubmissionHero`；#232 的 `assessment-dashboard.ts` 视图函数保留，当前页面不再消费
+- **接口分工与安全边界（#316 收口）**：`/api/manage/stats/completion`（#310）出「档案 + 各启用量表」的班 × 量表完成矩阵聚合；`/api/manage/stats/assessment`（#229 / #311）出兴趣量表的 `code` / `classId` / `byClass` / `codes` 聚合；`/api/manage/stats/big-five`（#312）只出五维三档计数与 `invalidCount`——**三者都是聚合，响应里没有姓名学号、不记审计**。`/api/manage/assessment/roster` 是本页**唯一含个人信息**的端点（`scale` × `status` 必给，可按 `classId` / `code` 收窄）：教师恒收窄到本人归属班级、每次读取（含被拒）记审计。`/api/manage/stats/class-roster` 的 `classId` 只服务提交名册下钻。权限上**沿用既有 `/api/manage/stats`、`/api/manage/assessment` 的 GET 前缀，未新增条目**（`proxy.ts` 无改动）。
+- **旧实现清理（#316 已完成）**：`ClassRosterDialog` 与 `assessment-dashboard.test.ts` 已删除（`TeacherAssessmentCard`、`TeacherDashboardCards`／`ClassSubmissionCard` 在 #314／#315 就已下架，本次核对 dev 上确实不存在、教师端零引用）；`assessment-dashboard.ts` 收缩到只剩名册弹窗共用的 `rosterBands` / `AssessmentRosterBand`（三视图的条形/排序/下钻/状态判定纯函数随旧卡移除，六型配色的单一来源本就是 `assessment-colors.ts`）；`dashboard-utils.ts` 删掉 `buildClassSubmissionRows` / `filterRosterStudents` 与 `ClassSubmissionRow` / `RosterStudent`；`ASSESSMENT_DASHBOARD_COPY` 只剩名册弹窗的 15 个字段（看板措辞一律在 `TEACHER_BOARD_COPY`）。零引用由 `dashboard-copy.test.ts` 的文件存在性断言与 cjk 扫描 + 全套测试锁住。
 - **降级**：`/stats/completion` 未安装／量表缺失时后端退化为只有档案列，矩阵不 500；`/stats/big-five` 未种子化／停用返回空分布或 `enabled:false`，前端显示「未开放」；聚合响应无个人信息、不记审计（与 `/stats/assessment` 同口径），个人明细只从 `assessment/roster` 出
 
 ## 教师端数据列表测评列（#234 / #330 / #332）
@@ -398,7 +401,7 @@
 - **双测评列（#330）**：9 列 → 10 列——「兴趣测评」（霍兰德三字码徽章）与「人格特质」（五大人格 Top2 画像，如「高外向性 · 高尽责性」，带 `IPIP` 小标、hover 显示完成时间）并排插在「标签」与「提交时间」之间，空态 `colSpan` 同步改 10。**两列都不提供排序**（三字码/画像非数值），未测统一灰态「未测」胶囊；窄屏仍靠既有横向滚动
 - **数据来源**：`/api/manage/profiles` 响应根新增 `assessmentScales`（**启用中的量表清单**：`code` / `name` / `scoringMode` / `dimensions[{key,label}]`，列定义与维度标签的唯一来源，前端不写死量表），每行新增 `assessmentResults: { [code]: { status, typeCode, completedAt, scores[{key,standard}] } }`；依旧按**当页学号集合**逐量表各批查一次（`IN` 分片 500），不做全校扫表。某套量表查询失败**只让该列降级为「未测」**，其它列与档案列表不受影响；旧字段 `assessmentCode` / `assessmentStatus` / `assessmentAt` / `assessmentScores` 过渡期保留（取自霍兰德结果），旧前端与 #233 导出继续可用
 - **两列口径**：只认「当前有效结果」（`completed + is_current=1`）；`typological` 量表要求三字码合法才算已测（脏值按未测），`dimensional` 量表有当前结果即已测、快照缺失时 `scores=null`（界面显示「已测（分数快照缺失）」，**不画假的 0 分画像**）
-- **配色单一来源**：六型固定色值定义在 `assessment-colors.ts`，数据列表徽章、数据大屏测评栏（#232）、导出列（#233）都应 import 这里，避免三处各异；`C` 的底色偏亮，文字色用深色以保证 WCAG AA（白字只有 3.68:1），单测锁每对文本/底色对比度 ≥ 4.5:1
+- **配色单一来源**：六型固定色值定义在 `assessment-colors.ts`，数据列表徽章、数据大屏的兴趣构成条 / 胶囊 / 名册胶囊（#314 / #315）、导出列（#233）都应 import 这里，避免三处各异；`C` 的底色偏亮，文字色用深色以保证 WCAG AA（白字只有 3.68:1），单测锁每对文本/底色对比度 ≥ 4.5:1
 - **测评筛选（#330）**：工具条只保留**一个**「测评筛选」按钮 + 弹层（有值时带计数徽章与已应用 chip），弹层内两个 tab，**同一时间只按一种测评筛选**——互斥三处保证：① 前端 `AssessmentFilter` 联合类型（`none` / `interest` / `personality`）从类型层面禁止并存；② 服务端同时收到 `interest` 与 `personality` 直接 400（与旧 `lead` 也不能混用）；③ SQL 生成器只走一个分支
   - **兴趣**：状态「全部 / 未测」+ 六型字母多选（**AND 语义 = 三字码同时包含所选字母**，最多 3 个，`interest=S,A,I` / `interest=none`），如 `S+A+I` 即「三字码含 SAI 的同学」
   - **人格**：「全部 / 已测 / 未测」+ 单一维度 + 偏高/偏低（`personality=C:high` / `personality=any` / `personality=none`）；阈值 50 与结果页同一口径；不做多维叠加
