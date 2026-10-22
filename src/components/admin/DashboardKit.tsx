@@ -22,14 +22,13 @@ import { Loader2, TrendingUp, PieChart as PieChartIcon, BarChart3, TriangleAlert
 import { formatRateText } from "@/lib/stats-utils";
 import { isUnassignedClassKey } from "@/lib/class-identity";
 import type { DashboardCopy } from "@/lib/dashboard-copy";
+import { computeTrendTotal, type TrendView } from "@/lib/dashboard-trend";
 import {
   ROSTER_MARK_CAP,
   buildClassSeries,
-  type ClassTrendSeries,
   type CompareItem,
   type computeDashboardTotals,
   type DistributionItem,
-  type TrendItem,
 } from "@/lib/dashboard-utils";
 
 type DashboardTotals = ReturnType<typeof computeDashboardTotals>;
@@ -287,27 +286,31 @@ export function SubmissionHero({
 
 /** 提交趋势卡：天数与分组仅作用于本图，另外两块图恒定全量（#165 验收第三条） */
 export function TrendCard({
-  trends,
+  trendView,
   trendDays,
   trendGroup,
   setTrendDays,
   setTrendGroup,
-  classTrend,
   trendPending,
   trendsFailed,
   copy,
 }: {
-  trends: TrendItem[];
+  trendView: TrendView;
   trendDays: number;
   trendGroup: "total" | "class";
   setTrendDays: (days: number) => void;
   setTrendGroup: (group: "total" | "class") => void;
-  classTrend: ClassTrendSeries | null;
   trendPending: boolean;
   trendsFailed: boolean;
   copy: DashboardCopy;
 }) {
-  const trendTotal = trends.reduce((sum, t) => sum + t.count, 0);
+  /**
+   * 只认与当前（天数, 分组）完全匹配的那一份（#262）：切口径的在途期屏上是加载态，
+   * 不是上一窗口的曲线配上「近 7 天」这类错配；命中缓存的组合则直接画出来，不闪。
+   */
+  const entry = trendView.status === "ready" ? trendView.entry : null;
+  const trends = entry?.group === "total" ? entry.trends : [];
+  const classTrend = entry?.group === "class" ? entry.classTrend : null;
 
   // 分班多序列：按 series 顺序生成 s0... 位置字段，班名不直接当图表字段
   const classGroups = classTrend?.series ?? [];
@@ -318,19 +321,16 @@ export function TrendCard({
   const classTrendHasData = classGroups.some((group) =>
     (classTrend?.points ?? []).some((p) => (p.counts[group.key] ?? 0) > 0)
   );
-  const classTrendTotal = (classTrend?.points ?? []).reduce(
-    (sum, p) => sum + Object.values(p.counts).reduce((s, v) => s + v, 0),
-    0
-  );
 
   /** 趋势图：全校合计画面积图，按班级画多序列折线 + 自绘图例（recharts 自带图例的暗色文字不可控） */
   const renderTrendChart = () => {
+    if (trendView.status === "loading") {
+      return (
+        <ChartLoading hint={trendGroup === "class" ? copy.trendLoadingByClass : copy.trendLoadingTotal} />
+      );
+    }
     if (trendGroup === "class") {
-      // 首次切到「按班级」时还没有任何响应，此时 keys 为空不等于「窗口内没有提交」，
-      // 交空白态会把在途请求说成业务结论（失败态已由外层 errors.trends 拦在前面）
-      if (classTrend === null) {
-        return <ChartLoading hint={copy.trendLoadingByClass} />;
-      }
+      // 空态判据是「窗口内是否有提交」而非数组长度：补零后点数恒等于 trendDays
       if (!classTrendHasData) {
         return (
           <ChartEmpty
@@ -466,7 +466,7 @@ export function TrendCard({
           <p className="mt-0.5 text-[11px] text-muted/70">{copy.trendScopeNote}</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          {trendPending && (
+          {trendPending && trendView.status === "ready" && (
             <span role="status" className="flex items-center gap-1 text-[11px] text-muted">
               <Loader2 className="h-3 w-3 animate-spin" />
               {copy.trendPendingNote}
@@ -490,19 +490,19 @@ export function TrendCard({
         </div>
       </div>
       <div className="text-muted" aria-busy={trendPending}>
-        {/* 失败态要压过旧数据：天数或分组变了以后，留在屏上的上一窗口曲线与选中的口径并不对应；
-            补零后长度恒等于 trendDays，故空态判据是「窗口内是否有提交」而非数组长度 */}
+        {/* 失败态压过取数视图（#262）：图上与卡底合计都只认与当前选择匹配的那一份，
+            因此剩下的两种屏幕是「这一组选择取回来了但没有提交」与「这一组选择取失败了」 */}
         {trendsFailed ? <ChartFailed copy={copy} /> : renderTrendChart()}
       </div>
       <p className="mt-3 border-t border-border-soft pt-3 text-xs text-muted">
         {trendsFailed ? (
           copy.trendFailedSummary
+        ) : !entry ? (
+          copy.trendSummaryLoading
         ) : (
           <>
             {copy.trendSummaryPrefix(trendDays)}
-            <span className="font-mono tabular-nums text-foreground">
-              {trendGroup === "class" ? classTrendTotal : trendTotal}
-            </span>
+            <span className="font-mono tabular-nums text-foreground">{computeTrendTotal(entry)}</span>
             {copy.trendSummarySuffix}
           </>
         )}

@@ -59,10 +59,14 @@ export interface DashboardCopy {
   /** 天数按钮的文字（单位两角色一致，但同样收进文案表，避免组件里再出现面向用户的硬编码） */
   trendDaysOptionLabel: (days: number) => string;
   trendLoadingByClass: string;
+  /** 切到一组还没取过的「天数 × 分组」时的占位（#262：不匹配的数据宁可不显示，也不画成上一口径） */
+  trendLoadingTotal: string;
   trendPendingNote: string;
   trendEmptyTitle: string;
   trendEmptyHint: string;
   trendFailedSummary: string;
+  /** 卡底合计：数据与当前选择不对应时说「还在统计」，不能沿用上一窗口的数字 */
+  trendSummaryLoading: string;
   /** 卡底合计的左右两半，数字仍由组件用等宽字体单独包裹 */
   trendSummaryPrefix: (days: number) => string;
   trendSummarySuffix: string;
@@ -120,6 +124,8 @@ export const ADMIN_DASHBOARD_COPY: DashboardCopy = {
   trendDaysAriaLabel: "趋势天数",
   trendDaysOptionLabel: (days) => `${days}天`,
   trendLoadingByClass: "正在按班级拆分…",
+  trendLoadingTotal: "正在按时间窗口统计…",
+  trendSummaryLoading: "本窗口合计统计中…",
   trendPendingNote: "更新中",
   trendEmptyTitle: "所选窗口内还没有提交记录",
   trendEmptyHint: "把趋势天数调大一些，或确认学生是否已开始填写档案。",
@@ -175,6 +181,8 @@ export const TEACHER_DASHBOARD_COPY: DashboardCopy = {
   trendDaysAriaLabel: "看几天",
   trendDaysOptionLabel: (days) => `${days}天`,
   trendLoadingByClass: "正在分班统计…",
+  trendLoadingTotal: "正在统计这几天的提交…",
+  trendSummaryLoading: "这几天的合计还在统计…",
   trendPendingNote: "更新中",
   trendEmptyTitle: "这几天还没有学生提交",
   trendEmptyHint: "可以把天数拉长一些，或者提醒学生开始填写。",
