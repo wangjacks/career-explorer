@@ -153,6 +153,9 @@ export default function GroupPanel({
   const loadContent = useCallback(async (workspaceId: number | null) => {
     setContentLoading(true);
     setContentError(null);
+    // 切换批次时先清空上一批内容：请求失败时不能把旧批次的公告/任务留在屏幕上冒充新批次
+    setPosts([]);
+    setTasks([]);
     try {
       const query = workspaceId === null ? "" : `?workspaceId=${workspaceId}`;
       const [postsRes, tasksRes] = await Promise.all([
@@ -192,6 +195,7 @@ export default function GroupPanel({
         await loadContent(null);
         // 进入小组视图即视为读过当前公告：红点清零（水位由服务端持久化）
         await fetch("/api/shared/group/read", { method: "POST" }).catch(() => null);
+        setGroup((prev) => (prev ? { ...prev, unreadCount: 0 } : prev));
         onUnreadChange?.(0);
       }
       // 历史批次只在有工作区时才有回看意义
@@ -658,7 +662,16 @@ export default function GroupPanel({
             {contentLoading && posts.length === 0 ? (
               <p className="text-sm text-muted">加载中...</p>
             ) : contentError ? (
-              <p className="text-sm text-danger-strong">{contentError}</p>
+              <div className="flex items-center gap-2">
+                <p className="text-sm text-danger-strong">{contentError}</p>
+                <button
+                  type="button"
+                  onClick={() => void loadContent(selectedWorkspaceId)}
+                  className="px-2 py-1 rounded text-[11px] text-primary-strong hover:bg-primary-soft"
+                >
+                  重试
+                </button>
+              </div>
             ) : posts.length === 0 ? (
               <p className="text-xs text-muted">还没有公告。组长可以发布第一条小组公告。</p>
             ) : (
@@ -812,7 +825,16 @@ export default function GroupPanel({
             {contentLoading && tasks.length === 0 ? (
               <p className="text-sm text-muted">加载中...</p>
             ) : contentError ? (
-              <p className="text-sm text-danger-strong">{contentError}</p>
+              <div className="flex items-center gap-2">
+                <p className="text-sm text-danger-strong">{contentError}</p>
+                <button
+                  type="button"
+                  onClick={() => void loadContent(selectedWorkspaceId)}
+                  className="px-2 py-1 rounded text-[11px] text-primary-strong hover:bg-primary-soft"
+                >
+                  重试
+                </button>
+              </div>
             ) : tasks.length === 0 ? (
               <p className="text-xs text-muted">还没有任务。组长可以新建一个待认领任务。</p>
             ) : (
