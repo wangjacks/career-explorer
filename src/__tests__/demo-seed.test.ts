@@ -1,7 +1,16 @@
 import { describe, it, expect } from "vitest";
-import { planDemoSeed, materializeDemoSeed, type DemoSeedDeps } from "@/lib/demo-seed";
+import { planDemoSeed, materializeDemoSeed, RIASEC_CODE, type DemoSeedDeps } from "@/lib/demo-seed";
 import { GROUP_SIZE_CAP } from "@/lib/grouping-utils";
-import { RIASEC_ASSESSMENT, RIASEC_DIMENSIONS, RIASEC_QUESTIONS } from "@/lib/assessment-data";
+import {
+  RIASEC_ASSESSMENT,
+  RIASEC_DIMENSIONS,
+  RIASEC_QUESTIONS,
+  IPIP_ASSESSMENT,
+  IPIP_NEO_FFI_CODE,
+  IPIP_DIMENSIONS,
+  IPIP_QUESTIONS,
+} from "@/lib/assessment-data";
+import { scoreAssessment } from "@/lib/assessment-scoring";
 import { parseItemsSnapshot, planAttempt } from "@/lib/assessment-sampling";
 import type { StorageAdapter } from "@/lib/storage";
 import type { AssessmentRow, StorageBackendRow } from "@/lib/db";
@@ -45,6 +54,7 @@ describe("演示播种纯规划器（#253）", () => {
         expect(s.tags).toBeNull();
         expect(s.avatar).toBe(false);
         expect(s.assessment).toBeNull();
+        expect(s.bigFiveAssessment).toBeNull();
       }
     }
   });
@@ -98,6 +108,98 @@ describe("演示播种纯规划器（#253）", () => {
         [...indexes.slice(0, answered.length)].sort((x, y) => x - y)
       );
       for (const v of Object.values(a.answers)) expect(v).toBeGreaterThanOrEqual(1);
+    }
+  });
+
+  it("大五与 RIASEC 同门槛同形态：同一学生要么两套都有、且同为完成或同为草稿（#316）", () => {
+    for (const seed of [5, 42]) {
+      const p = planDemoSeed(seed, { tagNames: TAG_POOL, draftShare: 0.5 });
+      for (const s of p.students) {
+        expect(Boolean(s.bigFiveAssessment)).toBe(Boolean(s.assessment));
+        if (s.bigFiveAssessment && s.assessment) {
+          expect(s.bigFiveAssessment.kind).toBe(s.assessment.kind);
+        }
+      }
+    }
+  });
+
+  it("大五 completed：50 题全答、计分引擎重算一致、含三档、无三字码（#316）", () => {
+    const p = planDemoSeed(5, { tagNames: TAG_POOL, draftShare: 0 });
+    const completed = p.students.filter((s) => s.bigFiveAssessment?.kind === "completed");
+    expect(completed.length).toBeGreaterThan(0);
+    for (const s of completed) {
+      const a = s.bigFiveAssessment!;
+      expect(a.typeCode).toBeUndefined();
+      const snapshot = parseItemsSnapshot(a.itemsJson);
+      expect(snapshot).not.toBeNull();
+      expect(snapshot!.indexes).toHaveLength(IPIP_QUESTIONS.length);
+      expect(Object.keys(a.answers).map(Number).sort((x, y) => x - y)).toEqual(
+        IPIP_QUESTIONS.map((q) => q.index).sort((x, y) => x - y)
+      );
+      for (const v of Object.values(a.answers)) {
+        expect(v).toBeGreaterThanOrEqual(1);
+        expect(v).toBeLessThanOrEqual(5);
+      }
+      // 结果是计分引擎算出来的（逐字段一致），不是手写快照
+      const recomputed = scoreAssessment(IPIP_DIMENSIONS, IPIP_QUESTIONS, a.answers, {
+        mode: "dimensional",
+      });
+      expect(JSON.parse(a.scoresJson!)).toEqual(recomputed.scores);
+      const scores = JSON.parse(a.scoresJson!) as { band?: string; standard: number }[];
+      expect(scores).toHaveLength(IPIP_DIMENSIONS.length);
+      for (const dim of scores) {
+        expect(["high", "medium", "low"]).toContain(dim.band);
+        expect(dim.standard).toBeGreaterThanOrEqual(0);
+        expect(dim.standard).toBeLessThanOrEqual(100);
+      }
+    }
+    // 三档随种子分布：人格轮廓卡有东西可看（high / medium / low 都出现）
+    const bands = new Set(
+      completed.flatMap((s) =>
+        (JSON.parse(s.bigFiveAssessment!.scoresJson!) as { band: string }[]).map((d) => d.band)
+      )
+    );
+    expect(bands.size).toBe(3);
+  });
+
+  it("大五 draft：50 题卷子的前缀作答、无计分结果（可续答）", () => {
+    const p = planDemoSeed(5, { tagNames: TAG_POOL, draftShare: 1 });
+    const drafts = p.students.filter((s) => s.bigFiveAssessment?.kind === "draft");
+    expect(drafts.length).toBeGreaterThan(0);
+    for (const s of drafts) {
+      const a = s.bigFiveAssessment!;
+      expect(a.scoresJson).toBeUndefined();
+      const answered = Object.keys(a.answers).map(Number);
+      expect(answered.length).toBeGreaterThanOrEqual(3);
+      expect(answered.length).toBeLessThan(IPIP_QUESTIONS.length);
+      expect(answered).toEqual(IPIP_QUESTIONS.slice(0, answered.length).map((q) => q.index));
+      for (const v of Object.values(a.answers)) expect(v).toBeGreaterThanOrEqual(1);
+    }
+  });
+
+  it("大五快照在真实抽题口径下有效：fullBank 量表 planAttempt 认这份快照", () => {
+    const p = planDemoSeed(5, { tagNames: TAG_POOL, draftShare: 0.5 });
+    const pool = IPIP_QUESTIONS.map((q) => ({
+      index: q.index,
+      dimension: q.dimension,
+      origin: q.origin,
+      version: 1, // 适配器播种时 version 恒为 1
+    }));
+    for (const s of p.students.filter((x) => x.bigFiveAssessment)) {
+      const a = s.bigFiveAssessment!;
+      const plan = planAttempt({
+        pool,
+        dimensions: IPIP_DIMENSIONS,
+        scaleVersion: IPIP_ASSESSMENT.scaleVersion,
+        itemsPerAttempt: IPIP_ASSESSMENT.itemsPerAttempt,
+        userId: s.tempId,
+        assessmentId: 2,
+        attemptNo: 1,
+        answeredIndexes: new Set(Object.keys(a.answers).map(Number)),
+        snapshotRaw: a.itemsJson,
+      });
+      expect(plan.warnings).toEqual([]);
+      expect(plan.indexes).toEqual(parseItemsSnapshot(a.itemsJson)!.indexes);
     }
   });
 
@@ -162,8 +264,8 @@ describe("物化器：tempId→真实 id 重映射 + 调用序列（#253，fake 
     let nextId = 1000;
     const created: { user_code: string; role: string; class_id: number | null }[] = [];
     const submissions: { userCode: string; evaluationText: string | null; submittedAt: string | undefined }[] = [];
-    const assessments: number[] = [];
-    const draftIds: number[] = [];
+    const assessments: { userId: number; assessmentId: number }[] = [];
+    const draftIds: { userId: number; assessmentId: number }[] = [];
     const uploads: string[] = [];
     const grouping: { groups: number[][]; memberIds: number[] } = { groups: [], memberIds: [] };
     const teacherLinks: [number, number][] = [];
@@ -191,11 +293,11 @@ describe("物化器：tempId→真实 id 重映射 + 调用序列（#253，fake 
         return { version: 1 };
       },
       completeAssessmentResult: async (input) => {
-        assessments.push(input.userId);
+        assessments.push({ userId: input.userId, assessmentId: input.assessmentId });
         return 1;
       },
-      upsertAssessmentDraft: async (userId) => {
-        draftIds.push(userId);
+      upsertAssessmentDraft: async (userId, assessmentId) => {
+        draftIds.push({ userId, assessmentId });
         return 1;
       },
       applyGroupingResult: async (_classId, groups, batch) => {
@@ -203,7 +305,8 @@ describe("物化器：tempId→真实 id 重映射 + 调用序列（#253，fake 
         grouping.memberIds = batch.groups.flatMap((g) => g.members.map((m) => m.userId));
         return 1;
       },
-      getAssessmentByCode: async () => ({ id: 1 } as unknown as AssessmentRow),
+      getAssessmentByCode: async (code) =>
+        ({ id: code === RIASEC_CODE ? 1 : code === IPIP_NEO_FFI_CODE ? 2 : 99 } as unknown as AssessmentRow),
       renderImage: async () => Buffer.from("img"),
       demoPasswordHash: async () => "hashed",
       makeThumbnail: async () => Buffer.from("thumb"),
@@ -225,14 +328,24 @@ describe("物化器：tempId→真实 id 重映射 + 调用序列（#253，fake 
     const expectSubmitted = p.students.filter((s) => s.submit).length;
     const expectCompleted = p.students.filter((s) => s.assessment?.kind === "completed").length;
     const expectDrafts = p.students.filter((s) => s.assessment?.kind === "draft").length;
+    const expectBigFiveCompleted = p.students.filter((s) => s.bigFiveAssessment?.kind === "completed").length;
+    const expectBigFiveDrafts = p.students.filter((s) => s.bigFiveAssessment?.kind === "draft").length;
     expect(report.submitted).toBe(expectSubmitted);
     expect(r.submissions).toHaveLength(expectSubmitted);
     expect(report.assessed).toBe(expectCompleted);
-    expect(r.assessments).toHaveLength(expectCompleted);
+    expect(r.assessments.filter((a) => a.assessmentId === 1)).toHaveLength(expectCompleted);
     expect(report.drafts).toBe(expectDrafts);
-    expect(r.draftIds).toHaveLength(expectDrafts);
-    // 一人只产其一（完成与草稿互斥）
-    expect(r.assessments.length + r.draftIds.length).toBe(p.students.filter((s) => s.assessment).length);
+    expect(r.draftIds.filter((a) => a.assessmentId === 1)).toHaveLength(expectDrafts);
+    // 大五（#316）：与 RIASEC 同门槛，完成/草稿数与 report 分开计数且落第二套量表（assessmentId 2）
+    expect(report.bigFiveAssessed).toBe(expectBigFiveCompleted);
+    expect(r.assessments.filter((a) => a.assessmentId === 2)).toHaveLength(expectBigFiveCompleted);
+    expect(report.bigFiveDrafts).toBe(expectBigFiveDrafts);
+    expect(r.draftIds.filter((a) => a.assessmentId === 2)).toHaveLength(expectBigFiveDrafts);
+    // 一人每套量表只产其一（完成与草稿互斥），两套同门槛 → 总调用数 = 2 × 有测评的学生数
+    expect(r.assessments.length + r.draftIds.length).toBe(2 * p.students.filter((s) => s.assessment).length);
+    expect(p.students.filter((s) => s.bigFiveAssessment).length).toBe(
+      p.students.filter((s) => s.assessment).length
+    );
 
     // 提交时间已回填为 YYYY-MM-DD HH:mm:ss（与 getNow 同格式）；#162 起每条档案带三条评价文字
     for (const s of r.submissions) {
