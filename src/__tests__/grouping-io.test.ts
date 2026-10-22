@@ -71,8 +71,8 @@ const ROSTER: UserRow[] = [
 ];
 
 const GROUPS: ClassGroupRow[] = [
-  { id: 101, class_id: CLASS_A, group_no: 1, created_at: "" },
-  { id: 102, class_id: CLASS_A, group_no: 2, created_at: "" },
+  { id: 101, class_id: CLASS_A, group_no: 1, leader_user_id: null, created_at: "" },
+  { id: 102, class_id: CLASS_A, group_no: 2, leader_user_id: null, created_at: "" },
 ];
 
 // 故意让组号与学号错位：组 1 装 4、5 号学生，组 2 装 1、2、3 号——导出若只按学号排就会串组
@@ -235,6 +235,7 @@ describe("POST /api/manage/groups/import — 全量覆盖（#101）", () => {
         id: 900 + i,
         class_id: CLASS_A,
         group_no: g.group_no,
+        leader_user_id: null,
         created_at: "",
       }));
       const nextLinks: ClassGroupMemberRow[] = [];

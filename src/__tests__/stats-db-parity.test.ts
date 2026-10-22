@@ -14,6 +14,22 @@ function source(path: string): string {
   return readFileSync(join(process.cwd(), path), "utf8");
 }
 
+/** 按花括号配平取出某个方法的源码，避免断言越界读到相邻方法 */
+function methodBody(text: string, name: string): string {
+  const start = text.indexOf(name);
+  expect(start, `${name} 未出现在源码里`).toBeGreaterThanOrEqual(0);
+  const open = text.indexOf("{", start);
+  let depth = 0;
+  for (let i = open; i < text.length; i += 1) {
+    if (text[i] === "{") depth += 1;
+    if (text[i] === "}") {
+      depth -= 1;
+      if (depth === 0) return text.slice(start, i + 1);
+    }
+  }
+  return text.slice(start);
+}
+
 describe("SQLite / MySQL 分班统计同构（#260）", () => {
   it.each(ADAPTERS)("%s 不再用班名 COALESCE 充当分组键", (path) => {
     const text = source(path);
@@ -70,5 +86,22 @@ describe("SQLite / MySQL 分班统计同构（#260）", () => {
     }
     // 逐人快照不搬运作答内容 / 身份字段
     expect(text).not.toContain("r.answers_json AS answers_json");
+  });
+
+  /**
+   * #352 评审 #4：组长写入的存在性判据两库都必须用 SELECT。
+   * 实测（本机 MySQL 8.0.46）mysql2 默认带 CLIENT_FOUND_ROWS，同值 UPDATE 的 affectedRows 仍为 1，
+   * 所以旧写法在默认配置下不会 500；但那条标志只是驱动默认值，判据不该依赖它——
+   * 一旦有人传 `flags: "-FOUND_ROWS"`，同值写入返回 0 就会误报「该组不存在」。
+   */
+  it.each(ADAPTERS)("%s 组长更新用 SELECT 判存在，不拿受影响行数当存在性", (path) => {
+    // 只比代码体，注释里允许解释两种口径的差异
+    const code = methodBody(source(path), "updateClassGroupLeader(")
+      .replace(/\/\*[\s\S]*?\*\//g, "")
+      .replace(/\/\/.*$/gm, "");
+    expect(code).toContain("SELECT 1 AS one FROM class_groups WHERE class_id = ? AND group_no = ? LIMIT 1");
+    expect(code).toContain('throw new Error("该组不存在")');
+    expect(code).not.toContain("affectedRows");
+    expect(code).not.toContain(".changes");
   });
 });

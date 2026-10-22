@@ -47,6 +47,7 @@ function numericSource(weight: number): FeatureSourceDef {
     label: "测评得分",
     kind: "numeric",
     weight,
+    version: "1",
     extract: (user) => {
       const raw = (user as unknown as { score?: number }).score;
       return typeof raw === "number" ? raw : null;
@@ -220,8 +221,9 @@ describe("特征源可扩展性（#101 §九）", () => {
   ];
 
   it("显式传入与默认注册表相同的源列表 → 结果逐位相同", () => {
+    // 默认注册表现在含三个源（#345）：显式传「同一份注册表」应与默认完全一致
     const viaDefault = buildGrouping(buildFeatureVectors(users));
-    const viaExplicit = buildGrouping(buildFeatureVectors(users, [TAGS_SOURCE]), [TAGS_SOURCE]);
+    const viaExplicit = buildGrouping(buildFeatureVectors(users, FEATURE_SOURCES), FEATURE_SOURCES);
     expect(viaExplicit.groups).toEqual(viaDefault.groups);
     expect(viaExplicit.metrics).toEqual(viaDefault.metrics);
   });
