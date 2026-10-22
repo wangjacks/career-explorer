@@ -9,8 +9,12 @@ const links = [
   { href: "/about", label: "关于", icon: Info },
 ];
 
+interface SiteFooterProps {
+  copyright: string;
+}
+
 /** 站点底部导航：移动端为 fixed 底部 Tab Bar（App 风格），桌面端为文档流页脚 */
-export default function SiteFooter() {
+export default function SiteFooter({ copyright }: SiteFooterProps) {
   const pathname = usePathname();
   return (
     <>
@@ -61,7 +65,7 @@ export default function SiteFooter() {
               );
             })}
           </nav>
-          <p className="text-xs text-muted">© 2026 Career Explorer · 学生职业探索工具</p>
+          <p className="text-xs text-muted">{copyright}</p>
         </div>
       </footer>
     </>

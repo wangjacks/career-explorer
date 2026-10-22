@@ -5,6 +5,7 @@ import NavigationBar from "@/components/NavigationBar";
 import SiteFooter from "@/components/SiteFooter";
 import { verifyToken } from "@/lib/token";
 import { resolveExploreHref } from "@/lib/role-home";
+import { COPYRIGHT_NOTICE } from "@/lib/copyright";
 
 // cookies() 是请求时 API，已使本路由按请求动态渲染；这里保留显式声明，避免被误加静态缓存
 export const dynamic = "force-dynamic";
@@ -40,7 +41,7 @@ export default async function IndexPage() {
           </div>
         </section>
       </main>
-      <SiteFooter />
+      <SiteFooter copyright={COPYRIGHT_NOTICE} />
     </div>
   );
 }

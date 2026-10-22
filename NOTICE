@@ -1,0 +1,20 @@
+Career Explorer — Third-party notices
+
+1. O*NET Career Exploration Tools / O*NET Database
+   职业测评中的霍兰德兴趣题目改编自 O*NET Career Exploration Tools，
+   依据 O*NET Tools Developer License 使用；职业信息参照 O*NET Database 30.2，
+   按 Creative Commons Attribution 4.0 International (CC BY 4.0) 使用。
+   O*NET® 是 U.S. Department of Labor, Employment and Training Administration 的商标。
+   https://www.onetcenter.org/license_tools.html
+   https://www.onetcenter.org/database.html
+
+2. IPIP (International Personality Item Pool)
+   大五人格题目取自 IPIP；IPIP 条目属于公有领域。
+   https://ipip.ori.org/
+
+3. GeeTest（可选）
+   登录与激活的人机验证为可选集成；启用时受 GeeTest 服务条款约束。
+
+4. Open-source dependencies
+   本项目使用 npm 依赖；各依赖保留其自身许可证。
+   参见 package.json 与 package-lock.json。
