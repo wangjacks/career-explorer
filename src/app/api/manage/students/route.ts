@@ -11,6 +11,7 @@ import {
 import { hashPassword } from "@/lib/auth";
 import { getRequestContext, recordAudit } from "@/lib/audit";
 import { resolveClassByName, resolveClassNames } from "@/lib/class-utils";
+import { toStudentListItem } from "@/lib/user-projection";
 import { WriteGuard } from "../write-guard";
 
 const PATH = "/api/manage/students";
@@ -18,7 +19,7 @@ const OUT_OF_SCOPE_STUDENT = "该学生不在你管理的班级";
 const OUT_OF_SCOPE_CLASS = "无权操作该班级的学生";
 
 async function GET_impl() {
-  const students = await getStudents();
+  const students = (await getStudents()).map(toStudentListItem);
   return NextResponse.json({ data: students, total: students.length });
 }
 

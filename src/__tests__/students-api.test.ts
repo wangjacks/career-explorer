@@ -15,8 +15,15 @@ vi.mock("@/lib/db", () => ({
   insertAuditLog: vi.fn(),
 }));
 
-import { PUT } from "@/app/api/manage/students/route";
-import { getUserByCode, updateUser, getClassByName, insertAuditLog, getUserById } from "@/lib/db";
+import { GET, PUT } from "@/app/api/manage/students/route";
+import {
+  getStudents,
+  getUserByCode,
+  updateUser,
+  getClassByName,
+  insertAuditLog,
+  getUserById,
+} from "@/lib/db";
 import type { ClassRow, UserRow } from "@/lib/db";
 
 const STUDENT = {
@@ -60,6 +67,31 @@ beforeEach(() => {
   vi.clearAllMocks();
   vi.mocked(getUserByCode).mockResolvedValue(STUDENT as unknown as UserRow);
   vi.mocked(getUserById).mockResolvedValue({ user_code: "10001", name: "管理员", role: "admin" } as unknown as UserRow);
+});
+
+describe("GET /api/manage/students — 用户列表投影（#358）", () => {
+  it("只返回名单字段，不泄露 password_hash 与档案字段", async () => {
+    vi.mocked(getStudents).mockResolvedValue([STUDENT] as unknown as UserRow[]);
+
+    const res = await GET();
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body).toStrictEqual({
+      data: [
+        {
+          id: 7,
+          user_code: "202505050101",
+          name: "测试学生",
+          class_id: 3,
+          created_at: "",
+          submitted_at: null,
+        },
+      ],
+      total: 1,
+    });
+    expect(JSON.stringify(body)).not.toContain("password_hash");
+  });
 });
 
 describe("PUT /api/manage/students — 班级绑定契约（#161）", () => {

@@ -3,10 +3,11 @@ import { NextRequest, NextResponse } from "next/server";
 import { hashPassword } from "@/lib/auth";
 import { getTeachers, getUserByCode, insertUser } from "@/lib/db";
 import { getAuditActor, getRequestContext, recordAudit } from "@/lib/audit";
+import { toTeacherListItem } from "@/lib/user-projection";
 
 async function GET_impl() {
   try {
-    const teachers = await getTeachers();
+    const teachers = (await getTeachers()).map(toTeacherListItem);
     return NextResponse.json({ data: teachers });
   } catch (err) {
     console.error("Teachers GET error:", err);
