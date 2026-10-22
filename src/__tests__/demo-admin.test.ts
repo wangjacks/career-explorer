@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   DEMO_HIDDEN_TAB_KEYS,
   DEMO_STATUS_CARDS,
-  demoCreatePasswordBody,
+  demoCreateAccountBody,
   demoCredentialCopyText,
   demoCredentialRows,
   isDemoHiddenTab,
@@ -10,29 +10,66 @@ import {
 
 const CODES = { admin: "900001001", teacher: "99001001", student: "900010000001" };
 
-describe("demoCreatePasswordBody（#258）", () => {
-  it("留空表示服务端生成，请求体必须不带 password 键", () => {
-    const result = demoCreatePasswordBody("");
+describe("demoCreateAccountBody（#258 密码 + #369 名称）", () => {
+  it("密码与名称均留空 → 请求体不带 password / name 键", () => {
+    const result = demoCreateAccountBody({ rawName: "", rawPassword: "" });
     expect(result.ok).toBe(true);
     if (result.ok) {
       expect(result.body).toEqual({});
       expect("password" in result.body).toBe(false);
+      expect("name" in result.body).toBe(false);
     }
   });
 
-  it("少于 8 位拒绝，与后端同口径", () => {
-    const result = demoCreatePasswordBody("1234567");
-    expect(result).toEqual({ ok: false, error: "密码须至少 8 位" });
+  it("少于 8 位密码拒绝，与后端同口径", () => {
+    expect(demoCreateAccountBody({ rawName: "", rawPassword: "1234567" })).toEqual({
+      ok: false,
+      error: "密码须至少 8 位",
+    });
   });
 
-  it("8 位及以上原样传递，不 trim", () => {
-    expect(demoCreatePasswordBody("12345678")).toEqual({
+  it("8 位及以上密码原样传递，不 trim", () => {
+    expect(demoCreateAccountBody({ rawName: "", rawPassword: "12345678" })).toEqual({
       ok: true,
       body: { password: "12345678" },
     });
-    expect(demoCreatePasswordBody(" 1234567 ")).toEqual({
+    expect(demoCreateAccountBody({ rawName: "", rawPassword: " 1234567 " })).toEqual({
       ok: true,
       body: { password: " 1234567 " },
+    });
+  });
+
+  it("名称归一(trim)后发送，与后端同口径", () => {
+    expect(demoCreateAccountBody({ rawName: "  演示访客  ", rawPassword: "" })).toEqual({
+      ok: true,
+      body: { name: "演示访客" },
+    });
+  });
+
+  it("仅空白的名称按留空处理，省略 name 键", () => {
+    const result = demoCreateAccountBody({ rawName: "   \t ", rawPassword: "" });
+    expect(result.ok).toBe(true);
+    if (result.ok) expect("name" in result.body).toBe(false);
+  });
+
+  it("内部换行/制表折叠为单空格，避免破坏凭据复制文本", () => {
+    expect(demoCreateAccountBody({ rawName: "张\n\t三", rawPassword: "" })).toEqual({
+      ok: true,
+      body: { name: "张 三" },
+    });
+  });
+
+  it("超过 50 字的名称拒绝，与后端同口径", () => {
+    expect(demoCreateAccountBody({ rawName: "名".repeat(51), rawPassword: "" })).toEqual({
+      ok: false,
+      error: "名称须为 1-50 字",
+    });
+  });
+
+  it("名称与密码同时给出", () => {
+    expect(demoCreateAccountBody({ rawName: "演示访客", rawPassword: "abcdefgh" })).toEqual({
+      ok: true,
+      body: { name: "演示访客", password: "abcdefgh" },
     });
   });
 });

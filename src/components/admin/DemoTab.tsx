@@ -5,10 +5,11 @@ import { toast } from "sonner";
 import ConfirmDialog from "./ConfirmDialog";
 import { StatCard } from "./AdminUI";
 import { generatePassword } from "@/lib/password";
+import { pickName, DEMO_NAME_MAX } from "@/lib/demo-names";
 import { ROLE_LABELS } from "@/lib/demo-view";
 import {
   DEMO_STATUS_CARDS,
-  demoCreatePasswordBody,
+  demoCreateAccountBody,
   demoCredentialCopyText,
   demoCredentialRows,
   type DemoAccountCodes,
@@ -138,6 +139,7 @@ export default function DemoTab() {
   const [resetResult, setResetResult] = useState<DemoResetReport | null>(null);
   const [confirmReset, setConfirmReset] = useState(false);
   const [resetting, setResetting] = useState(false);
+  const [newName, setNewName] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [creating, setCreating] = useState(false);
   const [busySeq, setBusySeq] = useState<number | null>(null);
@@ -229,7 +231,7 @@ export default function DemoTab() {
   };
 
   const createAccount = async () => {
-    const parsed = demoCreatePasswordBody(newPassword);
+    const parsed = demoCreateAccountBody({ rawName: newName, rawPassword: newPassword });
     if (!parsed.ok) {
       toast.warning(parsed.error);
       return;
@@ -261,6 +263,7 @@ export default function DemoTab() {
         codes: data.codes,
         password: data.password,
       });
+      setNewName("");
       setNewPassword("");
       toast.success("访客账户已创建");
       await loadStatus(true);
@@ -468,8 +471,26 @@ export default function DemoTab() {
 
         <div className="p-5 border-b border-border-soft space-y-3">
           <p className="text-xs text-muted">
-            一个访客账户包含管理员 / 教师 / 学生三个身份，共用一个姓名与密码；创建后密码仅显示一次。
+            一个访客账户包含管理员 / 教师 / 学生三个身份，共用一个姓名与密码；姓名可自定义，留空则随机生成；创建后密码仅显示一次。
           </p>
+          <div className="flex flex-col sm:flex-row gap-2">
+            <input
+              type="text"
+              value={newName}
+              onChange={(e) => setNewName(e.target.value)}
+              placeholder={`姓名（留空随机生成，最多 ${DEMO_NAME_MAX} 字）`}
+              disabled={creating || !status.initialized}
+              className="flex-1 px-3 py-2 border border-gray-200 dark:border-gray-700 bg-card text-foreground rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-focus-ring disabled:opacity-50"
+            />
+            <button
+              type="button"
+              onClick={() => setNewName(pickName(Math.random))}
+              disabled={creating || !status.initialized}
+              className="px-3 py-2 bg-gray-100 hover:bg-gray-200 dark:bg-gray-800 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-300 text-sm rounded-lg transition-colors whitespace-nowrap disabled:opacity-40"
+            >
+              填入随机名称
+            </button>
+          </div>
           <div className="flex flex-col sm:flex-row gap-2">
             <input
               type="text"
