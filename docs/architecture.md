@@ -210,7 +210,14 @@
 | `/api/shared/profile` | GET / POST | GET 会话查询本人档案（含提交截止状态，#96、三条评价与词表 #162）；POST 仅学生本人会话保存（拒绝显式指定学号；超过提交时限强制 403；新档案须标签 + 三条评价齐全，存量仅历史图片账户三条留空可保留旧图），每次保存生成一个历史版本 |
 | `/api/shared/profile/submissions` | GET | 学生本人历史提交列表（#95，按版本倒序返回完整快照元数据） |
 | `/api/shared/profile/submissions/restore` | POST | 学生恢复历史版本（#95）：截止后 403 → 校验版本归属 → 生成新版本（不回写旧记录）→ 审计 `profile:restore` |
-| `/api/shared/group` | GET | 学生读本组名单（#101）：只返回**本人所在组**的成员（姓名/学号/头像引用/标签），不提供遍历班级的接口；未分组返回 `grouped:false` |
+| `/api/shared/group` | GET | 学生读本组概览（#101 / #346）：只返回**本人所在组**的成员（姓名/学号/头像引用/**仅标签**）、分组依据与批次、当前工作区摘要、共同兴趣 Top3、兴趣覆盖聚合与未读数；不提供遍历班级的接口；未分组返回 `grouped:false` |
+| `/api/shared/group/posts` | GET / POST | 组内公告（#346）：GET 读当前工作区（`?workspaceId=` 回看历史批次，只读）；POST 由组长或教师发布，服务端校验长度与频率（60s 内 5 条） |
+| `/api/shared/group/posts/[id]` | PATCH / DELETE | 置顶 / 取消置顶、软删除公告（#346）：组长或教师，被拒写记审计 |
+| `/api/shared/group/tasks` | GET / POST | 组内任务（#346）：GET 读当前/历史工作区；POST 由组长或教师新建，可指派本组成员或留待认领 |
+| `/api/shared/group/tasks/[id]` | PATCH / DELETE | 认领（原子，抢输 409）/ 标记完成 / 软删除（#346）；认领只对学生，完成限认领人/组长/教师 |
+| `/api/shared/group/read` | POST | 学生把本组当前工作区的已读水位推进到最新公告（#346） |
+| `/api/shared/group/unread` | GET | 侧边栏红点的轻量未读数（#346，进入面板时调用） |
+| `/api/shared/group/history` | GET | 学生可回看的工作区清单（#346，当前批次 + 历史批次，新→旧） |
 | `/api/shared/storage-sign` | GET | 文件访问地址签发（#111）：本地后端回显代理路径；云后端按归属记录的 `storage_id` 签发 30 分钟签名 URL；权限校验：学生仅本人与**同组同学的头像**（#101，存量词云图片不放行、非同组 403）、教师仅管辖班级、管理员全量 |
 | `/api/shared/assessment/start` | GET | 进入答题页（#223）：按 `?code=` 取量表（缺省 `riasec`）并**派生本轮抽题**（#282，`draw = f(uid, assessmentId, 题库指纹, attemptNo)`）后下发题面（不含维度，避免暗示答案）+ 量表元信息（`scoringMode`、`anchors`、署名/授权/免责）+ 草稿进度与续答落点；响应 `questionCount` = 本轮题数、`poolSize` = 题库总量；**只读，不建草稿行** |
 | `/api/shared/assessment/answer` | POST | 保存一次作答（#223）：题号必须属于**本轮卷子**（在题库里但不在本轮 → 400 + 失败审计），服务端**合并**进 `status=in_progress` 草稿并回进度 + 下一个未答题；首次作答把抽题快照一起写进草稿 `items_json`（#282）；非法题号/取值 400，停用量表 403 |
@@ -229,9 +236,9 @@
 
 ## 数据库
 
-<!-- 对账：`grep -oE "CREATE TABLE IF NOT EXISTS \`?[a-z_]+" src/lib/db-sqlite.ts src/lib/db-mysql.ts`；两适配器表集合必须一致（当前 17 张） -->
+<!-- 对账：`grep -oE "CREATE TABLE IF NOT EXISTS \`?[a-z_]+" src/lib/db-sqlite.ts src/lib/db-mysql.ts`；两适配器表集合必须一致（当前 21 张） -->
 
-十七张表，SQLite / MySQL 双适配器实现同一 `DbAdapter` 接口（`src/lib/db.ts`）。权威定义在两适配器的 `CREATE TABLE`，本表为索引：
+二十一张表，SQLite / MySQL 双适配器实现同一 `DbAdapter` 接口（`src/lib/db.ts`）。权威定义在两适配器的 `CREATE TABLE`，本表为索引：
 
 | 表 | 用途 | 引入 | 纳入备份 |
 |---|---|---|---|
@@ -258,15 +265,24 @@
 | `group_batch_groups` | 批次内各组快照：`group_no` + `cohesion`（组内平均相似度）+ `member_count` + `leader_user_id`（#345 组长快照）；**内聚度与组长必须存快照**，标签/组长随时间变，事后算不出当时的状态 | ✅ |
 | `group_batch_members` | 批次内成员快照：`user_id` + **冗余的 `user_code` / `name`**，账号删除后历史批次仍可读；因此该列**不建外键**（当前侧 `class_group_members.user_id` 建外键，两侧职责不同） | ✅ |
 
+**小组工作区（#346）四张表 —— 按分组批次隔离，旧批次只读**
+
+| 表 | 用途 | 纳入备份 |
+|---|---|---|
+| `group_workspaces` | 组内协作空间：`class_id` / `batch_id` / `batch_group_id`（UNIQUE，锚定**批次内的一个组**，同批各组内容互相隔离）/ `group_no` / `title`；应用分组时同一事务为每个组各建一个 | ✅ |
+| `group_posts` | 组内公告：作者 `author_id` + 姓名/角色快照、`title` / `content` / `pinned` / `deleted_at`（软删）；列表按置顶 + 时间倒序 | ✅ |
+| `group_tasks` | 组内任务：`title` / `description` / `assignee_id` + 认领时姓名快照 / `status`（`open` 待认领、`in_progress` 进行中、`done` 已完成）/ `due_at` / `completed_at` / `deleted_at` | ✅ |
+| `group_workspace_reads` | 已读水位：`workspace_id` + `user_id`（UNIQUE）+ `last_read_at` / `last_read_post_id`；未读 = 公告 id 大于水位的条数（用 id 而非时间戳，避免「标记已读后同一秒又发公告」被误判为已读） | ✅ |
+
 **班级名匹配口径（#191）**：`classes.name` 的比较统一为 **trim 后全等、区分大小写**，与前端 JS 全等对齐。`getClassByName()` 在两适配器内部均用 `getClasses()` + JS 全等实现（不依赖 SQL 排序规则），确保 SQLite / MySQL / MariaDB 行为恒等；归一化入口为 `resolveClassByName()`（`src/lib/class-utils.ts`），业务层禁止再写 `WHERE name = ?`。
 
 > **统计分组身份（#260）**：趋势 / 对比 / 名册统一按 `classes.id` 分组，`class_id IS NULL`（含悬空引用）映射为内部哨兵键 `__unassigned__`、展示标签「未分班」；真实班级的 `key` 仍是班名、`label` 为班名。`key` 用于取数 / 排序 / 下钻，`label` 只用于展示。禁止再写 `COALESCE(c.name, '未分班')` 当分组键。班级新建 / 改名拒绝 `未分班`、`还没分班`、`__unassigned__` 三个保留名（只拦未来写入，不迁移存量、不自动改名）。
 
-备份格式 `BackupData`（**version 8**，定义在 `src/lib/db.ts`；#162 增加评价文字列，#345 增加分组组长列）：十六表全量（`onet_occupations` 是唯一不纳入备份的表），其中 `audit_logs` / `configs_profile` / `storage_backends` / `profile_submissions` / 分组五表 / 测评三表为可选字段（旧备份缺失时读取方容忍 `undefined`；v6 及更早备份的 `evaluation_text` 按 `null` 恢复）；含 `password_hash`，不含上传文件。
+备份格式 `BackupData`（**version 9**，定义在 `src/lib/db.ts`；#162 增加评价文字列，#345 增加分组组长列，#346 增加小组工作区四表）：二十表全量（`onet_occupations` 是唯一不纳入备份的表），其中 `audit_logs` / `configs_profile` / `storage_backends` / `profile_submissions` / 分组九表 / 测评三表为可选字段（旧备份缺失时读取方容忍 `undefined`；v6 及更早备份的 `evaluation_text` 按 `null` 恢复，v8 及更早备份的小组工作区四表按「清空」恢复）；含 `password_hash`，不含上传文件。
 
 > `onet_occupations`（#226）**不纳入备份**：它是离线快照导出的只读参考数据，重新部署/清表后由 `init()` 按快照重灌即可，没必要让每份备份多背 923 行；它不引用 `users` / `classes`，与下面 #211 的「按 id 引用就整表清空」口径无关。
 
-> **恢复期间的「缺字段」口径（#211 统一）**：`users` / `classes` 是**整表替换并按备份里的原始 `id` 重插**，恢复全程外键检查又是关闭的（SQLite `PRAGMA foreign_keys = OFF` / MySQL `SET FOREIGN_KEY_CHECKS = 0`，事后开启**不回溯校验**已存在的行）。所以规则是：**凡按 `user_id` / `class_id` 引用这两张表的持久表，一律无条件先清空，只有备份带该字段才回填**——「缺字段 = 恢复后该功能无数据」，不是「保留现状」。分组五表（#101）、`profile_submissions`（#95）与 `assessment_results`（#221）都走这条；留着旧行等于把上一个占这个 id 的人的数据交给新的人，而 `GET /api/shared/profile/submissions` 是学生本人可读的。
+> **恢复期间的「缺字段」口径（#211 统一）**：`users` / `classes` 是**整表替换并按备份里的原始 `id` 重插**，恢复全程外键检查又是关闭的（SQLite `PRAGMA foreign_keys = OFF` / MySQL `SET FOREIGN_KEY_CHECKS = 0`，事后开启**不回溯校验**已存在的行）。所以规则是：**凡按 `user_id` / `class_id` 引用这两张表的持久表，一律无条件先清空，只有备份带该字段才回填**——「缺字段 = 恢复后该功能无数据」，不是「保留现状」。分组九表（#101 / #346）、`profile_submissions`（#95）与 `assessment_results`（#221）都走这条；留着旧行等于把上一个占这个 id 的人的数据交给新的人，而 `GET /api/shared/profile/submissions` 是学生本人可读的。
 >
 > 两条已接受的副作用：① 清空后历史版本表为空，但**下一次冷启动 `init()` 里的迁移会按恢复后的 `users` 给已提交学生补一条 `version=1 / is_current=1`**，归属取自那条 `users` 行、不会复活别人的数据，所以「无历史版本」只维持到下次启动为止；② 只存在于历史快照里的文件（`avatar_url` / `evaluation_url` 未被当前 `users` 引用的那些）失去最后一条 DB 引用，会进入 #117 孤儿清单——恢复不碰上传文件，孤儿也不自动删，留给人工确认。
 >
@@ -286,12 +302,13 @@
 - **特征源注册表与技术边界**：算法只认 `FeatureSourceDef {key,label,kind,weight,version,extract}`，**不碰 `users.tags`**；#345 注册 `tags` / `riasec` / `bigfive` 三个源，默认权重 `标签 0.2 / 兴趣 0.5 / 性格 0.3`（可调）。**大五 N（神经质）不注册、不参与任何权重与展示**（单测用「翻转 N 不改变分组」锁住）。测评数据不在 `users` 表：路由先按学号批查结果快照装进 `AssessmentFeatureContext`，某套量表读取失败只降级该源，不阻断分组；覆盖率按全部注册源如实统计（`coverageBySource`），「两套都没做」单列为 `untestedCount`
 - **指标**：`coveredCount` / `nonZeroPairs` / 两条基线给出信号强弱；#345 增 `roleCoverage`（每组 0–4，目标 ≥3）/ `roleCoverageAverage` / `coverageBySource` / `untestedCount` / `balance`（组间 RIASEC 均值标准差）。角色由大五高维映射（组织者=C、推进者=E、点子王=O、协调者=A，阈值 50），**只用于组合、不做能力评价、不在学生端展示**。`overall` 与内聚度只含已进组的人，覆盖率按全班算——界面对外分列标注
 - **预览与应用（#345）**：`POST /api/manage/groups/preview` 只算不写库（读权限，与 GET 一致）；预览里换人后把新分组回传同一端点，服务端按与应用相同的校验与指标口径**即时重算**（原始测评分不下发客户端）。`POST /api/manage/groups` 应用时若带 `groups`（预览里换人/设组长后的那一份）服务端**重新校验**（本班、不重不漏、≤5 人、组间差 ≤1、组长本组）并按当前数据重算指标，客户端传来的指标一律不信；不带 `groups` 则服务端按策略生成。应用 = **完全覆盖当前分组 + 追加历史归档**（同一事务）；覆盖式写入失败/被拒均记审计
-- **组长（#345）**：`class_groups.leader_user_id` + `group_batch_groups.leader_user_id`（批次快照）。`PATCH /api/manage/groups/leader` 写限本人班级（`canModifyClass`，越权 403 + 审计），组长必须是本组成员；成员被移组时若他是原组长，数据层**在同一事务内**回退为空并回传 `leaderCleared`；转班与删学生同样清空组长位。**学生端小组工作区**（按批次隔离、公告/任务）由 #346 提供接口，本 issue 的应用接口先返回 `workspaceId: null`，等 #346 落地后接线
+- **组长（#345）**：`class_groups.leader_user_id` + `group_batch_groups.leader_user_id`（批次快照）。`PATCH /api/manage/groups/leader` 写限本人班级（`canModifyClass`，越权 403 + 审计），组长必须是本组成员；成员被移组时若他是原组长，数据层**在同一事务内**回退为空并回传 `leaderCleared`；转班与删学生同样清空组长位。**学生端小组工作区**（#346）：应用分组时同一事务为每个组各建一个 `group_workspaces`，接口回传 `workspaces: [{groupNo, workspaceId}]`（`workspaceId` 保留首个便于旧调用方）
 - **端点边界**：读不限班级（教师可看全校），写限自建班级；自动分组/应用之后追加一份历史归档；历史批次记录 `strategy` / `feature_sources`（含权重与版本）/ 覆盖率 / 指标 / **组长快照**，旧批次只读
+- **小组工作区（#346）**：工作区锚定**批次内的组**（`group_workspaces.batch_group_id` UNIQUE），重分组追加新批次 → 新工作区，旧批次只读回看；`init()` 会为存量批次组幂等补建工作区。学生端 `GET /api/shared/group` 返回概览（策略文案 / 生成时间 / 批次号 / 组长 / 共同兴趣 Top3 / 兴趣覆盖聚合 / 未读数），成员**只下发标签**——测评分数、三字码、人格维度一律不下发（硬约束）。读写权限：学生只能读写本组当前工作区（历史工作区只读）；公告/任务由组长与教师发布，组员可认领/完成任务；越权 403 且被拒写记审计。长度上限与「同一作者在一个工作区 60s 内 5 条」频率限制在服务端；删除为软删 + 审计；未读按 `last_read_post_id` 水位计算（红点由侧边栏展示）。教师经 `classId + groupNo` 读写本人带的班。端点：`posts` / `tasks` / `read` / `unread` / `history`（见上方路由表）
 - **界面**：管理面板「用户管理 → 课堂分组」与教师面板「数据管理 → 课堂分组」为同一组件；班级选择器列全校，非本人创建的班级标注「只读」（列表没加载成功时不下这个判断，避免误标自建班）；「当前分组 / 历史批次」分段，历史是只读快照（成员取归档时的姓名与学号，账号删除后仍可读）；头像取不到图时回落为姓名首字（`TextAvatar`）
 - **手工调整**：主入口是「智能分组」预览面板——选策略（可调权重）→ 生成预览（不写库）→ 指标卡（组内相似度 vs 基线、角色覆盖、测评覆盖）→ 在组卡片里换人（等量对调，指标由服务端即时重算）、★ 设组长、换一版候选 → 确认应用。当前分组卡片上也可直接设/取消组长；换人用底部抽屉（移动端）/ 居中弹窗（桌面），抽屉里显示该生标签与各目标组的人数、内聚度、标签概览，当前组置灰、已满组标注但仍可移入；只允许删空组；界面按 `GROUP_SIZE_CAP` 标「超员」，规则破坏可见而不阻断
 - **未进组名单**：视图返回 `ungrouped`（全班减去所有组里的学生）。自动分组之后转入、或导入漏填组号都会停在这里，不列出来就只能靠重新分组覆盖掉手工调整
-- **学生侧可见性**：`/api/shared/group` 只返回请求者所在组的名单（#346 起还会带分组依据与组长）；`/api/shared/storage-sign` 为学生放行**同组同学的头像**（仅此一项，词云不放行），同组判定用单条查询按 `group_id` 比对，避免两次读之间被原子重分组复用组号
+- **学生侧可见性**：`/api/shared/group` 只返回请求者所在组的名单（#346 起带分组依据、组长、共同兴趣与聚合兴趣覆盖；成员只含标签，**不含他人测评分数/三字码/人格维度**）；`/api/shared/storage-sign` 为学生放行**同组同学的头像**（仅此一项，词云不放行），同组判定用单条查询按 `group_id` 比对，避免两次读之间被原子重分组复用组号
 
 ## 职业测评数据层（#221）
 

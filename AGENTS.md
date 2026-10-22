@@ -51,7 +51,7 @@ find src/app -name page.tsx && find src/app/api -name route.ts
 
 - 抽象层：`src/lib/db.ts` 定义 `DbAdapter` 接口，**所有数据库操作必须走此接口**，两适配器（`db-mysql.ts` / `db-sqlite.ts`）行为须一致
 - 配置来源：`db-config.json`（运行时文件，gitignored），经 `db-config.ts` 读写；`DbConfig` 含 `type: "mysql" | "sqlite"`、`installed` 标志、连接参数
-- **十七张表**（权威定义在两适配器的 `CREATE TABLE`，完整字段与备份口径见 `docs/architecture.md`「数据库」）：
+- **二十一张表**（权威定义在两适配器的 `CREATE TABLE`，完整字段与备份口径见 `docs/architecture.md`「数据库」）：
 
 | 表 | 一句话职责 |
 |---|---|
@@ -65,6 +65,7 @@ find src/app -name page.tsx && find src/app/api -name route.ts
 | `profile_submissions` | 档案提交历史版本（#95），`version` + 快照字段 + `is_current` |
 | `class_groups` / `class_group_members` | **当前**分组（#101）：组与成员，成员表 `user_id` 全局唯一（一人同时只属于一个组，转班/删人必须清理） |
 | `group_batches` / `group_batch_groups` / `group_batch_members` | 分组历史批次（#101）：每次自动分组追加一份不可变归档（策略、特征源、指标、组内聚度、成员姓名学号快照） |
+| `group_workspaces` / `group_posts` / `group_tasks` / `group_workspace_reads` | 小组工作区（#346）：工作区锚定**批次内的组**（`batch_group_id` UNIQUE），公告/任务按批次隔离、软删 + 审计；已读水位按 `last_read_post_id` 计未读；旧批次只读回看 |
 | `assessments` / `assessment_questions` / `assessment_results` | 职业测评（#221）：量表定义（维度 JSON、计分类型、量表版本、署名与授权文本）、题库（题号 + 题干 + 维度 + 反向计分 + 题面版本）、作答与结果快照（`in_progress` 草稿 / `completed` 完成 + 三字码 + `is_current`）；题库进库、种子在 `assessment-data.ts` |
 | `onet_occupations` | O*NET 职业库（#226）：`code` + 英文名 + 中文译名 + 官方兴趣高码 + 六型分 JSON + Job Zone + 学历 + SOC 职业群；**只读参考数据、不纳入备份**，快照 `onet-data.ts` 按版本整表重灌 |
 
@@ -126,7 +127,7 @@ find src/app -name page.tsx && find src/app/api -name route.ts
 - 对象存储（#111）：一切文件读写走 `StorageAdapter`（本地 / S3 兼容双实现），归属后端由记录的 `storage_id` 决定，**切换默认后端不影响存量文件**；前端取访问地址一律经 `useFileUrl` / `StorageImage`，不要自己拼 URL（细节见 `docs/architecture.md`「文件存储」）；#162 起评价不产生文件，评价上传前缀与历史词云图片仅存量兼容
 - 媒体治理（#117/#118）：孤儿**不做自动删除**（保留期可配 + 人工确认清理，服务端重扫自证不信任前端）；缩略图生成仅服务端（依赖 sharp），key 派生 `{base}.jpg` → `{base}_thumb.jpg`；#162 起评价缩略图只服务历史图片
 - 他人评价与词云（#162）：三条匿名他人评价存 `evaluation_text`（JSON 数组）与版本快照，`evaluation_url` 仅历史图片；服务端用 `Intl.Segmenter` 提词、按提及人数（1–3）计权，前端 `EvaluationWordCloud` 确定性布局实时绘制，**不生成新图片、不占上传带宽**；文字优先、旧图兜底，列表只显示摘要
-- 课堂分组（#101 / #345）：算法是纯函数（`grouping-utils.ts` / `grouping-features.ts`，测评数据装载在 `grouping-assessment.ts`），只认「特征源注册表」，不直接读 `users.tags`——新增数据源只加一条注册项；#345 起注册 `标签 / 兴趣(RIASEC 六维) / 性格(大五 C·E·O·A，**N 不注册不参与**)` 三源（默认权重 0.2/0.5/0.3、可调），三种策略（默认 A `interest-role-v1` 兴趣相近+性格互补、B `interest-contrast-v1` 兴趣互补、C `idf-cosine` 仅标签）写进 `group_batches.strategy`，角色只用于组合与展示、不做能力评价；确定性（无随机，按学号升序，`variant` 只用于换候选）；**当前分组与历史批次两套表物理分离**，应用分组=覆盖当前 + 追加归档（含组长快照）同一事务；预览端点只算不写库、换人后由服务端即时重算指标，应用时服务端重新校验并重算指标；组长 `class_groups.leader_user_id` 外键 `users(id) ON DELETE SET NULL`（旧库 `init()` 补列并清理指向非成员的组长）写限本人班级、必须是本组成员、移组同事务回退、转班与删人清空；学生端工作区由 #346 提供（口径见 `docs/architecture.md`「课堂分组」）
+- 课堂分组（#101 / #345）：算法是纯函数（`grouping-utils.ts` / `grouping-features.ts`，测评数据装载在 `grouping-assessment.ts`），只认「特征源注册表」，不直接读 `users.tags`——新增数据源只加一条注册项；#345 起注册 `标签 / 兴趣(RIASEC 六维) / 性格(大五 C·E·O·A，**N 不注册不参与**)` 三源（默认权重 0.2/0.5/0.3、可调），三种策略（默认 A `interest-role-v1` 兴趣相近+性格互补、B `interest-contrast-v1` 兴趣互补、C `idf-cosine` 仅标签）写进 `group_batches.strategy`，角色只用于组合与展示、不做能力评价；确定性（无随机，按学号升序，`variant` 只用于换候选）；**当前分组与历史批次两套表物理分离**，应用分组=覆盖当前 + 追加归档（含组长快照）同一事务；预览端点只算不写库、换人后由服务端即时重算指标，应用时服务端重新校验并重算指标；组长 `class_groups.leader_user_id` 外键 `users(id) ON DELETE SET NULL`（旧库 `init()` 补列并清理指向非成员的组长）写限本人班级、必须是本组成员、移组同事务回退、转班与删人清空；**学生端小组工作区（#346）**：应用分组同一事务为每个组各建一个 `group_workspaces`（锚定 `batch_group_id`），学生只能读写本组当前工作区、历史批次只读回看；公告/任务由组长与教师发布、组员可认领/完成，长度与频率在服务端拦、软删 + 审计，成员只下发标签（不泄测评信息）（口径见 `docs/architecture.md`「课堂分组」）
 - 职业测评（#221）：三表 = 量表定义 / 题库 / 作答结果快照；**量表进库不写死代码**，种子在「`code` 缺失或题库为空」时补种、非空题库不覆盖；题库为 **120 题 RIASEC**（#281：Mini-IP 30 一字不改 + SF 30 中译 + 原创 60，`origin` 列区分来源），已有旧库由 `upgradeAssessmentBank()` **只增不改**升级（缺题 INSERT、已存在题号只回填 `origin`、定义字段仅随 `scale_version` 整体更新、同版本库的 `license_text` 与种子不一致时单独刷新（#284），单事务幂等）；`validateAssessmentSeed` 还拦每维题数/`origin` 分布/题干唯一与长度/禁词/原创题 anchor（须命中 O*NET 快照且维度在兴趣高码前两位）/近重复组覆盖；草稿与完成记录同表，可空 `draft_slot` + 唯一约束保证「一人一量表至多一条草稿」，完成时释放草稿位并保证 `is_current` 唯一（MySQL 用 `FOR UPDATE` 锁学生行串行化）；两库一致性另有三条硬约束：列名逐列相同、外键成对存在、`code` 用 `utf8mb4_bin` 保证大小写敏感的唯一语义；计分由计分引擎（#220）在落库前算好，数据层不重复实现算法（口径见 `docs/architecture.md`「职业测评数据层」）
 - 题库放行门（#284）：`SAMPLING_EXCLUDED_ORIGINS`（`assessment-data.ts`）把未通过专家评审与班级试测的来源整批排除在抽题池外，当前排 `cn-original`——**题库不删题**（仍 120 题，历史快照与种子校验不受影响），线上只抽 60 道 O*NET 官方题（每维 10 道、每轮 5 道），`items_per_attempt = 0` 也只含官方题。排除来源计入 `poolFingerprint`（放行门一变旧快照自动重派）；在途草稿保留官方题作答、丢弃原创题作答并由官方题补齐。重测换卷时 C / E 两维因近重复组挤占会放宽排除集出现个别重题（其余四维完全换新），属预期行为。恢复放行 = 补齐评审与试测记录、更新 `license_text`、从常量移除来源；记录与复核日期见 `docs/assessment-validation.md`
 - 职业测评中心（#222 / #225 / #291）：学生侧边栏固定五项「我的档案 / 我的小组（#101） / 职业测评 / 我的班级（占位）/ 成长记录（占位）」，条目定义与判定规则在 `src/lib/student-nav.ts`；「我的档案」「我的小组」是页内视图（高亮由 `StudentSidebar` 的 `activeView` 控制，历史提交作为「我的档案」子视图仍高亮「我的档案」），「职业测评」按路径前缀高亮（覆盖答题页），占位项不可点；在测评中心等未传 `onSelect` 的页面，页内视图项自动退化为 `Link` 回 `/dashboard/student`，不留死按钮。测评中心页 `/dashboard/student/assessment` **只承载入口、状态与说明**，数据来自 `GET /api/shared/assessment/list`（#291，只含启用量表、逐套带本人状态与进度），三态判定仍在 `src/lib/assessment-center.ts` 的纯函数里（优先级：进行中 > 已完成 > 未开始，重测草稿优先），多量表选择与清单行归一在 `src/lib/assessment-list.ts`（「我的测评」卡 = `deriveLatestActive`：草稿按 `updatedAt` 最新 → 最近完成 → 主测评兜底；清单每行都有带 `?code=` 的作答入口，`isPrimary` 已退役），结果解读留给「我的档案」测评区（#224）；量表停用（`enabled=false`）不出现在列表中、历史结果仍可在档案查看。内容卡：我的测评、测验清单、六型科普、大五科普（#291，随 IPIP 量表启用，含高低分表现与和霍兰德的呼应）、学职平台 + IPIP 外链（**只外链不复刻题目**，统一 `rel="noopener noreferrer"`，IPIP 标明公有领域）、页底「授权与免责」（O\*NET 署名取 `assessments` 表字段、不复制到前端；免责声明组件与结果区共用）；科普文案在 `src/lib/assessment-center-content.ts`，**不出现 SDS/Strong/MBTI 等商业量表名称**，六型科普、外链与授权卡在接口失败时也常驻（清单与大五科普随列表结果渲染）
@@ -159,7 +160,7 @@ find src/app -name page.tsx && find src/app/api -name route.ts
 | 信息 | 权威文件 |
 |---|---|
 | 技术栈全量清单、目录模块划分、路线图 | `docs/overview.md` |
-| 页面/API 路由表、数据库十七表、教师权限表、面板导航分组、课堂分组口径 | `docs/architecture.md` |
+| 页面/API 路由表、数据库二十一张表、教师权限表、面板导航分组、课堂分组口径 | `docs/architecture.md` |
 | 分支模型、提交/PR/发布规范、环境变量表 | `docs/standards.md` |
 | 色彩 token、组件与交互规范、z-index 层级 | `docs/ui-conventions.md` |
 | Issue 标题/标签/正文/验收标准 | `docs/issue-standard.md` |
