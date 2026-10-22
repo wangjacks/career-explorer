@@ -241,6 +241,7 @@ export class SqliteAdapter implements DbAdapter {
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         class_id INTEGER NOT NULL REFERENCES classes(id),
         group_no INTEGER NOT NULL,
+        leader_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
         created_at TEXT NOT NULL,
         UNIQUE(class_id, group_no)
       )
@@ -281,6 +282,7 @@ export class SqliteAdapter implements DbAdapter {
         group_no INTEGER NOT NULL,
         cohesion REAL,
         member_count INTEGER NOT NULL,
+        leader_user_id INTEGER,
         created_at TEXT NOT NULL,
         UNIQUE(batch_id, group_no)
       )
@@ -299,6 +301,28 @@ export class SqliteAdapter implements DbAdapter {
         UNIQUE(batch_id, user_id)
       )
     `);
+    // #345 补列：旧库（#101 时期创建）没有组长列。SQLite 的 ALTER TABLE 只能加可空列，
+    // 正好符合「组长可空」的语义；新库由上面的 CREATE TABLE 直接带列。
+    const classGroupColumns = this.db.prepare("PRAGMA table_info(class_groups)").all() as { name: string }[];
+    if (!classGroupColumns.some((column) => column.name === "leader_user_id")) {
+      this.db.exec(
+        "ALTER TABLE class_groups ADD COLUMN leader_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL"
+      );
+    }
+    // 组长必须在本组：旧库没有外键覆盖转班路径、早期数据也可能留下指向非成员的组长，启动时修掉
+    this.db.exec(`
+      UPDATE class_groups
+         SET leader_user_id = NULL
+       WHERE leader_user_id IS NOT NULL
+         AND NOT EXISTS (
+           SELECT 1 FROM class_group_members m
+            WHERE m.group_id = class_groups.id AND m.user_id = class_groups.leader_user_id
+         )
+    `);
+    const batchGroupColumns = this.db.prepare("PRAGMA table_info(group_batch_groups)").all() as { name: string }[];
+    if (!batchGroupColumns.some((column) => column.name === "leader_user_id")) {
+      this.db.exec("ALTER TABLE group_batch_groups ADD COLUMN leader_user_id INTEGER");
+    }
     this.db.exec(`CREATE INDEX IF NOT EXISTS idx_class_groups_class ON class_groups(class_id)`);
     this.db.exec(
       `CREATE INDEX IF NOT EXISTS idx_class_group_members_group ON class_group_members(group_id)`
@@ -984,6 +1008,8 @@ export class SqliteAdapter implements DbAdapter {
           | { class_id: number | null }
           | undefined;
         if (current && current.class_id !== fields.class_id) {
+          // #345：转班后组长必须仍是本组成员，先清组长位再摘成员行（同一事务）
+          this.db.prepare("UPDATE class_groups SET leader_user_id = NULL WHERE leader_user_id = ?").run(id);
           this.db.prepare("DELETE FROM class_group_members WHERE user_id = ?").run(id);
         }
       }
@@ -1013,6 +1039,13 @@ export class SqliteAdapter implements DbAdapter {
     const placeholders = userCodes.map(() => "?").join(",");
     const tx = this.db.transaction(() => {
       // 分组（#101）：只清「当前分组」的成员行；历史批次保留快照（姓名/学号冗余，账号删除后仍可读）
+      // #345：删学生时组长位一并清空（新库有外键 SET NULL，这里显式清是为了两库与旧库行为一致）
+      this.db
+        .prepare(
+          `UPDATE class_groups SET leader_user_id = NULL
+            WHERE leader_user_id IN (SELECT id FROM users WHERE user_code IN (${placeholders}))`
+        )
+        .run(...userCodes);
       this.db
         .prepare(
           `DELETE FROM class_group_members WHERE user_id IN (SELECT id FROM users WHERE user_code IN (${placeholders}))`
@@ -1742,14 +1775,18 @@ export class SqliteAdapter implements DbAdapter {
       .run(classId);
     this.db.prepare("DELETE FROM class_groups WHERE class_id = ?").run(classId);
     const insertGroup = this.db.prepare(
-      "INSERT INTO class_groups (class_id, group_no, created_at) VALUES (?, ?, ?)"
+      "INSERT INTO class_groups (class_id, group_no, leader_user_id, created_at) VALUES (?, ?, ?, ?)"
     );
     const insertMember = this.db.prepare(
       "INSERT INTO class_group_members (group_id, user_id, created_at) VALUES (?, ?, ?)"
     );
     const now = getNow();
     for (const g of groups) {
-      const info = insertGroup.run(classId, g.group_no, now);
+      // #345：组长必须是本组成员；不满足就整批拒绝（事务回滚，不留半套分组）
+      if (g.leader_user_id != null && !g.user_ids.includes(g.leader_user_id)) {
+        throw new Error("组长必须是本组成员");
+      }
+      const info = insertGroup.run(classId, g.group_no, g.leader_user_id ?? null, now);
       const groupId = Number(info.lastInsertRowid);
       for (const userId of g.user_ids) insertMember.run(groupId, userId, now);
     }
@@ -1797,8 +1834,8 @@ export class SqliteAdapter implements DbAdapter {
       );
     const batchId = Number(info.lastInsertRowid);
     const insertGroup = this.db.prepare(
-      `INSERT INTO group_batch_groups (batch_id, group_no, cohesion, member_count, created_at)
-       VALUES (?, ?, ?, ?, ?)`
+      `INSERT INTO group_batch_groups (batch_id, group_no, cohesion, member_count, leader_user_id, created_at)
+       VALUES (?, ?, ?, ?, ?, ?)`
     );
     const insertMember = this.db.prepare(
       `INSERT INTO group_batch_members (batch_id, group_id, user_id, user_code, name, created_at)
@@ -1806,7 +1843,7 @@ export class SqliteAdapter implements DbAdapter {
     );
     const now = getNow();
     for (const g of input.groups) {
-      const gInfo = insertGroup.run(batchId, g.groupNo, g.cohesion, g.members.length, now);
+      const gInfo = insertGroup.run(batchId, g.groupNo, g.cohesion, g.members.length, g.leaderUserId ?? null, now);
       const groupId = Number(gInfo.lastInsertRowid);
       for (const m of g.members) {
         insertMember.run(batchId, groupId, m.userId, m.userCode, m.name, now);
@@ -1867,9 +1904,10 @@ export class SqliteAdapter implements DbAdapter {
     tx();
   }
 
-  moveGroupMember(classId: number, userId: number, toGroupNo: number): void {
-    // 目标组校验与成员改写同事务，避免「查到目标组 → 组被删 → 写入死 group_id」的窗口
-    const tx = this.db.transaction(() => {
+  moveGroupMember(classId: number, userId: number, toGroupNo: number): { leaderCleared: boolean } {
+    // 目标组校验、成员改写与组长回退同事务，避免「查到目标组 → 组被删 → 写入死 group_id」
+    // 以及「人已移走、组长位却没清掉」的半套状态
+    const tx = this.db.transaction((): { leaderCleared: boolean } => {
       const target = this.db
         .prepare("SELECT id FROM class_groups WHERE class_id = ? AND group_no = ?")
         .get(classId, toGroupNo) as { id: number } | undefined;
@@ -1878,18 +1916,44 @@ export class SqliteAdapter implements DbAdapter {
       // 若它的成员行还挂在别班的组上（转班遗留的脏归属），必须把它搬回来；
       // 只查本班就会查不到而行 → 走 INSERT → 撞全局 UNIQUE(user_id) → 「可修复」变成永久失败
       const current = this.db
-        .prepare("SELECT id FROM class_group_members WHERE user_id = ?")
-        .get(userId) as { id: number } | undefined;
+        .prepare("SELECT id, group_id FROM class_group_members WHERE user_id = ?")
+        .get(userId) as { id: number; group_id: number } | undefined;
+      let leaderCleared = false;
       if (current) {
+        // 被移走的是原组组长：组长位必须随人一起失效（#345）
+        if (current.group_id !== target.id) {
+          leaderCleared =
+            this.db
+              .prepare("UPDATE class_groups SET leader_user_id = NULL WHERE id = ? AND leader_user_id = ?")
+              .run(current.group_id, userId).changes > 0;
+        }
         this.db.prepare("UPDATE class_group_members SET group_id = ? WHERE id = ?").run(target.id, current.id);
-        return;
+        return { leaderCleared };
       }
       // 未在任何组（新转入的学生等）：直接插入目标组
       this.db
         .prepare("INSERT INTO class_group_members (group_id, user_id, created_at) VALUES (?, ?, ?)")
         .run(target.id, userId, getNow());
+      return { leaderCleared };
     });
-    tx();
+    return tx();
+  }
+
+  /**
+   * 设置 / 取消某组组长（#345）：定位条件带上 class_id，避免组号跨班误写。
+   * 「组长是否本组成员」由路由校验（这里不查成员表，保持单条 UPDATE）。
+   */
+  updateClassGroupLeader(classId: number, groupNo: number, leaderUserId: number | null): void {
+    // 存在性用 SELECT 判，不靠 `.changes`：`.changes` 的语义由驱动/连接标志决定（MySQL 侧
+    // mysql2 默认带 CLIENT_FOUND_ROWS 才与 SQLite 一致，一旦去掉该标志同值 UPDATE 就返回 0），
+    // 判存在属于业务语义，不该跟着驱动配置漂。
+    const existing = this.db
+      .prepare("SELECT 1 AS one FROM class_groups WHERE class_id = ? AND group_no = ? LIMIT 1")
+      .get(classId, groupNo);
+    if (!existing) throw new Error("该组不存在");
+    this.db
+      .prepare("UPDATE class_groups SET leader_user_id = ? WHERE class_id = ? AND group_no = ?")
+      .run(leaderUserId, classId, groupNo);
   }
 
   getGroupBatches(classId: number): GroupBatchRow[] {
@@ -2379,7 +2443,7 @@ export class SqliteAdapter implements DbAdapter {
       .prepare("SELECT * FROM assessment_results ORDER BY id")
       .all() as AssessmentResultRow[];
     return {
-      version: 7,
+      version: 8,
       sourceType: "sqlite",
       createdAt: new Date().toISOString(),
       users,
@@ -2665,9 +2729,9 @@ export class SqliteAdapter implements DbAdapter {
       // 当前侧与历史侧各自成对处理，避免出现「删了组却留着成员」的半截状态
       if (Array.isArray(d.class_groups)) {
         const stmt = this.db.prepare(
-          `INSERT INTO class_groups (id, class_id, group_no, created_at) VALUES (?, ?, ?, ?)`
+          `INSERT INTO class_groups (id, class_id, group_no, leader_user_id, created_at) VALUES (?, ?, ?, ?, ?)`
         );
-        for (const g of d.class_groups) stmt.run(g.id, g.class_id, g.group_no, g.created_at ?? getNow());
+        for (const g of d.class_groups) stmt.run(g.id, g.class_id, g.group_no, g.leader_user_id ?? null, g.created_at ?? getNow());
         const memberStmt = this.db.prepare(
           `INSERT INTO class_group_members (id, group_id, user_id, created_at) VALUES (?, ?, ?, ?)`
         );
@@ -2699,8 +2763,8 @@ export class SqliteAdapter implements DbAdapter {
           );
         }
         const groupStmt = this.db.prepare(
-          `INSERT INTO group_batch_groups (id, batch_id, group_no, cohesion, member_count, created_at)
-           VALUES (?, ?, ?, ?, ?, ?)`
+          `INSERT INTO group_batch_groups (id, batch_id, group_no, cohesion, member_count, leader_user_id, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?)`
         );
         for (const g of d.group_batch_groups ?? []) {
           groupStmt.run(
@@ -2709,6 +2773,7 @@ export class SqliteAdapter implements DbAdapter {
             g.group_no,
             g.cohesion ?? null,
             g.member_count ?? 0,
+            g.leader_user_id ?? null,
             g.created_at ?? getNow()
           );
         }

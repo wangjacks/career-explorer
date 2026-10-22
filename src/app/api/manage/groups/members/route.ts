@@ -1,6 +1,10 @@
 import { withDemoScope } from "@/lib/demo-scope";
 import { NextRequest, NextResponse } from "next/server";
-import { getStudentGroupRef, getUserById, moveGroupMember } from "@/lib/db";
+import {
+  getStudentGroupRef,
+  getUserById,
+  moveGroupMember,
+} from "@/lib/db";
 import { getRequestContext, recordAudit } from "@/lib/audit";
 import { getSession, canModifyClass } from "../../classes/helpers";
 import { actorOf, groupFailureWriter, parseJsonBody } from "../helpers";
@@ -66,11 +70,14 @@ async function PATCH_impl(request: NextRequest) {
     // 引用指向别班 = 与名单不一致的脏数据，不把它的组号当作来源（下面的移动按 users 的班级为准）
     const fromGroupNo = current && current.class_id === classId ? current.group_no : null;
     if (fromGroupNo === toGroupNo) {
-      return NextResponse.json({ ok: true, moved: false });
+      return NextResponse.json({ ok: true, moved: false, leaderCleared: false });
     }
 
+    // #345：被移走的人如果还是原组组长，数据层在同一事务里把组长位回退为未设置并告知界面
+    let leaderCleared = false;
     try {
-      await moveGroupMember(classId, userId, toGroupNo);
+      const moved = await moveGroupMember(classId, userId, toGroupNo);
+      leaderCleared = moved.leaderCleared;
     } catch (err) {
       // 可预期错误（目标组已被删）→ 400 而不是 500
       const raw = err instanceof Error ? err.message : "";
@@ -89,10 +96,10 @@ async function PATCH_impl(request: NextRequest) {
       error_message: null,
       ip,
       user_agent,
-      metadata: { classId, userId, fromGroupNo, toGroupNo },
+      metadata: { classId, userId, fromGroupNo, toGroupNo, leaderCleared },
     });
 
-    return NextResponse.json({ ok: true, moved: true, fromGroupNo, toGroupNo });
+    return NextResponse.json({ ok: true, moved: true, fromGroupNo, toGroupNo, leaderCleared });
   } catch (err) {
     console.error("Group members PATCH error:", err);
     fail(session, err instanceof Error ? err.message : "移动成员失败");

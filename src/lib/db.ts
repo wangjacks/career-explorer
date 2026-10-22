@@ -226,6 +226,8 @@ export interface ClassGroupRow {
   id: number;
   class_id: number;
   group_no: number;
+  /** 组长（#345）：该组组长 userId；未设置 / 旧库迁移前为 null */
+  leader_user_id: number | null;
   created_at: string;
 }
 
@@ -241,6 +243,8 @@ export interface ClassGroupMemberRow {
 export interface ClassGroupingInput {
   group_no: number;
   user_ids: number[];
+  /** 组长（#345）：必须是本组成员；不传 / null 表示未设置 */
+  leader_user_id?: number | null;
 }
 
 /** group_batches 行：一次自动分组的批次头（历史归档，只追加） */
@@ -272,6 +276,8 @@ export interface GroupBatchGroupRow {
   /** 组内平均相似度快照 */
   cohesion: number | null;
   member_count: number;
+  /** 组长快照（#345）：旧批次该列为 null */
+  leader_user_id: number | null;
   created_at: string;
 }
 
@@ -302,6 +308,8 @@ export interface NewGroupBatchInput {
   groups: {
     groupNo: number;
     cohesion: number | null;
+    /** 组长快照（#345）：设置组长时记入批次，历史回看仍能知道当时谁是组长 */
+    leaderUserId?: number | null;
     members: { userId: number; userCode: string | null; name: string | null }[];
   }[];
 }
@@ -815,8 +823,27 @@ export interface DbAdapter {
   insertGroupEntry(classId: number, groupNo: number): Promise<void> | void;
   /** 删除一个空的组（非空由调用方先校验；本方法只删组行，不动成员） */
   deleteGroupEntry(classId: number, groupNo: number): Promise<void> | void;
-  /** 把成员移到本班的另一个组（目标组必须已存在） */
-  moveGroupMember(classId: number, userId: number, toGroupNo: number): Promise<void> | void;
+  /**
+   * 把成员移到本班的另一个组（目标组必须已存在）。
+   * 被移走的人若是原组组长，同一事务内清空组长位，并返回是否发生回退（#345）。
+   */
+  moveGroupMember(
+    classId: number,
+    userId: number,
+    toGroupNo: number
+  ): Promise<{ leaderCleared: boolean }> | { leaderCleared: boolean };
+  /**
+   * 设置 / 取消某组组长（#345）。调用方负责校验「组长是本组成员」与写权限；
+   * 数据层只做「本班 + 组号」定位，避免跨班误写。
+   * **重复写入同一个值必须幂等**（重试 / 双击 / 取消本来就空的组长位都不能报错）：
+   * 组存在与否用 SELECT 判，不拿受影响行数当存在性——那个数字取决于驱动的连接标志
+   * （mysql2 默认开 CLIENT_FOUND_ROWS 时同值 UPDATE 报 1，关掉就报 0），两库口径不该跟着配置漂。
+   */
+  updateClassGroupLeader(
+    classId: number,
+    groupNo: number,
+    leaderUserId: number | null
+  ): Promise<void> | void;
   /** 事务：追加一个历史批次（头 + 组 + 成员），返回批次 id */
   insertGroupBatch(input: NewGroupBatchInput): Promise<number> | number;
   /**
@@ -1492,9 +1519,23 @@ export async function deleteGroupEntry(classId: number, groupNo: number): Promis
   return Promise.resolve(adapter.deleteGroupEntry(classId, groupNo));
 }
 
-export async function moveGroupMember(classId: number, userId: number, toGroupNo: number): Promise<void> {
+export async function moveGroupMember(
+  classId: number,
+  userId: number,
+  toGroupNo: number
+): Promise<{ leaderCleared: boolean }> {
   const adapter = await ensureInit();
   return Promise.resolve(adapter.moveGroupMember(classId, userId, toGroupNo));
+}
+
+/** 设置 / 取消组长（#345；权限与成员归属由路由校验） */
+export async function updateClassGroupLeader(
+  classId: number,
+  groupNo: number,
+  leaderUserId: number | null
+): Promise<void> {
+  const adapter = await ensureInit();
+  return Promise.resolve(adapter.updateClassGroupLeader(classId, groupNo, leaderUserId));
 }
 
 export async function insertGroupBatch(input: NewGroupBatchInput): Promise<number> {

@@ -1,10 +1,11 @@
 import { withDemoScope } from "@/lib/demo-scope";
 import { NextRequest, NextResponse } from "next/server";
 import { getGroupBatchDetail } from "@/lib/db";
+import { groupingStrategyLabel } from "@/lib/grouping-utils";
 
 type Ctx = { params: Promise<{ id: string }> };
 
-/** GET：读某个历史批次的明细（组 + 成员快照）。只读，读不限班级 */
+/** GET：读某个历史批次的明细（组 + 成员快照 + 组长快照）。只读，读不限班级 */
 async function GET_impl(_request: NextRequest, { params }: Ctx) {
   try {
     const { id: idParam } = await params;
@@ -26,12 +27,17 @@ async function GET_impl(_request: NextRequest, { params }: Ctx) {
       if (no === undefined) continue;
       memberRows.get(no)?.push({ userId: m.user_id, userCode: m.user_code, name: m.name });
     }
+    const leaderNameOf = (groupNo: number, leaderUserId: number | null) =>
+      leaderUserId == null
+        ? null
+        : (memberRows.get(groupNo) ?? []).find((member) => member.userId === leaderUserId)?.name ?? null;
 
     return NextResponse.json({
       batch: {
         id: detail.batch.id,
         classId: detail.batch.class_id,
         strategy: detail.batch.strategy,
+        strategyLabel: groupingStrategyLabel(detail.batch.strategy),
         featureSources: detail.batch.feature_sources,
         groupSize: detail.batch.group_size,
         studentCount: detail.batch.student_count,
@@ -45,6 +51,8 @@ async function GET_impl(_request: NextRequest, { params }: Ctx) {
         groupNo: g.group_no,
         cohesion: g.cohesion,
         memberCount: g.member_count,
+        leaderUserId: g.leader_user_id ?? null,
+        leaderName: leaderNameOf(g.group_no, g.leader_user_id ?? null),
         members: memberRows.get(g.group_no) ?? [],
       })),
     });
