@@ -15,6 +15,21 @@ export interface ProfileCompletionItem {
   done: boolean;
 }
 
+/** 学生档案完成度（#322）：hero、资料卡与速览卡共用；三处页面都从这里取，避免各写一份 */
+export function profileCompletion(profile: {
+  tags: readonly string[];
+  avatar_url: string | null;
+  evaluation_url: string | null;
+  evaluation_texts?: readonly string[];
+}): ProfileCompletionItem[] {
+  return buildProfileCompletion({
+    tags: profile.tags,
+    avatarUrl: profile.avatar_url,
+    evaluationUrl: profile.evaluation_url,
+    evaluationTexts: profile.evaluation_texts,
+  });
+}
+
 export function buildProfileCompletion({
   tags,
   avatarUrl,

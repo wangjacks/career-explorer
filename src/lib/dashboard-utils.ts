@@ -143,8 +143,8 @@ export interface NavGroupLike<T> {
 
 /**
  * 主页快捷入口：从侧边栏的分组数据里去掉「当前页自身」与空分组。
- * 导航只维护一份（`page.tsx` 的 MENU_GROUPS），新增栏目时主页卡片自动跟着出现，
- * 不会出现「侧边栏加了、主页忘了加」的两处维护。
+ * 导航只维护一份（`src/lib/panel-nav.ts`，#361 起同时承载路由），新增栏目时主页卡片
+ * 自动跟着出现，不会出现「侧边栏加了、主页忘了加」的两处维护。
  */
 export function buildQuickNavGroups<T extends { key: string }>(
   groups: readonly NavGroupLike<T>[],

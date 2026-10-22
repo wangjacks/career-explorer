@@ -9,7 +9,7 @@ interface Props {
   teacherName: string;
   /** 与侧边栏**同一份**导航数据（分组 / 图标 / 徽标 / 一句话说明都来自这里，新增栏目只改 page.tsx 一处） */
   groups: PanelSidebarGroup[];
-  /** 点击快捷入口即切到对应栏目（仍为单页内状态切换，不做路由跳转） */
+  /** 点击快捷入口跳到对应 Tab 路由（#361；由页面按 key 解析成 `/dashboard/teacher/<tab>`） */
   onNavigate: (key: string) => void;
 }
 

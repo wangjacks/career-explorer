@@ -20,7 +20,7 @@
 
 ## 页面路由
 
-<!-- 对账：`find src/app -name page.tsx`（当前 10 个） -->
+<!-- 对账：`find src/app -name page.tsx`（当前 36 个；#361 起面板每个 Tab 一个路由页） -->
 
 | 路由 | 说明 |
 |---|---|
@@ -28,9 +28,11 @@
 | `/about` | 关于页（学生探索 / 教师管理 / 数据统计三段产品介绍） |
 | `/login` | 登录页（三角色统一）；`?demo=1` 为演示访客登录入口（提交到 `/api/auth/demo`，#350） |
 | `/activate` | 学生账户激活（学号 + 姓名 + 邀请码三要素核验；支持 `?invite=` 二维码预填，仅预填不绕过校验） |
-| `/dashboard/admin` | 管理面板（分组见「面板导航结构」） |
-| `/dashboard/teacher` | 教师面板（分组见「面板导航结构」） |
-| `/dashboard/student` | 学生面板（我的档案：未提交可就地填写与提交、已提交可就地修改 / 历史提交 #95，两个 Tab；档案内容上方常驻**测评结果区** #224 + #292——按量表清单循环渲染每套结果卡：霍兰德卡（三字码 + 六型雷达/排名/解读 + 推荐职业）与大五卡（画像标签 + 五维雷达/排名/高低分解读），两套都完成时附「人格与兴趣一起看」提示卡；与档案提交流程解耦；侧边栏另含「我的小组 #101」视图） |
+| `/dashboard/admin` | 管理面板·数据概览（默认 Tab）；其余 Tab 各有独立路由：`/screen`、`/export`、`/submissions`、`/students`、`/teachers`、`/classes`、`/grouping`、`/tags`、`/settings`、`/profile-config`、`/storage`、`/media`、`/audit-logs`、`/demo`（#361，分组见「面板导航结构」） |
+| `/dashboard/teacher` | 教师面板·主页（默认 Tab）；其余 Tab：`/overview`、`/screen`、`/export`、`/profiles`、`/students`、`/classes`、`/grouping`、`/tags`、`/profile-config`、`/audit-logs`（#361） |
+| `/dashboard/student` | 学生面板·我的档案（默认路由）；未提交可就地填写与提交、已提交可就地修改；档案内容上方常驻**测评结果区** #224 + #292——按量表清单循环渲染每套结果卡：霍兰德卡（三字码 + 六型雷达/排名/解读 + 推荐职业）与大五卡（画像标签 + 五维雷达/排名/高低分解读），两套都完成时附「人格与兴趣一起看」提示卡；与档案提交流程解耦 |
+| `/dashboard/student/history` | 历史提交（#95 / #361）：档案路由的独立子页，侧边栏仍高亮「我的档案」；未提交过的学生会被退回 `/dashboard/student` |
+| `/dashboard/student/group` | 我的小组（#101 / #361）：本组成员姓名、学号与标签；进入路由即重取名单 |
 | `/dashboard/student/assessment` | 职业测评中心（#222 骨架 + #225 内容卡 + #291 多量表）：Hero 题量徽章取主测评元信息 + 「我的测评」卡（最近活跃量表的三态 / 进度 / 结果摘要）+ 多行测验清单卡 + 霍兰德六型科普卡 + 大五人格科普卡（#291，随大五量表启用）+ 学职平台 / IPIP 外链卡 + 页底「授权与免责」卡（锚点 `#assessment-attribution`）；结果解读在「我的档案」测评区（#224 + #292） |
 | `/dashboard/student/assessment/quiz` | 职业兴趣测评答题页（#223）：按 `?code=` 取量表（#289，缺省 `riasec`），单题单屏 + 进度条 + Likert 1-5，自动存草稿、可续答，提交前二次确认；霍兰德每次答的是**分层抽出的 30 题**（#282），不是 120 题题库 |
 | `/setup` | 安装引导（首次配置数据库 + 管理员密码） |
@@ -39,7 +41,9 @@
 
 ## 面板导航结构
 
-<!-- 对账：读 src/app/dashboard/{admin,teacher}/page.tsx 的 MENU_GROUPS 与 src/app/dashboard/student/page.tsx 的 Tab 定义 -->
+<!-- 对账：管理 / 教师读 src/lib/panel-nav.ts（#361），学生读 src/lib/student-nav.ts；每项同时承载侧边栏分组与路由 -->
+
+> **每个 Tab 是独立路由（#361）**：管理 / 教师面板各有一个 `layout.tsx` 持有登录守卫、侧边栏、共享数据（学生数 / 安装状态 / 设置 / stats、profiles loader），Tab 页只渲染对应 `*Tab` 组件；学生面板用路由组 `(panel)` 承载「我的档案 / 历史提交 / 我的小组」，测评中心与答题页留在组外（答题页保持无侧边栏的专注布局）。根路径即默认 Tab，不额外重定向；`UserMenu` 按面板路径前缀显示；直接输入被 demo 隐藏或未安装时不可达的 Tab URL 会被重定向。
 
 **管理面板 `/dashboard/admin`** — 三组两级：
 
@@ -60,11 +64,11 @@
 | 数据管理 | 数据列表 / 学生管理 / 班级管理 / 课堂分组（#101） / 标签管理 |
 | 系统设置 | 功能设置 / 操作审计（仅本人记录） |
 
-> **主页只负责问候与分流（#228）**：主页 = 品牌 hero（时段问候 + 日期 + 一句引导）+ 按上面三个分组排成的快捷入口卡片网格，**不渲染任何统计数字与班级概览**（统计能力的唯一入口是「数据概览」）。卡片与侧边栏**共用 `page.tsx` 的同一份 `MENU_GROUPS`**（`description` 是卡片的一句话说明，侧边栏不渲染），新增栏目只改这一处；点击卡片即切 Tab，不做路由跳转。
+> **主页只负责问候与分流（#228）**：主页 = 品牌 hero（时段问候 + 日期 + 一句引导）+ 按上面三个分组排成的快捷入口卡片网格，**不渲染任何统计数字与班级概览**（统计能力的唯一入口是「数据概览」）。卡片与侧边栏**共用 `src/lib/panel-nav.ts` 的同一份导航配置**（`description` 是卡片的一句话说明，侧边栏不渲染），新增栏目只改这一处；点击卡片跳到对应 Tab 路由（#361）。
 
 > **数据概览只回答「有没有做」，图表归数据大屏（#230）**：概览 = 四张统计卡（总提交数 / 标签种类 / **测评完成** / 热门标签，栅格 `1 → 2 → 4` 列）+ 班级概览表（在原有四列后追加 **测评完成**、**交齐比例**，百分比全表取整）。测评数据来自 `/api/manage/stats/assessment`（#229），口径与「提交率」一致（分母=在册人数）；接口不可用/还没人测评时卡片显示 `0` + 「学生还没开始测评」、表格两列显示 `-`，**不出现报错态**。教师端在表下多一条「去数据大屏看兴趣类型分布」引导（`mode="teacher"` 才渲染，管理员端概览不受影响）；**分布类需求一律进数据大屏，概览不新增图表**——这条边界写在 `src/lib/assessment-overview.ts` 的文件头。
 
-**学生面板 `/dashboard/student`** — 侧边栏五项：我的档案、我的小组（#101）、职业测评（#222）、我的班级（即将上线）、成长记录（即将上线）。「我的档案」「我的小组」是页内视图切换（由 `StudentSidebar` 的 `activeView` / `onSelect` 控制，历史提交作为「我的档案」子视图仍高亮「我的档案」）；「职业测评」是独立路由，按路径前缀高亮（覆盖答题页）。条目定义与判定规则在 `src/lib/student-nav.ts`。
+**学生面板 `/dashboard/student`** — 侧边栏五项：我的档案、我的小组（#101）、职业测评（#222）、我的班级（即将上线）、成长记录（即将上线）。**每项都是独立路由**（#361）：「我的档案」`/dashboard/student`、「我的小组」`/group`、「职业测评」`/assessment`（按路径前缀高亮，覆盖答题页）；「历史提交」是档案路由的子页 `/history`，仍高亮「我的档案」。条目与高亮判定在 `src/lib/student-nav.ts` 的 `studentActiveKey`；档案页编辑态会注册导航守卫，侧边栏 / 历史提交跳转前提示先保存或取消。
 
 **学生测评中心 `/dashboard/student/assessment`（#222 骨架 + #225 内容卡 + #291 多量表）** — 承载入口、状态与说明，结果解读与职业推荐留给「我的档案」测评区（#224）。数据来自 `GET /api/shared/assessment/list`（#291）：只含启用量表，每套带本人的 `status / typeCode / completedAt / historyCount / inProgress` 与定义元信息（题量 / 题库 / 计分模式 / 维度 / 署名授权）。三态判定仍复用 `src/lib/assessment-center.ts`（**进行中 > 已完成 > 未开始**，重测中的草稿优先）；多量表的选择与逐行归一在 `src/lib/assessment-list.ts`：`deriveLatestActive` 决定「我的测评」卡展示哪一套（**有草稿者优先、按 `updatedAt` 最新 → 最近完成 → 主测评 `riasec` 兜底**），`buildAssessmentList` 生成清单行。停用量表不出现在列表里（答不了新卷），历史结果仍可在「我的档案」查看。
 
@@ -436,7 +440,7 @@
 
 <!-- 对账：视图模型纯函数在 `src/lib/assessment-view.ts`（测试 `assessment-view.test.ts`，含渲染范围判定 `shouldRenderAssessmentResults`）与 `src/lib/profile-summary.ts`（速览四卡，测试 `profile-summary.test.ts`）；数据拉取在 `src/lib/assessment-results-loader.ts`（测试 `assessment-results-loader.test.ts`）+ `src/hooks/useAssessmentResults.ts`；组件在 `src/components/assessment/`（#332 起与学生页 / 教师弹窗共享）与 `src/components/student/`；数据来自 `/api/shared/assessment/list`（#291，量表清单）+ `/api/shared/assessment/results`（#223，逐套结果）与 `/careers`（#226） -->
 
-- **位置与渲染范围（#323 + #344）**：学生面板「我的档案」内容区（hero 之下、Tab/资料区之上）渲染**速览四卡 + 测评结果区**；#322 起每套量表默认折叠为详情卡，Tab（我的档案 / 历史提交）紧随其后、在 1 屏内可达。**只在「我的档案」视图、非编辑态渲染**（判定为纯函数 `shouldRenderAssessmentResults(activeView, editing)`）——「我的小组」「历史提交」与编辑态不挂载速览、结果区与页尾授权卡，也不残留合规卡；编辑态统一隐藏，填写档案时结果卡只干扰输入，与「先保存 / 取消，再回来看结果」的交互一致，保存或切回档案视图即恢复（视图联合类型 `StudentViewKey` 的权威定义在 `student-nav.ts`，组件只 re-export）
+- **位置与渲染范围（#323 + #344 + #361）**：学生面板「我的档案」路由页内容区（hero 之下、Tab/资料区之上）渲染**速览四卡 + 测评结果区**；#322 起每套量表默认折叠为详情卡，Tab（我的档案 / 历史提交）紧随其后、在 1 屏内可达。**只在「我的档案」路由、非编辑态渲染**（判定为纯函数 `shouldRenderAssessmentResults("profile", editing)`）——「我的小组」（`/group`）、「历史提交」（`/history`）是独立路由，与编辑态一样不挂载速览、结果区与页尾授权卡，也不残留合规卡；编辑态统一隐藏，填写档案时结果卡只干扰输入，与「先保存 / 取消，再回来看结果」的交互一致，保存或回到档案路由即恢复（视图联合类型 `StudentViewKey` 的权威定义仍在 `student-nav.ts`，路由页只把 `"profile"` 传给判定函数）
 - **速览四卡（#323）**：hero 与折叠详情之间新增结论区（桌面 2×2、移动单列），四卡结构统一：图标 + 标题 + 右上「查看详情」+ 结论主体（每卡最多 2 行 / 3 个数字）。兴趣卡 = 三字码 + 主导三型中文 + Top3 分数条；人格卡 = 「高X · 高Y」headline + Top2 分数条；推荐职业卡 = Top3（中文名优先、职业群·学历副行、无译名时英文名不重复展示）；资料卡 = ≤6 个标签胶囊 + 标签/头像/**他人评价**三项完成度 + 按状态给 CTA。完成度与 hero 进度环、资料卡共用 `profile-completion.ts` 的 `buildProfileCompletion`（#162：三条文字评价填满或存量图片任一存在即算完成），避免同页出现两套口径；视图模型在 `profile-summary.ts`（纯函数）：**分数与排序一律复用 `assessment-view.ts` 的 builders**，摘要与详情不可能出现两套口径；三态各自独立（`ready` / `empty` 去测评或继续作答 / `degraded` 给指针不报错）
 - **摘要 ↔ 详情联动（#323）**：点卡片「查看详情」→ 页面把对应折叠卡置为**受控展开**（`CollapsibleCard` 支持 `open` / `onOpenChange`，展开态是 code 集合——两套结果可以同时展开，不退化成手风琴）+ `scrollIntoView({ block: "start" })` + 1800ms 高亮（`scroll-mt-24` 抵消顶栏）；按钮带 `aria-controls` 指向目标卡 id，键盘与读屏同样可触发，「去测评」渲染成原生链接。折叠卡 id 规则 = `assessment-card-<code>`（页面用 `assessmentCodeFromDetailId` 反解 code，不重拼前缀）、资料卡 = `profile-info`、结果区 = `assessment-results`（清单失败时摘要卡统一指向它重试）。编辑态整块隐藏，速览与详情都不会出现在表单里
 - **数据只拉一次（#323）**：拉取序列收编到 `assessment-results-loader.ts` 并由页面 `useAssessmentResults()` 在进入面板时挂一次：`list` 1 次 → 每套启用量表 `results?code=` 1 次（并行）→ 霍兰德有当前结果时 `careers` ≤1 次；**摘要卡与折叠详情消费同一份数据**，不再各自 fetch。#344 只收窄渲染范围（小组 / 历史视图与编辑态不挂载），页面级 hook 不随视图切换重新取数，切视图不会新增 `assessment/list` / `results` 请求。单套失败只进 `failedCodes`（那一张卡与对应速览卡都显示「暂时读不到 + 重试」，**不说成没测过**）、清单失败 `listFailed`（整体降级）、推荐失败 `careersFailed`（静默为空），loader 有计数桩单测锁住「进入页面只发一轮请求」
