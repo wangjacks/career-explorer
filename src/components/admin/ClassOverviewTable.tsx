@@ -18,7 +18,7 @@ interface Props {
 
 /**
  * 班级概览统计表：各班/未分班/合计的学生总数、已提交、未提交、提交率，
- * 以及 #230 追加的「测评完成」（人数）与「交齐比例」（%）两列。
+ * 以及 #230 追加的「兴趣测评」（人数）与「交齐比例」（%）两列。
  *
  * 口径：提交率与交齐比例的分母都是**在册人数**（未提交/未测评计入未提交/未测评），
  * 百分比统一取整显示（教师不需要两位小数），空班与非数字一律显示 `-`、不出现 NaN。
@@ -105,7 +105,7 @@ export default function ClassOverviewTable({ students, assessment = null }: Prop
               <th className="px-5 py-3 font-medium">已提交</th>
               <th className="px-5 py-3 font-medium">未提交</th>
               <th className="px-5 py-3 font-medium">提交率</th>
-              <th className="px-5 py-3 font-medium">测评完成</th>
+              <th className="px-5 py-3 font-medium">兴趣测评</th>
               <th className="px-5 py-3 font-medium">交齐比例</th>
             </tr>
           </thead>

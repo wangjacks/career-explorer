@@ -1,5 +1,5 @@
 import { formatRateText, type ClassTrendSeries, type CompareStat } from "@/lib/stats-utils";
-import { isUnassignedClassKey, type ClassGroup } from "@/lib/class-identity";
+import { type ClassGroup } from "@/lib/class-identity";
 
 export type { ClassTrendSeries };
 
@@ -14,22 +14,6 @@ export interface DistributionItem {
 }
 
 export type CompareItem = CompareStat;
-
-/** 班级提交列表行（#217）：在 compare 上补提交率与未提交数 */
-export interface ClassSubmissionRow extends CompareItem {
-  unsubmitted: number;
-  rate: number;
-  rateText: string;
-}
-
-/** 班级名册学生（#217）：服务端返回的只读明细 */
-export interface RosterStudent {
-  name: string;
-  userCode: string;
-  submitted: boolean;
-  submittedAt: string | null;
-  tagCount: number;
-}
 
 /** 点名册条超过此人数退化为按比例轨，避免上千个 DOM 节点 */
 export const ROSTER_MARK_CAP = 200;
@@ -46,52 +30,12 @@ export function computeDashboardTotals(compare: CompareItem[]) {
   };
 }
 
-/**
- * 班级提交列表（#217）：按提交率升序——交得最少的班排最前；
- * 未分班（哨兵键）固定置末；同率按班名稳定排序。
- */
-export function buildClassSubmissionRows(compare: CompareItem[]): ClassSubmissionRow[] {
-  const rateOf = (item: CompareItem) => (item.total > 0 ? item.submitted / item.total : 0);
-  return [...compare]
-    .sort((a, b) => {
-      const aUnassigned = isUnassignedClassKey(a.key);
-      const bUnassigned = isUnassignedClassKey(b.key);
-      if (aUnassigned !== bUnassigned) return aUnassigned ? 1 : -1;
-      const diff = rateOf(a) - rateOf(b);
-      return diff !== 0 ? diff : a.key.localeCompare(b.key, "zh-CN");
-    })
-    .map((item) => ({
-      ...item,
-      unsubmitted: Math.max(0, item.total - item.submitted),
-      rate: rateOf(item),
-      rateText: formatRateText(item.submitted, item.total, 1),
-    }));
-}
-
 /** 学号脱敏：12 位保留首 4 末 4；其它长度也至少遮住中间，避免原样泄露 */
 export function maskStudentCode(code: string): string {
   const value = String(code ?? "");
   if (value.length <= 4) return "****";
   if (value.length <= 8) return `${value.slice(0, 1)}****${value.slice(-1)}`;
   return `${value.slice(0, 4)}****${value.slice(-4)}`;
-}
-
-/** 名册筛选：状态 + 姓名/完整学号关键字（展示层再脱敏） */
-export function filterRosterStudents(
-  students: RosterStudent[],
-  filter: "all" | "submitted" | "pending",
-  query: string
-): RosterStudent[] {
-  const q = query.trim().toLowerCase();
-  return students.filter((student) => {
-    if (filter === "submitted" && !student.submitted) return false;
-    if (filter === "pending" && student.submitted) return false;
-    if (!q) return true;
-    return (
-      student.name.toLowerCase().includes(q) ||
-      student.userCode.toLowerCase().includes(q)
-    );
-  });
 }
 
 /** 点名册条：每人一格，每 10 格断一栏（花名册分栏）；超上限退化为比例轨（见 ROSTER_MARK_CAP） */

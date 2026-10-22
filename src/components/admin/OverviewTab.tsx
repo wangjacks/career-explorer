@@ -29,7 +29,8 @@ interface Props {
 /**
  * 数据概览（教师/管理员共用）：四张统计卡 + 班级概览表 +（管理员）数据列表。
  *
- * #230 起多一张「测评完成」卡，并把完成度口径延伸到班级概览的两列；**图表一律留在数据大屏**
+ * #230 起多一张「兴趣测评」卡（#316 由「测评完成」改名，与数据大屏的量表口语名对齐），
+ * 并把完成度口径延伸到班级概览的两列；**图表一律留在数据大屏**
  * （教师端在表下给一条引导），避免概览与大屏互相重复。
  * 测评统计接口不可用（未启用/无数据/请求失败）时卡片显示 0 与友好空态、表格两列显示 `-`，不报错。
  */
@@ -57,7 +58,7 @@ export default function OverviewTab({
     }
   }, [loadStats]);
 
-  // 测评完成度（#230）：失败/未启用都按「没有测评数据」处理，概览页不出现红色失败态
+  // 兴趣测评完成度（#230）：失败/未启用都按「没有测评数据」处理，概览页不出现红色失败态
   const loadAssessment = useCallback(async () => {
     setAssessmentLoading(true);
     try {
@@ -115,7 +116,7 @@ export default function OverviewTab({
             }
           />
           <StatCard
-            label="测评完成"
+            label="兴趣测评"
             value={assessmentCard.value}
             color="purple"
             sub={assessmentLoading ? "加载中..." : assessmentCard.sub}
@@ -145,7 +146,7 @@ export default function OverviewTab({
         </div>
       )}
 
-      {/* 班级概览统计（#230 追加「测评完成 / 交齐比例」两列） */}
+      {/* 班级概览统计（#230 追加「兴趣测评 / 交齐比例」两列） */}
       <ClassOverviewTable students={students} assessment={assessment} />
 
       {/* 分布类需求指向数据大屏（#230，仅教师端）：概览只回答「有没有做」 */}
