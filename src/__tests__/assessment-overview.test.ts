@@ -128,7 +128,7 @@ describe("班级/合计单元格", () => {
   });
 
   it("空班（在册 0 人）的比例列显示 `-`，与同一行的提交率口径一致", () => {
-    // 空班的「测评完成」仍显示 0（与「已提交」列一致），但比例不能写成 0%
+    // 空班的「兴趣测评」仍显示 0（与「已提交」列一致），但比例不能写成 0%
     expect(classAssessmentCells(STATS, 11)).toEqual({
       assessed: CELL_PLACEHOLDER,
       rate: CELL_PLACEHOLDER,

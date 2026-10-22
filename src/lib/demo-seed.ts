@@ -27,10 +27,20 @@ import {
   RIASEC_CODE,
   RIASEC_DIMENSIONS,
   RIASEC_QUESTIONS,
+  IPIP_ASSESSMENT,
+  IPIP_NEO_FFI_CODE,
+  IPIP_DIMENSIONS,
+  IPIP_QUESTIONS,
   SAMPLING_EXCLUDED_ORIGINS,
   SAMPLING_RETIRED_INDEXES,
 } from "./assessment-data";
-import { scoreAssessment, type QuestionConfig } from "./assessment-scoring";
+import {
+  LIKERT_MAX,
+  LIKERT_MIN,
+  REVERSE_FACTOR,
+  scoreAssessment,
+  type QuestionConfig,
+} from "./assessment-scoring";
 import { buildItemsSnapshot, drawItems, poolFingerprint } from "./assessment-sampling";
 import { generateObjectKey, getStorage, type StorageAdapter } from "./storage";
 import { createThumbnail } from "./thumbnail";
@@ -107,6 +117,8 @@ export interface DemoSeedStudent {
   /** 三条他人评价（#162）；未提交为 null */
   evaluationTexts: string[] | null;
   assessment: DemoSeedAssessment | null;
+  /** 大五人格测评（#316）：与 assessment 同门槛、同形态，物化时落第二套量表的结果 */
+  bigFiveAssessment: DemoSeedAssessment | null;
   /** submitted_at 往前回拨的天数（未提交为 0） */
   submittedOffsetDays: number;
 }
@@ -219,6 +231,45 @@ function buildAssessment(rng: Rng, kind: "completed" | "draft"): DemoSeedAssessm
   };
 }
 
+/**
+ * 大五全量作答（itemsPerAttempt = 0），种子阶段所有题 `version = 1`；指纹须与适配器播种后 `loadAttemptContext` 算出的同值。
+ * 退役台账**不传**：`loadAttemptContext` 只给 RIASEC 传全局台账（题号在量表间会重复），大五走默认空集。
+ */
+const DEMO_IPIP_FINGERPRINT = poolFingerprint(
+  IPIP_QUESTIONS.map((question) => ({ index: question.index, version: 1 })),
+  IPIP_ASSESSMENT.scaleVersion,
+  SAMPLING_EXCLUDED_ORIGINS
+);
+
+/**
+ * 生成一份合法大五（dimensional）作答（#316）：每维先定特质水平 1–5，正向题答「水平±1」、
+ * 反向题答「6−（水平±1）」，计分引擎取反后各维原始分 ≈ 10×水平、标准分落在 25(L−1) 附近，
+ * 高/中/低三档随种子自然分布。completed 全答满并走真实计分引擎（含 band、无三字码）；
+ * draft 只答本轮前缀（与 RIASEC 同口径，可被续答）。
+ */
+function buildBigFiveAssessment(rng: Rng, kind: "completed" | "draft"): DemoSeedAssessment {
+  const roundIndexes = IPIP_QUESTIONS.map((question) => question.index);
+  const answeredCount =
+    kind === "completed" ? roundIndexes.length : randInt(rng, 3, Math.max(3, roundIndexes.length - 1));
+  const levelByDimension = new Map(IPIP_DIMENSIONS.map((d) => [d.key, randInt(rng, 1, 5)]));
+  const answers: Record<number, number> = {};
+  for (const question of IPIP_QUESTIONS.slice(0, answeredCount)) {
+    const level = levelByDimension.get(question.dimension)!;
+    const jittered = Math.min(LIKERT_MAX, Math.max(LIKERT_MIN, level + randInt(rng, -1, 1)));
+    answers[question.index] = question.reverseScored ? REVERSE_FACTOR - jittered : jittered;
+  }
+  const itemsJson = buildItemsSnapshot(roundIndexes, DEMO_IPIP_FINGERPRINT);
+  if (kind === "draft") return { kind, answers, itemsJson };
+
+  const result = scoreAssessment(IPIP_DIMENSIONS, IPIP_QUESTIONS, answers, { mode: "dimensional" });
+  return {
+    kind: "completed",
+    answers,
+    itemsJson,
+    scoresJson: JSON.stringify(result.scores),
+  };
+}
+
 /** 把名册学生拍平成分组算法可用的 UserRow（只 id/user_code/tags 有意义；tags 为 JSON 名称数组或 null） */
 function toGroupingRows(students: DemoSeedStudent[]): UserRow[] {
   return students.map((s) => ({
@@ -251,6 +302,8 @@ export function planDemoSeed(seed: number, opts: DemoSeedOptions): DemoSeedPlan 
   const tagPool = opts.tagNames.filter(Boolean);
 
   const rng = mulberry32(seed);
+  // 大五走派生流（#316）：主 rng 的消耗序列分毫不动，既有种子的 RIASEC 输出保持逐字节一致
+  const bigFiveRng = mulberry32((seed ^ 0x9e3779b9) >>> 0);
   const roster = buildDemoRoster(studentCount, rng);
   const teacher = buildDemoTeacher(1, rng);
 
@@ -269,7 +322,7 @@ export function planDemoSeed(seed: number, opts: DemoSeedOptions): DemoSeedPlan 
     const tempId = i + 1;
     const submit = submitterCodes.has(r.user_code);
     if (!submit) {
-      return { tempId, user_code: r.user_code, name: r.name, tags: null, submit: false, avatar: false, evaluationTexts: null, assessment: null, submittedOffsetDays: 0 };
+      return { tempId, user_code: r.user_code, name: r.name, tags: null, submit: false, avatar: false, evaluationTexts: null, assessment: null, bigFiveAssessment: null, submittedOffsetDays: 0 };
     }
 
     // 亲和集 + 抖动（换 1 个标签）→ 组内相似、跨组有别
@@ -282,15 +335,24 @@ export function planDemoSeed(seed: number, opts: DemoSeedOptions): DemoSeedPlan 
       if (!tags.includes(extra)) tags.push(extra);
     }
 
+    const avatar = rng() < 0.8;
+    const evaluationTexts = buildDemoEvaluationTexts(rng);
+    const assessment = rng() < assessmentRate
+      ? buildAssessment(rng, rng() < draftShare ? "draft" : "completed")
+      : null;
+    // 大五与 RIASEC 同门槛同形态（#316）：kind 复用同一个决定，作答走派生 rng，不扰动主 rng 的消耗序列
+    const bigFiveAssessment = assessment ? buildBigFiveAssessment(bigFiveRng, assessment.kind) : null;
+
     return {
       tempId,
       user_code: r.user_code,
       name: r.name,
       tags,
       submit: true,
-      avatar: rng() < 0.8,
-      evaluationTexts: buildDemoEvaluationTexts(rng),
-      assessment: rng() < assessmentRate ? buildAssessment(rng, rng() < draftShare ? "draft" : "completed") : null,
+      avatar,
+      evaluationTexts,
+      assessment,
+      bigFiveAssessment,
       submittedOffsetDays: randInt(rng, 0, recentDays),
     };
   });
@@ -368,6 +430,9 @@ export interface DemoSeedReport {
   submitted: number;
   assessed: number;
   drafts: number;
+  /** 大五完成/草稿数（#316）：与 assessed/drafts 分开计数，避免演示库状态汇总把两套量表混进「已提交」口径 */
+  bigFiveAssessed: number;
+  bigFiveDrafts: number;
   groups: number;
   images: number;
 }
@@ -404,11 +469,14 @@ export async function materializeDemoSeed(
   const storage = await deps.getStorage(backend.id);
 
   const assessment = await deps.getAssessmentByCode(RIASEC_CODE);
+  const ipipAssessment = await deps.getAssessmentByCode(IPIP_NEO_FFI_CODE);
 
   const idByTemp = new Map<number, number>();
   let submitted = 0;
   let assessed = 0;
   let drafts = 0;
+  let bigFiveAssessed = 0;
+  let bigFiveDrafts = 0;
   let images = 0;
 
   for (const s of plan.students) {
@@ -464,6 +532,25 @@ export async function materializeDemoSeed(
         assessed++;
       }
     }
+
+    // 大五与 RIASEC 同门槛同形态（#316）：同一学生要么两套都有（同为完成或同为草稿）、要么都没有
+    if (s.bigFiveAssessment && ipipAssessment) {
+      const answersJson = JSON.stringify(s.bigFiveAssessment.answers);
+      if (s.bigFiveAssessment.kind === "draft") {
+        await deps.upsertAssessmentDraft(realId, ipipAssessment.id, answersJson, s.bigFiveAssessment.itemsJson);
+        bigFiveDrafts++;
+      } else {
+        await deps.completeAssessmentResult({
+          userId: realId,
+          assessmentId: ipipAssessment.id,
+          answersJson,
+          itemsJson: s.bigFiveAssessment.itemsJson,
+          scoresJson: s.bigFiveAssessment.scoresJson ?? null,
+          typeCode: s.bigFiveAssessment.typeCode ?? null,
+        });
+        bigFiveAssessed++;
+      }
+    }
   }
 
   const groups: ClassGroupingInput[] = plan.grouping.groups.map((g) => ({
@@ -499,6 +586,8 @@ export async function materializeDemoSeed(
     submitted,
     assessed,
     drafts,
+    bigFiveAssessed,
+    bigFiveDrafts,
     groups: plan.grouping.groups.length,
     images,
   };

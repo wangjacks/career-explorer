@@ -3,7 +3,15 @@ import path from "path";
 import { existsSync, rmSync } from "fs";
 import { resetDemo, initDemoDb, readDemoStatus } from "@/lib/demo-lifecycle";
 import { runInDemoScope, getDemoDbPath } from "@/lib/demo-scope";
-import { getClasses, getStudents, closeDemoDb, closeDb } from "@/lib/db";
+import {
+  getClasses,
+  getStudents,
+  getAssessmentByCode,
+  getAssessmentResults,
+  closeDemoDb,
+  closeDb,
+} from "@/lib/db";
+import { IPIP_NEO_FFI_CODE } from "@/lib/assessment-data";
 
 const DEMO_FILE = "./data/career-demo-lifecycle-test.db";
 const UPLOADS_ROOT = "./data/uploads-lifecycle-test";
@@ -62,11 +70,27 @@ describe("演示库生命周期：init / reset / status（#253，真临时演示
     expect(report.assessed).toBeGreaterThan(0);
     expect(report.drafts).toBeGreaterThanOrEqual(0);
     expect(report.assessed + report.drafts).toBeLessThanOrEqual(report.submitted);
+    // 大五（#316）：与 RIASEC 同门槛同形态，计数分开上报
+    expect(report.bigFiveAssessed).toBe(report.assessed);
+    expect(report.bigFiveDrafts).toBe(report.drafts);
 
     // 数据确实落库（演示作用域内查询）
     const students = await runInDemoScope(() => getStudents());
     expect(students).toHaveLength(20);
     expect(students.every((s) => /^9\d{11}$/.test(s.user_code))).toBe(true);
+
+    // 大五完成结果逐学生核对：演示库里有第二套量表的结果行（#316）
+    const bigFiveResultCount = await runInDemoScope(async () => {
+      const ipip = await getAssessmentByCode(IPIP_NEO_FFI_CODE);
+      expect(ipip).toBeDefined();
+      let current = 0;
+      for (const student of students) {
+        const results = await getAssessmentResults(student.id, ipip!.id);
+        if (results.length > 0) current++;
+      }
+      return current;
+    });
+    expect(bigFiveResultCount).toBe(report.bigFiveAssessed);
 
     const status = await readDemoStatus();
     expect(status.enabled).toBe(true);
