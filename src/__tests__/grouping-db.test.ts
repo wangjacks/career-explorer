@@ -433,17 +433,23 @@ describe("分组五表与适配器方法（#101）", () => {
     );
 
     const dump = adapter.backup();
-    expect(dump.version).toBe(8); // #345 起含分组长字段
+    // #346：v9 增加小组工作区四表
+    expect(dump.version).toBe(9);
     expect(dump.class_groups?.length).toBe(1);
     expect(dump.class_group_members?.length).toBe(2);
     expect(dump.group_batches?.length).toBe(1);
     expect(dump.group_batch_groups?.length).toBe(1);
     expect(dump.group_batch_members?.length).toBe(2);
+    // 追加历史批次时同事务建了工作区
+    expect(dump.group_workspaces?.length).toBe(1);
+    expect(dump.group_workspaces?.[0].group_no).toBe(1);
 
     adapter.restore(dump);
     expect(adapter.getClassGroups(classId).length).toBe(1);
     expect(adapter.getClassGroupMembers(classId).length).toBe(2);
     expect(adapter.getGroupBatchDetail(adapter.getGroupBatches(classId)[0].id).groups[0].cohesion).toBe(0.3);
+    // 恢复后工作区与批次/组重新对上（学生视角能定位到当前工作区）
+    expect(adapter.getStudentWorkspaceContext(ids[0])?.workspace.group_no).toBe(1);
 
     // 旧备份没有分组字段：users / classes 是整表替换的，留着旧分组行就是留下指向已不存在学生的归属
     const legacy = { ...dump } as BackupData;
@@ -452,10 +458,15 @@ describe("分组五表与适配器方法（#101）", () => {
     delete legacy.group_batches;
     delete legacy.group_batch_groups;
     delete legacy.group_batch_members;
+    delete legacy.group_workspaces;
+    delete legacy.group_posts;
+    delete legacy.group_tasks;
+    delete legacy.group_workspace_reads;
     adapter.restore(legacy);
     expect(adapter.getClassGroups(classId)).toEqual([]);
     expect(adapter.getClassGroupMembers(classId)).toEqual([]);
     expect(adapter.getGroupBatches(classId)).toEqual([]);
+    expect(adapter.listStudentWorkspaces(ids[0])).toEqual([]);
     adapter.close();
   });
 
@@ -474,6 +485,10 @@ describe("分组五表与适配器方法（#101）", () => {
     delete legacy.group_batches;
     delete legacy.group_batch_groups;
     delete legacy.group_batch_members;
+    delete legacy.group_workspaces;
+    delete legacy.group_posts;
+    delete legacy.group_tasks;
+    delete legacy.group_workspace_reads;
 
     adapter.restore(legacy);
     const members = adapter.getClassGroupMembers(classId);
@@ -623,7 +638,7 @@ describe("分组长持久化与备份（#345）", () => {
     adapter.close();
   });
 
-  it("备份往返保留组长：dump.version=8，恢复后当前分组与历史批次组长都在", () => {
+  it("备份往返保留组长：dump.version=9，恢复后当前分组与历史批次组长都在", () => {
     const adapter = makeAdapter();
     const { classId, ids, codes } = seedClass(adapter, "A", 2);
     const batch = batchInput(classId, [
@@ -640,7 +655,7 @@ describe("分组长持久化与备份（#345）", () => {
       batch
     );
     const dump = adapter.backup();
-    expect(dump.version).toBe(8);
+    expect(dump.version).toBe(9);
     expect(dump.class_groups?.map((group) => group.leader_user_id)).toEqual([null, ids[1]]);
     expect(dump.group_batch_groups?.map((group) => group.leader_user_id)).toEqual([null, ids[1]]);
 

@@ -314,6 +314,125 @@ export interface NewGroupBatchInput {
   }[];
 }
 
+/* ---------- 小组工作区（#346：按分组批次隔离的协作空间） ---------- */
+
+/**
+ * group_workspaces 行：一次分组里**一个组**的协作工作区。
+ * 锚定 `group_batch_groups.id`（不是批次头）：同一批次的多个组各有各的公告与任务，
+ * 共用一个工作区等于让全班互相看到内容，违背「学生只能读写本组」。
+ * 批次重分组会追加新批次 → 新工作区；旧批次工作区只读回看。
+ */
+export interface GroupWorkspaceRow {
+  id: number;
+  class_id: number;
+  batch_id: number;
+  /** 批次内的组（UNIQUE）：一个组一个工作区 */
+  batch_group_id: number;
+  group_no: number;
+  title: string;
+  created_at: string;
+}
+
+/** group_posts 行：组内公告（软删除；作者姓名/角色为快照，账号删除后仍可读） */
+export interface GroupPostRow {
+  id: number;
+  workspace_id: number;
+  author_id: number | null;
+  author_name: string | null;
+  author_role: string | null;
+  title: string;
+  content: string;
+  /** 0/1：置顶公告排在列表最前 */
+  pinned: number;
+  created_at: string;
+  /** 软删：非 NULL 表示已删除，列表与未读计数都不再包含 */
+  deleted_at: string | null;
+}
+
+/** group_tasks 行：组内任务（认领人姓名做快照，避免读时再 join 失败） */
+export interface GroupTaskRow {
+  id: number;
+  workspace_id: number;
+  title: string;
+  description: string | null;
+  assignee_id: number | null;
+  /** 认领时的姓名快照；未认领为 NULL */
+  assignee_name: string | null;
+  /** open=待认领（assignee 为空）/ in_progress=进行中 / done=已完成 */
+  status: "open" | "in_progress" | "done";
+  due_at: string | null;
+  created_by_id: number | null;
+  created_by_name: string | null;
+  created_by_role: string | null;
+  created_at: string;
+  completed_at: string | null;
+  deleted_at: string | null;
+}
+
+/** group_workspace_reads 行：学生在一个工作区的已读水位（未读红点按此计算） */
+export interface GroupWorkspaceReadRow {
+  id: number;
+  workspace_id: number;
+  user_id: number;
+  last_read_at: string;
+  /**
+   * 已读公告 id 水位（#346）：未读 = id 大于它的公告数。
+   * 用 id 而不是时间戳，避免「标记已读后同一秒又发公告」被误判为已读。
+   */
+  last_read_post_id: number;
+}
+
+/** 学生/教师定位到的「组 + 批次 + 工作区」三件套 */
+export interface GroupWorkspaceContext {
+  workspace: GroupWorkspaceRow;
+  batch: GroupBatchRow;
+  batchGroup: GroupBatchGroupRow;
+}
+
+/** 学生可回看的工作区（当前批次与历史批次） */
+export interface StudentWorkspaceSummary {
+  workspaceId: number;
+  batchId: number;
+  batchCreatedAt: string;
+  groupNo: number;
+  title: string;
+}
+
+export interface NewGroupPostInput {
+  workspaceId: number;
+  authorId: number | null;
+  authorName: string | null;
+  authorRole: string | null;
+  title: string;
+  content: string;
+  pinned?: boolean;
+}
+
+export interface NewGroupTaskInput {
+  workspaceId: number;
+  title: string;
+  description: string | null;
+  assigneeId: number | null;
+  assigneeName: string | null;
+  dueAt: string | null;
+  createdById: number | null;
+  createdByName: string | null;
+  createdByRole: string | null;
+}
+
+/** 公告的可更新字段（置顶 / 软删），未提供的字段保持原值 */
+export interface GroupPostUpdateFields {
+  pinned?: number;
+  deleted_at?: string | null;
+}
+
+/** 任务的可更新字段（完成 / 软删） */
+export interface GroupTaskUpdateFields {
+  status?: "open" | "in_progress" | "done";
+  completed_at?: string | null;
+  deleted_at?: string | null;
+}
+
 /* ---------- 职业测评（#221：测评定义 / 题库 / 作答结果三表） ---------- */
 
 /** assessments 行：测评定义。题库进库而非写死代码，便于扩充第二套量表与后台维护中文题面 */
@@ -561,6 +680,14 @@ export interface BackupData {
   group_batch_groups?: GroupBatchGroupRow[];
   /** 历史批次的成员快照（#101；旧备份可能缺失，恢复时缺字段一律清空） */
   group_batch_members?: GroupBatchMemberRow[];
+  /** 小组工作区（#346；按 user_id / class_id 引用，旧备份缺失时恢复为一无所有） */
+  group_workspaces?: GroupWorkspaceRow[];
+  /** 组内公告（#346；软删除行一并备份，恢复后审计链完整） */
+  group_posts?: GroupPostRow[];
+  /** 组内任务（#346） */
+  group_tasks?: GroupTaskRow[];
+  /** 工作区已读水位（#346；引用 user_id，旧备份缺失时清空即可） */
+  group_workspace_reads?: GroupWorkspaceReadRow[];
   /** 测评定义（#221；旧备份可能缺失，恢复时保留当前题库不动） */
   assessments?: AssessmentRow[];
   /** 题库（#221；旧备份可能缺失） */
@@ -872,6 +999,60 @@ export interface DbAdapter {
    * 单条查询比对 group_id，避免两次读之间落入原子重分组而读到跨批次的组号。
    */
   areStudentsInSameCurrentGroup(userIdA: number, userIdB: number): Promise<boolean> | boolean;
+
+  // group workspace（#346：按批次隔离的组内公告 / 任务 / 已读水位）
+  /**
+   * 学生当前工作区上下文：取本班**最近一批**分组里与本人当前组号对应的组及其工作区。
+   * 没有分组 / 没有批次 / 该组未建工作区时返回 undefined（界面按「未开启工作区」降级）。
+   */
+  getStudentWorkspaceContext(
+    userId: number
+  ): Promise<GroupWorkspaceContext | undefined> | GroupWorkspaceContext | undefined;
+  /** 教师侧：某班某组的最近一批工作区（用于教师读/发公告；写权限由路由校验班级归属） */
+  getClassGroupWorkspace(
+    classId: number,
+    groupNo: number
+  ): Promise<GroupWorkspaceContext | undefined> | GroupWorkspaceContext | undefined;
+  /** 学生回看用：本人在历史批次里出现过的工作区（新→旧） */
+  listStudentWorkspaces(
+    userId: number
+  ): Promise<StudentWorkspaceSummary[]> | StudentWorkspaceSummary[];
+  /** 按 id 取工作区（历史回看时先做归属校验，再读内容） */
+  getGroupWorkspaceById(workspaceId: number): Promise<GroupWorkspaceRow | undefined> | GroupWorkspaceRow | undefined;
+  /** 一个批次里已建的全部工作区（应用分组后回传给教师端；按组号升序） */
+  getBatchWorkspaces(batchId: number): Promise<GroupWorkspaceRow[]> | GroupWorkspaceRow[];
+  /** 公告列表（不含软删；置顶在前，同组按时间倒序） */
+  listGroupPosts(workspaceId: number): Promise<GroupPostRow[]> | GroupPostRow[];
+  getGroupPost(postId: number, workspaceId: number): Promise<GroupPostRow | undefined> | GroupPostRow | undefined;
+  /** 新增公告，返回 id */
+  insertGroupPost(input: NewGroupPostInput): Promise<number> | number;
+  /** 置顶 / 软删除（未提供的字段保持原值） */
+  updateGroupPost(postId: number, workspaceId: number, fields: GroupPostUpdateFields): Promise<void> | void;
+  /** 某作者在 `since` 之后发布的公告数（频率限制用，服务端按库计数，不信任前端） */
+  countRecentGroupPosts(workspaceId: number, authorId: number, since: string): Promise<number> | number;
+  /** 任务列表（不含软删；待认领 → 进行中 → 已完成，同状态按时间倒序） */
+  listGroupTasks(workspaceId: number): Promise<GroupTaskRow[]> | GroupTaskRow[];
+  getGroupTask(taskId: number, workspaceId: number): Promise<GroupTaskRow | undefined> | GroupTaskRow | undefined;
+  /** 新建任务，返回 id */
+  insertGroupTask(input: NewGroupTaskInput): Promise<number> | number;
+  /**
+   * 原子认领：仅当任务仍为 `open` 且无认领人时成功（并发以先到为准），
+   * 返回是否抢到。调用方必须把 false 映射成 409，而不是覆盖别人的认领。
+   */
+  claimGroupTask(
+    taskId: number,
+    workspaceId: number,
+    userId: number,
+    userName: string | null
+  ): Promise<boolean> | boolean;
+  /** 完成任务 / 软删除（权限由路由校验） */
+  updateGroupTask(taskId: number, workspaceId: number, fields: GroupTaskUpdateFields): Promise<void> | void;
+  /** 某作者在 `since` 之后创建的任务数（频率限制用） */
+  countRecentGroupTasks(workspaceId: number, authorId: number, since: string): Promise<number> | number;
+  /** 未读公告数：已读水位之后的公告；没有水位时按「全部未读」计 */
+  getGroupUnreadCount(workspaceId: number, userId: number): Promise<number> | number;
+  /** 把已读水位推进到当前时间（幂等 upsert） */
+  markGroupWorkspaceRead(workspaceId: number, userId: number): Promise<void> | void;
 
   // assessments / assessment_questions / assessment_results（#221 职业测评数据层）
   /** 启用中的测评定义（学生测评中心列表；按 id 稳定排序） */
@@ -1579,6 +1760,130 @@ export async function areStudentsInSameCurrentGroup(
 ): Promise<boolean> {
   const adapter = await ensureInit();
   return Promise.resolve(adapter.areStudentsInSameCurrentGroup(userIdA, userIdB));
+}
+
+/* ---------- 小组工作区（#346） ---------- */
+
+export async function getStudentWorkspaceContext(
+  userId: number
+): Promise<GroupWorkspaceContext | undefined> {
+  const adapter = await ensureInit();
+  return Promise.resolve(adapter.getStudentWorkspaceContext(userId));
+}
+
+export async function getClassGroupWorkspace(
+  classId: number,
+  groupNo: number
+): Promise<GroupWorkspaceContext | undefined> {
+  const adapter = await ensureInit();
+  return Promise.resolve(adapter.getClassGroupWorkspace(classId, groupNo));
+}
+
+export async function listStudentWorkspaces(userId: number): Promise<StudentWorkspaceSummary[]> {
+  const adapter = await ensureInit();
+  return Promise.resolve(adapter.listStudentWorkspaces(userId));
+}
+
+export async function getGroupWorkspaceById(workspaceId: number): Promise<GroupWorkspaceRow | undefined> {
+  const adapter = await ensureInit();
+  return Promise.resolve(adapter.getGroupWorkspaceById(workspaceId));
+}
+
+export async function getBatchWorkspaces(batchId: number): Promise<GroupWorkspaceRow[]> {
+  const adapter = await ensureInit();
+  return Promise.resolve(adapter.getBatchWorkspaces(batchId));
+}
+
+export async function listGroupPosts(workspaceId: number): Promise<GroupPostRow[]> {
+  const adapter = await ensureInit();
+  return Promise.resolve(adapter.listGroupPosts(workspaceId));
+}
+
+export async function getGroupPost(
+  postId: number,
+  workspaceId: number
+): Promise<GroupPostRow | undefined> {
+  const adapter = await ensureInit();
+  return Promise.resolve(adapter.getGroupPost(postId, workspaceId));
+}
+
+export async function insertGroupPost(input: NewGroupPostInput): Promise<number> {
+  const adapter = await ensureInit();
+  return Promise.resolve(adapter.insertGroupPost(input));
+}
+
+export async function updateGroupPost(
+  postId: number,
+  workspaceId: number,
+  fields: GroupPostUpdateFields
+): Promise<void> {
+  const adapter = await ensureInit();
+  return Promise.resolve(adapter.updateGroupPost(postId, workspaceId, fields));
+}
+
+export async function countRecentGroupPosts(
+  workspaceId: number,
+  authorId: number,
+  since: string
+): Promise<number> {
+  const adapter = await ensureInit();
+  return Promise.resolve(adapter.countRecentGroupPosts(workspaceId, authorId, since));
+}
+
+export async function listGroupTasks(workspaceId: number): Promise<GroupTaskRow[]> {
+  const adapter = await ensureInit();
+  return Promise.resolve(adapter.listGroupTasks(workspaceId));
+}
+
+export async function getGroupTask(
+  taskId: number,
+  workspaceId: number
+): Promise<GroupTaskRow | undefined> {
+  const adapter = await ensureInit();
+  return Promise.resolve(adapter.getGroupTask(taskId, workspaceId));
+}
+
+export async function insertGroupTask(input: NewGroupTaskInput): Promise<number> {
+  const adapter = await ensureInit();
+  return Promise.resolve(adapter.insertGroupTask(input));
+}
+
+export async function claimGroupTask(
+  taskId: number,
+  workspaceId: number,
+  userId: number,
+  userName: string | null
+): Promise<boolean> {
+  const adapter = await ensureInit();
+  return Promise.resolve(adapter.claimGroupTask(taskId, workspaceId, userId, userName));
+}
+
+export async function updateGroupTask(
+  taskId: number,
+  workspaceId: number,
+  fields: GroupTaskUpdateFields
+): Promise<void> {
+  const adapter = await ensureInit();
+  return Promise.resolve(adapter.updateGroupTask(taskId, workspaceId, fields));
+}
+
+export async function countRecentGroupTasks(
+  workspaceId: number,
+  authorId: number,
+  since: string
+): Promise<number> {
+  const adapter = await ensureInit();
+  return Promise.resolve(adapter.countRecentGroupTasks(workspaceId, authorId, since));
+}
+
+export async function getGroupUnreadCount(workspaceId: number, userId: number): Promise<number> {
+  const adapter = await ensureInit();
+  return Promise.resolve(adapter.getGroupUnreadCount(workspaceId, userId));
+}
+
+export async function markGroupWorkspaceRead(workspaceId: number, userId: number): Promise<void> {
+  const adapter = await ensureInit();
+  return Promise.resolve(adapter.markGroupWorkspaceRead(workspaceId, userId));
 }
 
 /* ---------- 职业测评（#221） ---------- */

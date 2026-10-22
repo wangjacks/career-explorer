@@ -18,6 +18,7 @@ vi.mock("@/lib/db", () => ({
   insertGroupEntry: vi.fn(),
   deleteGroupEntry: vi.fn(),
   applyGroupingResult: vi.fn(),
+  getBatchWorkspaces: vi.fn(),
   getTeacherClassPairs: vi.fn(),
   getUserById: vi.fn(),
   insertAuditLog: vi.fn(),
@@ -38,6 +39,7 @@ import {
   getCurrentAssessmentResultsByUserCodes,
   getGroupBatchDetail,
   getGroupBatches,
+  getBatchWorkspaces,
   getStudents,
   getStudentGroupRef,
   getTeacherClassPairs,
@@ -126,6 +128,7 @@ beforeEach(() => {
     { id: 1, teacher_id: TEACHER_UID, class_id: CLASS_A, created_at: "" },
   ]);
   vi.mocked(applyGroupingResult).mockResolvedValue(99);
+  vi.mocked(getBatchWorkspaces).mockResolvedValue([]);
   // clearAllMocks 不清实现，逐条给默认值，避免上一条用例的 mockRejectedValue 泄漏
   vi.mocked(moveGroupMember).mockResolvedValue({ leaderCleared: false });
   vi.mocked(insertGroupEntry).mockResolvedValue(undefined);

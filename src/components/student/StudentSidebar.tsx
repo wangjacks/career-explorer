@@ -30,11 +30,14 @@ export default function StudentSidebar({
   onClose,
   activeView,
   onSelect,
+  unreadCount = 0,
 }: {
   open: boolean;
   onClose: () => void;
   activeView?: StudentViewKey;
   onSelect?: (key: StudentViewKey) => void;
+  /** 「我的小组」未读公告数（#346）：>0 时显示红点计数 */
+  unreadCount?: number;
 }) {
   const pathname = usePathname();
   const hasOnSelect = typeof onSelect === "function";
@@ -83,10 +86,19 @@ export default function StudentSidebar({
         <nav aria-label="学生面板菜单" className="p-3 space-y-1 md:w-56">
           {STUDENT_NAV_ITEMS.map((item) => {
             const Icon = NAV_ICONS[item.key];
+            const showUnread = item.key === "group" && unreadCount > 0;
             const label = (
               <>
                 <Icon size={17} strokeWidth={item.view || item.href ? 2 : 1.8} />
                 {item.label}
+                {showUnread && (
+                  <span
+                    aria-label={`${unreadCount} 条未读公告`}
+                    className="ml-auto min-w-[18px] h-[18px] px-1 rounded-full bg-danger text-white text-[10px] font-medium flex items-center justify-center"
+                  >
+                    {unreadCount > 99 ? "99+" : unreadCount}
+                  </span>
+                )}
               </>
             );
 
