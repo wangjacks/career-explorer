@@ -93,8 +93,9 @@ export default function UserMenu() {
     return () => document.removeEventListener("mousedown", onMouseDown);
   }, [open]);
 
-  // 检测中不渲染，避免「登录」按钮闪现
-  if (checking || !shouldShowMenu(pathname)) return null;
+  // 只有首次检测（还没有会话）时才隐藏，避免面板 Tab 路由切换时菜单闪一下；
+  // 已登录后的后台复核继续显示旧会话，等结果回来再决定是否跳转。
+  if ((checking && !session) || !shouldShowMenu(pathname)) return null;
 
   const handleLogout = async () => {
     setOpen(false);
