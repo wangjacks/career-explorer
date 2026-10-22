@@ -177,7 +177,7 @@ describe("演示播种纯规划器（#253）", () => {
     }
   });
 
-  it("大五快照在真实抽题口径下有效：fullBank 量表 planAttempt 认这份快照", () => {
+  it("大五快照在真实抽题口径下有效：fullBank 量表 planAttempt 认这份快照（指纹同值）", () => {
     const p = planDemoSeed(5, { tagNames: TAG_POOL, draftShare: 0.5 });
     const pool = IPIP_QUESTIONS.map((q) => ({
       index: q.index,
@@ -187,6 +187,7 @@ describe("演示播种纯规划器（#253）", () => {
     }));
     for (const s of p.students.filter((x) => x.bigFiveAssessment)) {
       const a = s.bigFiveAssessment!;
+      // 与 `loadAttemptContext` 同参数：不传 retiredIndexes（退役台账只属于 RIASEC）
       const plan = planAttempt({
         pool,
         dimensions: IPIP_DIMENSIONS,
@@ -200,6 +201,8 @@ describe("演示播种纯规划器（#253）", () => {
       });
       expect(plan.warnings).toEqual([]);
       expect(plan.indexes).toEqual(parseItemsSnapshot(a.itemsJson)!.indexes);
+      // fullBank 分支直接返回整库题号、不读快照，只有指纹能证明这份卷子会被真人续答认出来
+      expect(plan.poolFingerprint).toBe(parseItemsSnapshot(a.itemsJson)!.pool);
     }
   });
 

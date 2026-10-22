@@ -231,12 +231,14 @@ function buildAssessment(rng: Rng, kind: "completed" | "draft"): DemoSeedAssessm
   };
 }
 
-/** 大五全量作答（itemsPerAttempt = 0），种子阶段所有题 `version = 1`；指纹须与适配器播种后 `loadAttemptContext` 算出的同值 */
+/**
+ * 大五全量作答（itemsPerAttempt = 0），种子阶段所有题 `version = 1`；指纹须与适配器播种后 `loadAttemptContext` 算出的同值。
+ * 退役台账**不传**：`loadAttemptContext` 只给 RIASEC 传全局台账（题号在量表间会重复），大五走默认空集。
+ */
 const DEMO_IPIP_FINGERPRINT = poolFingerprint(
   IPIP_QUESTIONS.map((question) => ({ index: question.index, version: 1 })),
   IPIP_ASSESSMENT.scaleVersion,
-  SAMPLING_EXCLUDED_ORIGINS,
-  SAMPLING_RETIRED_INDEXES
+  SAMPLING_EXCLUDED_ORIGINS
 );
 
 /**
@@ -333,6 +335,8 @@ export function planDemoSeed(seed: number, opts: DemoSeedOptions): DemoSeedPlan 
       if (!tags.includes(extra)) tags.push(extra);
     }
 
+    const avatar = rng() < 0.8;
+    const evaluationTexts = buildDemoEvaluationTexts(rng);
     const assessment = rng() < assessmentRate
       ? buildAssessment(rng, rng() < draftShare ? "draft" : "completed")
       : null;
@@ -345,8 +349,8 @@ export function planDemoSeed(seed: number, opts: DemoSeedOptions): DemoSeedPlan 
       name: r.name,
       tags,
       submit: true,
-      avatar: rng() < 0.8,
-      evaluationTexts: buildDemoEvaluationTexts(rng),
+      avatar,
+      evaluationTexts,
       assessment,
       bigFiveAssessment,
       submittedOffsetDays: randInt(rng, 0, recentDays),

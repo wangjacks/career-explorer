@@ -49,7 +49,7 @@
 | RIASEC 六型色块 / 条形 | `lib/assessment-colors.ts` → `ASSESSMENT_TYPE_COLORS` | R `#dc2626`、I `#2563eb`、A `#7c3aed`、S `#059669`、E `#f59e0b`、C `#0891b2`（S/E/C 上文字用 `#111827`，其余白） | 同一套（色块本身两主题通用） | `assessment-colors.test.ts`：`chipFg`/`bar` ≥ 4.5:1；未知类型兜底 `#6b7280` |
 | 「未测」灰胶囊 | `lib/assessment-colors.ts` → `NOT_ASSESSED_PILL_COLORS` | 底 `#f3f4f6` / 字 `#4b5563` | 底 `#1f2937` / 字 `#9ca3af` | 同上，两套主题各 ≥ 4.5:1 |
 | 大五三档（低/中/高） | `lib/assessment-colors.ts` → `BIG_FIVE_BAND_COLORS` / `BIG_FIVE_BAND_CLASSES` | `#6366f1` / `#4338ca` / `#312e81` | `#6366f1` / `#818cf8` / `#a5b4fc` | 同上：对卡片底色**非文本** ≥ 3:1（浅色对 `#ffffff`、深色对 `#111827`）；类名含同一 hex 也有断言，防止只改常量不改界面 |
-| hero 点阵「待补」描边 | 常量 `lib/teacher-board.ts` → `TICK_STROKE_*` / `HERO_BG_*`；类名在 `TeacherBoardHero.tsx`（Tailwind 任意值必须写字面量，扫描器读不到插值） | `rgb(79,119,66)` | `rgba(167,243,208,0.55)` | `teacher-board.test.ts`：深底 hero 上（含 alpha 混合后）≥ 3:1。已做的格子用渐变 `#7ceec2 → #55d6a3` 填充，不靠描边表意 |
+| hero 点阵「待补」描边 | 常量 `lib/teacher-board.ts` → `TICK_STROKE_*` / `HERO_BG_*`；类名在 `TeacherBoardHero.tsx`（Tailwind 任意值必须写字面量，扫描器读不到插值） | `rgb(79,119,66)` | `rgba(167,243,208,0.55)` | `teacher-board.test.ts` 只锁**深色档**（含 alpha 混合后对 hero 底色 ≥ 3:1）；浅色档是 #314 指定的低存在感描边（对 hero 起点 `#065f46` 约 1.5:1，故意不抢眼），表意靠「已做」格子的渐变 `#7ceec2 → #55d6a3` 填充，不靠描边 |
 
 - **不引入第二套分类色**：新增维度/类型只在上面这几张表里加条目，组件一律通过 `typeColorOf()` 等取色函数拿色，禁止在组件里新写十六进制。
 - 大五只用**单一靛蓝族**的深浅表达强弱（#315），不与六型的分类色混用。
