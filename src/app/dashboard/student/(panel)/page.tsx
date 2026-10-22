@@ -348,7 +348,6 @@ function StudentProfilePageContent() {
           submissionClosed={submissionClosed}
           submissionDeadline={submissionDeadline}
           onEdit={startEdit}
-          onPreview={setLightbox}
         />
 
         {/* 速览四卡（#323）：hero 之下的结论区，点「查看详情」展开并滚动到对应内容；

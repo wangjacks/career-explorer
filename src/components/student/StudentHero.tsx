@@ -1,6 +1,7 @@
 "use client";
 
-import { Compass, SquarePen } from "lucide-react";
+import { useState } from "react";
+import { Compass, SquarePen, X } from "lucide-react";
 import { useFileUrl } from "@/hooks/useFileUrl";
 import { safeImageUrl } from "@/lib/sanitize";
 import type { AssessmentListItem } from "@/lib/assessment-list";
@@ -54,7 +55,6 @@ export default function StudentHero({
   submissionClosed,
   submissionDeadline,
   onEdit,
-  onPreview,
 }: {
   profile: StudentProfile;
   hasSubmitted: boolean;
@@ -65,23 +65,22 @@ export default function StudentHero({
   submissionClosed: boolean;
   submissionDeadline: string | null;
   onEdit: () => void;
-  /** 仅档案页提供放大预览；历史 / 小组页不挂 lightbox，头像保持普通展示 */
-  onPreview?: (url: string) => void;
 }) {
   const avatarResolved = useFileUrl(profile.avatar_url, profile.storage_id);
   const avatarPreview = safeImageUrl(avatarResolved);
+  // 头像放大由 hero 自己管理：档案 / 历史 / 小组三个路由都能点开，不依赖页面级 lightbox
+  const [preview, setPreview] = useState<string | null>(null);
 
   return (
+    <>
     <section className="bg-brand rounded-2xl p-4 sm:p-6 shadow-sm">
       <div className="flex items-start gap-3 sm:gap-5">
         {avatarPreview ? (
           <img
             src={avatarPreview}
             alt="头像"
-            onClick={onPreview ? () => onPreview(avatarPreview) : undefined}
-            className={`w-14 h-14 sm:w-20 sm:h-20 rounded-full object-cover border-2 border-accent/70 flex-shrink-0 ${
-              onPreview ? "cursor-zoom-in" : ""
-            }`}
+            onClick={() => setPreview(avatarPreview)}
+            className="w-14 h-14 sm:w-20 sm:h-20 rounded-full object-cover border-2 border-accent/70 flex-shrink-0 cursor-zoom-in"
           />
         ) : (
           <div className="w-14 h-14 sm:w-20 sm:h-20 rounded-full bg-white/15 border-2 border-white/20 flex items-center justify-center text-white font-bold text-xl sm:text-2xl flex-shrink-0">
@@ -184,5 +183,27 @@ export default function StudentHero({
         </div>
       </div>
     </section>
+
+    {preview && (
+      <div
+        className="fixed inset-0 bg-black/80 z-[100] flex items-center justify-center p-4"
+        onClick={() => setPreview(null)}
+      >
+        <img
+          src={preview}
+          alt="放大预览"
+          onClick={(event) => event.stopPropagation()}
+          className="max-w-full max-h-full object-contain rounded-lg"
+        />
+        <button
+          onClick={() => setPreview(null)}
+          aria-label="关闭预览"
+          className="absolute top-4 right-4 w-9 h-9 rounded-full bg-white/15 hover:bg-white/30 text-white flex items-center justify-center transition-colors"
+        >
+          <X className="w-5 h-5" />
+        </button>
+      </div>
+    )}
+    </>
   );
 }
