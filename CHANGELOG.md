@@ -1,5 +1,13 @@
 # Changelog
 
+## [3.0.1] - 2026-10-30
+
+### Changed
+
+- 依赖升级：next 16.3.4 → 16.4.2、react / react-dom 19.3.0 → 19.3.1、jose 6.2.9 → 6.2.13、vitest 5.0.1 → 5.0.5，伴生锁文件刷新（vite 8.3.5、browserslist 4.29.5、js-yaml 4.3.2、brace-expansion 安全修复）
+- Dependabot 配置：react / react-dom / @types/react / @types/react-dom 合并为同一 group 同步升级，避免拆分 bump 导致 `npm ci` 在 CI 中因 peer 版本不一致失败（#378）
+- 本版本 `src/` 零变更，无数据库迁移、无 API 路径与权限表变更，部署为纯重启型
+
 ## [3.0.0] - 2026-10-23
 
 ### Action Required
