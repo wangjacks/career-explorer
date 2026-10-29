@@ -2,6 +2,7 @@
 
 import { Fragment, useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
+import { roleLabel } from "@/lib/role-labels";
 
 /** 审计记录（与后端 AuditLogRow 对应） */
 interface AuditLog {
@@ -56,12 +57,6 @@ const RESOURCE_TYPES = [
   "group", "group-batch",
   "export", "backup", "db", "audit-log", "assessment",
 ];
-
-const ROLE_LABELS: Record<string, string> = {
-  admin: "管理员",
-  teacher: "教师",
-  student: "学生",
-};
 
 const inputClass =
   "px-2 py-1.5 border border-gray-200 dark:border-gray-700 rounded-lg text-sm bg-card text-foreground focus:outline-none focus:ring-2 focus:ring-focus-ring";
@@ -219,7 +214,7 @@ export default function AuditLogsTab({ mode }: AuditLogsTabProps) {
                       <span>{r.actor_name || r.actor_user_code || "-"}</span>
                       {r.actor_role && (
                         <span className="px-1.5 py-0.5 text-[10px] rounded bg-gray-100 dark:bg-gray-800 text-muted">
-                          {ROLE_LABELS[r.actor_role] || r.actor_role}
+                          {roleLabel(r.actor_role) || r.actor_role}
                         </span>
                       )}
                     </div>

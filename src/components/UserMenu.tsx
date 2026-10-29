@@ -6,12 +6,7 @@ import { ChevronDown, Sun, Moon, Monitor } from "lucide-react";
 import { useSession } from "@/hooks/useSession";
 import { useTheme, type Theme } from "@/hooks/useTheme";
 import { useEscapeKey } from "@/hooks/useEscapeKey";
-
-const ROLE_LABEL: Record<string, string> = {
-  admin: "管理员",
-  teacher: "教师",
-  student: "学生",
-};
+import { roleLabel } from "@/lib/role-labels";
 
 const APP_PAGES = new Set([
   "/",
@@ -151,7 +146,7 @@ export default function UserMenu() {
               <>
                 <div className="px-4 py-2 border-b border-border-soft">
                   <p className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">{session.name}</p>
-                  <p className="text-xs text-gray-400 mt-0.5">{ROLE_LABEL[session.role] ?? session.role}</p>
+                  <p className="text-xs text-gray-400 mt-0.5">{roleLabel(session.role) ?? session.role}</p>
                 </div>
                 <button
                   role="menuitem"
