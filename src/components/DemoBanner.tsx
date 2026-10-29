@@ -5,11 +5,8 @@ import { usePathname, useRouter } from "next/navigation";
 import { FlaskConical } from "lucide-react";
 import { toast } from "sonner";
 import { useSession } from "@/hooks/useSession";
-import {
-  ROLE_LABELS,
-  demoSwitchTargets,
-  isDemoSession,
-} from "@/lib/demo-view";
+import { demoSwitchTargets, isDemoSession } from "@/lib/demo-view";
+import { ROLE_LABELS, roleLabel } from "@/lib/role-labels";
 import { roleHome } from "@/lib/role-home";
 import type { Role } from "@/lib/token";
 
@@ -28,7 +25,7 @@ export default function DemoBanner() {
   if ((checking && !session) || !session || !isDemoSession(session)) return null;
 
   const currentRole = session.role;
-  const currentLabel = ROLE_LABELS[currentRole as Role] ?? currentRole;
+  const currentLabel = roleLabel(currentRole) ?? currentRole;
 
   const switchTo = async (role: Role) => {
     if (switching) return;

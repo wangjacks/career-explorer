@@ -3,7 +3,7 @@
  * 仓库无 DOM 测试环境，界面逻辑先落这里再写组件（同 demo-view / assessment-view 约定）。
  * 类型镜像 API 响应，不 import 服务端模块，避免把 bcrypt / db 带进客户端包。
  */
-import { ROLE_LABELS } from "./demo-view";
+import { ROLE_LABELS } from "./role-labels";
 import { normalizeDemoName, DEMO_NAME_MAX } from "./demo-names";
 
 export interface DemoAccountCodes {

@@ -1,12 +1,7 @@
 import { describe, it, expect } from "vitest";
-import { ROLE_LABELS, isDemoSession, demoSwitchTargets } from "@/lib/demo-view";
+import { isDemoSession, demoSwitchTargets } from "@/lib/demo-view";
 
 describe("演示视图模型（#256）", () => {
-  it("角色标签", () => {
-    expect(ROLE_LABELS).toEqual({ admin: "管理员", teacher: "教师", student: "学生" });
-    // 角色→面板路径走共享单一来源 role-home（#317），此处不再重复断言
-  });
-
   it("切换目标排除当前角色且顺序固定", () => {
     expect(demoSwitchTargets("student").map((t) => t.role)).toEqual(["admin", "teacher"]);
     expect(demoSwitchTargets("teacher").map((t) => t.role)).toEqual(["admin", "student"]);

@@ -1,14 +1,10 @@
 /**
- * 演示视图模型（#256）：角色标签、面板路径与切换目标。
+ * 演示视图模型（#256）：面板路径与切换目标。
  * 仓库无 DOM 测试环境，界面逻辑先落这里再做组件（同 assessment-view 约定）。
+ * 角色中文标签统一取自 `role-labels`（#329），此处不再定义。
  */
 import type { Role } from "@/lib/token";
-
-export const ROLE_LABELS: Record<Role, string> = {
-  admin: "管理员",
-  teacher: "教师",
-  student: "学生",
-};
+import { ROLE_LABELS } from "./role-labels";
 
 const ROLE_ORDER: readonly Role[] = ["admin", "teacher", "student"];
 

@@ -6,7 +6,7 @@ import ConfirmDialog from "./ConfirmDialog";
 import { StatCard } from "./AdminUI";
 import { generatePassword } from "@/lib/password";
 import { pickName, DEMO_NAME_MAX } from "@/lib/demo-names";
-import { ROLE_LABELS } from "@/lib/demo-view";
+import { ROLE_LABELS } from "@/lib/role-labels";
 import {
   DEMO_STATUS_CARDS,
   demoCreateAccountBody,
