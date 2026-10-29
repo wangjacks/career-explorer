@@ -1,6 +1,6 @@
 {
   "name": "career-explorer",
-  "version": "3.0.0",
+  "version": "3.0.1",
   "private": true,
   "license": "SEE LICENSE IN LICENSE",
   "engines": {
@@ -25,14 +25,14 @@
     "better-sqlite3": "^13.0.3",
     "exceljs": "^4.4.0",
     "image-size": "^2.0.4",
-    "jose": "^6.2.9",
+    "jose": "^6.2.13",
     "jszip": "^3.10.2",
     "lucide-react": "^1.48.0",
     "mysql2": "^3.24.6",
-    "next": "16.4.1",
+    "next": "16.4.2",
     "qrcode": "^1.5.4",
-    "react": "19.3.0",
-    "react-dom": "19.3.0",
+    "react": "19.3.1",
+    "react-dom": "19.3.1",
     "recharts": "^3.10.1",
     "sharp": "^0.35.3",
     "sonner": "^2.0.8"
