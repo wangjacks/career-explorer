@@ -95,7 +95,7 @@ export default function AboutPage() {
         {/* 学生探索流程 */}
         <section className="space-y-4">
           <h2 className="text-lg font-semibold text-foreground">学生探索流程</h2>
-          <ol className="space-y-2 text-gray-600 dark:text-gray-300 text-sm leading-relaxed list-decimal list-inside">
+          <ol className="space-y-2 text-gray-600 dark:text-gray-300 text-sm leading-relaxed list-decimal list-outside pl-5">
             {ABOUT_STEPS.map((step) => (
               <li key={step}>{step}</li>
             ))}
