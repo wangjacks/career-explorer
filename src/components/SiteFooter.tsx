@@ -1,0 +1,73 @@
+"use client";
+
+import Link from "next/link";
+import { usePathname } from "next/navigation";
+import { Home, Info } from "lucide-react";
+
+const links = [
+  { href: "/", label: "主页", icon: Home },
+  { href: "/about", label: "关于", icon: Info },
+];
+
+interface SiteFooterProps {
+  copyright: string;
+}
+
+/** 站点底部导航：移动端为 fixed 底部 Tab Bar（App 风格），桌面端为文档流页脚 */
+export default function SiteFooter({ copyright }: SiteFooterProps) {
+  const pathname = usePathname();
+  return (
+    <>
+      {/* 移动端：fixed 底部 Tab Bar */}
+      <nav aria-label="移动端站点导航" className="md:hidden fixed bottom-0 inset-x-0 z-40 bg-card/90 backdrop-blur-md border-t border-border-soft pb-[env(safe-area-inset-bottom)]">
+        <div className="flex items-stretch justify-around">
+          {links.map((l) => {
+            const active = pathname === l.href;
+            return (
+              <Link
+                key={l.href}
+                href={l.href}
+                aria-current={active ? "page" : undefined}
+                className={`flex flex-col items-center gap-0.5 py-2 px-6 text-xs transition-colors ${
+                  active
+                    ? "text-green-600 dark:text-green-400 font-medium"
+                    : "text-muted hover:text-gray-600 dark:hover:text-gray-300"
+                }`}
+              >
+                <l.icon size={20} strokeWidth={active ? 2.2 : 1.8} />
+                {l.label}
+              </Link>
+            );
+          })}
+        </div>
+      </nav>
+
+      {/* 桌面端：固定底部导航条（便于随时切换页面） */}
+      <footer className="hidden md:block fixed bottom-0 inset-x-0 z-40 border-t border-border-soft bg-card/90 backdrop-blur-md">
+        <div className="max-w-6xl mx-auto px-6 py-3.5 flex items-center justify-between gap-3">
+          <p className="text-sm font-medium text-gray-600 dark:text-gray-300">Career Explorer</p>
+          <nav aria-label="桌面端站点导航" className="flex items-center gap-6">
+            {links.map((l) => {
+              const active = pathname === l.href;
+              return (
+                <Link
+                  key={l.href}
+                  href={l.href}
+                  aria-current={active ? "page" : undefined}
+                  className={`text-sm transition-colors ${
+                    active
+                      ? "text-green-600 dark:text-green-400 font-medium"
+                      : "text-muted hover:text-gray-700 dark:hover:text-gray-200"
+                  }`}
+                >
+                  {l.label}
+                </Link>
+              );
+            })}
+          </nav>
+          <p className="text-xs text-muted">{copyright}</p>
+        </div>
+      </footer>
+    </>
+  );
+}

@@ -1,0 +1,1348 @@
+"use client";
+
+import { useState, useRef, useEffect, useMemo } from "react";
+import { toast } from "sonner";
+import { ChevronDown, Download, Users } from "lucide-react";
+import { Field } from "./AdminUI";
+import ConfirmDialog from "./ConfirmDialog";
+import { useEscapeKey } from "@/hooks/useEscapeKey";
+import type { Student } from "@/hooks/useAdminAuth";
+import { generatePassword } from "@/lib/password";
+import {
+  countSubmissions,
+  formatSubmittedAt,
+  isSubmitted,
+  matchesSubmissionFilter,
+  type SubmissionFilter,
+} from "@/lib/student-status";
+import ClassSelect from "./ClassSelect";
+import { isClassNameMissing, isClassListUnavailable } from "@/lib/class-select";
+
+interface Props {
+  students: Student[];
+  loadError?: boolean;
+  onRetry?: () => void;
+  onStudentsChanged: () => void;
+  /** 预留：步骤 11 按角色差异化学生管理能力 */
+  role?: "admin" | "teacher";
+}
+
+type SortKey = "user_code" | "name" | "class_name" | "submitted_at";
+type SortDir = "asc" | "desc";
+
+interface ClassItem {
+  id: number;
+  name: string;
+}
+
+interface ParsedRow {
+  studentId: string;
+  name: string;
+  className: string;
+}
+
+interface CredentialRow {
+  user_code: string;
+  name: string;
+  password: string;
+}
+
+const ID_KEYWORDS = ["学号", "student_id", "studentid", "学籍号", "编号", "id"];
+const NAME_KEYWORDS = ["姓名", "name", "名字", "学生姓名", "student_name"];
+const CLASS_KEYWORDS = ["班级", "class", "classname", "班"];
+
+/** 导入预览状态：原始单元格矩阵 + 列映射（可在预览弹窗中手动调整） */
+interface PreviewState {
+  rawRows: string[][];
+  hasHeader: boolean;
+  idCol: number;
+  nameCol: number;
+  classCol: number; // -1 = 不导入班级
+}
+
+/** 将文本行切分为单元格矩阵（支持逗号、全角逗号、制表符） */
+function splitToCells(lines: string[]): string[][] {
+  return lines.map((line) => line.split(/[,，\t]/).map((s) => s.trim()));
+}
+
+/** 识别标题行与默认列映射；无表头且存在第 3 列时默认其为班级列 */
+function detectMapping(rawRows: string[][]): Pick<PreviewState, "hasHeader" | "idCol" | "nameCol" | "classCol"> {
+  const colCount = rawRows.length > 0 ? Math.max(...rawRows.map((r) => r.length)) : 0;
+  const first = (rawRows[0] || []).map((s) => s.toLowerCase());
+  let idCol = -1,
+    nameCol = -1,
+    classCol = -1;
+  for (let i = 0; i < first.length; i++) {
+    if (idCol === -1 && ID_KEYWORDS.some((k) => first[i] === k)) idCol = i;
+    if (nameCol === -1 && NAME_KEYWORDS.some((k) => first[i] === k)) nameCol = i;
+    if (classCol === -1 && CLASS_KEYWORDS.some((k) => first[i] === k)) classCol = i;
+  }
+  const hasHeader = idCol !== -1 || nameCol !== -1 || classCol !== -1;
+  if (idCol === -1) idCol = 0;
+  if (nameCol === -1) nameCol = 1;
+  if (classCol === -1 && !hasHeader && colCount >= 3) classCol = 2;
+  return { hasHeader, idCol, nameCol, classCol };
+}
+
+/** 按当前列映射推导解析行 */
+function deriveParsedRows(preview: PreviewState): ParsedRow[] {
+  const dataRows = preview.hasHeader ? preview.rawRows.slice(1) : preview.rawRows;
+  return dataRows.map((cells) => ({
+    studentId: cells[preview.idCol] || "",
+    name: cells[preview.nameCol] || "",
+    className: preview.classCol >= 0 ? cells[preview.classCol] || "" : "",
+  }));
+}
+
+function SortIcon({ active, dir }: { active: boolean; dir: SortDir }) {
+  return (
+    <span aria-hidden="true" className={`ml-1 inline-block w-3 text-xs ${active ? "text-green-600" : "text-gray-300"}`}>
+      {active ? (dir === "asc" ? "↑" : "↓") : "↕"}
+    </span>
+  );
+}
+
+export default function StudentsTab({ students, loadError, onRetry, onStudentsChanged }: Props) {
+  const [newStudentId, setNewStudentId] = useState("");
+  const [newStudentName, setNewStudentName] = useState("");
+  // 班级一律经共享受控选择控件（#192）：保存 class_id，提交时回填名称以保持服务端契约不变
+  const [newClassId, setNewClassId] = useState<number | null>(null);
+  const [classList, setClassList] = useState<ClassItem[]>([]);
+  const [classesFailed, setClassesFailed] = useState(false);
+  const [selectedStudents, setSelectedStudents] = useState<Set<string>>(new Set());
+  // 提交状态筛选（#170）：催交场景一键切到「未提交」
+  const [submissionFilter, setSubmissionFilter] = useState<SubmissionFilter>("all");
+
+  // Search & sort
+  const [search, setSearch] = useState("");
+  const [sortKey, setSortKey] = useState<SortKey>("user_code");
+  const [sortDir, setSortDir] = useState<SortDir>("asc");
+
+  // 班级筛选（多选下拉）：未勾选任何项 = 不过滤（默认）；勾选后只显示选中班级，-1 = 未分班
+  const [selectedClasses, setSelectedClasses] = useState<Set<number>>(new Set());
+  const [classDropdownOpen, setClassDropdownOpen] = useState(false);
+  const [classSearch, setClassSearch] = useState("");
+  const classDropdownRef = useRef<HTMLDivElement>(null);
+
+  // Import preview (raw matrix + adjustable column mapping)
+  const [preview, setPreview] = useState<PreviewState | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Single password reset + credentials display
+  const [resettingStudent, setResettingStudent] = useState<Student | null>(null);
+  const [resetPwd, setResetPwd] = useState("");
+  const [credential, setCredential] = useState<CredentialRow | null>(null);
+
+  // Batch password reset
+  const [confirmBatchPwd, setConfirmBatchPwd] = useState(false);
+  const [batchPwdResults, setBatchPwdResults] = useState<CredentialRow[] | null>(null);
+  const [batchPwdLoading, setBatchPwdLoading] = useState(false);
+
+  // Edit modal
+  const [editing, setEditing] = useState<Student | null>(null);
+  const [editName, setEditName] = useState("");
+  const [editClassId, setEditClassId] = useState<number | null>(null);
+
+  // Inline edit
+  const [inlineEdit, setInlineEdit] = useState<{ studentId: string; field: "name" | "class_name"; value: string } | null>(null);
+
+  // Confirm dialog
+  const [confirmDelete, setConfirmDelete] = useState<{ ids: string[] } | null>(null);
+  const [confirmBatchDelete, setConfirmBatchDelete] = useState(false);
+  const [confirmBatchClass, setConfirmBatchClass] = useState(false);
+  // 批量设班选择：undefined = 未做出选择（不可提交）；null = 清空为未分班；number = 目标班级
+  const [batchClassPick, setBatchClassPick] = useState<number | null | undefined>(undefined);
+
+  const batchInputRef = useRef<HTMLTextAreaElement>(null);
+
+  // 弹窗 Escape 关闭（键盘可达性）
+  useEscapeKey(!!preview, () => setPreview(null));
+  useEscapeKey(!!resettingStudent, () => setResettingStudent(null));
+  useEscapeKey(!!credential, () => setCredential(null));
+  useEscapeKey(!!batchPwdResults, () => setBatchPwdResults(null));
+  useEscapeKey(!!editing, () => setEditing(null));
+
+  const refreshClasses = async () => {
+    try {
+      const res = await fetch("/api/manage/classes");
+      if (!res.ok) {
+        setClassesFailed(true);
+        return;
+      }
+      const data = await res.json();
+      setClassList(data.data || []);
+      setClassesFailed(false);
+    } catch (err) {
+      console.error("班级列表加载失败", err);
+      setClassesFailed(true);
+    }
+  };
+
+  // eslint-disable-next-line react-hooks/set-state-in-effect
+  useEffect(() => { refreshClasses(); }, []);
+
+  // 点击外部关闭班级筛选下拉
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (classDropdownRef.current && !classDropdownRef.current.contains(e.target as Node)) {
+        setClassDropdownOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
+
+  const classNameOf = (s: Student): string =>
+    s.class_id != null ? classList.find((c) => c.id === s.class_id)?.name || "" : "";
+
+  /** 受控选择 → 班级名：服务端契约仍按名称解析（匹配口径由服务端统一，#191），故提交时回填名称 */
+  const classNameById = (classId: number | null): string =>
+    classId === null ? "" : classList.find((c) => c.id === classId)?.name ?? "";
+
+  // 班级筛选选项（各班 + 未分班），支持搜索
+  const classFilterOptions = useMemo(() => {
+    const opts = classList.map((c) => ({ id: c.id, name: c.name }));
+    opts.push({ id: -1, name: "未分班" });
+    const q = classSearch.trim().toLowerCase();
+    return q ? opts.filter((o) => o.name.toLowerCase().includes(q)) : opts;
+  }, [classList, classSearch]);
+
+  const toggleClassFilter = (id: number) => {
+    setSelectedClasses((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  // 班级 + 搜索筛选结果（提交状态计数基于这一层，便于看到「本班未提交 N 名」）
+  const scopedStudents = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    let list = students;
+    if (selectedClasses.size > 0) {
+      list = list.filter((s) => selectedClasses.has(s.class_id == null ? -1 : s.class_id));
+    }
+    if (q) {
+      list = list.filter(
+        (s) =>
+          s.user_code.toLowerCase().includes(q) ||
+          s.name.toLowerCase().includes(q) ||
+          classNameOf(s).toLowerCase().includes(q)
+      );
+    }
+    return list;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [students, search, classList, selectedClasses]);
+
+  const submissionCounts = useMemo(() => countSubmissions(scopedStudents), [scopedStudents]);
+
+  // Filtered + sorted students（#170：叠加提交状态筛选）
+  const filteredStudents = useMemo(() => {
+    const list = scopedStudents.filter((s) => matchesSubmissionFilter(s.submitted_at, submissionFilter));
+    return [...list].sort((a, b) => {
+      const va = sortKey === "class_name" ? classNameOf(a) : a[sortKey] || "";
+      const vb = sortKey === "class_name" ? classNameOf(b) : b[sortKey] || "";
+      const cmp = va.localeCompare(vb, "zh-CN");
+      return sortDir === "asc" ? cmp : -cmp;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scopedStudents, submissionFilter, sortKey, sortDir, classList]);
+
+  const handleSort = (key: SortKey) => {
+    if (sortKey === key) {
+      setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+    } else {
+      setSortKey(key);
+      setSortDir("asc");
+    }
+  };
+
+  const handleExportCsv = () => {
+    const esc = (v: string) => `"${v.replace(/"/g, '""')}"`;
+    const header = [esc("学号"), esc("姓名"), esc("班级"), esc("提交状态"), esc("提交时间")].join(",");
+    const rows = filteredStudents.map((s) =>
+      [
+        esc("'" + s.user_code),
+        esc(s.name),
+        esc(classNameOf(s)),
+        esc(isSubmitted(s.submitted_at) ? "已提交" : "未提交"),
+        esc(formatSubmittedAt(s.submitted_at)),
+      ].join(","),
+    );
+    const csv = "\uFEFF" + [header, ...rows].join("\r\n");
+    const now = new Date();
+    const pad = (n: number) => String(n).padStart(2, "0");
+    const filename = `学生名单_${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}.csv`;
+    const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleAddStudent = async () => {
+    if (!/^\d{12}$/.test(newStudentId)) {
+      toast.warning("学号必须为12位数字");
+      return;
+    }
+    if (!newStudentName.trim()) {
+      toast.warning("请输入姓名");
+      return;
+    }
+    try {
+      const res = await fetch("/api/manage/students", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          studentId: newStudentId,
+          name: newStudentName.trim(),
+          className: classNameById(newClassId),
+        }),
+      });
+      // 响应体可能不是 JSON（网关 502 返回 HTML、代理错误页等）：解析失败不抛引擎
+      // 异常，与 !res.ok 一并回退固定中文文案（#193）
+      const data = await res.json().catch(() => null);
+      if (!res.ok || data === null) {
+        toast.error(data?.error || "添加失败");
+        return;
+      }
+      // 班级未按预期绑定（#160）：服务端用 unbound / class_skipped 说明原因，以 warning 呈现避免“看起来成功但班级没绑上”
+      if (data.unbound || data.class_skipped) toast.warning(data.message || "添加成功，但班级未绑定");
+      else toast.success(data.message || "添加成功");
+      setNewStudentId("");
+      setNewStudentName("");
+      setNewClassId(null);
+      onStudentsChanged();
+      refreshClasses();
+    } catch (e) {
+      // 走到这里只剩网络层异常（服务端中文错误文案已在上方返回），统一固定文案
+      console.error("Add student failed:", e);
+      toast.error("添加失败，请稍后重试");
+    }
+  };
+
+  // 粘贴导入：解析后进入预览弹窗二次核对（列映射可调整）
+  const handleBatchImport = () => {
+    const text = batchInputRef.current?.value || "";
+    const lines = text.split("\n").filter((l) => l.trim());
+    if (lines.length === 0) {
+      toast.warning("请输入学生数据");
+      return;
+    }
+    const rawRows = splitToCells(lines);
+    setPreview({ rawRows, ...detectMapping(rawRows) });
+  };
+
+  // 文件导入：xlsx 用 exceljs 解析，csv 用文本读取，均进入预览弹窗
+  const handleFileImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    try {
+      let lines: string[] = [];
+      if (/\.(csv|txt)$/i.test(file.name)) {
+        const text = await file.text();
+        lines = text.split(/\r?\n/).filter((l) => l.trim());
+      } else {
+        const mod = await import("exceljs");
+        const ExcelJS = (mod as unknown as { default?: typeof mod }).default ?? mod;
+        const workbook = new ExcelJS.Workbook();
+        await workbook.xlsx.load(await file.arrayBuffer());
+        const sheet = workbook.worksheets[0];
+        if (!sheet) throw new Error("文件没有工作表");
+        sheet.eachRow((row) => {
+          const cells: string[] = [];
+          row.eachCell({ includeEmpty: true }, (cell) => {
+            cells.push(cell.value == null ? "" : String(cell.value).trim());
+          });
+          if (cells.some((c) => c)) lines.push(cells.join(","));
+        });
+      }
+      if (lines.length === 0) {
+        toast.warning("文件没有有效数据");
+        return;
+      }
+      const rawRows = splitToCells(lines);
+      setPreview({ rawRows, ...detectMapping(rawRows) });
+    } catch (err) {
+      console.error("File import parse error:", err);
+      toast.error(err instanceof Error ? err.message : "文件解析失败");
+    }
+  };
+
+  // 按当前列映射推导解析行 + 校验统计
+  const parsedRows = useMemo(() => (preview ? deriveParsedRows(preview) : []), [preview]);
+  const previewInvalid = useMemo(
+    () => parsedRows.filter((r) => !/^\d{12}$/.test(r.studentId) || !r.name.trim()).length,
+    [parsedRows]
+  );
+  const columnCount = preview ? Math.max(...preview.rawRows.map((r) => r.length)) : 0;
+  const columnLabel = (i: number) => {
+    const headerText = preview?.hasHeader ? preview.rawRows[0]?.[i] : "";
+    return headerText ? `第 ${i + 1} 列（${headerText}）` : `第 ${i + 1} 列`;
+  };
+
+  // 预览确认后才真正调 API 导入
+  const confirmImport = async () => {
+    if (!preview) return;
+    const validRows = parsedRows.filter((r) => /^\d{12}$/.test(r.studentId) && r.name.trim());
+    if (validRows.length === 0) {
+      toast.warning("没有可导入的有效数据");
+      return;
+    }
+    try {
+      const res = await fetch("/api/manage/students", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ students: validRows }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
+      toast.success(data.message);
+      setPreview(null);
+      if (batchInputRef.current) batchInputRef.current.value = "";
+      onStudentsChanged();
+      refreshClasses();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "导入失败");
+    }
+  };
+
+  // 单生重置密码
+  const submitResetPassword = async () => {
+    if (!resettingStudent) return;
+    if (resetPwd.length < 8) {
+      toast.warning("密码须至少 8 位（可点「自动生成」）");
+      return;
+    }
+    try {
+      const res = await fetch("/api/manage/students", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ studentId: resettingStudent.user_code, password: resetPwd }),
+      });
+      if (!res.ok) throw new Error("重置失败");
+      setCredential({ user_code: resettingStudent.user_code, name: resettingStudent.name, password: resetPwd });
+      setResettingStudent(null);
+      setResetPwd("");
+    } catch {
+      toast.error("重置失败");
+    }
+  };
+
+  // 批量重置密码：服务端为每人生成不同随机密码
+  const executeBatchPassword = async () => {
+    const ids = Array.from(selectedStudents);
+    setBatchPwdLoading(true);
+    try {
+      const res = await fetch("/api/manage/students/batch-password", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ studentIds: ids }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
+      setBatchPwdResults(data.data);
+      setSelectedStudents(new Set());
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "批量重置失败");
+    } finally {
+      setBatchPwdLoading(false);
+      setConfirmBatchPwd(false);
+    }
+  };
+
+  const copyAllCredentials = async () => {
+    if (!batchPwdResults) return;
+    const text = batchPwdResults.map((r) => `${r.user_code}\t${r.name}\t${r.password}`).join("\n");
+    try {
+      await navigator.clipboard.writeText(text);
+      toast.success("已复制全部凭据");
+    } catch {
+      toast.error("复制失败，请手动记录");
+    }
+  };
+
+  // Inline edit save
+  const saveInlineEdit = async (studentId: string, field: "name" | "class_name", value: string) => {
+    setInlineEdit(null);
+    try {
+      const body = field === "name" ? { studentId, name: value } : { studentId, className: value };
+      const res = await fetch("/api/manage/students", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "更新失败");
+      onStudentsChanged();
+      refreshClasses();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "更新失败");
+    }
+  };
+
+  // Modal edit save
+  const openEditModal = (s: Student) => {
+    setEditing(s);
+    setEditName(s.name);
+    setEditClassId(s.class_id ?? null);
+  };
+
+  const saveEditModal = async () => {
+    if (!editing) return;
+    if (!editName.trim()) {
+      toast.warning("姓名不能为空");
+      return;
+    }
+    try {
+      const res = await fetch("/api/manage/students", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          studentId: editing.user_code,
+          name: editName.trim(),
+          className: classNameById(editClassId),
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "更新失败");
+      toast.success("更新成功");
+      setEditing(null);
+      onStudentsChanged();
+      refreshClasses();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "更新失败");
+    }
+  };
+
+  // Delete
+  const handleDeleteSingle = (id: string) => setConfirmDelete({ ids: [id] });
+  const handleDeleteSelected = () => setConfirmBatchDelete(true);
+
+  const executeDelete = async (ids: string[]) => {
+    try {
+      const res = await fetch("/api/manage/students", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ids }),
+      });
+      if (!res.ok) throw new Error("删除失败");
+      toast.success(`已删除 ${ids.length} 名学生`);
+      setSelectedStudents(new Set());
+      onStudentsChanged();
+    } catch {
+      toast.error("删除失败");
+    }
+  };
+
+  // Batch set class
+  const executeBatchSetClass = async () => {
+    const ids = Array.from(selectedStudents);
+    if (batchClassPick === undefined) {
+      toast.warning("请选择要设置的班级");
+      return;
+    }
+    // null → 空串，命中后端 class_id = null 解绑分支
+    const className = classNameById(batchClassPick);
+    if (!className && batchClassPick !== null) {
+      toast.warning("该班级已不存在，请重新选择");
+      return;
+    }
+    setConfirmBatchClass(false);
+    let okCount = 0;
+    const failed: string[] = [];
+    try {
+      await Promise.all(
+        ids.map(async (id) => {
+          const res = await fetch("/api/manage/students", {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ studentId: id, className }),
+          });
+          if (res.ok) {
+            okCount++;
+            return;
+          }
+          const data = await res.json().catch(() => ({}));
+          failed.push(`${id}${data.error ? `（${data.error}）` : ""}`);
+        })
+      );
+      if (okCount > 0) {
+        toast.success(className ? `已将 ${okCount} 名学生设为「${className}」` : `已将 ${okCount} 名学生设为未分班`);
+        setBatchClassPick(null);
+        setSelectedStudents(new Set());
+        onStudentsChanged();
+        refreshClasses();
+      }
+      if (failed.length > 0) {
+        toast.error(`更新失败 ${failed.length} 名：${failed.slice(0, 3).join("、")}${failed.length > 3 ? " 等" : ""}`);
+      }
+    } catch {
+      toast.error("批量更新失败");
+    }
+  };
+
+  // 列表从未加载成功（空 + 失败）才判定不可用：判据收敛到共享实现（#192）
+  const classesUnavailable = isClassListUnavailable(classList, classesFailed);
+
+  const batchClassConfirmText =
+    batchClassPick === undefined
+      ? "请先选择班级"
+      : batchClassPick === null
+        ? "确认清空为未分班"
+        : "确认设置";
+
+  return (
+    <div className="bg-card rounded-xl border border-border-soft p-6 space-y-6">
+      <h2 className="font-semibold text-foreground">学生管理</h2>
+
+      {loadError && students.length === 0 && (
+        <div className="text-center py-6 text-red-500 space-y-2">
+          <p>学生列表加载失败</p>
+          <button
+            onClick={onRetry}
+            className="px-4 py-1.5 bg-danger hover:bg-red-600 text-white text-sm rounded-lg transition-colors"
+          >
+            重试
+          </button>
+        </div>
+      )}
+
+      {/* Add student form */}
+      <div className="flex flex-wrap gap-2 items-end">
+        <Field label="学号" value={newStudentId} onChange={(v) => setNewStudentId(v.replace(/\D/g, "").slice(0, 12))} />
+        <Field label="姓名" value={newStudentName} onChange={(v) => setNewStudentName(v)} />
+        <div className="space-y-1">
+          <label className="text-xs text-gray-500">班级</label>
+          <ClassSelect
+            ariaLabel="选择班级"
+            value={newClassId}
+            onChange={setNewClassId}
+            classes={classList}
+            allowEmpty
+            emptyLabel="不绑定班级"
+            loadFailed={classesFailed}
+            onRetry={refreshClasses}
+            className="min-w-[11rem]"
+          />
+        </div>
+        <button
+          onClick={handleAddStudent}
+          className="px-4 py-2 bg-primary hover:bg-primary-strong text-white text-sm font-medium rounded-lg transition-colors whitespace-nowrap"
+        >
+          添加
+        </button>
+      </div>
+
+      {/* Batch import: paste + file */}
+      <div className="space-y-2">
+        <label className="text-xs text-gray-500">批量导入（支持标题行自动识别，如：学号,姓名,班级；导入前可预览核对）</label>
+        <textarea
+          ref={batchInputRef}
+          rows={3}
+          placeholder={"学号,姓名,班级\n202505050101,张三,2025级1班"}
+          className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 bg-card text-foreground rounded-lg text-sm font-mono focus:outline-none focus:ring-2 focus:ring-focus-ring"
+        />
+        <div className="flex flex-wrap gap-2">
+          <button
+            onClick={handleBatchImport}
+            className="px-4 py-2 bg-info hover:bg-blue-600 text-white text-sm font-medium rounded-lg transition-colors"
+          >
+            粘贴导入
+          </button>
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            className="px-4 py-2 bg-info hover:bg-blue-600 text-white text-sm font-medium rounded-lg transition-colors"
+          >
+            选择文件导入（.xlsx/.csv）
+          </button>
+          <input ref={fileInputRef} type="file" accept=".xlsx,.csv,.txt" onChange={handleFileImport} className="hidden" />
+        </div>
+      </div>
+
+      {/* Student list with search + class filter（外层不用 overflow-hidden，避免裁剪班级筛选下拉） */}
+      <div className="border border-border-soft rounded-lg">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between px-4 py-3 bg-gray-50 dark:bg-gray-800 gap-2 rounded-t-lg">
+          <span className="text-sm text-gray-600 dark:text-gray-300">
+            学生列表（{filteredStudents.length} / {students.length} 名）
+          </span>
+          <div className="flex items-center gap-2 flex-wrap">
+            {/* 提交状态筛选（#170）：一键切到「未提交」用于催交，计数基于当前班级 / 搜索范围 */}
+            <div
+              role="group"
+              aria-label="提交状态筛选"
+              className="flex items-center gap-0.5 p-0.5 rounded-lg border border-gray-200 dark:border-gray-700 bg-card"
+            >
+              {([
+                { key: "all" as const, label: "全部", count: submissionCounts.total },
+                { key: "submitted" as const, label: "已提交", count: submissionCounts.submitted },
+                { key: "pending" as const, label: "未提交", count: submissionCounts.pending },
+              ]).map((opt) => (
+                <button
+                  key={opt.key}
+                  type="button"
+                  aria-pressed={submissionFilter === opt.key}
+                  onClick={() => setSubmissionFilter(opt.key)}
+                  className={`px-2.5 py-1 text-xs rounded-md transition-colors ${
+                    submissionFilter === opt.key
+                      ? "bg-primary text-white"
+                      : "text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800"
+                  }`}
+                >
+                  {opt.label}
+                  <span className="ml-1 opacity-80">{opt.count}</span>
+                </button>
+              ))}
+            </div>
+            {/* 班级筛选多选下拉（默认全选） */}
+            <div className="relative" ref={classDropdownRef}>
+              <button
+                onClick={() => setClassDropdownOpen((v) => !v)}
+                className={`px-3 py-1.5 rounded-lg text-sm font-medium border transition-colors flex items-center gap-1.5 ${
+                  selectedClasses.size > 0
+                    ? "bg-green-50 dark:bg-green-900/30 text-green-700 dark:text-green-300 border-green-200 dark:border-green-800"
+                    : "bg-card text-gray-600 dark:text-gray-300 border-gray-200 dark:border-gray-700 hover:border-gray-300"
+                }`}
+              >
+                班级筛选
+                {selectedClasses.size > 0 && (
+                  <span className="ml-0.5 px-1.5 py-0.5 bg-green-500 text-white text-xs rounded-full leading-none">
+                    {selectedClasses.size}
+                  </span>
+                )}
+                <ChevronDown
+                  className={`w-3 h-3 transition-transform ${classDropdownOpen ? "rotate-180" : ""}`}
+                />
+              </button>
+              {classDropdownOpen && (
+                <div className="absolute top-full left-0 mt-1 w-64 bg-card rounded-xl border border-gray-200 dark:border-gray-700 shadow-lg z-30">
+                  <div className="p-2 border-b border-border-soft">
+                    <input
+                      type="text"
+                      value={classSearch}
+                      onChange={(e) => setClassSearch(e.target.value)}
+                      placeholder="搜索班级..."
+                      className="w-full px-2.5 py-1.5 border border-gray-200 dark:border-gray-700 bg-card text-foreground rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-focus-ring"
+                      autoFocus
+                    />
+                  </div>
+                  <div className="max-h-52 overflow-y-auto py-1">
+                    {classFilterOptions.map((o) => {
+                      const isSelected = selectedClasses.has(o.id);
+                      return (
+                        <button
+                          key={o.id}
+                          onClick={() => toggleClassFilter(o.id)}
+                          className={`w-full text-left px-3 py-1.5 text-sm flex items-center gap-2 transition-colors ${
+                            isSelected ? "bg-green-50 dark:bg-green-900/30 text-green-700 dark:text-green-300" : "hover:bg-gray-50 dark:hover:bg-gray-800 text-gray-700 dark:text-gray-200"
+                          }`}
+                        >
+                          <span
+                            className={`w-4 h-4 rounded border flex items-center justify-center flex-shrink-0 text-xs ${
+                              isSelected ? "bg-green-500 border-green-500 text-white" : "border-gray-300"
+                            }`}
+                          >
+                            {isSelected && "✓"}
+                          </span>
+                          <span className="truncate">{o.name}</span>
+                        </button>
+                      );
+                    })}
+                    {classFilterOptions.length === 0 && (
+                      <div className="px-3 py-4 text-center text-sm text-gray-400">无匹配班级</div>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+            <input
+              type="text"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="搜索学号/姓名/班级..."
+              className="px-3 py-1.5 border border-gray-200 rounded-lg text-sm w-48 focus:outline-none focus:ring-2 focus:ring-focus-ring"
+            />
+            {selectedClasses.size > 0 && (
+              <button
+                onClick={() => setSelectedClasses(new Set())}
+                className="text-xs text-gray-400 hover:text-gray-600 transition-colors"
+              >
+                清除筛选
+              </button>
+            )}
+            <button
+              onClick={handleExportCsv}
+              disabled={filteredStudents.length === 0}
+              className="px-3 py-1.5 rounded-lg text-sm font-medium border border-gray-200 dark:border-gray-700 bg-card text-gray-600 dark:text-gray-300 hover:border-gray-300 transition-colors flex items-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              <Download className="w-3.5 h-3.5" />
+              导出名单（{filteredStudents.length}）
+            </button>
+            {selectedStudents.size > 0 && (
+              <>
+                <button
+                  onClick={() => {
+                    // 每次打开重置为「未选择」（undefined），避免沿用上一次的目标班级
+                    setBatchClassPick(undefined);
+                    setConfirmBatchClass(true);
+                  }}
+                  className="px-3 py-1.5 bg-info hover:bg-blue-600 text-white text-xs rounded-lg transition-colors"
+                >
+                  批量设班（{selectedStudents.size}）
+                </button>
+                <button
+                  onClick={() => setConfirmBatchPwd(true)}
+                  className="px-3 py-1.5 bg-warning hover:bg-warning-strong text-white text-xs rounded-lg transition-colors"
+                >
+                  批量重置密码（{selectedStudents.size}）
+                </button>
+                <button
+                  onClick={handleDeleteSelected}
+                  className="px-3 py-1.5 bg-danger hover:bg-red-600 text-white text-xs rounded-lg transition-colors"
+                >
+                  删除选中（{selectedStudents.size}）
+                </button>
+              </>
+            )}
+          </div>
+        </div>
+
+        <div className="max-h-[500px] overflow-y-auto rounded-b-lg bg-card">
+          <table className="w-full text-sm">
+            <thead className="sticky top-0 bg-gray-50 dark:bg-gray-800 z-10">
+              <tr className="text-left text-muted border-b border-border-soft">
+                <th className="px-4 py-2 w-10">
+                  <input
+                    type="checkbox"
+                    aria-label="全选学生"
+                    className="rounded border-gray-300"
+                    checked={filteredStudents.length > 0 && selectedStudents.size === filteredStudents.length}
+                    onChange={() => {
+                      if (selectedStudents.size === filteredStudents.length) setSelectedStudents(new Set());
+                      else setSelectedStudents(new Set(filteredStudents.map((s) => s.user_code)));
+                    }}
+                  />
+                </th>
+                <th aria-sort={sortKey === "user_code" ? (sortDir === "asc" ? "ascending" : "descending") : "none"} className="px-4 py-2">
+                  <button type="button" onClick={() => handleSort("user_code")} className="cursor-pointer select-none">
+                    学号<SortIcon active={sortKey === "user_code"} dir={sortDir} />
+                  </button>
+                </th>
+                <th aria-sort={sortKey === "name" ? (sortDir === "asc" ? "ascending" : "descending") : "none"} className="px-4 py-2">
+                  <button type="button" onClick={() => handleSort("name")} className="cursor-pointer select-none">
+                    姓名<SortIcon active={sortKey === "name"} dir={sortDir} />
+                  </button>
+                </th>
+                <th aria-sort={sortKey === "class_name" ? (sortDir === "asc" ? "ascending" : "descending") : "none"} className="px-4 py-2">
+                  <button type="button" onClick={() => handleSort("class_name")} className="cursor-pointer select-none">
+                    班级<SortIcon active={sortKey === "class_name"} dir={sortDir} />
+                  </button>
+                </th>
+                <th
+                  aria-sort={sortKey === "submitted_at" ? (sortDir === "asc" ? "ascending" : "descending") : "none"}
+                  className="px-4 py-2"
+                >
+                  <button type="button" onClick={() => handleSort("submitted_at")} className="cursor-pointer select-none">
+                    提交状态<SortIcon active={sortKey === "submitted_at"} dir={sortDir} />
+                  </button>
+                </th>
+                <th className="px-4 py-2">操作</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-50 dark:divide-gray-700/50">
+              {filteredStudents.map((s) => (
+                <tr key={s.user_code} className="hover:bg-gray-50/50 dark:hover:bg-gray-800/40 group">
+                  <td className="px-4 py-2">
+                    <input
+                      type="checkbox"
+                      aria-label={`选择 ${s.name}`}
+                      className="rounded border-gray-300"
+                      checked={selectedStudents.has(s.user_code)}
+                      onChange={() => {
+                        const next = new Set(selectedStudents);
+                        if (next.has(s.user_code)) next.delete(s.user_code);
+                        else next.add(s.user_code);
+                        setSelectedStudents(next);
+                      }}
+                    />
+                  </td>
+                  <td className="px-4 py-2 font-mono text-xs text-gray-600 dark:text-gray-300">{s.user_code}</td>
+                  <td className="px-4 py-2">
+                    {inlineEdit?.studentId === s.user_code && inlineEdit.field === "name" ? (
+                      <input
+                        autoFocus
+                        value={inlineEdit.value}
+                        onChange={(e) => setInlineEdit({ ...inlineEdit, value: e.target.value })}
+                        onBlur={() => saveInlineEdit(s.user_code, "name", inlineEdit.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") saveInlineEdit(s.user_code, "name", inlineEdit.value);
+                          if (e.key === "Escape") setInlineEdit(null);
+                        }}
+                        className="px-2 py-0.5 border border-gray-300 dark:border-gray-600 bg-card text-foreground rounded text-sm w-24 focus:outline-none focus:ring-1 focus:ring-focus-ring"
+                      />
+                    ) : (
+                      <span
+                        role="button"
+                        tabIndex={0}
+                        className="cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-800 px-1 rounded"
+                        onClick={() => setInlineEdit({ studentId: s.user_code, field: "name", value: s.name })}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" || e.key === " ") {
+                            e.preventDefault();
+                            e.currentTarget.click();
+                          }
+                        }}
+                      >
+                        {s.name}
+                      </span>
+                    )}
+                  </td>
+                  <td className="px-4 py-2">
+                    {inlineEdit?.studentId === s.user_code && inlineEdit.field === "class_name" ? (
+                      <ClassSelect
+                        size="sm"
+                        autoFocusTrigger
+                        ariaLabel={`设置 ${s.name} 的班级`}
+                        value={s.class_id ?? null}
+                        allowEmpty
+                        emptyLabel="未分班"
+                        classes={classList}
+                        loadFailed={classesFailed}
+                        onRetry={refreshClasses}
+                        onChange={(classId) => {
+                          setInlineEdit(null);
+                          saveInlineEdit(s.user_code, "class_name", classNameById(classId));
+                        }}
+                        className="w-32"
+                      />
+                    ) : (
+                      <span
+                        role="button"
+                        tabIndex={0}
+                        className="cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-800 px-1 rounded"
+                        onClick={() => setInlineEdit({ studentId: s.user_code, field: "class_name", value: classNameOf(s) })}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" || e.key === " ") {
+                            e.preventDefault();
+                            e.currentTarget.click();
+                          }
+                        }}
+                      >
+                        {classNameOf(s) || <span className="text-muted">-</span>}
+                      </span>
+                    )}
+                  </td>
+                  <td className="px-4 py-2 whitespace-nowrap">
+                    {isSubmitted(s.submitted_at) ? (
+                      <span className="inline-flex items-center gap-1.5">
+                        <span className="px-1.5 py-0.5 rounded bg-green-50 dark:bg-green-900/30 text-green-700 dark:text-green-300 text-xs">
+                          已提交
+                        </span>
+                        <span className="text-xs text-muted">{formatSubmittedAt(s.submitted_at)}</span>
+                      </span>
+                    ) : (
+                      <span className="px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-xs text-muted">
+                        未提交
+                      </span>
+                    )}
+                  </td>
+                  <td className="px-4 py-2">
+                    <div className="flex items-center gap-2 opacity-60 group-hover:opacity-100 transition-opacity">
+                      <button onClick={() => openEditModal(s)} className="text-green-600 hover:text-green-700 text-xs font-medium">
+                        编辑
+                      </button>
+                      <button
+                        onClick={() => {
+                          setResettingStudent(s);
+                          setResetPwd("");
+                        }}
+                        className="text-warning-strong hover:opacity-80 text-xs font-medium"
+                      >
+                        重置密码
+                      </button>
+                      <button onClick={() => handleDeleteSingle(s.user_code)} className="text-red-500 hover:text-red-600 text-xs font-medium">
+                        删除
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+              {filteredStudents.length === 0 && (
+                <tr>
+                  <td colSpan={6} className="px-4 py-8 text-center text-muted text-sm">
+                    {students.length === 0 ? (
+                      <span className="inline-flex flex-col items-center gap-2">
+                        <Users size={28} strokeWidth={1.5} className="text-gray-300" />
+                        还没有学生，在上方添加或导入名单
+                      </span>
+                    ) : (
+                      "无匹配结果"
+                    )}
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* Edit Modal */}
+      {editing && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 px-4" onClick={() => setEditing(null)}>
+          <div role="dialog" aria-modal="true" aria-labelledby="students-edit-title" className="bg-card rounded-2xl shadow-xl max-w-sm w-full p-6 space-y-4" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between">
+              <h3 id="students-edit-title" className="font-semibold text-foreground">编辑学生</h3>
+              <button onClick={() => setEditing(null)} aria-label="关闭" className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 text-xl">
+                ×
+              </button>
+            </div>
+            <div className="space-y-3">
+              <div>
+                <label className="text-xs text-muted">学号</label>
+                <p className="font-mono text-sm text-gray-700 dark:text-gray-200 bg-gray-50 dark:bg-gray-800 px-3 py-2 rounded-lg">{editing.user_code}</p>
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs text-muted">姓名</label>
+                <input
+                  value={editName}
+                  onChange={(e) => setEditName(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 bg-card text-foreground rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-focus-ring"
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs text-muted">班级</label>
+                <ClassSelect
+                  ariaLabel="选择班级"
+                  value={editClassId}
+                  onChange={setEditClassId}
+                  classes={classList}
+                  allowEmpty
+                  emptyLabel="未分班"
+                  loadFailed={classesFailed}
+                  onRetry={refreshClasses}
+                />
+              </div>
+            </div>
+            <div className="flex gap-2 pt-2">
+              <button
+                onClick={() => setEditing(null)}
+                className="flex-1 py-2 bg-gray-100 hover:bg-gray-200 dark:bg-gray-800 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-200 text-sm font-medium rounded-lg transition-colors"
+              >
+                取消
+              </button>
+              <button
+                onClick={saveEditModal}
+                className="flex-1 py-2 bg-primary hover:bg-primary-strong text-white text-sm font-medium rounded-lg transition-colors"
+              >
+                保存
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Import preview modal（#98：背景层不响应点击关闭，防止核对/调整列映射时误触丢失已解析数据；仅右上角 × 与「取消」按钮可退出） */}
+      {preview && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 px-4">
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="students-import-title"
+            className="bg-card rounded-2xl shadow-xl max-w-2xl w-full p-6 space-y-4 max-h-[85vh] flex flex-col"
+          >
+            <div className="flex items-center justify-between">
+              <h3 id="students-import-title" className="font-semibold text-foreground text-lg">导入预览</h3>
+              <button
+                onClick={() => setPreview(null)}
+                aria-label="关闭导入预览"
+                className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 text-xl"
+              >
+                ×
+              </button>
+            </div>
+            {/* 列映射调整 */}
+            <div className="flex flex-wrap items-center gap-3">
+              <label className="flex items-center gap-1.5 text-sm text-gray-600 dark:text-gray-300">
+                学号列
+                <select
+                  value={preview.idCol}
+                  onChange={(e) => setPreview({ ...preview, idCol: Number(e.target.value) })}
+                  className="px-2 py-1 border border-gray-200 dark:border-gray-700 rounded-lg text-sm bg-card text-foreground focus:outline-none focus:ring-2 focus:ring-focus-ring"
+                >
+                  {Array.from({ length: columnCount }, (_, i) => (
+                    <option key={i} value={i}>
+                      {columnLabel(i)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="flex items-center gap-1.5 text-sm text-gray-600 dark:text-gray-300">
+                姓名列
+                <select
+                  value={preview.nameCol}
+                  onChange={(e) => setPreview({ ...preview, nameCol: Number(e.target.value) })}
+                  className="px-2 py-1 border border-gray-200 dark:border-gray-700 rounded-lg text-sm bg-card text-foreground focus:outline-none focus:ring-2 focus:ring-focus-ring"
+                >
+                  {Array.from({ length: columnCount }, (_, i) => (
+                    <option key={i} value={i}>
+                      {columnLabel(i)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="flex items-center gap-1.5 text-sm text-gray-600 dark:text-gray-300">
+                班级列
+                <select
+                  value={preview.classCol}
+                  onChange={(e) => setPreview({ ...preview, classCol: Number(e.target.value) })}
+                  className="px-2 py-1 border border-gray-200 dark:border-gray-700 rounded-lg text-sm bg-card text-foreground focus:outline-none focus:ring-2 focus:ring-focus-ring"
+                >
+                  <option value={-1}>不导入</option>
+                  {Array.from({ length: columnCount }, (_, i) => (
+                    <option key={i} value={i}>
+                      {columnLabel(i)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+            <p className="text-sm text-muted">
+              共 {parsedRows.length} 条
+              {previewInvalid > 0 && <span className="text-red-500">，其中 {previewInvalid} 条学号/姓名无效（红色，不会导入）</span>}
+              。黄色表示班级不存在，导入后将留未分班。
+            </p>
+            <div className="overflow-y-auto border border-border-soft rounded-lg flex-1">
+              <table className="w-full text-sm">
+                <thead className="sticky top-0 bg-gray-50 dark:bg-gray-800">
+                  <tr className="text-left text-muted">
+                    <th className="px-4 py-2 font-medium">学号</th>
+                    <th className="px-4 py-2 font-medium">姓名</th>
+                    <th className="px-4 py-2 font-medium">班级</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-50">
+                  {parsedRows.map((r, i) => {
+                    const invalid = !/^\d{12}$/.test(r.studentId) || !r.name.trim();
+                    const classMissing = isClassNameMissing(r.className, classList, classesUnavailable);
+                    return (
+                      <tr key={i} className={invalid ? "bg-danger/10" : classMissing ? "bg-warning/10" : ""}>
+                        <td className="px-4 py-1.5 font-mono text-xs">{r.studentId || "-"}</td>
+                        <td className="px-4 py-1.5">{r.name || "-"}</td>
+                        <td className="px-4 py-1.5">{r.className || <span className="text-gray-400">-</span>}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+            <div className="flex gap-2 pt-1">
+              <button
+                onClick={() => setPreview(null)}
+                className="flex-1 py-2 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-200 text-sm font-medium rounded-lg transition-colors"
+              >
+                取消
+              </button>
+              <button
+                onClick={confirmImport}
+                className="flex-1 py-2 bg-primary hover:bg-primary-strong text-white text-sm font-medium rounded-lg transition-colors"
+              >
+                确认导入（{parsedRows.length - previewInvalid} 条）
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Single reset password modal */}
+      {resettingStudent && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 px-4" onClick={() => setResettingStudent(null)}>
+          <div role="dialog" aria-modal="true" aria-labelledby="students-reset-title" className="bg-card rounded-2xl shadow-xl max-w-sm w-full p-6 space-y-4" onClick={(e) => e.stopPropagation()}>
+            <h3 id="students-reset-title" className="font-semibold text-foreground text-lg">重置密码 — {resettingStudent.name}</h3>
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={resetPwd}
+                onChange={(e) => setResetPwd(e.target.value)}
+                placeholder="至少 8 位密码"
+                className="flex-1 px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg text-sm font-mono focus:outline-none focus:ring-2 focus:ring-focus-ring"
+              />
+              <button
+                type="button"
+                onClick={() => setResetPwd(generatePassword())}
+                className="px-3 py-2 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-200 text-sm rounded-lg transition-colors whitespace-nowrap"
+              >
+                自动生成
+              </button>
+            </div>
+            <div className="flex gap-2 pt-2">
+              <button
+                onClick={() => setResettingStudent(null)}
+                className="flex-1 py-2 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-200 text-sm font-medium rounded-lg transition-colors"
+              >
+                取消
+              </button>
+              <button
+                onClick={submitResetPassword}
+                className="flex-1 py-2 bg-primary hover:bg-primary-strong text-white text-sm font-medium rounded-lg transition-colors"
+              >
+                重置
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Single credentials dialog (one-time) */}
+      {credential && (
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 px-4" onClick={() => setCredential(null)}>
+          <div role="dialog" aria-modal="true" aria-labelledby="students-credential-title" className="bg-card rounded-2xl shadow-xl max-w-sm w-full p-6 space-y-4" onClick={(e) => e.stopPropagation()}>
+            <h3 id="students-credential-title" className="font-semibold text-foreground text-lg">密码已重置</h3>
+            <p className="text-xs text-warning-strong">请立即记录并告知学生，关闭后将无法再次查看密码。</p>
+            <div className="space-y-2 text-sm">
+              <div className="flex justify-between items-center bg-gray-50 dark:bg-gray-800 rounded-lg px-3 py-2">
+                <span className="text-muted">学号</span>
+                <code className="font-mono font-medium text-foreground">{credential.user_code}</code>
+              </div>
+              <div className="flex justify-between items-center bg-gray-50 dark:bg-gray-800 rounded-lg px-3 py-2">
+                <span className="text-muted">新密码</span>
+                <code className="font-mono font-medium text-foreground">{credential.password}</code>
+              </div>
+            </div>
+            <button
+              onClick={() => setCredential(null)}
+              className="w-full py-2 bg-primary hover:bg-primary-strong text-white text-sm font-medium rounded-lg transition-colors"
+            >
+              我已记录
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Batch password results dialog */}
+      {batchPwdResults && (
+        <div
+          className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 px-4"
+          onClick={() => setBatchPwdResults(null)}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="students-batch-title"
+            className="bg-card rounded-2xl shadow-xl max-w-lg w-full p-6 space-y-4 max-h-[85vh] flex flex-col"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 id="students-batch-title" className="font-semibold text-foreground text-lg">批量重置完成（{batchPwdResults.length} 人）</h3>
+            <p className="text-xs text-warning-strong">请立即记录或复制，关闭后将无法再次查看密码。</p>
+            <div className="overflow-y-auto border border-border-soft rounded-lg flex-1">
+              <table className="w-full text-sm">
+                <thead className="sticky top-0 bg-gray-50 dark:bg-gray-800">
+                  <tr className="text-left text-muted">
+                    <th className="px-4 py-2 font-medium">学号</th>
+                    <th className="px-4 py-2 font-medium">姓名</th>
+                    <th className="px-4 py-2 font-medium">新密码</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-50">
+                  {batchPwdResults.map((r) => (
+                    <tr key={r.user_code}>
+                      <td className="px-4 py-1.5 font-mono text-xs">{r.user_code}</td>
+                      <td className="px-4 py-1.5">{r.name}</td>
+                      <td className="px-4 py-1.5 font-mono text-xs">{r.password}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div className="flex gap-2 pt-1">
+              <button
+                onClick={copyAllCredentials}
+                className="flex-1 py-2 bg-info hover:bg-blue-600 text-white text-sm font-medium rounded-lg transition-colors"
+              >
+                复制全部
+              </button>
+              <button
+                onClick={() => setBatchPwdResults(null)}
+                className="flex-1 py-2 bg-primary hover:bg-primary-strong text-white text-sm font-medium rounded-lg transition-colors"
+              >
+                我已记录
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Confirm: Delete single */}
+      <ConfirmDialog
+        open={!!confirmDelete}
+        title="确认删除"
+        message={`确定删除学号 ${confirmDelete?.ids[0]} 的学生？此操作不可恢复。`}
+        variant="danger"
+        confirmText="删除"
+        onConfirm={() => {
+          if (confirmDelete) {
+            executeDelete(confirmDelete.ids);
+            setConfirmDelete(null);
+          }
+        }}
+        onCancel={() => setConfirmDelete(null)}
+      />
+
+      {/* Confirm: Batch delete */}
+      <ConfirmDialog
+        open={confirmBatchDelete}
+        title="批量删除"
+        message={`确定删除选中的 ${selectedStudents.size} 名学生？此操作不可恢复。`}
+        variant="danger"
+        confirmText="删除"
+        onConfirm={() => {
+          executeDelete(Array.from(selectedStudents));
+          setConfirmBatchDelete(false);
+        }}
+        onCancel={() => setConfirmBatchDelete(false)}
+      />
+
+      {/* Confirm: Batch set class */}
+      <ConfirmDialog
+        open={confirmBatchClass}
+        title="批量设置班级"
+        message={
+          <div className="space-y-2">
+            <p>将选中的 {selectedStudents.size} 名学生设置为：</p>
+            <ClassSelect
+              ariaLabel="选择班级"
+              placeholder="请选择班级"
+              value={batchClassPick}
+              onChange={setBatchClassPick}
+              classes={classList}
+              allowEmpty
+              emptyLabel="未分班"
+              loadFailed={classesFailed}
+              onRetry={refreshClasses}
+            />
+          </div>
+        }
+        variant="warning"
+        confirmText={batchClassConfirmText}
+        onConfirm={executeBatchSetClass}
+        onCancel={() => {
+          setConfirmBatchClass(false);
+          setBatchClassPick(undefined);
+        }}
+      />
+
+      {/* Confirm: Batch reset password */}
+      <ConfirmDialog
+        open={confirmBatchPwd}
+        title="批量重置密码"
+        message={`将为选中的 ${selectedStudents.size} 名学生各生成一个不同的随机密码，确认继续？`}
+        variant="warning"
+        confirmText={batchPwdLoading ? "重置中..." : "确认重置"}
+        onConfirm={executeBatchPassword}
+        onCancel={() => setConfirmBatchPwd(false)}
+      />
+    </div>
+  );
+}

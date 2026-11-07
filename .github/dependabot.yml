@@ -1,0 +1,20 @@
+version: 2
+updates:
+  - package-ecosystem: "npm"
+    directory: "/"
+    target-branch: "dev"
+    schedule:
+      interval: "weekly"
+    # react-dom pins its peer react to the same patch version (#378), so splitting
+    # these bumps breaks `npm ci` during CI.
+    groups:
+      react:
+        patterns:
+          - "react"
+          - "react-dom"
+          - "@types/react"
+          - "@types/react-dom"
+    # ESLint 10 crashes on eslint-plugin-react 7.x, which eslint-config-next bundles.
+    ignore:
+      - dependency-name: "eslint"
+        versions: [">=10.0.0"]

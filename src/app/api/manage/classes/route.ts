@@ -1,0 +1,73 @@
+import { withDemoScope } from "@/lib/demo-scope";
+import { NextRequest, NextResponse } from "next/server";
+import {
+  getClasses,
+  getClassByName,
+  getTeacherClassPairs,
+  insertClass,
+  insertTeacherClass,
+  randomInviteCode,
+} from "@/lib/db";
+import { getSession } from "./helpers";
+import { getRequestContext, recordAudit } from "@/lib/audit";
+import { validateNewClassName } from "@/lib/class-utils";
+
+/** 生成不重复的邀请码（碰撞重试） */
+async function uniqueInviteCode(): Promise<string> {
+  for (let i = 0; i < 10; i++) {
+    const code = randomInviteCode();
+    const exists = await getClasses().then((list) => list.some((c) => c.invitation_code === code));
+    if (!exists) return code;
+  }
+  throw new Error("邀请码生成失败");
+}
+
+async function GET_impl() {
+  try {
+    const [classes, pairs] = await Promise.all([getClasses(), getTeacherClassPairs()]);
+    return NextResponse.json({ data: classes, teacher_classes: pairs });
+  } catch (err) {
+    console.error("Classes GET error:", err);
+    return NextResponse.json({ error: "获取班级列表失败" }, { status: 500 });
+  }
+}
+
+async function POST_impl(request: NextRequest) {
+  const { ip, user_agent } = getRequestContext(request);
+  try {
+    const session = await getSession(request);
+    if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+    const { name } = await request.json();
+    const { name: className, error: nameError } = validateNewClassName(name);
+    if (nameError) {
+      return NextResponse.json({ error: nameError }, { status: 400 });
+    }
+
+    const existing = await getClassByName(className);
+    if (existing) {
+      return NextResponse.json({ error: "班级名称已存在" }, { status: 409 });
+    }
+
+    const code = await uniqueInviteCode();
+    const id = await insertClass(className, code);
+    if (session.role === "teacher" && session.uid != null) {
+      await insertTeacherClass(session.uid, id);
+    }
+    // 邀请码不写入审计（#110）
+    void recordAudit({
+      actor_id: session.uid ?? null, actor_user_code: null, actor_name: session.name ?? null, actor_role: session.role ?? null,
+      action: "class:create", method: "POST", path: "/api/manage/classes",
+      resource_type: "class", resource_id: String(id),
+      status: "success", error_message: null, ip, user_agent,
+      metadata: { name: className },
+    });
+    return NextResponse.json({ ok: true, id });
+  } catch (err) {
+    console.error("Classes POST error:", err);
+    return NextResponse.json({ error: "创建班级失败" }, { status: 500 });
+  }
+}
+
+export const GET = withDemoScope(GET_impl);
+export const POST = withDemoScope(POST_impl);
