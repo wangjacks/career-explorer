@@ -43,6 +43,36 @@ describe("about content", () => {
     }
   });
 
+  it("matches the inline profile submission flow (#168 / #208 / #162)", () => {
+    const stepCopy = ABOUT_STEPS.join("\n");
+    for (const keyword of ["激活", "标签", "三条", "头像", "历史提交", "恢复"]) {
+      expect(stepCopy).toContain(keyword);
+    }
+    // 向导、确认页与本地预览已在 #168 删除，不能再出现在流程描述里
+    for (const phrase of ["向导", "确认页", "本地预览", "仅本地预览", "至少一项", "三项至少"]) {
+      expect(stepCopy).not.toContain(phrase);
+    }
+  });
+
+  it("states the assessment length and retake capabilities actually shipped", () => {
+    const assessmentCopy = allCopy;
+    for (const keyword of ["30 题", "120 题", "50 题", "草稿", "三字码", "O*NET"]) {
+      expect(assessmentCopy).toContain(keyword);
+    }
+  });
+
+  it("names the shipped grouping and profile-list terminology", () => {
+    expect(allCopy).toContain("智能分组");
+    expect(allCopy).toContain("数据列表测评双列");
+    expect(allCopy).not.toContain("自动分组");
+  });
+
+  it("keeps the O*NET and IPIP licence statements", () => {
+    expect(allCopy).toContain("O*NET Tools Developer License");
+    expect(allCopy).toContain("CC BY 4.0");
+    expect(allCopy).toContain("公有领域");
+  });
+
   it("does not hardcode a release version", () => {
     expect(allCopy).not.toMatch(/\bv?\d+\.\d+\.\d+\b/);
   });
