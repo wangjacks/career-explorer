@@ -332,6 +332,8 @@ export default function GroupingPreviewPanel({
   };
 
   const bestBaseline = preview ? Math.max(preview.metrics.baselines.sequence, preview.metrics.baselines.random) : 0;
+  /** 本次预览实际生效的性格权重（不是输入框草稿）：为 0 时角色目标仍按大五计算 */
+  const bigfiveWeight = preview?.sources.find((source) => source.key === "bigfive")?.weight ?? 0;
   const swapTargets = useMemo(() => {
     if (!preview || !swap) return [];
     return preview.groups
@@ -411,6 +413,11 @@ export default function GroupingPreviewPanel({
           )}
         </div>
       )}
+      {preview && !loading && strategy !== "idf-cosine" && bigfiveWeight === 0 && (
+        <p className="text-xs text-muted">
+          性格权重为 0：相似度不再使用性格，但角色目标（组织者 / 推进者 / 点子王 / 协调者）与「角色覆盖不足」提示仍然生效，始终按大五 C·E·O·A 判定。
+        </p>
+      )}
       {preview &&
         !loading &&
         strategy !== "idf-cosine" &&
@@ -466,6 +473,10 @@ export default function GroupingPreviewPanel({
               </span>
             )}
           </div>
+          <p className="sm:col-span-3 text-[11px] text-muted">
+            权重只影响组内相似度。角色是「兴趣相近 + 性格互补」「兴趣互补」两种策略的组合目标，始终按性格（大五
+            C·E·O·A）判定：把性格权重设为 0 不会停用角色目标，只是不再影响相似度。
+          </p>
         </div>
       )}
 
@@ -498,7 +509,9 @@ export default function GroupingPreviewPanel({
             <PreviewMetric
               label="角色覆盖均值"
               value={`${(preview.metrics.roleCoverageAverage ?? 0).toFixed(1)} / 4`}
-              hint={`目标每组 ≥ ${preview.roleCoverageTarget}`}
+              hint={`目标每组 ≥ ${preview.roleCoverageTarget}${
+                strategy === "idf-cosine" ? "" : " · 按性格判定，与权重无关"
+              }`}
             />
             <PreviewMetric label="分组" value={`${preview.groups.length} 组`} hint={`${preview.studentCount} 人 · 每组上限 ${preview.groupSize}`} />
             <PreviewMetric

@@ -277,6 +277,23 @@ describe("三种策略（#345）", () => {
     expect(result.metrics.coverageBySource?.map((row) => row.key)).toEqual(["tags", "riasec", "bigfive"]);
   });
 
+  it("性格权重为 0（#364）：相似度不再使用大五，但角色覆盖目标与指标仍按大五生效", () => {
+    const { users, context } = strategyClass();
+    const vectors = buildFeatureVectors(users, FEATURE_SOURCES, context);
+    // 权重只影响相似度：bigfive=0 时该源退出相似度，但角色目标仍走大五 C·E·O·A
+    const result = buildGrouping(vectors, withWeights({ bigfive: 0 }), {
+      strategy: GROUPING_STRATEGY_INTEREST_ROLE,
+    });
+
+    expect(result.metrics.activeSourceKeys).toEqual(["tags", "riasec"]);
+    expect(result.metrics.roleCoverageTarget).toBe(ROLE_COVERAGE_TARGET);
+    expect(result.metrics.roleCoverage).toEqual(
+      result.groups.map((group) => roleCoverageOfVectors(result.vectors, group))
+    );
+    expect(Math.max(...(result.metrics.roleCoverage ?? [0]))).toBeGreaterThanOrEqual(ROLE_COVERAGE_TARGET);
+    expect(result.metrics.roleCoverageAverage).toBeGreaterThan(0);
+  });
+
   it("B（兴趣互补）：每组覆盖更多兴趣型，组内兴趣相似度低于 A", () => {
     const { users, context } = strategyClass();
     const vectors = buildFeatureVectors(users, FEATURE_SOURCES, context);
