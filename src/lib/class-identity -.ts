@@ -26,7 +26,8 @@ export function toClassGroup(
   if (classId === null || classId === undefined || classId === "" || !className) {
     return { key: UNASSIGNED_CLASS_KEY, label: UNASSIGNED_CLASS_LABEL };
   }
-return { key: String(classId), label: className };
+return { key: className, label: String(classId) };
+
 
 }
 
