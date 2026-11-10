@@ -211,7 +211,7 @@ describe("fillClassTrend", () => {
       2
     );
     expect(series.series).toEqual([
-      { key: "一班", label: "一班" },
+      { key: "一班", label: "7" },
       { key: "__unassigned__", label: "未分班" },
     ]);
     expect(series.points).toEqual([
