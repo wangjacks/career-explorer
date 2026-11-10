@@ -40,7 +40,19 @@ async function POST_impl(request: NextRequest) {
     });
   };
 
-  if (!result.valid || result.demo !== true) {
+  // 会话失效与「有效但非演示会话」是两回事：前者 401 并清 cookie（与 GET /api/auth 同口径），
+  // 后者才是越权。合并成一条会把过期 token 误报成「仅演示会话可切换角色」并让审计无法归因。
+  if (!result.valid) {
+    auditFailed("会话已失效");
+    const response = NextResponse.json(
+      { ok: false, error: "登录状态已失效，请重新登录" },
+      { status: 401 }
+    );
+    response.cookies.set("auth_token", "", { ...AUTH_COOKIE_OPTIONS, maxAge: 0 });
+    return response;
+  }
+
+  if (result.demo !== true) {
     auditFailed("仅演示会话可切换角色");
     return NextResponse.json({ ok: false, error: "仅演示会话可切换角色" }, { status: 403 });
   }
