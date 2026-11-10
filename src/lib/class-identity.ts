@@ -26,7 +26,7 @@ export function toClassGroup(
   if (classId === null || classId === undefined || classId === "" || !className) {
     return { key: UNASSIGNED_CLASS_KEY, label: UNASSIGNED_CLASS_LABEL };
   }
-  return { key: className, label: className };
+  return { key: String(classId), label: className };
 }
 
 export function isReservedClassName(name: string): boolean {
