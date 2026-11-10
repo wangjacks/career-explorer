@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeAll, afterAll } from "vitest";
 import { NextRequest } from "next/server";
+import { SignJWT } from "jose";
 import path from "path";
 import { rmSync } from "fs";
 
@@ -80,23 +81,57 @@ describe("POST /api/auth/demo-switch（#255）", () => {
     if (prev) process.env.DEMO_ENABLED = prev;
   });
 
-  it("无 token / 非 demo token → 403，且拒绝落生产审计", async () => {
-    expect((await switchPOST(req("/api/auth/demo-switch", undefined, { role: "teacher" }))).status).toBe(403);
+  it("无 cookie / 过期 token / 非法签名 → 401 + 失效文案 + 清 cookie（#368）", async () => {
+    const secret = new TextEncoder().encode(
+      process.env.JWT_SECRET || "career-explorer-default-secret-change-me"
+    );
+    const now = Math.floor(Date.now() / 1000);
+    const expired = await new SignJWT({ role: "student", uid: 1, name: "过期学生", demo: true })
+      .setProtectedHeader({ alg: "HS256" })
+      .setIssuedAt(now - 7200)
+      .setExpirationTime(now - 60)
+      .sign(secret);
+    const forged = await new SignJWT({ role: "student", uid: 1, name: "伪造学生", demo: true })
+      .setProtectedHeader({ alg: "HS256" })
+      .setIssuedAt()
+      .setExpirationTime("1h")
+      .sign(new TextEncoder().encode("not-the-real-secret"));
 
+    for (const cookie of [undefined, `auth_token=${expired}`, `auth_token=${forged}`, "auth_token=garbage"]) {
+      const res = await switchPOST(req("/api/auth/demo-switch", cookie, { role: "teacher" }));
+      expect(res.status).toBe(401);
+      expect((await res.json()).error).toBe("登录状态已失效，请重新登录");
+      const setCookie = res.headers.get("set-cookie") ?? "";
+      expect(setCookie).toContain("auth_token=;");
+      expect(setCookie.toLowerCase()).toContain("max-age=0");
+    }
+  }, 60_000);
+
+  it("有效的非演示会话 → 403 原文案，且不清 cookie", async () => {
     const prodToken = await signToken({ role: "admin", uid: 1, name: "生产管理员" });
-    expect(
-      (await switchPOST(req("/api/auth/demo-switch", `auth_token=${prodToken}`, { role: "teacher" }))).status
-    ).toBe(403);
+    const res = await switchPOST(req("/api/auth/demo-switch", `auth_token=${prodToken}`, { role: "teacher" }));
+    expect(res.status).toBe(403);
+    expect((await res.json()).error).toBe("仅演示会话可切换角色");
+    expect(res.headers.get("set-cookie")).toBeNull();
+  }, 60_000);
 
+  it("失败审计区分「会话失效」与「非演示会话」，且不落演示审计", async () => {
     await flush();
-    expect(
-      (await queryAuditLogs({ page: 1, pageSize: 50, action: "auth:demo-switch", status: "failed" })).total
-    ).toBeGreaterThanOrEqual(1);
-    // 拒绝未写入演示库
+    const logs = await queryAuditLogs({
+      page: 1,
+      pageSize: 50,
+      action: "auth:demo-switch",
+      status: "failed",
+    });
+    expect(logs.total).toBeGreaterThanOrEqual(2);
+    const messages = new Set(logs.rows.map((r) => r.error_message));
+    expect(messages.has("会话已失效")).toBe(true);
+    expect(messages.has("仅演示会话可切换角色")).toBe(true);
+    // 会话失效时还无法判定演示身份，拒绝记录落生产库、不写演示库
     expect(
       (await runInDemoScope(() => queryAuditLogs({ page: 1, pageSize: 50, action: "auth:demo-switch" }))).total
     ).toBe(0);
-  }, 60_000);
+  });
 
   it("名册学生的演示会话（seq<1000）→ 403 非访客账户", async () => {
     const roster = await runInDemoScope(() => getUserByCode(nextDemoStudentCode(1)));

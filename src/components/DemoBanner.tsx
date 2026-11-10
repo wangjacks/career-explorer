@@ -39,6 +39,8 @@ export default function DemoBanner() {
       const data = (await res.json().catch(() => ({}))) as { error?: unknown };
       if (!res.ok) {
         toast.error(typeof data.error === "string" ? data.error : "切换失败");
+        // 会话已失效：离开当前面板让登录页接管，不停在「看起来还登录着」的界面
+        if (res.status === 401) router.replace("/login");
         return;
       }
       toast.success(`已切换到${ROLE_LABELS[role]}视角`);
