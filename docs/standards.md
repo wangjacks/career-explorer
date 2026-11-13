@@ -19,7 +19,7 @@
 | `dev` | 日常开发集成分支，所有功能 PR 的默认目标 | `main` / 功能分支 | `release/vX.Y.Z` |
 | `release/vX.Y.Z` | 版本发布线，只做发版准备和发布修复 | `dev` | `main` |
 | `hotfix/xxx` | 生产紧急修复 | `main` | `main`，随后回流 `dev` |
-| `feat/`、`fix/`、`refactor/` | 功能、修复、重构分支 | `dev` | `dev` |
+| `feat/`、`fix/`、`refactor/`、`docs/` | 功能、修复、重构、文档分支 | `dev` | `dev` |
 
 ### 分支命名
 
@@ -28,12 +28,13 @@
 | `feat/` | 新功能 | `feat/admin-dashboard` |
 | `fix/` | Bug 修复 | `fix/issue-15-path-traversal` |
 | `refactor/` | 重构 | `refactor/admin-split` |
+| `docs/` | 文档与规范变更 | `docs/413-issue-title-guidelines` |
 | `release/` | 版本发布线 | `release/v2.0.0` |
 | `hotfix/` | 生产紧急修复 | `hotfix/v2.0.1-login-error` |
 
 ### 分支规则
 
-- 功能分支必须从 `dev` 切出，PR 回 `dev`
+- 功能 / 修复 / 重构 / 文档分支必须从 `dev` 切出，PR 回 `dev`
 - `main` 只接受 `release/vX.Y.Z` 或 `hotfix/xxx` 的 PR
 - `release/vX.Y.Z` 只接受发版所需变更：
   - 已进入 `dev` 且计划纳入该版本线的修复、依赖更新或其他变更
@@ -159,7 +160,7 @@ git config --global commit.gpgsign true
 
 ## 5. Issue 管理
 
-- Issue 标题保留可选的优先级前缀，例如 `[P1-A] 管理后台操作审计日志`
+- Issue 标题使用描述性问题或结果描述，不写优先级、领域或类型前缀；具体规则见 `docs/issue-standard.md` §1
 - 类型、优先级和业务领域通过 `type:*`、`priority:*`、`area:*` Label 表达
 - Issue 编写、脱敏、Milestone 和验收标准遵循 `docs/issue-standard.md`
 - PR 合并到 `dev` 后手动关闭 Issue
