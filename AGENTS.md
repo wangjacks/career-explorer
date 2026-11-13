@@ -88,7 +88,7 @@ find src/app -name page.tsx && find src/app/api -name route.ts
 - **三角色认证**：`/api/auth` POST 验证 `user_code` + 密码（bcrypt）→ 签发 JWT（jose HS256, 24h, 含 role/uid/name）→ HttpOnly Cookie（`auth_token`, secure, sameSite=lax）
 - 会话检测：`GET /api/auth` 返回 `{ ok, role, uid, name }`（httpOnly cookie 前端不可读，必须经 API 检测）；登出 `DELETE /api/auth`
 - 中间件：`proxy.ts` matcher 仅 `/dashboard/admin/:path*` 与 `/api/manage/:path*`；teacher/student 面板不经 proxy，由路由自鉴权
-- 权限模型：`/api/manage/*` admin 全放行；teacher 按 `TEACHER_ALLOWED`（前缀 + 方法，**改代码必须同步改 `docs/architecture.md` 权限表**）；`/api/shared/*` 路由自鉴权；其余 `/api/*` 不拦截
+- 权限模型：`/api/manage/*` 生产 admin 全放行；demo-admin（`demo:true` 且 `role=admin`）按 `DEMO_ALLOWED` 收敛（#274），不再享受 admin 全放行（明细见 `docs/architecture.md`「管理域」权限表）；teacher 按 `TEACHER_ALLOWED`（前缀 + 方法，**改代码必须同步改 `docs/architecture.md` 权限表**）；`/api/shared/*` 路由自鉴权；其余 `/api/*` 不拦截
 - 例外：分组（`/api/manage/groups*`）前缀整体放行，**班级归属在路由内判定**——读不限（教师可看全校分组），写限自建班（`canModifyClass`），被拒的写同样落审计
 - 例外：学生写入（`/api/manage/students*`）前缀整体放行，**归属由路由内 `WriteGuard` 判定**（#171）——学生以其 `class_id` 在教师关联班级内为准，未分班学生只有管理员可写，批量操作任一行越界即整批拒绝；读不限（教师可看全校名单）
 - 例外：档案清除（`/api/manage/profiles` DELETE）沿用同一 `WriteGuard`（#243）——教师只能清除本人管辖班级学生的档案，未分班 / 他班 / 不在册 id 整批 403 且不落任何写入；成功与被拒均记审计 `profile:clear`，读列表仍不限班级
