@@ -53,8 +53,8 @@ export function computeRosterBits(enrolled: number, submitted: number) {
 
 /**
  * 分班多序列：recharts 要求每个分组是数据项的顶层数值字段，故按 series 顺序生成
- * `s0...` 位置别名。班名是用户输入，不能直接当图表字段（`date` / `__proto__` / `s0`
- * 都会撞车），`counts` 只按 key 取值，不展开到图表行。
+ * `s0...` 位置别名。分组键是 class_id，但 label 仍是用户输入，不能直接当图表字段
+ * （`date` / `__proto__` / `s0` 都会撞车）；`counts` 只按 key 取值，不展开到图表行。
  */
 export function buildClassSeries(
   series: readonly ClassGroup[],

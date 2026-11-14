@@ -12,8 +12,8 @@ import {
 describe("computeDashboardTotals", () => {
   it("由 compare 求和在册 / 已提交 / 未提交与提交率", () => {
     const totals = computeDashboardTotals([
-      { key: "一班", label: "一班", total: 40, submitted: 30 },
-      { key: "二班", label: "二班", total: 20, submitted: 15 },
+      { key: "7", label: "一班", total: 40, submitted: 30 },
+      { key: "8", label: "二班", total: 20, submitted: 15 },
     ]);
     expect(totals.enrolled).toBe(60);
     expect(totals.submitted).toBe(45);
@@ -30,7 +30,7 @@ describe("computeDashboardTotals", () => {
   });
 
   it("全员已提交时未提交为 0、提交率 100%", () => {
-    const totals = computeDashboardTotals([{ key: "一班", label: "一班", total: 12, submitted: 12 }]);
+    const totals = computeDashboardTotals([{ key: "7", label: "一班", total: 12, submitted: 12 }]);
     expect(totals.unsubmitted).toBe(0);
     expect(totals.rateText).toBe("100.0%");
   });
@@ -64,10 +64,10 @@ describe("buildClassSeries", () => {
   it("按 series 顺序生成位置字段并保留 date", () => {
     const series = buildClassSeries(
       [
-        { key: "一班", label: "一班" },
-        { key: "二班", label: "二班" },
+        { key: "7", label: "一班" },
+        { key: "8", label: "二班" },
       ],
-      [{ date: "2026-10-17", counts: { 一班: 2, 二班: 3 } }]
+      [{ date: "2026-10-17", counts: { "7": 2, "8": 3 } }]
     );
     expect(series).toEqual([{ date: "2026-10-17", s0: 2, s1: 3 }]);
   });
@@ -75,10 +75,10 @@ describe("buildClassSeries", () => {
   it("班名恰为 date / __proto__ 时也不污染图表字段", () => {
     const series = buildClassSeries(
       [
-        { key: "date", label: "date" },
-        { key: "__proto__", label: "__proto__" },
+        { key: "7", label: "date" },
+        { key: "8", label: "__proto__" },
       ],
-      [{ date: "2026-10-17", counts: { date: 5, ["__proto__"]: 6 } }]
+      [{ date: "2026-10-17", counts: { "7": 5, "8": 6 } }]
     );
     expect(series[0]).toEqual({ date: "2026-10-17", s0: 5, s1: 6 });
   });
@@ -86,13 +86,13 @@ describe("buildClassSeries", () => {
   it("存在名为 date 的班级时，X 轴字段仍是日期、该班数值落在自己的位置别名上", () => {
     const rows = buildClassSeries(
       [
-        { key: "一班", label: "一班" },
-        { key: "date", label: "date" },
-        { key: "三班", label: "三班" },
+        { key: "7", label: "一班" },
+        { key: "8", label: "date" },
+        { key: "9", label: "三班" },
       ],
       [
-        { date: "2026-10-17", counts: { 一班: 1, date: 2, 三班: 3 } },
-        { date: "2026-10-18", counts: { 一班: 4, date: 5, 三班: 6 } },
+        { date: "2026-10-17", counts: { "7": 1, "8": 2, "9": 3 } },
+        { date: "2026-10-18", counts: { "7": 4, "8": 5, "9": 6 } },
       ]
     );
     // 字段集合只有 date + 位置别名：任何合法班名都进不了图表行的键

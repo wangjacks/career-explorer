@@ -109,6 +109,7 @@ export function fillGroupedTrend(
   }
   // 排序放在 JS 里做：SQLite BINARY 与 MySQL collation 对班名的排序不同，
   // 依赖 SQL ORDER BY 会让两适配器的序列顺序（进而配色）不一致。
+  // 先按 label 码元序（与旧版 key=班名 时的顺序一致），再按 key 破平。
   const all = Array.from(groups.values());
   const ordered = [
     ...all.filter((group) => !isUnassignedClassKey(group.key)).sort(compareClassKeys),
@@ -124,7 +125,8 @@ export function fillGroupedTrend(
 
   const points = buildDateRange(startDate, days).map((date) => {
     const bucket = byDate.get(date);
-    // 班名是用户输入：用 fromEntries 建立自有属性，避免 "__proto__" 触发原型 setter
+    // 分组键来自 class_id；用 fromEntries 建立自有属性，避免特殊键触发原型 setter。
+    // 整数样式的键会被 JS 按数值枚举，序列顺序一律以 series 为准，不要读 counts 的键序。
     const counts = Object.fromEntries(
       ordered.map((group) => [group.key, bucket?.get(group.key) ?? 0])
     ) as Record<string, number>;
@@ -165,7 +167,7 @@ export function fillClassTrend(
   );
 }
 
-/** 两适配器共用的对比映射入口：同名班（脏数据/并发建班）按 key 聚合，避免重复序列 */
+/** 两适配器共用的对比映射入口：按 key 聚合以防御重复行；真实班 id 唯一，同名班不再合并 */
 export function mapCompareRows(rows: readonly RawCompareRow[]): CompareStat[] {
   const byKey = new Map<string, CompareStat>();
   for (const row of rows) {
@@ -187,8 +189,13 @@ export function mapCompareRows(rows: readonly RawCompareRow[]): CompareStat[] {
   ];
 }
 
-/** 与数据库 collation 无关的稳定排序：按 key 的码元序，保证两适配器输出一致 */
+/**
+ * 与数据库 collation 无关的稳定排序：先按展示名（码元序，保持旧版班名排序），
+ * 同名时再按身份键破平，保证两适配器输出一致。
+ */
 function compareClassKeys(a: ClassGroup, b: ClassGroup): number {
+  if (a.label < b.label) return -1;
+  if (a.label > b.label) return 1;
   if (a.key < b.key) return -1;
   if (a.key > b.key) return 1;
   return 0;

@@ -43,7 +43,7 @@ export function selectTrendView(cache: TrendCache, selection: TrendSelection): T
   return entry === undefined ? { status: "loading" } : { status: "ready", entry };
 }
 
-/** 卡底合计：合计模式即逐日求和；按班级模式把每个点的各班会话数加总（班名只当字典键，不参与计算） */
+/** 卡底合计：合计模式即逐日求和；按班级模式把每个点的各班会话数加总（分组键只当字典键，不参与计算） */
 export function computeTrendTotal(entry: TrendEntry): number {
   if (entry.group === "total") {
     return entry.trends.reduce((sum, item) => sum + item.count, 0);
