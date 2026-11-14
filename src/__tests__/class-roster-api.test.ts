@@ -1,9 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { NextRequest } from "next/server";
 
-// 隔离数据层：锁定 #217/#260 名册接口的分组键解析、响应形状与审计契约，#313 的 classId 通道
+// 隔离数据层：锁定 #217/#260/#374 名册接口的分组键解析、响应形状与审计契约，#313 的 classId 通道
 vi.mock("@/lib/db", () => ({
-  getClassByName: vi.fn(),
   getClassById: vi.fn(),
   getClassRoster: vi.fn(),
   // @/lib/audit 经 getUserById / insertAuditLog 使用
@@ -12,7 +11,7 @@ vi.mock("@/lib/db", () => ({
 }));
 
 import { GET } from "@/app/api/manage/stats/class-roster/route";
-import { getClassById, getClassByName, getClassRoster, getUserById, insertAuditLog } from "@/lib/db";
+import { getClassById, getClassRoster, getUserById, insertAuditLog } from "@/lib/db";
 import type { ClassRosterRow } from "@/lib/db";
 
 function createGetRequest(
@@ -52,43 +51,45 @@ const ROWS: ClassRosterRow[] = [
   },
 ];
 
+const CLASS_5 = {
+  id: 5,
+  name: "2025级3班",
+  invitation_code: "INV-003",
+  created_at: "2026-09-01 08:00:00",
+};
+
 beforeEach(() => {
   vi.clearAllMocks();
   vi.mocked(getUserById).mockResolvedValue(undefined);
   vi.mocked(insertAuditLog).mockResolvedValue(undefined);
-  vi.mocked(getClassById).mockResolvedValue({
-    id: 5,
-    name: "2025级3班",
-    invitation_code: "INV-003",
-    created_at: "2026-09-01 08:00:00",
-  });
+  vi.mocked(getClassById).mockResolvedValue(CLASS_5);
+  vi.mocked(getClassRoster).mockResolvedValue([]);
 });
 
-describe("GET /api/manage/stats/class-roster — 班级名册（#217/#260）", () => {
+describe("GET /api/manage/stats/class-roster — 班级名册（#217/#260/#374）", () => {
   it("缺 class 参数返回 400 并记失败审计", async () => {
     const res = await GET(createGetRequest());
     expect(res.status).toBe(400);
     expect(await res.json()).toEqual({ error: "请指定要查看的班级" });
-    expect(getClassByName).not.toHaveBeenCalled();
+    expect(getClassById).not.toHaveBeenCalled();
     expect(getClassRoster).not.toHaveBeenCalled();
     expect(insertAuditLog).toHaveBeenCalledWith(
       expect.objectContaining({ action: "class:roster", status: "failed" })
     );
   });
 
-  it("班名先解析成 class_id，再按班级身份取名册", async () => {
-    vi.mocked(getClassByName).mockResolvedValue({ id: 7, name: "2025级1班" } as never);
+  it("class 传内部 id 键：按 class_id 取名册，响应回显 classKey 与班名", async () => {
     vi.mocked(getClassRoster).mockResolvedValue(ROWS);
 
-    const res = await GET(createGetRequest("2025级1班"));
+    const res = await GET(createGetRequest("5"));
     expect(res.status).toBe(200);
-    expect(getClassByName).toHaveBeenCalledWith("2025级1班");
-    expect(getClassRoster).toHaveBeenCalledWith(7);
+    expect(getClassById).toHaveBeenCalledWith(5);
+    expect(getClassRoster).toHaveBeenCalledWith(5);
 
     const body = await res.json();
     expect(body).toEqual({
-      classKey: "2025级1班",
-      className: "2025级1班",
+      classKey: "5",
+      className: "2025级3班",
       total: 2,
       submitted: 1,
       students: [
@@ -113,11 +114,11 @@ describe("GET /api/manage/stats/class-roster — 班级名册（#217/#260）", (
       expect.objectContaining({
         action: "class:roster",
         status: "success",
-        resource_id: "2025级1班",
+        resource_id: "5",
         metadata: JSON.stringify({
-          classKey: "2025级1班",
-          className: "2025级1班",
-          classId: 7,
+          classKey: "5",
+          className: "2025级3班",
+          classId: 5,
           total: 2,
           submitted: 1,
         }),
@@ -130,7 +131,7 @@ describe("GET /api/manage/stats/class-roster — 班级名册（#217/#260）", (
 
     const res = await GET(createGetRequest("__unassigned__"));
     expect(res.status).toBe(200);
-    expect(getClassByName).not.toHaveBeenCalled();
+    expect(getClassById).not.toHaveBeenCalled();
     expect(getClassRoster).toHaveBeenCalledWith(null);
 
     const body = await res.json();
@@ -139,74 +140,133 @@ describe("GET /api/manage/stats/class-roster — 班级名册（#217/#260）", (
     expect(body.total).toBe(1);
   });
 
-  it("真实班名「未分班」按班级 id 取名册，不被当成未分班哨兵", async () => {
-    vi.mocked(getClassByName).mockResolvedValue({ id: 3, name: "未分班" } as never);
-    vi.mocked(getClassRoster).mockResolvedValue([ROWS[1]]);
-
-    const res = await GET(createGetRequest("未分班"));
-    expect(res.status).toBe(200);
-    expect(getClassByName).toHaveBeenCalledWith("未分班");
-    expect(getClassRoster).toHaveBeenCalledWith(3);
-
-    const body = await res.json();
-    expect(body).toMatchObject({ classKey: "未分班", className: "未分班", total: 1 });
-  });
-
-  it("未知或已改名的班级返回 404，不查名册", async () => {
-    vi.mocked(getClassByName).mockResolvedValue(undefined as never);
-
-    const res = await GET(createGetRequest("不存在的班"));
-    expect(res.status).toBe(404);
-    expect(await res.json()).toEqual({ error: "班级不存在或已改名" });
+  it("旧班名不再是身份：400 且不查库，并记失败审计", async () => {
+    const res = await GET(createGetRequest("2025级1班"));
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ error: "class 必须是班级 id 或 __unassigned__" });
+    expect(getClassById).not.toHaveBeenCalled();
     expect(getClassRoster).not.toHaveBeenCalled();
     expect(insertAuditLog).toHaveBeenCalledWith(
       expect.objectContaining({
         action: "class:roster",
         status: "failed",
-        resource_id: "不存在的班",
-        error_message: "班级不存在或已改名",
+        resource_id: "2025级1班",
+        error_message: "class 必须是班级 id 或 __unassigned__",
       })
     );
   });
 
-  it("超过 80 字符返回 400，不查班级表", async () => {
-    const res = await GET(createGetRequest("班".repeat(81)));
-    expect(res.status).toBe(400);
-    expect(getClassByName).not.toHaveBeenCalled();
+  it("非规范 id 串一律 400，且不查库", async () => {
+    for (const bad of ["0", "-1", "abc", "1.5", "007", "1e3"]) {
+      const res = await GET(createGetRequest(bad));
+      expect(res.status, `class=${bad} 应被拒`).toBe(400);
+      expect(await res.json()).toEqual({ error: "class 必须是班级 id 或 __unassigned__" });
+    }
+    expect(getClassById).not.toHaveBeenCalled();
     expect(getClassRoster).not.toHaveBeenCalled();
   });
 
+  it("超长 class 键是畸形请求：400 且审计里不落原始长串", async () => {
+    const longKey = "9".repeat(40);
+    const res = await GET(createGetRequest(longKey));
+    expect(res.status).toBe(400);
+
+    const calls = vi.mocked(insertAuditLog).mock.calls;
+    const audit = calls[calls.length - 1]?.[0];
+    expect(String(audit?.resource_id ?? "")).not.toContain(longKey);
+    expect(String(audit?.metadata ?? "")).not.toContain(longKey);
+  });
+
+  it("class 指向不存在的班级：404 且不查名册", async () => {
+    vi.mocked(getClassById).mockResolvedValue(undefined);
+
+    const res = await GET(createGetRequest("999"));
+    expect(res.status).toBe(404);
+    expect(await res.json()).toEqual({ error: "班级不存在" });
+    expect(getClassRoster).not.toHaveBeenCalled();
+    expect(insertAuditLog).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: "class:roster",
+        status: "failed",
+        resource_id: "999",
+        error_message: "班级不存在",
+        metadata: JSON.stringify({ classId: 999, classKey: "999" }),
+      })
+    );
+  });
+
+  it("真实班名「未分班」不再有身份特殊性：仍按 class_id 取名册", async () => {
+    vi.mocked(getClassById).mockResolvedValue({
+      id: 3,
+      name: "未分班",
+      invitation_code: "INV-003",
+      created_at: "2026-09-01 08:00:00",
+    });
+    vi.mocked(getClassRoster).mockResolvedValue([ROWS[1]]);
+
+    const res = await GET(createGetRequest("3"));
+    expect(res.status).toBe(200);
+    expect(getClassById).toHaveBeenCalledWith(3);
+    expect(getClassRoster).toHaveBeenCalledWith(3);
+    expect(await res.json()).toMatchObject({
+      classKey: "3",
+      className: "未分班",
+      total: 1,
+    });
+  });
+
+  it("两个同名班可由 class 键区分，分别取各自名册", async () => {
+    vi.mocked(getClassById).mockImplementation(async (id) => ({
+      id,
+      name: "同名班",
+      invitation_code: `INV-${id}`,
+      created_at: "2026-09-01 08:00:00",
+    }));
+    vi.mocked(getClassRoster).mockImplementation(async (classId) =>
+      classId === 3 ? [ROWS[0]] : [ROWS[1]]
+    );
+
+    const first = await GET(createGetRequest("3"));
+    const second = await GET(createGetRequest("4"));
+    expect(first.status).toBe(200);
+    expect(second.status).toBe(200);
+    expect(await first.json()).toMatchObject({ classKey: "3", className: "同名班", total: 1 });
+    expect(await second.json()).toMatchObject({ classKey: "4", className: "同名班", total: 1 });
+    expect(getClassRoster).toHaveBeenNthCalledWith(1, 3);
+    expect(getClassRoster).toHaveBeenNthCalledWith(2, 4);
+  });
+
   it("数据层失败返回 500 并记失败审计", async () => {
-    vi.mocked(getClassByName).mockResolvedValue({ id: 1, name: "一班" } as never);
     vi.mocked(getClassRoster).mockRejectedValue(new Error("db down"));
     vi.spyOn(console, "error").mockImplementation(() => {});
 
-    const res = await GET(createGetRequest("一班"));
+    const res = await GET(createGetRequest("5"));
     expect(res.status).toBe(500);
     expect(await res.json()).toEqual({ error: "获取班级名册失败" });
     expect(insertAuditLog).toHaveBeenCalledWith(
       expect.objectContaining({
         action: "class:roster",
         status: "failed",
+        resource_id: "5",
         error_message: "db down",
+        metadata: JSON.stringify({ classKey: "5", classId: 5 }),
       })
     );
   });
 });
 
 describe("GET /api/manage/stats/class-roster — classId（#313）", () => {
-  it("按 id 取名册：响应回显库里的真实班名，审计带 classId", async () => {
+  it("按 id 取名册：响应 classKey 是 id 串，className 回显班名", async () => {
     vi.mocked(getClassRoster).mockResolvedValue(ROWS);
 
     const res = await GET(createSearchRequest("?classId=5"));
     expect(res.status).toBe(200);
     expect(getClassById).toHaveBeenCalledWith(5);
-    expect(getClassByName).not.toHaveBeenCalled();
     expect(getClassRoster).toHaveBeenCalledWith(5);
 
     const body = await res.json();
     expect(body).toMatchObject({
-      classKey: "2025级3班",
+      classKey: "5",
       className: "2025级3班",
       total: 2,
       submitted: 1,
@@ -222,9 +282,9 @@ describe("GET /api/manage/stats/class-roster — classId（#313）", () => {
       expect.objectContaining({
         action: "class:roster",
         status: "success",
-        resource_id: "2025级3班",
+        resource_id: "5",
         metadata: JSON.stringify({
-          classKey: "2025级3班",
+          classKey: "5",
           className: "2025级3班",
           classId: 5,
           total: 2,
@@ -234,18 +294,24 @@ describe("GET /api/manage/stats/class-roster — classId（#313）", () => {
     );
   });
 
-  it("classId 优先于 class：同时给出时忽略班名，不按名解析", async () => {
+  it("classId 优先于 class：同时给出时忽略 class，不按班名解析", async () => {
     vi.mocked(getClassRoster).mockResolvedValue([ROWS[0]]);
 
     const res = await GET(createSearchRequest("?classId=5&class=" + encodeURIComponent("2025级1班")));
     expect(res.status).toBe(200);
-    expect(getClassByName).not.toHaveBeenCalled();
+    expect(getClassById).toHaveBeenCalledWith(5);
     expect(getClassRoster).toHaveBeenCalledWith(5);
     expect((await res.json()).className).toBe("2025级3班");
   });
 
+  it("classId 为空串时回落到 class 键", async () => {
+    const res = await GET(createSearchRequest("?classId=&class=5"));
+    expect(res.status).toBe(200);
+    expect(getClassById).toHaveBeenCalledWith(5);
+  });
+
   it("非法 classId → 400 且不查库", async () => {
-    for (const bad of ["0", "-1", "abc", "1.5"]) {
+    for (const bad of ["0", "-1", "abc", "1.5", "007", "1e3"]) {
       const res = await GET(createSearchRequest(`?classId=${bad}`));
       expect(res.status, `classId=${bad} 应被拒`).toBe(400);
       expect(await res.json()).toEqual({ error: "classId 必须是正整数" });
@@ -279,8 +345,9 @@ describe("GET /api/manage/stats/class-roster — classId（#313）", () => {
       expect.objectContaining({
         action: "class:roster",
         status: "failed",
+        resource_id: "404",
         error_message: "班级不存在",
-        metadata: JSON.stringify({ classId: 404, classKey: null }),
+        metadata: JSON.stringify({ classId: 404, classKey: "404" }),
       })
     );
   });
