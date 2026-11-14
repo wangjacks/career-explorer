@@ -173,8 +173,8 @@ describe("TEACHER_DASHBOARD_COPY", () => {
     expect(
       TEACHER_DASHBOARD_COPY.classLabel(UNASSIGNED_CLASS_KEY, UNASSIGNED_CLASS_LABEL)
     ).toBe(UNASSIGNED_CLASS_TEACHER_LABEL);
-    expect(TEACHER_DASHBOARD_COPY.classLabel("未分班", "未分班")).toBe("未分班");
-    expect(TEACHER_DASHBOARD_COPY.classLabel("一年二班", "一年二班")).toBe("一年二班");
+    expect(TEACHER_DASHBOARD_COPY.classLabel("3", "未分班")).toBe("未分班");
+    expect(TEACHER_DASHBOARD_COPY.classLabel("7", "一年二班")).toBe("一年二班");
     expect(TEACHER_DASHBOARD_COPY.classLabel("", "")).toBe("");
     // 教师口语若被改掉，保留名集合必须同步，否则又能建出同名班级
     expect(
@@ -233,8 +233,8 @@ describe("ADMIN_DASHBOARD_COPY", () => {
 
   it("班级名一律原样展示，管理端不做口语替换", () => {
     expect(ADMIN_DASHBOARD_COPY.classLabel(UNASSIGNED_CLASS_KEY, "未分班")).toBe("未分班");
-    expect(ADMIN_DASHBOARD_COPY.classLabel("未分班", "未分班")).toBe("未分班");
-    expect(ADMIN_DASHBOARD_COPY.classLabel("一年二班", "一年二班")).toBe("一年二班");
+    expect(ADMIN_DASHBOARD_COPY.classLabel("3", "未分班")).toBe("未分班");
+    expect(ADMIN_DASHBOARD_COPY.classLabel("7", "一年二班")).toBe("一年二班");
   });
 });
 

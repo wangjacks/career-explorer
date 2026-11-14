@@ -22,10 +22,10 @@ const class7: TrendEntry = {
   group: "class",
   classTrend: {
     series: [
-      { key: "一班", label: "一班" },
-      { key: "date", label: "date" },
+      { key: "7", label: "一班" },
+      { key: "8", label: "date" },
     ],
-    points: [{ date: "2026-10-10", counts: { 一班: 5, date: 6 } }],
+    points: [{ date: "2026-10-10", counts: { "7": 5, "8": 6 } }],
   },
 };
 

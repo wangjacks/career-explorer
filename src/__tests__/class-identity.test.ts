@@ -29,10 +29,15 @@ describe("toClassGroup（#260 统计分组身份）", () => {
     });
   });
 
-  it("真实班级的 key 与 label 都是班名；数字/字符串 id 行为一致", () => {
-    expect(toClassGroup(7, "一班")).toEqual({ key: "一班", label: "一班" });
-    expect(toClassGroup("7", "一班")).toEqual({ key: "一班", label: "一班" });
-    expect(toClassGroup(3, "未分班")).toEqual({ key: "未分班", label: "未分班" });
+  it("真实班级的 key 是 class_id 串、label 是班名；数字/字符串 id 行为一致", () => {
+    expect(toClassGroup(7, "一班")).toEqual({ key: "7", label: "一班" });
+    expect(toClassGroup("7", "一班")).toEqual({ key: "7", label: "一班" });
+    expect(toClassGroup(3, "未分班")).toEqual({ key: "3", label: "未分班" });
+  });
+
+  it("同名班按 class_id 区分身份，不因班名相同共用 key", () => {
+    expect(toClassGroup(3, "一班")).toEqual({ key: "3", label: "一班" });
+    expect(toClassGroup(4, "一班")).toEqual({ key: "4", label: "一班" });
   });
 });
 

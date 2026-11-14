@@ -1,4 +1,4 @@
-/** 统计分组身份：班级用班名作 key，未分班用内部哨兵键；label 只负责展示。 */
+/** 统计分组身份：真实班级用 class_id 作 key，未分班用内部哨兵键；label 只负责展示。 */
 export const UNASSIGNED_CLASS_KEY = "__unassigned__";
 export const UNASSIGNED_CLASS_LABEL = "未分班";
 export const UNASSIGNED_CLASS_TEACHER_LABEL = "还没分班";
@@ -26,7 +26,7 @@ export function toClassGroup(
   if (classId === null || classId === undefined || classId === "" || !className) {
     return { key: UNASSIGNED_CLASS_KEY, label: UNASSIGNED_CLASS_LABEL };
   }
-  return { key: className, label: className };
+  return { key: String(classId), label: className };
 }
 
 export function isReservedClassName(name: string): boolean {

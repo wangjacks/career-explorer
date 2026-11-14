@@ -114,67 +114,103 @@ describe("fillGroupedTrend", () => {
   it("每个分组在窗口内都补齐为等长的 N 个点", () => {
     const series = fillGroupedTrend(
       [
-        { date: "2026-09-28", key: "一班", label: "一班", count: 2 },
-        { date: "2026-09-30", key: "二班", label: "二班", count: 5 },
+        { date: "2026-09-28", key: "7", label: "一班", count: 2 },
+        { date: "2026-09-30", key: "8", label: "二班", count: 5 },
       ],
       "2026-09-28",
       3
     );
     expect(series.series).toEqual([
-      { key: "一班", label: "一班" },
-      { key: "二班", label: "二班" },
+      { key: "7", label: "一班" },
+      { key: "8", label: "二班" },
     ]);
     expect(series.points).toEqual([
-      { date: "2026-09-28", counts: { 一班: 2, 二班: 0 } },
-      { date: "2026-09-29", counts: { 一班: 0, 二班: 0 } },
-      { date: "2026-09-30", counts: { 一班: 0, 二班: 5 } },
+      { date: "2026-09-28", counts: { "7": 2, "8": 0 } },
+      { date: "2026-09-29", counts: { "7": 0, "8": 0 } },
+      { date: "2026-09-30", counts: { "7": 0, "8": 5 } },
     ]);
   });
 
-  it("未分班哨兵固定排末尾，真实班名「未分班」按 key 正常排序", () => {
+  it("两个同名班按 class_id 各自成序列，不合并计数", () => {
     const series = fillGroupedTrend(
       [
-        { date: "2026-09-29", key: "__unassigned__", label: "未分班", count: 1 },
-        { date: "2026-09-29", key: "未分班", label: "未分班", count: 2 },
-        { date: "2026-09-29", key: "一班", label: "一班", count: 1 },
+        { date: "2026-09-29", key: "3", label: "一班", count: 2 },
+        { date: "2026-09-29", key: "4", label: "一班", count: 5 },
       ],
       "2026-09-29",
       1
     );
-    expect(series.series.map((group) => group.key)).toEqual([
-      "一班",
-      "未分班",
-      "__unassigned__",
+    expect(series.series).toEqual([
+      { key: "3", label: "一班" },
+      { key: "4", label: "一班" },
     ]);
+    expect(series.points[0].counts).toEqual({ "3": 2, "4": 5 });
+  });
+
+  it("未分班哨兵固定排末尾，真实班名「未分班」按 label 正常排序", () => {
+    const series = fillGroupedTrend(
+      [
+        { date: "2026-09-29", key: "__unassigned__", label: "未分班", count: 1 },
+        { date: "2026-09-29", key: "3", label: "未分班", count: 2 },
+        { date: "2026-09-29", key: "7", label: "一班", count: 1 },
+      ],
+      "2026-09-29",
+      1
+    );
+    expect(series.series.map((group) => group.key)).toEqual(["7", "3", "__unassigned__"]);
+  });
+
+  it("排序按 label 而非 id 串（10 不会排到 2 前）", () => {
+    const series = fillGroupedTrend(
+      [
+        { date: "2026-09-29", key: "2", label: "一班", count: 1 },
+        { date: "2026-09-29", key: "10", label: "二班", count: 1 },
+      ],
+      "2026-09-29",
+      1
+    );
+    expect(series.series.map((group) => group.key)).toEqual(["2", "10"]);
+  });
+
+  it("同名 label 按 key 码元序破平，输出稳定", () => {
+    const series = fillGroupedTrend(
+      [
+        { date: "2026-09-29", key: "10", label: "同名班", count: 1 },
+        { date: "2026-09-29", key: "2", label: "同名班", count: 1 },
+      ],
+      "2026-09-29",
+      1
+    );
+    expect(series.series.map((group) => group.key)).toEqual(["10", "2"]);
   });
 
   it("排序与适配器返回顺序无关（JS 稳定排序，锁两库一致）", () => {
     const series = fillGroupedTrend(
       [
-        { date: "2026-09-29", key: "二班", label: "二班", count: 1 },
-        { date: "2026-09-29", key: "一班", label: "一班", count: 1 },
+        { date: "2026-09-29", key: "8", label: "二班", count: 1 },
+        { date: "2026-09-29", key: "7", label: "一班", count: 1 },
       ],
       "2026-09-29",
       1
     );
-    expect(series.series.map((group) => group.key)).toEqual(["一班", "二班"]);
+    expect(series.series.map((group) => group.key)).toEqual(["7", "8"]);
   });
 
   it("同「日期 + 分组」累加，轴外数据丢弃", () => {
     const series = fillGroupedTrend(
       [
-        { date: "2026-09-29", key: "一班", label: "一班", count: 2 },
-        { date: "2026-09-29", key: "一班", label: "一班", count: 3 },
-        { date: "2026-09-27", key: "一班", label: "一班", count: 9 },
-        { date: "2026-10-05", key: "一班", label: "一班", count: 9 },
+        { date: "2026-09-29", key: "7", label: "一班", count: 2 },
+        { date: "2026-09-29", key: "7", label: "一班", count: 3 },
+        { date: "2026-09-27", key: "7", label: "一班", count: 9 },
+        { date: "2026-10-05", key: "7", label: "一班", count: 9 },
       ],
       "2026-09-28",
       2
     );
-    expect(series.series).toEqual([{ key: "一班", label: "一班" }]);
+    expect(series.series).toEqual([{ key: "7", label: "一班" }]);
     expect(series.points).toEqual([
-      { date: "2026-09-28", counts: { 一班: 0 } },
-      { date: "2026-09-29", counts: { 一班: 5 } },
+      { date: "2026-09-28", counts: { "7": 0 } },
+      { date: "2026-09-29", counts: { "7": 5 } },
     ]);
   });
 
@@ -187,15 +223,16 @@ describe("fillGroupedTrend", () => {
     ]);
   });
 
-  it("班名为 __proto__ 时 counts 建立自有属性，不污染原型", () => {
+  it("班名恰为 __proto__ 时只进入 label，counts 仍按 id 建自有属性", () => {
     const series = fillGroupedTrend(
-      [{ date: "2026-09-29", key: "__proto__", label: "__proto__", count: 2 }],
+      [{ date: "2026-09-29", key: "9", label: "__proto__", count: 2 }],
       "2026-09-29",
       1
     );
     const counts = series.points[0].counts;
-    expect(Object.hasOwn(counts, "__proto__")).toBe(true);
-    expect(counts["__proto__"]).toBe(2);
+    expect(Object.hasOwn(counts, "9")).toBe(true);
+    expect(counts["9"]).toBe(2);
+    expect(Object.hasOwn(counts, "__proto__")).toBe(false);
     expect(Object.getPrototypeOf(counts)).toBe(Object.prototype);
   });
 });
@@ -211,13 +248,29 @@ describe("fillClassTrend", () => {
       2
     );
     expect(series.series).toEqual([
-      { key: "一班", label: "一班" },
+      { key: "7", label: "一班" },
       { key: "__unassigned__", label: "未分班" },
     ]);
     expect(series.points).toEqual([
-      { date: "2026-09-28", counts: { 一班: 0, __unassigned__: 0 } },
-      { date: "2026-09-29", counts: { 一班: 2, __unassigned__: 1 } },
+      { date: "2026-09-28", counts: { "7": 0, __unassigned__: 0 } },
+      { date: "2026-09-29", counts: { "7": 2, __unassigned__: 1 } },
     ]);
+  });
+
+  it("同名班按 class_id 分开，不合并计数", () => {
+    const series = fillClassTrend(
+      [
+        { d: "2026-09-29", class_id: 3, class_name: "一班", cnt: 2 },
+        { d: "2026-09-29", class_id: 4, class_name: "一班", cnt: 5 },
+      ],
+      "2026-09-29",
+      1
+    );
+    expect(series.series).toEqual([
+      { key: "3", label: "一班" },
+      { key: "4", label: "一班" },
+    ]);
+    expect(series.points[0].counts).toEqual({ "3": 2, "4": 5 });
   });
 
   it("驱动返回 Date 时按本地日历日归一，不因 UTC 偏移跨日", () => {
@@ -227,6 +280,7 @@ describe("fillClassTrend", () => {
       1
     );
     expect(series.points[0].date).toBe("2026-09-29");
+    expect(series.points[0].counts["7"]).toBe(1);
   });
 });
 
@@ -238,12 +292,12 @@ describe("mapCompareRows", () => {
         { class_id: null, class_name: null, total: "4", submitted: null },
       ])
     ).toEqual([
-      { key: "一班", label: "一班", total: 10, submitted: 8 },
+      { key: "7", label: "一班", total: 10, submitted: 8 },
       { key: "__unassigned__", label: "未分班", total: 4, submitted: 0 },
     ]);
   });
 
-  it("真实班名「未分班」与哨兵分开；悬空 class_id 归哨兵；同名 key 聚合", () => {
+  it("真实班名「未分班」与哨兵分开；悬空 class_id 归哨兵；同名班不合并", () => {
     expect(
       mapCompareRows([
         { class_id: 3, class_name: "未分班", total: 2, submitted: 1 },
@@ -252,18 +306,19 @@ describe("mapCompareRows", () => {
         { class_id: 8, class_name: null, total: 2, submitted: 0 },
       ])
     ).toEqual([
-      { key: "未分班", label: "未分班", total: 5, submitted: 3 },
+      { key: "3", label: "未分班", total: 2, submitted: 1 },
+      { key: "4", label: "未分班", total: 3, submitted: 2 },
       { key: "__unassigned__", label: "未分班", total: 6, submitted: 2 },
     ]);
   });
 
-  it("排序与适配器返回顺序无关（JS 稳定排序，锁两库一致）", () => {
+  it("排序按 label 而非 id 串（10 不会排到 2 前）", () => {
     expect(
       mapCompareRows([
-        { class_id: 2, class_name: "B班", total: 1, submitted: 0 },
-        { class_id: 1, class_name: "A班", total: 1, submitted: 0 },
+        { class_id: 10, class_name: "二班", total: 1, submitted: 0 },
+        { class_id: 2, class_name: "一班", total: 1, submitted: 0 },
       ]).map((item) => item.key)
-    ).toEqual(["A班", "B班"]);
+    ).toEqual(["2", "10"]);
   });
 
   it("空输入返回空数组", () => {
