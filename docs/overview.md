@@ -32,6 +32,8 @@ npm test        # 单元测试
 npm run dev     # 本地开发（由开发者自行启动）
 ```
 
+> **依赖安装说明**：`better-sqlite3` 自带预编译二进制，`package.json` 的 `allowScripts` 对其安装脚本显式 deny（#415）——否则 npm 会依据 lockfile 推断出 `node-gyp rebuild`，在缺少 Python / MSVC 的 Windows 上安装直接失败。该策略需 npm ≥ 11.18（Node 24.22 与 26 自带的 npm 已满足）；若今后该依赖确需构建脚本，先移除 deny 并在 PR 中记录原因。
+
 首次使用需**手动打开 `/setup`** 完成安装引导（配置数据库 + 管理员密码）；InstallGuard 已移除，未安装时不会自动跳转。
 
 ## 部署
