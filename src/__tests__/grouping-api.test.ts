@@ -49,8 +49,10 @@ import {
   moveGroupMember,
   updateClassGroupLeader,
 } from "@/lib/db";
-import type { ClassGroupMemberRow, ClassGroupRow, UserRow } from "@/lib/db";
+import type { ClassGroupMemberRow, ClassGroupRow, GroupBatchRow, UserRow } from "@/lib/db";
 import { RIASEC_CODE } from "@/lib/assessment-data";
+import { FEATURE_SOURCES, TAG_ONLY_SOURCES } from "@/lib/grouping-features";
+import { metricsBasisOf } from "@/app/api/manage/groups/helpers";
 
 const TEACHER_UID = 7;
 const OTHER_TEACHER_UID = 8;
@@ -279,6 +281,12 @@ describe("GET /api/manage/groups — 读当前分组（读不限）", () => {
     expect(view.coveredCount).toBe(4);
     expect(view.sources[0]).toMatchObject({ key: "tags", label: "标签" });
     expect(view.latestBatch).toBeNull();
+    expect(view.metricsBasis).toEqual({
+      strategy: "interest-role-v1",
+      strategyLabel: "兴趣相近 + 性格互补",
+      fromBatchId: null,
+      replayed: false,
+    });
   });
 
   it("读回当前分组：带成员、内聚度与「与最近一批的差异数」", async () => {
@@ -324,6 +332,9 @@ describe("GET /api/manage/groups — 读当前分组（读不限）", () => {
     expect(view.groups[0].cohesion).toBeCloseTo(1, 6); // 标签相同
     expect(view.latestBatch.createdByName).toBe("张老师");
     expect(view.diffCount).toBe(1);
+    // feature_sources 是空数组：回放不出来，界面必须标注「按策略默认源与权重」
+    expect(view.metricsBasis).toMatchObject({ strategy: "idf-cosine", fromBatchId: 5, replayed: false });
+    expect(view.sources.map((s: { key: string }) => s.key)).toEqual(["tags"]);
   });
 
   it("视图给出「未进组」名单：转入或导入漏填的人不能被静默藏起来", async () => {
@@ -387,6 +398,7 @@ describe("GET /api/manage/groups — 读当前分组（读不限）", () => {
       strategy: "interest-role-v1",
       strategyLabel: "兴趣相近 + 性格互补",
       fromBatchId: 7,
+      replayed: true,
     });
     expect(view.sources.map((s: { key: string }) => s.key)).toEqual(["tags", "riasec", "bigfive"]);
     expect(view.overall).toBeCloseTo(archived.overall, 9);
@@ -447,6 +459,79 @@ describe("GET /api/manage/groups — 读当前分组（读不限）", () => {
     expect(view.coverageBySource.map((s: { key: string }) => s.key)).toEqual(["tags", "riasec", "bigfive"]);
     expect(view.groups[0].members[0].dominantType).toBeTruthy();
     expect(view.roleCoverageAverage).toBeGreaterThan(0);
+  });
+});
+
+describe("metricsBasisOf — 指标口径来源标注（#365）", () => {
+  function makeBatch(overrides: Partial<GroupBatchRow> = {}): GroupBatchRow {
+    return {
+      id: 7,
+      class_id: CLASS_A,
+      strategy: "interest-role-v1",
+      feature_sources: null,
+      group_size: 5,
+      student_count: 6,
+      tagged_count: 6,
+      metrics: null,
+      created_by_id: null,
+      created_by_name: null,
+      created_by_role: "admin",
+      created_at: "2026-10-21 10:00:00",
+      ...overrides,
+    };
+  }
+
+  it("批次头可回放（含旧 #101 的 tags-only 形态）→ replayed=true 并保留批次 id", () => {
+    const current = metricsBasisOf(
+      makeBatch({
+        feature_sources: JSON.stringify([
+          { key: "riasec", kind: "vector", weight: 0.8, version: "1" },
+          { key: "tags", kind: "set", weight: 0.1, version: "1" },
+        ]),
+      })
+    );
+    expect(current).toMatchObject({ strategy: "interest-role-v1", fromBatchId: 7, replayed: true });
+    expect(current.sources.map((source) => [source.key, source.weight])).toEqual([
+      ["tags", 0.1],
+      ["riasec", 0.8],
+    ]);
+
+    // #101 批次只有 tags、weight 1、没有 version —— 旧数据也必须能回放
+    const legacy = metricsBasisOf(
+      makeBatch({ feature_sources: JSON.stringify([{ key: "tags", kind: "set", weight: 1 }]) })
+    );
+    expect(legacy.replayed).toBe(true);
+    expect(legacy.sources.map((source) => [source.key, source.weight])).toEqual([["tags", 1]]);
+  });
+
+  it.each([
+    ["缺失", null],
+    ["空串", ""],
+    ["空数组", "[]"],
+    ["JSON null", "null"],
+    ["损坏 JSON", "{not-json"],
+    ["非数组", JSON.stringify({ key: "tags" })],
+    ["key 全部失配", JSON.stringify([{ key: "legacy-source", weight: 0.5 }])],
+    ["key 非字符串", JSON.stringify([{ key: 123, weight: 0.5 }])],
+    ["数组元素为空", JSON.stringify([null])],
+  ])("批次头%s → replayed=false，按策略默认源兜底", (_label, featureSources) => {
+    const basis = metricsBasisOf(makeBatch({ feature_sources: featureSources }));
+    expect(basis.replayed).toBe(false);
+    expect(basis.fromBatchId).toBe(7);
+    expect(basis.strategy).toBe("interest-role-v1");
+    expect(basis.sources).toBe(FEATURE_SOURCES);
+  });
+
+  it("策略 C 回放失败时落到标签源", () => {
+    const basis = metricsBasisOf(makeBatch({ strategy: "idf-cosine", feature_sources: "[]" }));
+    expect(basis.replayed).toBe(false);
+    expect(basis.sources).toBe(TAG_ONLY_SOURCES);
+  });
+
+  it("无批次 → fromBatchId=null、replayed=false、默认策略与源", () => {
+    const basis = metricsBasisOf(undefined);
+    expect(basis).toMatchObject({ strategy: "interest-role-v1", fromBatchId: null, replayed: false });
+    expect(basis.sources).toBe(FEATURE_SOURCES);
   });
 });
 

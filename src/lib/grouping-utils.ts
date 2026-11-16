@@ -94,6 +94,24 @@ export function isGroupingStrategyKey(value: string): boolean {
   return GROUPING_STRATEGIES.some((s) => s.key === value);
 }
 
+/** 当前指标口径的来源说明所需字段（#365） */
+export interface MetricsBasisLike {
+  strategyLabel: string;
+  fromBatchId: number | null;
+  replayed: boolean;
+}
+
+/**
+ * 当前指标口径的展示文案（#365）：无批次 / 原样回放 / 回放失败按策略默认三态，
+ * 回放失败时不再声称「原样回放」。
+ */
+export function metricsBasisLabel(basis: MetricsBasisLike): string {
+  if (basis.fromBatchId == null) return `${basis.strategyLabel} · 无批次可依，按默认源与权重`;
+  return basis.replayed
+    ? `${basis.strategyLabel} · 回放批次 #${basis.fromBatchId} 记录的源与权重`
+    : `${basis.strategyLabel} · 批次 #${basis.fromBatchId} 的记录无法回放，按策略默认源与权重`;
+}
+
 /** 角色覆盖目标（每组至少 3/4 个角色；A/B 的软目标，指标与界面提示用） */
 export const ROLE_COVERAGE_TARGET = 3;
 

@@ -14,6 +14,7 @@ import {
   computeGroupSizes,
   computeMetrics,
   computeSimilarities,
+  metricsBasisLabel,
   refineBySwaps,
 } from "../lib/grouping-utils";
 
@@ -411,5 +412,25 @@ describe("refineBySwaps（#101 FM 交换精修）", () => {
     const sim = computeSimilarities(vecs);
     const greedy = assignGroups(computeGroupSizes(20), sim, vecs.map(() => true));
     expect(refineBySwaps(greedy, sim)).toEqual(refineBySwaps(greedy, sim));
+  });
+});
+
+describe("metricsBasisLabel（#365 指标口径文案）", () => {
+  it("无批次 → 标注按默认源与权重", () => {
+    expect(metricsBasisLabel({ strategyLabel: "兴趣相近 + 性格互补", fromBatchId: null, replayed: false })).toBe(
+      "兴趣相近 + 性格互补 · 无批次可依，按默认源与权重"
+    );
+  });
+
+  it("原样回放 → 标明批次号", () => {
+    expect(metricsBasisLabel({ strategyLabel: "兴趣相近 + 性格互补", fromBatchId: 7, replayed: true })).toBe(
+      "兴趣相近 + 性格互补 · 回放批次 #7 记录的源与权重"
+    );
+  });
+
+  it("回放失败 → 不再声称原样回放，改标策略默认口径", () => {
+    const label = metricsBasisLabel({ strategyLabel: "兴趣相近 + 性格互补", fromBatchId: 7, replayed: false });
+    expect(label).toBe("兴趣相近 + 性格互补 · 批次 #7 的记录无法回放，按策略默认源与权重");
+    expect(label).not.toContain("回放批次");
   });
 });
