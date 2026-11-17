@@ -109,8 +109,8 @@ find src/app -name page.tsx && find src/app/api -name route.ts
 - **commit 必须在 GitHub 显示 Verified**：本地 GPG/SSH 签名（公钥已上传 GitHub），或 GitHub 网页端操作（自动签名）均可；本地签名失败则停止告知用户
 - **所有 tag 必须签名**（annotated tag：`git tag -s -a`），确保在 GitHub 显示 Verified
 - 合并方式一律 **Create a merge commit**：不用 squash（保留步骤历史），不用 rebase（避免签名失效）
-- 发布流程：从 `dev` 切 `release/vX.Y.Z` → `npm version X.Y.Z --no-git-tag-version` → 更新 `CHANGELOG.md` → `chore: release vX.Y.Z` → 打签名 tag → PR 到 `main` → 合并后立即把 `main` 回流 `dev`；功能集完成即发布，禁止积压
-- Hotfix：从 `main` 拉 `hotfix/xxx` → 合 `main` → 回流 `dev`
+- 发布流程：从 `dev` 切 `release/vX.Y.Z` → `npm version X.Y.Z --no-git-tag-version` → 更新 `CHANGELOG.md` → `chore: release vX.Y.Z` → 打签名 tag → PR 到 `main` → 合并后立即通过 `main → dev` PR 回流 `dev`；功能集完成即发布，禁止积压
+- Hotfix：从 `main` 拉 `hotfix/xxx` → 合 `main` → 通过 `main → dev` PR 回流 `dev`
 - Pre-commit：husky + lint-staged 自动 `eslint --fix`；CI 为 GitHub Actions（lint + test + build），CodeQL 走 GitHub 默认代码扫描
 - **GitHub Issue 管理**：编写规范见 `docs/issue-standard.md`；PR 关联对应 Issue，合并到 `dev` 后手动关闭
 
