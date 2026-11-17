@@ -434,13 +434,18 @@ pm2 restart career-app
 
 ### 更新部署
 
+生产按已发布的 tag 部署，不直接跟随 `main` HEAD：
+
 ```bash
 cd /var/www/career-app
-git pull
-npm install
+git fetch --tags --prune
+git checkout --detach vX.Y.Z
+npm ci
 npm run build
 pm2 restart career-app
 ```
+
+回滚时把 `vX.Y.Z` 换成上一个发布 tag，重复同样步骤。`.env.local`、`uploads/`、`data/` 不在版本控制内，切换 tag 不会影响它们。
 
 ## 十三、目录结构总览
 
