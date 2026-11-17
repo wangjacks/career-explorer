@@ -151,11 +151,12 @@ export interface GroupingView {
   /** 源的展示元信息：界面据此说明「按什么分组」 */
   sources: { key: string; label: string; kind: string; version: string }[];
   /**
-   * 上面这些指标是按哪一套口径重算的（#345 评审第 3 条）：
-   * 有批次时回放**最近一批**记录的策略/源/权重（与历史批次、预览可比），
-   * 没有批次可依据时用默认口径，`fromBatchId` 为 null，界面须如实标注。
+   * 上面这些指标是按哪一套口径重算的（#345 评审第 3 条 / #365）：
+   * 有批次时回放**最近一批**记录的策略/源/权重（与历史批次、预览可比）；
+   * 没有批次可依据时 `fromBatchId` 为 null；批次头无法回放时 `replayed` 为 false，
+   * 界面须区分「原样回放批次 #N」与「回放失败、按策略默认源与权重」。
    */
-  metricsBasis: { strategy: string; strategyLabel: string; fromBatchId: number | null };
+  metricsBasis: { strategy: string; strategyLabel: string; fromBatchId: number | null; replayed: boolean };
   /** 三种策略（界面选择器用；含默认标记） */
   strategies: typeof GROUPING_STRATEGIES;
   defaultStrategy: string;
@@ -231,11 +232,17 @@ export function parseFeatureSources(raw: string | null): GroupingBatchView["feat
   }
 }
 
-/** 当前分组指标的计算依据（源集合 + 策略 + 来自哪一批） */
+/** 当前分组指标的计算依据（源集合 + 策略 + 来自哪一批 + 批次头是否回放成功） */
 interface MetricsBasis {
   sources: FeatureSourceDef[];
   strategy: string;
   fromBatchId: number | null;
+  /**
+   * 批次头 `feature_sources` 是否成功回放到注册表（#365）：
+   * 只表示源与权重记录可回放，不覆盖策略名非法时的策略回退，
+   * 也不覆盖个别非法权重按默认值归一（沿用 `sourcesFromRecorded` 的既有规则）。
+   */
+  replayed: boolean;
 }
 
 /**
@@ -243,18 +250,27 @@ interface MetricsBasis {
  *
  * 当前分组可能被教师手工调整过，指标必须重算；但**重算要用生成它的那套源/权重**，
  * 否则自定义权重或旧 C 批次下，「当前分组」的相似度/内聚度与历史批次、预览互不可比。
- * 无批次可依（导入或手工维护的名单）或批次记录无法回放时，回落到默认源集合并由
- * `fromBatchId = null` 让界面标注。
+ * 无批次可依（导入或手工维护的名单）或批次记录无法回放时，回落到默认源集合，
+ * 并由 `fromBatchId` / `replayed` 让界面区分「原样回放」与「回放失败」。
  */
 export function metricsBasisOf(latest: GroupBatchRow | undefined): MetricsBasis {
-  if (!latest) return { sources: FEATURE_SOURCES, strategy: DEFAULT_GROUPING_STRATEGY, fromBatchId: null };
+  if (!latest) {
+    return {
+      sources: FEATURE_SOURCES,
+      strategy: DEFAULT_GROUPING_STRATEGY,
+      fromBatchId: null,
+      replayed: false,
+    };
+  }
   const strategy = isGroupingStrategyKey(latest.strategy) ? latest.strategy : DEFAULT_GROUPING_STRATEGY;
   // 回放不出来时按策略本来的源兜底：C 只用标签，A/B 用全部注册源
   const fallback = strategy === GROUPING_STRATEGY_TAGS_ONLY ? TAG_ONLY_SOURCES : FEATURE_SOURCES;
+  const replayedSources = sourcesFromRecorded(parseFeatureSources(latest.feature_sources));
   return {
-    sources: sourcesFromRecorded(parseFeatureSources(latest.feature_sources)) ?? fallback,
+    sources: replayedSources ?? fallback,
     strategy,
     fromBatchId: latest.id,
+    replayed: replayedSources !== null,
   };
 }
 
@@ -386,6 +402,7 @@ export async function buildGroupingView(classId: number): Promise<GroupingView> 
       strategy: basis.strategy,
       strategyLabel: groupingStrategyLabel(basis.strategy),
       fromBatchId: basis.fromBatchId,
+      replayed: basis.replayed,
     },
     strategies: GROUPING_STRATEGIES,
     defaultStrategy: DEFAULT_GROUPING_STRATEGY,

@@ -23,7 +23,7 @@ import GroupingPreviewPanel from "./GroupingPreviewPanel";
 import ConfirmDialog from "./ConfirmDialog";
 import TextAvatar from "@/components/TextAvatar";
 import { useEscapeKey } from "@/hooks/useEscapeKey";
-import { GROUP_SIZE_CAP } from "@/lib/grouping-utils";
+import { GROUP_SIZE_CAP, metricsBasisLabel } from "@/lib/grouping-utils";
 
 const SECONDARY_BUTTON_BASE =
   "bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-200 " +
@@ -82,8 +82,8 @@ interface GroupingView {
   baselines: { sequence: number; random: number };
   activeSourceKeys: string[];
   sources: { key: string; label: string; kind: string; version?: string }[];
-  /** 当前指标按哪套源/权重重算（有批次时回放最近一批，无批次为默认口径） */
-  metricsBasis: { strategy: string; strategyLabel: string; fromBatchId: number | null };
+  /** 当前指标按哪套源/权重重算（有批次时回放最近一批；replayed=false 表示批次头无法回放） */
+  metricsBasis: { strategy: string; strategyLabel: string; fromBatchId: number | null; replayed: boolean };
   strategies: StrategyItem[];
   defaultStrategy: string;
   coverageBySource: { key: string; label: string; covered: number; total: number }[];
@@ -941,12 +941,7 @@ function CurrentPanel({
           </p>
         )}
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted pt-1 border-t border-border-soft">
-          <span>
-            当前指标口径：{view.metricsBasis.strategyLabel} ·{" "}
-            {view.metricsBasis.fromBatchId == null
-              ? "无批次可依，按默认源与权重"
-              : `回放批次 #${view.metricsBasis.fromBatchId} 记录的源与权重`}
-          </span>
+          <span>当前指标口径：{metricsBasisLabel(view.metricsBasis)}</span>
           {view.latestBatch ? (
             <span>
               最近一次自动分组：{view.latestBatch.createdAt} · {view.latestBatch.strategyLabel}
