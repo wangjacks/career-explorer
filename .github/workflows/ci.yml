@@ -5,19 +5,27 @@ permissions:
 
 on:
   push:
+    # dev 仍在；迁移完成后删除
     branches: [main, dev]
   pull_request:
+    # dev 仍在；迁移完成后删除
     branches: [main, dev]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   check:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
-          node-version: 24
+          node-version-file: .nvmrc
           cache: npm
 
       - run: npm ci
@@ -27,3 +35,18 @@ jobs:
       - run: npm test
 
       - run: npm run build
+
+      - name: Smoke test
+        run: |
+          npm start -- -p 3000 > /tmp/next.log 2>&1 &
+          server_pid=$!
+          trap 'kill "$server_pid" 2>/dev/null || true' EXIT
+          for _ in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:3000/api/setup/status | grep -q '"installed":false'; then
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "Smoke test failed; next start log:"
+          cat /tmp/next.log
+          exit 1
