@@ -15,7 +15,7 @@
 
 | 分支 | 用途 | 来源 | 目标 |
 |---|---|---|---|
-| `main` | 稳定发布分支，只存放已发布版本 | release / hotfix | - |
+| `main` | 稳定发布分支，只存放已发布版本 | release / hotfix / dependabot（安全更新） | - |
 | `dev` | 日常开发集成分支，所有功能 PR 的默认目标 | `main` / 功能分支 | `release/vX.Y.Z` |
 | `release/vX.Y.Z` | 版本发布线，只做发版准备和发布修复 | `dev` | `main` |
 | `hotfix/xxx` | 生产紧急修复 | `main` | `main`，随后通过 PR 回流 `dev` |
@@ -107,6 +107,7 @@ git config --global commit.gpgsign true
 - 来源分支：`release/vX.Y.Z`
 - 合并方式：**Create a merge commit**
 - 必须保留 release commit 和 merge commit
+- 例外：Dependabot 安全更新 PR 也会直接落在 `main`（安全更新无法指定目标分支），这类变更随回流进入 `dev`
 
 ### Hotfix PR
 

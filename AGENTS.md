@@ -104,7 +104,7 @@ find src/app -name page.tsx && find src/app/api -name route.ts
 
 ## 6. Git Workflow & Commit Conventions
 
-- 分支模型：`main`（稳定发布）+ `dev`（日常开发）+ `release/vX.Y.Z` + `hotfix/xxx`；日常 PR 目标 `dev`，`main` 只接受 release / hotfix PR
+- 分支模型：`main`（稳定发布）+ `dev`（日常开发）+ `release/vX.Y.Z` + `hotfix/xxx`；日常 PR 目标 `dev`，`main` 只接受 release / hotfix / Dependabot 安全更新 PR
 - Commit 格式：`<type>: <English description>`（feat/fix/refactor/chore/docs/test），描述必须纯英文
 - **commit 必须在 GitHub 显示 Verified**：本地 GPG/SSH 签名（公钥已上传 GitHub），或 GitHub 网页端操作（自动签名）均可；本地签名失败则停止告知用户
 - **所有 tag 必须签名**（annotated tag：`git tag -s -a`），确保在 GitHub 显示 Verified
