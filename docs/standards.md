@@ -11,15 +11,13 @@
 
 ## 2. Git 分支策略
 
-采用 **main + dev + release + hotfix** 分支模型。
+采用 **GitHub Flow**：`main` 是唯一长期分支，始终可发布；所有变更通过短命分支 + Pull Request 合入 `main`，发布用签名 tag 表示。
 
 | 分支 | 用途 | 来源 | 目标 |
 |---|---|---|---|
-| `main` | 稳定发布分支，只存放已发布版本 | release / hotfix / dependabot（安全更新） | - |
-| `dev` | 日常开发集成分支，所有功能 PR 的默认目标 | `main` / 功能分支 | `release/vX.Y.Z` |
-| `release/vX.Y.Z` | 版本发布线，只做发版准备和发布修复 | `dev` | `main` |
-| `hotfix/xxx` | 生产紧急修复 | `main` | `main`，随后通过 PR 回流 `dev` |
-| `feat/`、`fix/`、`refactor/`、`docs/` | 功能、修复、重构、文档分支 | `dev` | `dev` |
+| `main` | 唯一长期分支，始终可发布 | 短命分支 / Dependabot | - |
+| `feat/`、`fix/`、`refactor/`、`docs/`、`chore/`、`hotfix/` | 单次变更的短命分支 | `main` | `main` |
+| `release/vX.Y.Z`（可选） | 发布冻结线，仅按需创建 | 发布 tag | 删除，不回流 |
 
 ### 分支命名
 
@@ -29,28 +27,21 @@
 | `fix/` | Bug 修复 | `fix/issue-15-path-traversal` |
 | `refactor/` | 重构 | `refactor/admin-split` |
 | `docs/` | 文档与规范变更 | `docs/413-issue-title-guidelines` |
-| `release/` | 版本发布线 | `release/v2.0.0` |
-| `hotfix/` | 生产紧急修复 | `hotfix/v2.0.1-login-error` |
+| `chore/` | 依赖、构建与发版准备 | `chore/release-v3.2.0` |
+| `hotfix/` | 生产紧急修复 | `hotfix/login-error` |
+| `release/` | 仅按需的发布冻结线 | `release/v3.2.0` |
 
 ### 分支规则
 
-- 功能 / 修复 / 重构 / 文档分支必须从 `dev` 切出，PR 回 `dev`
-- `main` 只接受 `release/vX.Y.Z` 或 `hotfix/xxx` 的 PR
-- `release/vX.Y.Z` 只接受发版所需变更：
-  - 已进入 `dev` 且计划纳入该版本线的修复、依赖更新或其他变更
-  - 版本号更新
-  - `CHANGELOG.md`
-  - 发布前修复
-  - 发布相关文档
-- 同一版本线共用一条 `release/vX.Y.Z` 分支：
-  - `v2.0.0-beta.1`
-  - `v2.0.0-beta.2`
-  - `v2.0.0-rc.1`
-  - `v2.0.0`
-
-  这些都是 tag，不单独创建 release 分支。
-- 正式版发布前保留 `release/vX.Y.Z`，用于继续发 beta / rc。
-- 正式版发布并回流 `dev` 后，release 分支可以保留为历史，也可以删除；发布点由 tag 保留。
+- 所有短命分支从 `main` 切出，PR 回 `main`；合并后删除分支
+- `main` 必须始终通过 CI 且可发布；PR 合入即视为进入可发布状态
+- 未完成的功能不要合入 `main`（本仓库暂未引入功能开关）
+- 发布不使用长期 release 分支：发布点是签名 tag
+- 只有需要多日冻结时才从发布 tag 切 `release/vX.Y.Z`：
+  - 只接受发布阻塞修复，不接收新功能
+  - 修复必须先合入 `main`，再 cherry-pick 到该分支；禁止反向 merge
+  - 正式版发布后删除该分支
+- 历史说明：`dev` 已于 2026-11 撤销；历史文档与旧 issue 中出现的 `dev` 均指当时的集成分支
 
 ## 3. Git 提交规范
 
@@ -96,7 +87,7 @@ git config --global commit.gpgsign true
 
 ### 常规功能 / 修复 PR
 
-- 目标分支：`dev`
+- 目标分支：`main`
 - 合并方式：**Create a merge commit**
 - 不使用 squash，除非 PR 内是草稿式多次修正提交
 - 不使用 rebase merge，避免签名失效
@@ -104,26 +95,16 @@ git config --global commit.gpgsign true
 ### 发布 PR
 
 - 目标分支：`main`
-- 来源分支：`release/vX.Y.Z`
+- 来源分支：`chore/release-vX.Y.Z`
 - 合并方式：**Create a merge commit**
-- 必须保留 release commit 和 merge commit
-- 例外：Dependabot 安全更新 PR 也会直接落在 `main`（安全更新无法指定目标分支），这类变更随回流进入 `dev`
+- tag 在 PR 合并后打在 `main` 的 merge commit 上
 
 ### Hotfix PR
 
 - 目标分支：`main`
 - 来源分支：`hotfix/xxx`
 - 合并方式：**Create a merge commit**
-- 合并后必须通过回流 PR 回到 `dev`
-
-### 回流 PR
-
-- 目标分支：`dev`
-- 来源分支：`main`
-- 标题：`chore: backflow vX.Y.Z into dev`
-- 合并方式：**Create a merge commit**
-- `main` 已全部包含于 `dev` 时无需回流
-- 出现冲突时从 `main` 切 `chore/backflow-vX.Y.Z`，在临时分支解冲突后再开 PR
+- 合并后在 merge commit 上打补丁 tag
 
 ### PR 标题
 
@@ -173,8 +154,7 @@ git config --global commit.gpgsign true
 - Issue 标题使用描述性问题或结果描述，不写优先级、领域或类型前缀；具体规则见 `docs/issue-standard.md` §1
 - 类型、优先级和业务领域通过 `type:*`、`priority:*`、`area:*` Label 表达
 - Issue 编写、脱敏、Milestone 和验收标准遵循 `docs/issue-standard.md`
-- PR 合并到 `dev` 后手动关闭 Issue
-- dev 合并到 main 的发布 PR 中可再次写 `Closes #xx` 作为备份
+- PR 关联 Issue 使用 `Closes #xx`；`main` 是默认分支，合并后自动关闭
 
 ## 6. 版本发布流程
 
@@ -203,46 +183,25 @@ X.Y.Z-rc.1
 2.0.0
 ```
 
-### 6.2 Release 分支生命周期
+### 6.2 发布模型
 
-1. 功能集在 `dev` 收官
-2. 从 `dev` 切出 `release/vX.Y.Z`
-3. 在 release 分支上完成版本号、CHANGELOG、测试和发版修复
-4. 发布后续 beta / rc 前，把 `dev` 上计划纳入该版本线的变更同步到 release 分支：
-   - 整批纳入时合并 `dev`
-   - 选择性纳入时 cherry-pick 对应提交
-5. 依次打出预发布 tag：
-   - `vX.Y.Z-beta.1`
-   - `vX.Y.Z-beta.2`
-   - `vX.Y.Z-rc.1`
-6. 最终打出正式 tag：
-   - `vX.Y.Z`
-7. 每个 tag 都通过 PR 合并到 `main`
-8. 正式版合并后立即通过 `main → dev` 的 PR 把 `main` 回流到 `dev`（标题 `chore: backflow vX.Y.Z into dev`），使用 merge commit：
-   - 分支保护禁止直推 `dev`，也不要依赖管理员绕过
-   - `main` 已全部包含于 `dev` 时没有差异，跳过回流
-   - 出现冲突时从 `main` 切 `chore/backflow-vX.Y.Z`，在临时分支解冲突后再开 PR
-   - beta / rc 合入 `main` 后不单独回流，随正式版一次回流
-
-补丁版同样使用 `release/vX.Y.Z`。release 分支是发版内容的冻结快照：PR 审查期间 `dev` 继续前进，也不会混入正式版；它不承诺存在 QA 冻结期。
+- `main` 始终可发布；发布点由签名 tag 和 GitHub Release 表示
+- 默认不创建 release 分支
+- beta / rc 用预发布 tag 表示，同样落在 `main` 上
+- 只有需要多日冻结时才按需切 `release/vX.Y.Z`，规则见 §2
 
 ### 6.3 发版步骤
 
-以 `vX.Y.Z-beta.N` 为例：
+以 `vX.Y.Z` 为例；beta / rc 把版本号换成 `X.Y.Z-beta.N` / `X.Y.Z-rc.N`，并在创建 Release 时加 `--prerelease`。
 
 ```bash
-# 1. 从 dev 切出 release 分支；已存在时切换并同步 dev 变更
-git switch dev
+# 1. 从 main 切出发布准备分支
+git switch main
 git pull --ff-only
-git switch -c release/vX.Y.Z
-
-# 若 release/vX.Y.Z 已存在：
-# git switch release/vX.Y.Z
-# git pull --ff-only
-# git merge dev   # 或 cherry-pick 计划发布的提交
+git switch -c chore/release-vX.Y.Z
 
 # 2. 更新版本号
-npm version X.Y.Z-beta.N --no-git-tag-version
+npm version X.Y.Z --no-git-tag-version
 
 # 3. 更新 CHANGELOG.md
 
@@ -252,48 +211,30 @@ npm run build
 
 # 5. 创建签名提交
 git add package.json package-lock.json CHANGELOG.md
-git commit -S -m "chore: release vX.Y.Z-beta.N"
+git commit -S -m "chore: release vX.Y.Z"
 
-# 6. 创建并验证签名 annotated tag
-git tag -s -a vX.Y.Z-beta.N -m "Career Explorer vX.Y.Z-beta.N"
-git tag -v vX.Y.Z-beta.N
+# 6. 推送并开 PR 到 main
+git push -u origin chore/release-vX.Y.Z
+gh pr create --base main --head chore/release-vX.Y.Z \
+  --title "Release vX.Y.Z"
 
-# 7. 推送分支和 tag
-git push -u origin release/vX.Y.Z
-git push origin vX.Y.Z-beta.N
+# 7. 合并后立即在 merge commit 上打签名 tag
+#    若 main 已经前进，把 HEAD 换成该 PR 的 merge commit SHA
+git switch main
+git pull --ff-only
+git tag -s -a vX.Y.Z -m "Career Explorer vX.Y.Z"
+git tag -v vX.Y.Z
+git push origin vX.Y.Z
 
 # 8. 创建 GitHub Release
-gh release create vX.Y.Z-beta.N \
-  --title "vX.Y.Z-beta.N" \
-  --prerelease \
+gh release create vX.Y.Z \
+  --title "vX.Y.Z" \
   --generate-notes
-
-# 9. 开 PR 到 main
-gh pr create --base main --head release/vX.Y.Z \
-  --title "Release vX.Y.Z-beta.N"
 ```
-
-正式版发布时：
-
-- 去掉 `--prerelease`
-- tag 使用 `vX.Y.Z`
-- commit message 使用 `chore: release vX.Y.Z`
-- 合并后通过 PR 回流：
-
-```bash
-# 开回流 PR；main 已全部包含于 dev 时跳过
-gh pr create --base dev --head main \
-  --title "chore: backflow vX.Y.Z into dev"
-
-# 使用 merge commit 合并
-gh pr merge <pr-number> --merge
-```
-
-回流不可直推 `dev`。出现冲突时从 `main` 切 `chore/backflow-vX.Y.Z`，在临时分支解冲突后再开 PR。
 
 ### 6.4 Hotfix 流程
 
-以下用 `X.Y.W` 表示补丁版本递增后的新版本，例如 `2.0.0 -> 2.0.1`。
+以下用 `X.Y.W` 表示补丁版本递增后的新版本，例如 `3.1.0 -> 3.1.1`。
 
 ```bash
 # 1. 从 main 切出 hotfix 分支
@@ -301,30 +242,30 @@ git switch main
 git pull --ff-only
 git switch -c hotfix/vX.Y.W-short-description
 
-# 2. 修复问题并验证
+# 2. 修复并验证
 npm test
 npm run build
 
-# 3. 如需发新版本，更新版本号和 CHANGELOG
+# 3. 更新版本号和 CHANGELOG
 npm version X.Y.W --no-git-tag-version
 
-# 4. 签名提交并打 tag
+# 4. 签名提交并推送
 git add package.json package-lock.json CHANGELOG.md
 git commit -S -m "fix: ..."
+git push -u origin hotfix/vX.Y.W-short-description
+
+# 5. 开 PR 到 main，以 merge commit 合并
+
+# 6. 合并后立即在 merge commit 上打签名 tag 并创建 Release
+git switch main
+git pull --ff-only
 git tag -s -a vX.Y.W -m "Career Explorer vX.Y.W"
 git tag -v vX.Y.W
-
-# 5. 推送并 PR 到 main
-git push -u origin hotfix/vX.Y.W-short-description
 git push origin vX.Y.W
-
-# 6. 合并后通过 PR 回流 dev（不可直推）
-gh pr create --base dev --head main \
-  --title "chore: backflow vX.Y.W into dev"
-gh pr merge <pr-number> --merge
-
-# 7. 如 release/vX.Y.Z 仍在维护且修复属于该版本线，同步到该分支
+gh release create vX.Y.W --title "vX.Y.W" --generate-notes
 ```
+
+如果生产仍停在旧 tag 而 `main` 已经前进，需要只修旧版本线：从旧 tag 切短命 `release/vX.Y.W`，修复先合 `main` 再 cherry-pick 到该分支，发布后删除；不要反向 merge。
 
 ### 6.5 发布检查清单
 
@@ -336,11 +277,11 @@ gh pr merge <pr-number> --merge
 - [ ] CI 全部通过
 - [ ] CodeQL 全部通过
 - [ ] commit 在 GitHub 显示 Verified
+- [ ] PR 以 merge commit 合并，tag 打在 `main` 的 merge commit 上
 - [ ] tag 已签名（`git tag -s -a`）并已验证
 - [ ] GitHub Release 已创建
 - [ ] 预发布版本已勾选 pre-release
-- [ ] PR 使用 merge commit 合并
-- [ ] 合并后 `main` 已通过 PR 回流 `dev`（不可直推）
+- [ ] 生产已按 tag 部署并完成冒烟
 
 ## 7. GitHub Release 规范
 
@@ -391,7 +332,7 @@ npm run build
 
 ## 9. CI
 
-GitHub Actions 在 `main` / `dev` 的 push 和 PR 上自动运行：
+GitHub Actions 在 `main` 的 push 和 PR 上自动运行：
 
 1. `npm ci`
 2. `npm run lint`

@@ -2,7 +2,6 @@ version: 2
 updates:
   - package-ecosystem: "npm"
     directory: "/"
-    target-branch: "dev"
     schedule:
       interval: "weekly"
     # react-dom pins its peer react to the same patch version (#378), so splitting
